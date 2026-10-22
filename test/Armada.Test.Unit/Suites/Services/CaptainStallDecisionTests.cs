@@ -956,6 +956,45 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("AdmiralHeartbeatStall_RecoveryExhausted_KeepsTheDockWhenItsWorkCannotBeSaved", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110028;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateConfirmedStallSceneAsync(testDb, pid).ConfigureAwait(false);
+                        scene.Settings.MaxRecoveryAttempts = 0;
+                        scene.Git.SnapshotResult = DockWorkSnapshot.Failed("could not stage the working tree: disk full");
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        captains.OnStopAgent = _ => Task.CompletedTask;
+                        AdmiralService admiral = CreateAdmiral(scene, captains);
+                        string? missionDockId = (await scene.Db.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!.DockId;
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        Mission failed = (await scene.Db.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Failed, failed.Status, "an exhausted stall still fails the mission");
+                        AssertContains("NOT saved", failed.FailureReason ?? "", "the failure says the work was not saved");
+                        AssertContains("disk full", failed.FailureReason ?? "", "the failure names why");
+                        AssertFalse(scene.Git.OperationCalls.Any(c => c.StartsWith("remove-worktree:", StringComparison.Ordinal)),
+                            "a dock whose work was not saved is not removed");
+                        AssertEqual(missionDockId, failed.DockId, "the mission keeps the link to its kept dock");
+                        Dock kept = (await scene.Db.Docks.ReadAsync(scene.Dock.Id).ConfigureAwait(false))!;
+                        AssertTrue(kept.Active, "the kept dock stays active");
+                        List<ArmadaEvent> unsaved = (await scene.Db.Events.EnumerateByMissionAsync(scene.Mission.Id, 200).ConfigureAwait(false))
+                            .Where(e => e.EventType == "mission.work_snapshot_failed").ToList();
+                        AssertTrue(unsaved.Count >= 1, "the unsaved work raises a named event");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ProcTreeReader_WalksDescendants_SkipsZombies_AndNamesAMissingRoot", () =>
             {
                 string procRoot = Path.Combine(Path.GetTempPath(), "armada_stall_proc_" + Guid.NewGuid().ToString("N"));

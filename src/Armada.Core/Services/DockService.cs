@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System.Diagnostics;
     using System.Text.Json;
+    using System.Text.RegularExpressions;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -241,6 +242,9 @@ namespace Armada.Core.Services
                         string dotGitPath = Path.Combine(checkoutDir, ".git");
                         if (File.Exists(dotGitPath) || Directory.Exists(dotGitPath))
                         {
+                            UncommittedWorkPreservation leftover = await PreserveLeftoverCheckoutAsync(checkoutDir, dirName, vessel, "stale-worktree cleanup", token).ConfigureAwait(false);
+                            if (!leftover.Safe) continue;
+
                             // Only attempt git worktree remove if the path is actually registered
                             bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, checkoutDir, token).ConfigureAwait(false);
                             if (isRegistered)
@@ -289,6 +293,8 @@ namespace Armada.Core.Services
                 if (Directory.Exists(dockRoot)
                     && (File.Exists(Path.Combine(dockRoot, ".git")) || Directory.Exists(Path.Combine(dockRoot, ".git"))))
                 {
+                    UncommittedWorkPreservation flat = await PreserveLeftoverCheckoutAsync(dockRoot, dockDirName, vessel, "flat-layout cleanup", token).ConfigureAwait(false);
+                    if (!flat.Safe) throw new InvalidOperationException(_DockWorkUnsavedPrefix + flat.Reason);
                     _Logging.Info(_Header + "removing flat-layout dock directory at " + dockRoot);
                     try
                     {
@@ -304,6 +310,9 @@ namespace Armada.Core.Services
                 // Clean up stale worktree directory if it exists from a previous run
                 if (Directory.Exists(worktreePath))
                 {
+                    UncommittedWorkPreservation previous = await PreserveLeftoverCheckoutAsync(worktreePath, dockDirName, vessel, "stale dock cleanup", token).ConfigureAwait(false);
+                    if (!previous.Safe) throw new InvalidOperationException(_DockWorkUnsavedPrefix + previous.Reason);
+
                     bool isRegistered = await _Git.IsWorktreeRegisteredAsync(repoPath, worktreePath, token).ConfigureAwait(false);
                     if (isRegistered)
                     {
@@ -403,8 +412,9 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "provisioning failed for vessel " + vessel.Id + " captain " + captain.Id + " repo " + (vessel.RepoUrl ?? "unknown") + ": " + ex.Message);
 
-                // Clean up partial state -- remove worktree directory if it was partially created
-                if (Directory.Exists(worktreePath))
+                // Clean up partial state -- remove worktree directory if it was partially created. A
+                // leftover checkout kept because its work could not be saved is never partial state.
+                if (Directory.Exists(worktreePath) && !ex.Message.StartsWith(_DockWorkUnsavedPrefix, StringComparison.Ordinal))
                 {
                     await ForceRemoveDirectoryAsync(worktreePath, CancellationToken.None).ConfigureAwait(false);
                 }
@@ -465,6 +475,9 @@ namespace Armada.Core.Services
                 }
                 else
                 {
+                    UncommittedWorkPreservation preservation = await PreserveUncommittedWorkAsync(dock, "reclaim", token).ConfigureAwait(false);
+                    if (!preservation.Safe) return;
+
                     try
                     {
                         Vessel? vessel = await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
@@ -480,7 +493,7 @@ namespace Armada.Core.Services
                         {
                             ReleaseDockOccupants(dock.WorktreePath);
                             await _Git.RemoveWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
-                            _Logging.Info(_Header + "reclaimed dock " + dockId + " at " + dock.WorktreePath);
+                            _Logging.Info(_Header + "reclaimed dock " + dockId + " at " + dock.WorktreePath + preservation.LogSuffix);
                         }
                         else
                         {
@@ -585,7 +598,8 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            await CleanupWorktreeAsync(dock, token).ConfigureAwait(false);
+            if (!await CleanupWorktreeAsync(dock, "delete", token).ConfigureAwait(false))
+                return false;
 
             // Delete the captain branch per vessel policy before removing the dock record.
             // Branch may already be gone if the merge-queue land ran first -- git failures are swallowed.
@@ -611,7 +625,9 @@ namespace Armada.Core.Services
                 : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
             if (dock == null) throw new InvalidOperationException("Dock not found: " + dockId);
 
-            await CleanupWorktreeAsync(dock, token).ConfigureAwait(false);
+            if (!await CleanupWorktreeAsync(dock, "purge", token).ConfigureAwait(false))
+                throw new InvalidOperationException("Dock " + dockId + " was not purged: its uncommitted work could not be preserved. "
+                    + "Copy the work out of " + dock.WorktreePath + " or commit it, then purge again.");
 
             if (!String.IsNullOrEmpty(tenantId))
                 await _Database.Docks.DeleteAsync(tenantId, dockId, token).ConfigureAwait(false);
@@ -633,24 +649,28 @@ namespace Armada.Core.Services
         /// new dock record pointing at the same directory. Tearing down a superseded record must not
         /// delete the directory a live attempt is working in, so this consults the same ownership
         /// predicate the reclaim path uses. The dock's own start-commit metadata is keyed by dock id
-        /// and is removed either way.
+        /// and is removed either way. Uncommitted work is preserved first; when it cannot be, nothing
+        /// is removed and false is returned.
         /// </remarks>
-        private async Task CleanupWorktreeAsync(Dock dock, CancellationToken token)
+        private async Task<bool> CleanupWorktreeAsync(Dock dock, string operation, CancellationToken token)
         {
             if (await IsWorktreeOwnedByAnotherActiveDockAsync(dock, token).ConfigureAwait(false))
             {
                 _Logging.Warn(_Header + "skipping worktree cleanup for dock " + dock.Id +
                     " because another active dock now owns path " + dock.WorktreePath);
                 TryDeleteDockStartCommitFile(dock.Id);
-                return;
+                return true;
             }
 
             if (!String.IsNullOrEmpty(dock.WorktreePath))
             {
+                UncommittedWorkPreservation preservation = await PreserveUncommittedWorkAsync(dock, operation, token).ConfigureAwait(false);
+                if (!preservation.Safe) return false;
+
                 try
                 {
                     await _Git.RemoveWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "removed worktree for dock " + dock.Id + " at " + dock.WorktreePath);
+                    _Logging.Info(_Header + "removed worktree for dock " + dock.Id + " at " + dock.WorktreePath + preservation.LogSuffix);
                 }
                 catch (Exception ex)
                 {
@@ -664,6 +684,159 @@ namespace Armada.Core.Services
             TryRemoveEmptyDockRoot(dock.WorktreePath);
 
             TryDeleteDockStartCommitFile(dock.Id);
+            return true;
+        }
+
+        private sealed class UncommittedWorkPreservation
+        {
+            public bool Safe { get; init; }
+            public string LogSuffix { get; init; } = "";
+            public string? Reason { get; init; }
+        }
+
+        private const string _DockWorkUnsavedPrefix = "dock_work_unsaved: ";
+
+        private static readonly Regex _SnapshotKeyPattern = new Regex("^[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// Saves a dock's uncommitted work -- tracked edits and untracked non-ignored files -- with the shared
+        /// dock work snapshot (a <c>recover/{missionId}-{n}</c> branch in the vessel repository) before its
+        /// worktree is removed. Every dock removal path calls this first: a captain stopped mid-task often
+        /// holds edits it had not yet committed, and the worktree is the only copy of them.
+        /// </summary>
+        /// <remarks>
+        /// Safe is false only when the dock holds a git checkout whose work could not be saved: the caller
+        /// then keeps the dock on disk, and a <c>mission.work_snapshot_failed</c> event names the reason so the
+        /// work is copied out by hand rather than lost. A clean tree, a missing directory, or a directory with
+        /// no git checkout in it is safe to remove.
+        /// </remarks>
+        private async Task<UncommittedWorkPreservation> PreserveUncommittedWorkAsync(Dock dock, string operation, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
+                return new UncommittedWorkPreservation { Safe = true };
+
+            string? missionId = null;
+            try
+            {
+                missionId = await ResolveDockMissionIdAsync(dock, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resolve the mission of dock " + dock.Id + "; naming its snapshot from the dock path: " + ex.Message);
+            }
+
+            // A dock directory is named by its mission, so the path names the mission when the captain no longer does.
+            string? fromPath = Path.GetFileName(Path.GetDirectoryName(Path.GetFullPath(dock.WorktreePath).TrimEnd(Path.DirectorySeparatorChar)));
+            string key = !String.IsNullOrWhiteSpace(missionId) ? missionId!
+                : !String.IsNullOrWhiteSpace(fromPath) && _SnapshotKeyPattern.IsMatch(fromPath!) ? fromPath!
+                : dock.Id;
+            return await PreserveUncommittedWorkAsync(dock.WorktreePath, key, operation,
+                new UncommittedWorkOwner { DockId = dock.Id, MissionId = missionId ?? key, TenantId = dock.TenantId, UserId = dock.UserId, VesselId = dock.VesselId, CaptainId = dock.CaptainId },
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Path-level form for a leftover checkout that no dock record describes, such as a previous attempt's
+        /// directory found while provisioning. Its directory name is the mission id that names the snapshot.
+        /// </summary>
+        private Task<UncommittedWorkPreservation> PreserveLeftoverCheckoutAsync(string checkoutPath, string missionKey, Vessel vessel, string operation, CancellationToken token)
+        {
+            if (!Directory.Exists(checkoutPath))
+                return Task.FromResult(new UncommittedWorkPreservation { Safe = true });
+
+            return PreserveUncommittedWorkAsync(checkoutPath, missionKey, operation,
+                new UncommittedWorkOwner { MissionId = missionKey, TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id },
+                token);
+        }
+
+        private sealed class UncommittedWorkOwner
+        {
+            public string? DockId { get; init; }
+            public string? MissionId { get; init; }
+            public string? TenantId { get; init; }
+            public string? UserId { get; init; }
+            public string? VesselId { get; init; }
+            public string? CaptainId { get; init; }
+        }
+
+        private async Task<UncommittedWorkPreservation> PreserveUncommittedWorkAsync(string checkoutPath, string key, string operation, UncommittedWorkOwner owner, CancellationToken token)
+        {
+            string gitMarker = Path.Combine(checkoutPath, ".git");
+            if (!File.Exists(gitMarker) && !Directory.Exists(gitMarker))
+            {
+                _Logging.Debug(_Header + checkoutPath + " holds no git checkout; nothing to snapshot before the " + operation);
+                return new UncommittedWorkPreservation { Safe = true };
+            }
+
+            string subject = owner.DockId != null ? "dock " + owner.DockId : "checkout";
+            DockWorkSnapshot snapshot;
+            try
+            {
+                snapshot = await _Git.SnapshotDockWorkAsync(checkoutPath, key,
+                    "Armada snapshot of " + subject + " before the " + operation, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                snapshot = DockWorkSnapshot.Failed(ex.Message);
+            }
+
+            if (snapshot.Status == DockWorkSnapshotStatusEnum.NoChanges)
+                return new UncommittedWorkPreservation { Safe = true };
+
+            if (!snapshot.HasRef)
+            {
+                string reason = "The " + subject + " at " + checkoutPath + " was kept on disk instead of the " + operation
+                    + " because its uncommitted work was not saved: " + snapshot.Message + ". Copy or commit the work, then remove the checkout.";
+                _Logging.Warn(_Header + "work_snapshot_failed: " + reason);
+                await RecordSnapshotEventAsync(owner, checkoutPath, "mission.work_snapshot_failed", reason, null, null, token).ConfigureAwait(false);
+                return new UncommittedWorkPreservation { Safe = false, Reason = reason };
+            }
+
+            string message = "Uncommitted work of " + subject + " at " + checkoutPath + " saved to " + snapshot.RefName
+                + " (" + snapshot.CommitSha + ") before the " + operation;
+            if (snapshot.Status == DockWorkSnapshotStatusEnum.Saved)
+                await RecordSnapshotEventAsync(owner, checkoutPath, "mission.work_snapshot_saved", message, snapshot.RefName, snapshot.CommitSha, token).ConfigureAwait(false);
+            return new UncommittedWorkPreservation { Safe = true, LogSuffix = "; uncommitted work saved to " + snapshot.RefName + " at " + snapshot.CommitSha };
+        }
+
+        private async Task RecordSnapshotEventAsync(UncommittedWorkOwner owner, string checkoutPath, string eventType, string message, string? refName, string? sha, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(eventType, message);
+                evt.TenantId = owner.TenantId;
+                evt.UserId = owner.UserId;
+                evt.EntityType = owner.DockId != null ? "dock" : "mission";
+                evt.EntityId = owner.DockId ?? owner.MissionId;
+                evt.VesselId = owner.VesselId;
+                evt.CaptainId = owner.CaptainId;
+                evt.MissionId = owner.MissionId;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    DockId = owner.DockId,
+                    MissionId = owner.MissionId,
+                    WorktreePath = checkoutPath,
+                    RefName = refName,
+                    Sha = sha
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record " + eventType + " for " + checkoutPath + ": " + ex.Message);
+            }
         }
 
         /// <summary>

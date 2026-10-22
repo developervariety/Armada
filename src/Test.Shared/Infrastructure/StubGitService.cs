@@ -4,6 +4,7 @@ namespace Test.Shared.Infrastructure
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -260,8 +261,12 @@ namespace Test.Shared.Infrastructure
 
         public Task<DockWorkSnapshot> SnapshotDockWorkAsync(string worktreePath, string missionId, string message, CancellationToken token = default)
         {
+            // Like the real snapshot, a second save of the same unchanged worktree reports the branch it already wrote.
+            bool repeat = SnapshotCalls.Contains(worktreePath + "|" + missionId);
             SnapshotCalls.Add(worktreePath + "|" + missionId);
             OperationCalls.Add("snapshot:" + missionId);
+            if (repeat && SnapshotResult.Status == DockWorkSnapshotStatusEnum.Saved)
+                return Task.FromResult(DockWorkSnapshot.AlreadySaved(SnapshotResult.RefName!, SnapshotResult.CommitSha!));
             return Task.FromResult(SnapshotResult);
         }
 

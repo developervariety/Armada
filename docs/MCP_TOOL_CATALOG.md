@@ -1034,6 +1034,21 @@ them.
 - `refs/armada/missions/<missionId>` names the mission that owned the dock, when
   it can be resolved (`src/Armada.Core/Services/DockService.cs:723-728`).
 
+Both anchors name the dock's HEAD only. Uncommitted work -- tracked edits and
+untracked files that are not ignored -- is saved before the checkout is removed
+by every dock removal path: reclaim (and so unstick, stall recovery and mission
+completion), delete, purge, a provision that finds a previous attempt's checkout
+or a finished dock's leftover directory, and the disk lifecycle's orphan-dock
+reclaim. The shared dock work snapshot commits it on HEAD in a private index and
+writes `refs/heads/recover/<missionId>-<n>` in the vessel bare;
+`mission.work_snapshot_saved` names the branch and the reclaim log line ends with
+it. When the snapshot cannot be written, the checkout is kept: reclaim leaves the
+dock active, delete returns false, purge and provision fail with the reason,
+the disk lifecycle reports the directory as skipped, and
+`mission.work_snapshot_failed` names the reason. A directory with no git checkout
+in it holds nothing a snapshot can save and is removed as before. Both events
+appear in the mission recovery report.
+
 Both families use one retention rule. The sweep keeps an anchor in these cases:
 
 - The dock or mission it names is live. A mission is live while its status is

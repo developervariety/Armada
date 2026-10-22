@@ -439,6 +439,13 @@ namespace Armada.Core.Services
 
                     if (delete)
                     {
+                        string? unsaved = await PreserveOrphanUncommittedWorkAsync(checkout, Path.GetFileName(full), token).ConfigureAwait(false);
+                        if (unsaved != null)
+                        {
+                            RecordAction(report, category, full, "skipped", unsaved);
+                            continue;
+                        }
+
                         bool removed = await RemoveOrphanDockDirectoryAsync(full, token).ConfigureAwait(false);
                         RecordAction(report, category, full, removed ? "reclaimed" : "skipped",
                             removed ? "orphan dock directory past grace" : "directory removal failed");
@@ -1237,6 +1244,39 @@ namespace Armada.Core.Services
         {
             string gitMarker = Path.Combine(path, ".git");
             return Directory.Exists(gitMarker) || File.Exists(gitMarker);
+        }
+
+        /// <summary>
+        /// Saves an orphan dock checkout's uncommitted work with the shared dock work snapshot (a
+        /// <c>recover/{dockDir}-{n}</c> branch in its vessel repository) before the directory is reclaimed.
+        /// Returns null when removal may proceed, or the reason the directory is kept.
+        /// </summary>
+        private async Task<string?> PreserveOrphanUncommittedWorkAsync(string checkout, string dockDirName, CancellationToken token)
+        {
+            DockWorkSnapshot snapshot;
+            try
+            {
+                snapshot = await new GitService(_Logging).SnapshotDockWorkAsync(checkout, dockDirName,
+                    "Armada snapshot of an orphan dock before disk reclaim", token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                snapshot = DockWorkSnapshot.Failed(ex.Message);
+            }
+
+            if (snapshot.Status == DockWorkSnapshotStatusEnum.NoChanges) return null;
+            if (snapshot.HasRef)
+            {
+                _Logging.Info(_Header + "saved uncommitted work of orphan dock " + checkout + " to " + snapshot.RefName + " at " + snapshot.CommitSha);
+                return null;
+            }
+
+            _Logging.Warn(_Header + "work_snapshot_failed for orphan dock " + checkout + "; the directory is kept: " + snapshot.Message);
+            return "uncommitted work was not saved, so the directory is kept: " + snapshot.Message;
         }
 
         private async Task<bool> RemoveOrphanDockDirectoryAsync(string path, CancellationToken token)

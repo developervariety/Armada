@@ -61,7 +61,9 @@ namespace Armada.Core.Services
             "mission.failed_recoverable_work",
             "mission.retry_requeued",
             "mission.restarted",
-            "mission.landing_retry"
+            "mission.landing_retry",
+            "mission.work_snapshot_saved",
+            "mission.work_snapshot_failed"
         };
 
         #endregion

@@ -530,8 +530,17 @@ upstream integrations and excludes changes already present at that baseline.
   repository; the dock's files, index and branch do not change. The
   `mission.work_snapshot_saved` event names the branch, and an exhausted mission's
   failure reason ends with `uncommitted work saved to <ref>`. A snapshot that
-  cannot be written records `mission.work_snapshot_failed` and does not stop the
-  recovery.
+  cannot be written records `mission.work_snapshot_failed`; the relaunch still
+  runs, and recovery exhaustion keeps the dock on disk instead of reclaiming it.
+- Every dock removal path saves a dock's uncommitted work before it removes the
+  checkout: reclaim (and so unstick, stall recovery and mission completion),
+  delete, purge, a provision over a previous attempt's or a finished dock's
+  leftover checkout, and the disk lifecycle's orphan-dock reclaim. Each uses the
+  shared dock work snapshot to `refs/heads/recover/<missionId>-<n>`, and the
+  reclaim log line names the branch. When the work cannot be saved the checkout
+  stays: reclaim leaves the dock active, delete returns false, purge and
+  provision fail with the reason, and `mission.work_snapshot_failed` names it.
+  Both snapshot events appear in the mission recovery report.
 
 - Smart Routing persona model lists fall back when they are dead. When no
   captain that may serve the persona runs a listed model and can take work

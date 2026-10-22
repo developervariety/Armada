@@ -886,6 +886,115 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Every dock removal entry point. A new entry point that removes a dock's checkout belongs in this
+            // table; without the shared snapshot it fails both halves of the test below.
+            (string Name, Func<DockService, Dock, Vessel, Captain, Task> Remove, Func<DockService, Dock, Vessel, Captain, Task<bool>> TryRemoveUnsaved)[] removalPaths =
+            {
+                ("ReclaimAsync",
+                    (svc, d, v, c) => svc.ReclaimAsync(d.Id),
+                    async (svc, d, v, c) => { await svc.ReclaimAsync(d.Id).ConfigureAwait(false); return true; }),
+                ("UnstickAsync",
+                    (svc, d, v, c) => svc.UnstickAsync(d.Id),
+                    async (svc, d, v, c) => { await svc.UnstickAsync(d.Id).ConfigureAwait(false); return true; }),
+                ("DeleteAsync",
+                    async (svc, d, v, c) => AssertTrue(await svc.DeleteAsync(d.Id).ConfigureAwait(false), "delete removes a dock whose work is saved"),
+                    async (svc, d, v, c) => !await svc.DeleteAsync(d.Id).ConfigureAwait(false)),
+                ("PurgeAsync",
+                    (svc, d, v, c) => svc.PurgeAsync(d.Id),
+                    async (svc, d, v, c) =>
+                    {
+                        try { await svc.PurgeAsync(d.Id).ConfigureAwait(false); return false; }
+                        catch (InvalidOperationException) { return true; }
+                    }),
+                ("ProvisionAsync over a previous attempt's checkout",
+                    async (svc, d, v, c) => AssertNotNull(await svc.ProvisionAsync(v, c, "armada/captain-wip/" + d.Id + "-again", MissionKeyOf(d)).ConfigureAwait(false), "re-provision succeeds once the work is saved"),
+                    async (svc, d, v, c) => await svc.ProvisionAsync(v, c, "armada/captain-wip/" + d.Id + "-again", MissionKeyOf(d)).ConfigureAwait(false) == null),
+            };
+
+            foreach ((string Name, Func<DockService, Dock, Vessel, Captain, Task> Remove, Func<DockService, Dock, Vessel, Captain, Task<bool>> TryRemoveUnsaved) path in removalPaths)
+            {
+                await RunTest(path.Name + " saves a dock's uncommitted and untracked work before removing it, and keeps a dock whose work cannot be saved", async () =>
+                {
+                    // A captain stopped mid-task holds edits it has not committed yet. Anchoring HEAD alone
+                    // keeps only the previous commit; the edits must survive on a recover branch, and a dock
+                    // whose edits cannot be saved must stay on disk rather than be removed with them.
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = new LoggingModule();
+                        logging.Settings.EnableConsole = false;
+
+                        ArmadaSettings settings = new ArmadaSettings();
+                        settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                        settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                        settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+
+                        GitService git = new GitService(logging);
+                        DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                        string rootDir = Path.Combine(Path.GetTempPath(), "armada-dockservice-" + Guid.NewGuid().ToString("N"));
+                        string sourceDir = Path.Combine(rootDir, "source");
+                        string remoteDir = Path.Combine(rootDir, "remote.git");
+
+                        try
+                        {
+                            GitServiceTests.SeedTemplateRepository(sourceDir);
+                            await RunGitAsync(rootDir, "clone", "--bare", sourceDir, remoteDir).ConfigureAwait(false);
+
+                            Vessel vessel = new Vessel("wip-vessel", remoteDir);
+                            vessel.DefaultBranch = "main";
+                            vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                            Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("captain-wip")).ConfigureAwait(false);
+
+                            // Saved: the edits reach a recover branch, then the dock is removed.
+                            Dock dock = (await service.ProvisionAsync(vessel, captain, "armada/captain-wip/msn_wip", "msn_wip").ConfigureAwait(false))!;
+                            string worktree = dock.WorktreePath!;
+                            string head = (await RunGitAsync(worktree, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                            string tracked = (await RunGitAsync(worktree, "ls-files").ConfigureAwait(false))
+                                .Split('\n', StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+                            await File.WriteAllTextAsync(Path.Combine(worktree, tracked), "edited but not committed\n").ConfigureAwait(false);
+                            await File.WriteAllTextAsync(Path.Combine(worktree, "NewCoverage.cs"), "untracked work\n").ConfigureAwait(false);
+                            await ReleaseDockCaptainAsync(testDb, dock).ConfigureAwait(false);
+                            string bare = (await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false))!.LocalPath!;
+
+                            await path.Remove(service, dock, vessel, captain).ConfigureAwait(false);
+
+                            string saved = (await RunGitAsync(bare, "rev-parse", "refs/heads/recover/msn_wip-1").ConfigureAwait(false)).Trim();
+                            AssertEqual(head, (await RunGitAsync(bare, "rev-parse", saved + "^").ConfigureAwait(false)).Trim(),
+                                "the saved work sits on the dock's HEAD");
+                            AssertEqual("edited but not committed", (await RunGitAsync(bare, "show", saved + ":" + tracked).ConfigureAwait(false)).Trim(),
+                                "the uncommitted edit survives the removal");
+                            AssertEqual("untracked work", (await RunGitAsync(bare, "show", saved + ":NewCoverage.cs").ConfigureAwait(false)).Trim(),
+                                "the untracked file survives the removal");
+
+                            // Unsaved: git cannot read the checkout, so the dock and its files stay.
+                            Dock broken = (await service.ProvisionAsync(vessel, captain, "armada/captain-wip/msn_wip_broken", "msn_wip_broken").ConfigureAwait(false))!;
+                            string brokenTree = broken.WorktreePath!;
+                            await File.WriteAllTextAsync(Path.Combine(brokenTree, "Unsaved.cs"), "work git cannot read\n").ConfigureAwait(false);
+                            await File.WriteAllTextAsync(Path.Combine(brokenTree, ".git"), "gitdir: " + Path.Combine(rootDir, "missing-gitdir") + "\n").ConfigureAwait(false);
+                            await ReleaseDockCaptainAsync(testDb, broken).ConfigureAwait(false);
+
+                            AssertTrue(await path.TryRemoveUnsaved(service, broken, vessel, captain).ConfigureAwait(false),
+                                "the entry point reports that it did not remove the dock");
+                            AssertTrue(File.Exists(Path.Combine(brokenTree, "Unsaved.cs")), "a dock whose work cannot be saved stays on disk");
+                            EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
+                            AssertTrue(events.Objects.Any(e => e.EventType == "mission.work_snapshot_failed" && e.Message.Contains(brokenTree)),
+                                "the kept dock raises a named event with the reason");
+                        }
+                        finally
+                        {
+                            foreach (string dir in new[] { rootDir, settings.DocksDirectory, settings.ReposDirectory, settings.LogDirectory })
+                            {
+                                if (Directory.Exists(dir))
+                                {
+                                    try { Directory.Delete(dir, true); }
+                                    catch { }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
             await RunTest("ReclaimAsync of a superseded retry dock releases its sibling leases so the live dock's reclaim removes the sibling", async () =>
             {
                 // A retry re-provisions the same mission at the same nested path and reuses its
@@ -2599,6 +2708,20 @@ namespace Armada.Test.Unit.Suites.Services
                 Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                 StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string MissionKeyOf(Dock dock)
+        {
+            return Path.GetFileName(Path.GetDirectoryName(dock.WorktreePath!))!;
+        }
+
+        private static async Task ReleaseDockCaptainAsync(TestDatabase testDb, Dock dock)
+        {
+            // A removal runs after the captain lets go of its dock; delete refuses a dock a captain still holds.
+            Dock stored = (await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false))!;
+            stored.CaptainId = null;
+            await testDb.Driver.Docks.UpdateAsync(stored).ConfigureAwait(false);
+            dock.CaptainId = null;
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)

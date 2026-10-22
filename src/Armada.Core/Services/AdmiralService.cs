@@ -2327,8 +2327,27 @@ namespace Armada.Core.Services
                             }
 
                             // Reclaim the dock worktree so it doesn't leak -- unless the mission still lands
-                            // or is approved from it (its work was produced before the stall).
-                            if (DockRetentionRule.MissionStillUsesDock(mission))
+                            // or is approved from it (its work was produced before the stall), or its
+                            // uncommitted work could not be saved, which the dock is then the only copy of.
+                            if (snapshot != null && snapshot.Status == DockWorkSnapshotStatusEnum.Failed)
+                            {
+                                string keptDockId = mission?.DockId ?? captain.CurrentDockId ?? "";
+                                _Logging.Warn(_Header + "keeping dock " + keptDockId + " after stall recovery exhaustion: its uncommitted work was not saved (" + snapshot.Message + ")");
+                                if (mission != null && mission.Status == MissionStatusEnum.Failed)
+                                {
+                                    mission.FailureReason = (mission.FailureReason ?? "Captain stalled, recovery exhausted")
+                                        + "; uncommitted work was NOT saved (" + snapshot.Message + "), so dock " + keptDockId + " is kept on disk -- copy the work out before removing it";
+                                    mission.LastUpdateUtc = DateTime.UtcNow;
+                                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                                }
+
+                                if (!String.IsNullOrEmpty(captain.CurrentDockId))
+                                {
+                                    captain.CurrentDockId = null;
+                                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                                }
+                            }
+                            else if (DockRetentionRule.MissionStillUsesDock(mission))
                             {
                                 _Logging.Info(_Header + "keeping dock of mission " + mission!.Id + " (" + mission.Status + ") after stall recovery exhaustion; its landing or review still reads it");
                                 if (!String.IsNullOrEmpty(captain.CurrentDockId))
@@ -2355,7 +2374,8 @@ namespace Armada.Core.Services
         /// <summary>
         /// Save a stalled captain's uncommitted dock work to a <c>recover/{missionId}-{n}</c> branch in the vessel
         /// repository. The dock's files, index and branch are not changed. Every outcome except "nothing to save" is
-        /// recorded as an event; a failure never stops the recovery it precedes.
+        /// recorded as an event. A failure does not stop a relaunch, which keeps the dock; it does stop the dock
+        /// being reclaimed at recovery exhaustion.
         /// </summary>
         /// <returns>The snapshot, or null when there was no mission or dock to read.</returns>
         private async Task<DockWorkSnapshot?> SnapshotStalledDockWorkAsync(Captain captain, Mission? mission, string stage, CancellationToken token)
