@@ -173,6 +173,7 @@ namespace Test.Shared.Suites.Services
 
         private static RuntimeFailureKindEnum RunStubClassification(Func<LoggingModule, string, BaseAgentRuntime> factory, string redirect)
         {
+            if (OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("The stub CLI is a POSIX shell script.");
             string root = Path.Combine(Path.GetTempPath(), "armada-stderr-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             try
