@@ -66,6 +66,30 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("hbr_b_with", placement.HarborId, "the Harbor with a checkout of the vessel");
             }));
 
+            cases.Add(CaseAsync("branch_on_admiral_keeps_dock_on_admiral", "A later stage whose branch an earlier stage built on the Admiral host stays on the Admiral even when a capable Harbor is connected", TestTags.Positive, async () =>
+            {
+                using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
+                using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
+                HarborDockSettings mapped = git.Settings.Clone();
+                mapped.Repositories.Add(new HarborRepositoryMapping("app", git.Checkout));
+                using InProcessHarbor with = await s.ConnectAsync("hbr_capable", mapped).ConfigureAwait(false);
+                Vessel vessel = await s.CreateVesselAsync(null, LandingModeEnum.LocalMerge).ConfigureAwait(false);
+                Captain captain = await s.CreateCaptainAsync().ConfigureAwait(false);
+                Mission mission = await s.CreateMissionAsync(vessel).ConfigureAwait(false);
+                mission.BranchName = "armada/admiral-built";
+                await s.Db.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                await s.Db.Driver.Docks.CreateAsync(new Dock(vessel.Id) { BranchName = "armada/admiral-built", WorktreePath = "/admiral/docks/earlier", Active = false }).ConfigureAwait(false);
+
+                DockPlacement placement = await s.Handler.ResolveDockPlacementAsync(mission, captain, vessel).ConfigureAwait(false);
+                AssertFalse(placement.Wait, placement.Reason);
+                AssertNull(placement.HarborId, "the Admiral host, where the branch is");
+                AssertContains("Admiral host's repository", placement.Reason);
+
+                s.Settings.RequireHarborForLaunch = true;
+                DockPlacement required = await s.Handler.ResolveDockPlacementAsync(mission, captain, vessel).ConfigureAwait(false);
+                AssertEqual("hbr_capable", required.HarborId, "policy wins; the commit-continuity check then guards the stage");
+            }));
+
             cases.Add(CaseAsync("routing_waits_when_required_and_none_can_serve", "With requireHarborForLaunch on and no Harbor able to serve the vessel the mission waits, and the reason says what to set", TestTags.Negative, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);

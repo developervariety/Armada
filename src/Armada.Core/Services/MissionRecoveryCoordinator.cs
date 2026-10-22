@@ -186,6 +186,7 @@ namespace Armada.Core.Services
 
                 MissionFailureKindEnum kind = MissionFailureClassifier.Classify(mission);
                 if (!MissionFailureClassifier.IsRecoverable(kind)) continue;
+                if (!await IsRescueEligibleAsync(mission, token).ConfigureAwait(false)) continue;
 
                 Incident incident = await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
                 {
@@ -217,6 +218,19 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "dispatched first rescue " + rescueMission.Id + " for incident " + incident.Id);
                 }
             }
+        }
+
+        private async Task<bool> IsRescueEligibleAsync(Mission mission, CancellationToken token)
+        {
+            // A rescue is a standalone Worker that lands on its own. That suits standalone implementation work only: a
+            // review, planning or recording stage has no code for a Worker to fix, and a pipeline stage has its own rework
+            // and repair inside its voyage, which a rescue landed beside it would bypass (including its Judge).
+            if (!String.IsNullOrEmpty(mission.Persona) && !PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Worker)) return false;
+            if (!String.IsNullOrEmpty(mission.DependsOnMissionId)) return false;
+            if (String.IsNullOrEmpty(mission.VoyageId)) return true;
+
+            List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId!, token).ConfigureAwait(false);
+            return !voyageMissions.Any(m => String.Equals(m.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
         }
 
         private async Task<Mission> DispatchRescueAsync(Mission original, Incident incident, CancellationToken token)

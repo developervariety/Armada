@@ -169,7 +169,7 @@ namespace Armada.Runtimes
         {
             int? resolved = _Outcome.ResolveExitCode(exitCode);
             if (resolved != exitCode)
-                _Logging.Info(_Header + "mux exited " + exitCode + " but its run " + _Outcome.RunStatus + "; reporting exit 0");
+                _Logging.Info(_Header + "mux exited " + exitCode + " but its run " + (_Outcome.RunStatus ?? "reported a fatal error") + "; reporting exit " + resolved);
             if (resolved == 0 && _Outcome.Succeeded) WriteFinalMessageIfMissing(_FinalMessageFilePath, _Outcome.FinalAssistantText);
             return resolved;
         }

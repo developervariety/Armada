@@ -40,7 +40,13 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <inheritdoc />
-        public async Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default)
+        public Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default)
+        {
+            return CheckCompletionsAsync(null, token);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<Voyage>> CheckCompletionsAsync(Func<string, bool>? isCompletionInFlight, CancellationToken token = default)
         {
             // CheckCompletionsAsync is a background/system method (called from Admiral loop).
             // It scans all tenants' voyages, so unscoped calls are appropriate here.
@@ -61,7 +67,8 @@ namespace Armada.Core.Services
                     m.Status == MissionStatusEnum.InProgress ||
                     m.Status == MissionStatusEnum.Testing ||
                     m.Status == MissionStatusEnum.Review ||
-                    m.Status == MissionStatusEnum.PullRequestOpen);
+                    m.Status == MissionStatusEnum.PullRequestOpen ||
+                    (m.Status == MissionStatusEnum.WorkProduced && isCompletionInFlight != null && isCompletionInFlight(m.Id)));
 
                 if (anyActive)
                 {

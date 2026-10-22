@@ -70,6 +70,9 @@ namespace Armada.Runtimes
         #region Private-Members
 
         private string _ExecutablePath = "claude";
+        private readonly object _FinalMessageLock = new object();
+        private string? _FinalMessageFilePath = null;
+        private string? _FinalResultText = null;
 
         #endregion
 
@@ -119,10 +122,75 @@ namespace Armada.Runtimes
             // A mission streaming its progress: stdout carries stream-json events (and the odd plain warning line).
             if (StructuredProgressActive && fromStdout)
             {
+                ObserveFinalResult(line);
                 return RuntimeProviderErrorParser.TryParseClaudeStreamJsonLine(line) ?? RuntimeProviderErrorParser.TryParseClaudeTextLine(line);
             }
 
             return RuntimeProviderErrorParser.TryParseClaudeTextLine(line);
+        }
+
+        /// <summary>
+        /// Start a launch: remember its final-message file and forget any earlier run's final result.
+        /// </summary>
+        /// <param name="finalMessageFilePath">The launch's final-message file, or null.</param>
+        protected override void BeginLaunch(string? finalMessageFilePath)
+        {
+            lock (_FinalMessageLock)
+            {
+                _FinalMessageFilePath = String.IsNullOrEmpty(finalMessageFilePath) ? null : finalMessageFilePath;
+                _FinalResultText = null;
+            }
+        }
+
+        /// <summary>
+        /// On a clean exit, write the reply from Claude Code's terminal "result" event to the final-message file, so a
+        /// mission's verdict, plan and handoff are read from its final answer rather than from its whole transcript (drafts,
+        /// quoted examples, tool progress). The exit code is unchanged; without a result event nothing is written and the
+        /// streamed output is used as before.
+        /// </summary>
+        /// <param name="exitCode">The process exit code, or null when unknown.</param>
+        /// <returns>The exit code, unchanged.</returns>
+        protected override int? ResolveExitCode(int? exitCode)
+        {
+            if (exitCode == 0)
+            {
+                string? path;
+                string? text;
+                lock (_FinalMessageLock)
+                {
+                    path = _FinalMessageFilePath;
+                    text = _FinalResultText;
+                }
+
+                MuxRuntime.WriteFinalMessageIfMissing(path, text);
+            }
+
+            return exitCode;
+        }
+
+        private void ObserveFinalResult(string line)
+        {
+            if (String.IsNullOrEmpty(line)) return;
+            string trimmed = line.Trim();
+            if (!trimmed.StartsWith("{", StringComparison.Ordinal) || !trimmed.Contains("\"result\"", StringComparison.Ordinal)) return;
+
+            ClaudeResultEvent? result;
+            try
+            {
+                result = System.Text.Json.JsonSerializer.Deserialize<ClaudeResultEvent>(trimmed);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return;
+            }
+
+            if (result == null || !String.Equals(result.Type, "result", StringComparison.Ordinal) || result.IsError) return;
+            if (String.IsNullOrWhiteSpace(result.Result)) return;
+
+            lock (_FinalMessageLock)
+            {
+                _FinalResultText = result.Result;
+            }
         }
 
         /// <summary>

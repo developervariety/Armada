@@ -413,15 +413,23 @@ namespace Armada.Core.Services
             {
                 if (_JobRunner != null)
                 {
+                    // A stop waits up to its graceful timeout for the process to exit: run it off the receive loop so a
+                    // stop-all of many jobs does not hold up heartbeats, acknowledgements and other requests.
                     LogEntry(_LogClassifier.Stop(kill.JobId));
-                    try
+                    IHarborJobRunner runner = _JobRunner;
+                    Task work = Task.Run(async () =>
                     {
-                        await _JobRunner.StopAsync(kill.JobId, kill.GracefulTimeoutMs, token).ConfigureAwait(false);
-                    }
-                    catch (Exception e)
-                    {
-                        _Logging.Warn(_Header + "stop of job " + kill.JobId + " failed: " + e.ToString());
-                    }
+                        try
+                        {
+                            await runner.StopAsync(kill.JobId, kill.GracefulTimeoutMs, token).ConfigureAwait(false);
+                        }
+                        catch (Exception e)
+                        {
+                            _Logging.Warn(_Header + "stop of job " + kill.JobId + " failed: " + e.ToString());
+                        }
+                    });
+                    _CommandsInFlight.TryAdd(work, 0);
+                    _ = work.ContinueWith(done => _CommandsInFlight.TryRemove(done, out byte _), TaskScheduler.Default);
                 }
                 return;
             }

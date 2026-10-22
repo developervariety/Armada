@@ -93,6 +93,7 @@ namespace Armada.Server
         /// Values are monotonic timestamps (<see cref="Time"/>) of the last persisted write.
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<string, long> _MissionHeartbeatWrites = new System.Collections.Concurrent.ConcurrentDictionary<string, long>();
+        private System.Collections.Concurrent.ConcurrentDictionary<string, long> _CaptainHeartbeatWrites = new System.Collections.Concurrent.ConcurrentDictionary<string, long>();
 
         /// <summary>
         /// Tracks per-mission final response artifacts so canonical agent output can be recovered even if live streaming is noisy.
@@ -262,9 +263,11 @@ namespace Armada.Server
                 Purpose = "mission " + mission.Id,
                 TenantId = mission.TenantId,
                 UserId = mission.UserId,
-                BranchName = mission.BranchName,
-                BranchHarborId = await FindBranchHarborAsync(mission, vessel).ConfigureAwait(false)
+                BranchName = mission.BranchName
             };
+            Dock? branchDock = await FindLatestBranchDockAsync(mission, vessel).ConfigureAwait(false);
+            if (DockHostResolver.IsHarborDock(branchDock)) request.BranchHarborId = branchDock!.HarborId;
+            else if (branchDock != null) request.BranchOnAdmiral = true;
             return await ResolveDockPlacementAsync(request).ConfigureAwait(false);
         }
 
@@ -290,6 +293,12 @@ namespace Armada.Server
                     return DockPlacement.WaitFor("requireHarborForLaunch is on and no Harbor is connected");
                 return DockPlacement.OnAdmiral("no Harbor is connected");
             }
+
+            // A branch an earlier stage built in the Admiral's repository exists only there: a Harbor would start the stage
+            // from the default branch and silently drop that work. Keep the dock on the Admiral unless policy forbids it,
+            // in which case assignment's commit-continuity check refuses the stage loudly instead.
+            if (request.BranchOnAdmiral && branchHarborId == null && !_Settings.RequireHarborForLaunch)
+                return DockPlacement.OnAdmiral("its branch " + request.BranchName + " is in the Admiral host's repository, where the earlier stage ran");
 
             CaptainLaunchRouter router = new CaptainLaunchRouter(_Settings, _RuntimeFactory, harbors, _EndpointResolver, _Logging);
             CaptainLaunchContext context = new CaptainLaunchContext(captain, request.Purpose)
@@ -1285,11 +1294,19 @@ namespace Armada.Server
 
             bool persistMissionHeartbeat = !String.IsNullOrEmpty(missionId) && ShouldPersistMissionHeartbeat(missionId);
 
+            // The captain heartbeat is throttled like the mission's: a chatty model prints many lines a second, and a
+            // database write per line contends for the write lock under many concurrent captains.
+            bool persistCaptainHeartbeat = ShouldPersistHeartbeat(_CaptainHeartbeatWrites, captainId);
+            if (!persistCaptainHeartbeat && !persistMissionHeartbeat) return;
+
             string capturedCaptainId = captainId;
             _ = Task.Run(async () =>
             {
-                try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
-                catch { }
+                if (persistCaptainHeartbeat)
+                {
+                    try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
+                    catch { _CaptainHeartbeatWrites.TryRemove(captainId, out _); }
+                }
 
                 if (!persistMissionHeartbeat || String.IsNullOrEmpty(missionId)) return;
 
@@ -1534,7 +1551,7 @@ namespace Armada.Server
         public void HandleAgentProviderError(int processId, RuntimeProviderError error)
         {
             if (error == null) return;
-            _ProcessProviderErrors[processId] = error;
+            _ProcessProviderErrors.AddOrUpdate(processId, error, (_, current) => RuntimeFailureClassifier.KeepMoreSignificant(current, error));
             _Logging.Debug(_Header + "process " + processId + " reported " + error.ToString());
         }
 
@@ -1554,62 +1571,45 @@ namespace Armada.Server
                 _ProcessToMission.TryGetValue(processId, out missionId);
             }
 
-            // The process exit event can fire before HandleLaunchAgentAsync finishes
-            // registering the PID-to-captain/mission mapping (race between process.Start()
-            // returning and the mapping being written). Retry briefly to close this window.
+            // The process exit event can fire before HandleLaunchAgentAsync finishes registering the PID-to-captain/mission
+            // mapping (race between process.Start() returning and the mapping being written). Wait for it briefly off this
+            // thread (an exit event must never block a thread-pool thread), then continue the same way.
             if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
             {
-                for (int attempt = 0; attempt < 20; attempt++)
+                _ = Task.Run(async () =>
                 {
-                    Thread.Sleep(100);
-                    lock (_ProcessToCaptain)
+                    try
                     {
-                        _ProcessToCaptain.TryGetValue(processId, out captainId);
-                        _ProcessToMission.TryGetValue(processId, out missionId);
-                    }
-                    if (!String.IsNullOrEmpty(captainId) && !String.IsNullOrEmpty(missionId))
-                    {
-                        _Logging.Debug(_Header + "process " + processId + " exit handler resolved mapping after " + (attempt + 1) + " retries");
-                        break;
-                    }
-                }
-            }
+                        string? lateCaptainId = null;
+                        string? lateMissionId = null;
+                        for (int attempt = 0; attempt < 20; attempt++)
+                        {
+                            await Task.Delay(100).ConfigureAwait(false);
+                            lock (_ProcessToCaptain)
+                            {
+                                _ProcessToCaptain.TryGetValue(processId, out lateCaptainId);
+                                _ProcessToMission.TryGetValue(processId, out lateMissionId);
+                            }
+                            if (!String.IsNullOrEmpty(lateCaptainId) && !String.IsNullOrEmpty(lateMissionId))
+                            {
+                                _Logging.Debug(_Header + "process " + processId + " exit handler resolved mapping after " + (attempt + 1) + " retries");
+                                CompleteProcessExit(processId, exitCode, lateCaptainId!, lateMissionId!);
+                                return;
+                            }
+                        }
 
-            if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
-            {
-                _Logging.Warn(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found after retries -- exit may be lost");
-                _ProcessProviderErrors.TryRemove(processId, out _);
+                        _Logging.Warn(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found after retries -- exit may be lost");
+                        _ProcessProviderErrors.TryRemove(processId, out _);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error resolving the exit of process " + processId + ": " + ex.ToString());
+                    }
+                });
                 return;
             }
 
-            _Logging.Info(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") for captain " + captainId + " mission " + missionId);
-
-            lock (_ProcessToCaptain)
-            {
-                _ProcessToCaptain.Remove(processId);
-                _ProcessToMission.Remove(processId);
-            }
-            _MissionHeartbeatWrites.TryRemove(missionId, out _);
-
-            // Track this PID as handled BEFORE the async work begins.
-            // The health check consults this set to avoid racing with the async exit handler
-            // (e.g. triggering recovery for a process that exited cleanly but whose completion
-            // handler hasn't finished yet).
-            _HandledProcessExits[processId] = _Time.GetTimestamp();
-
-            string capturedCaptainId = captainId;
-            string capturedMissionId = missionId;
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await HandleAgentProcessExitedAsync(processId, exitCode, capturedCaptainId, capturedMissionId).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "error handling process exit for captain " + capturedCaptainId + " mission " + capturedMissionId + ": " + ex.ToString());
-                }
-            });
+            CompleteProcessExit(processId, exitCode, captainId!, missionId!);
         }
 
         /// <summary>
@@ -1687,6 +1687,38 @@ namespace Armada.Server
 
         #region Private-Methods
 
+        private void CompleteProcessExit(int processId, int? exitCode, string captainId, string missionId)
+        {
+            _Logging.Info(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") for captain " + captainId + " mission " + missionId);
+
+            lock (_ProcessToCaptain)
+            {
+                _ProcessToCaptain.Remove(processId);
+                _ProcessToMission.Remove(processId);
+            }
+            _MissionHeartbeatWrites.TryRemove(missionId, out _);
+
+            // Track this PID as handled BEFORE the async work begins.
+            // The health check consults this set to avoid racing with the async exit handler
+            // (e.g. triggering recovery for a process that exited cleanly but whose completion
+            // handler hasn't finished yet).
+            _HandledProcessExits[processId] = _Time.GetTimestamp();
+
+            string capturedCaptainId = captainId;
+            string capturedMissionId = missionId;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await HandleAgentProcessExitedAsync(processId, exitCode, capturedCaptainId, capturedMissionId).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error handling process exit for captain " + capturedCaptainId + " mission " + capturedMissionId + ": " + ex.ToString());
+                }
+            });
+        }
+
         /// <summary>
         /// Whether a mission heartbeat should be written now: the first one for a mission, then at most one per
         /// persist interval. The interval is measured on the monotonic clock: on the wall clock a backward step
@@ -1696,10 +1728,15 @@ namespace Armada.Server
         /// <returns>True when the heartbeat should be persisted.</returns>
         internal bool ShouldPersistMissionHeartbeat(string missionId)
         {
+            return ShouldPersistHeartbeat(_MissionHeartbeatWrites, missionId);
+        }
+
+        private bool ShouldPersistHeartbeat(System.Collections.Concurrent.ConcurrentDictionary<string, long> writes, string key)
+        {
             bool persist = false;
             long now = _Time.GetTimestamp();
-            _MissionHeartbeatWrites.AddOrUpdate(
-                missionId,
+            writes.AddOrUpdate(
+                key,
                 _ =>
                 {
                     persist = true;
@@ -1821,6 +1858,12 @@ namespace Armada.Server
         /// </summary>
         private async Task<string?> FindBranchHarborAsync(Mission mission, Vessel vessel)
         {
+            Dock? latest = await FindLatestBranchDockAsync(mission, vessel).ConfigureAwait(false);
+            return DockHostResolver.IsHarborDock(latest) ? latest!.HarborId : null;
+        }
+
+        private async Task<Dock?> FindLatestBranchDockAsync(Mission mission, Vessel vessel)
+        {
             if (String.IsNullOrEmpty(mission.BranchName)) return null;
             List<Dock> docks = await _Database.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
             Dock? latest = null;
@@ -1830,7 +1873,7 @@ namespace Armada.Server
                 if (latest == null || candidate.CreatedUtc >= latest.CreatedUtc) latest = candidate;
             }
 
-            return DockHostResolver.IsHarborDock(latest) ? latest!.HarborId : null;
+            return latest;
         }
 
         /// <summary>

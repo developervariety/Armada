@@ -52,6 +52,28 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(decision.Reason != null && decision.Reason.Contains("hbr_b"), "Expected the reason to name the offline owner.");
             }));
 
+            cases.Add(Case("affinity_owner_without_runtime_is_refused", "Dock affinity does not pin a launch to a Harbor that lacks the captain's runtime", TestTags.Negative, () =>
+            {
+                HarborRouter router = new HarborRouter();
+                List<Harbor> harbors = new List<Harbor> { Cap("hbr_a", "A", 4, "claude"), Cap("hbr_b", "B", 4, "codex") };
+                HarborRoutingRequest request = new HarborRoutingRequest { ExistingHarborId = "hbr_b", RequestedRuntime = "claude" };
+
+                HarborRoutingDecision decision = router.Select(harbors, All, Zero, request);
+                AssertFalse(decision.Success, "an incapable owner is not chosen");
+                AssertContains("hbr_b", decision.Reason ?? String.Empty);
+                AssertContains("claude", decision.Reason ?? String.Empty, "the reason names the missing runtime");
+            }));
+
+            cases.Add(Case("affinity_disabled_owner_is_refused", "Dock affinity does not pin a launch to a disabled Harbor", TestTags.Negative, () =>
+            {
+                HarborRouter router = new HarborRouter();
+                Harbor disabled = Cap("hbr_b", "B", 4, "claude");
+                disabled.Enabled = false;
+                HarborRoutingDecision decision = router.Select(new List<Harbor> { disabled }, All, Zero, new HarborRoutingRequest { ExistingHarborId = "hbr_b", RequestedRuntime = "claude" });
+                AssertFalse(decision.Success);
+                AssertContains("disabled", decision.Reason ?? String.Empty);
+            }));
+
             cases.Add(Case("capability_filter_excludes_incapable", "Capability filter excludes Harbors lacking the runtime", TestTags.Positive, () =>
             {
                 HarborRouter router = new HarborRouter();

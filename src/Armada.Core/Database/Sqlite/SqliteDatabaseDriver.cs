@@ -722,6 +722,7 @@ namespace Armada.Core.Database.Sqlite
             mission.PrUrl = NullableString(reader["pr_url"]);
             mission.CommitHash = NullableString(reader["commit_hash"]);
             try { object v = reader["redispatch_attempts"]; if (v != DBNull.Value) mission.RedispatchAttempts = Convert.ToInt32(v); } catch { }
+            try { object v = reader["output_repair_attempts"]; if (v != DBNull.Value) mission.OutputRepairAttempts = Convert.ToInt32(v); } catch { }
             try
             {
                 string? missionTier = NullableString(reader["tier"]);

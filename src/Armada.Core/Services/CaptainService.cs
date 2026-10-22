@@ -280,13 +280,19 @@ namespace Armada.Core.Services
                     try
                     {
                         int processId = await OnLaunchAgent.Invoke(captain, mission, dock).ConfigureAwait(false);
-                        captain.ProcessId = processId;
-                        await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
 
+                        // A fast agent can exit (and its handler move the mission on and release the captain) before
+                        // this returns: record the relaunch only while the captain still holds the mission and the
+                        // mission is still in the state it was relaunched from.
+                        if (await _Database.Captains.TrySetProcessAsync(captain.Id, mission.Id, processId, token).ConfigureAwait(false))
+                            captain.ProcessId = processId;
+
+                        MissionStatusEnum relaunchedFrom = mission.Status;
                         mission.ProcessId = processId;
                         mission.Status = MissionStatusEnum.InProgress;
                         mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, new MissionStatusEnum[] { relaunchedFrom, MissionStatusEnum.Assigned, MissionStatusEnum.InProgress }, token).ConfigureAwait(false))
+                            _Logging.Info(_Header + "mission " + mission.Id + " moved on before relaunch process " + processId + " was recorded; keeping its newer state");
 
                         Signal signal = new Signal(SignalTypeEnum.Assignment, "Auto-recovery attempt " + captain.RecoveryAttempts + " for mission: " + mission.Title);
                         signal.ToCaptainId = captain.Id;

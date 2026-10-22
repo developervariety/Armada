@@ -748,7 +748,9 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(87, "Add per-run approval choices and timeout decisions",
                     @"ALTER TABLE voyages ADD COLUMN approval_options_json TEXT NULL;",
                     @"ALTER TABLE fleet_action_runs ADD COLUMN approval_options_json TEXT NULL;",
-                    @"ALTER TABLE cli_permission_requests ADD COLUMN timeout_decision VARCHAR(32) NOT NULL DEFAULT 'Deny';")
+                    @"ALTER TABLE cli_permission_requests ADD COLUMN timeout_decision VARCHAR(32) NOT NULL DEFAULT 'Deny';"),
+                new SchemaMigration(88, "Add output_repair_attempts to missions for bounded output-contract repair turns",
+                    @"ALTER TABLE missions ADD COLUMN output_repair_attempts INT NOT NULL DEFAULT 0;")
 
 
             };

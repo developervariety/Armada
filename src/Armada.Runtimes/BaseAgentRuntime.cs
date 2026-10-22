@@ -98,7 +98,7 @@ namespace Armada.Runtimes
         public bool StructuredPassthrough { get; set; } = false;
 
         /// <summary>
-        /// Milliseconds to wait for an agent process to exit gracefully (after closing stdin) before it
+        /// Milliseconds to wait for an agent process to exit gracefully (after SIGTERM on Unix) before it
         /// is force-killed during <see cref="StopAsync"/>. Defaults to 10000 (10s) for production. Test
         /// harnesses lower this so recalling agents does not block on the full graceful window. Clamped to
         /// a non-negative value on set.
@@ -432,70 +432,79 @@ namespace Armada.Runtimes
                 }
             };
 
-            process.Exited += (sender, e) =>
+            // Async so draining output after an exit never blocks a thread-pool thread; the outer catch keeps a fault
+            // here from escaping an async event handler and taking down the process.
+            process.Exited += async (sender, e) =>
             {
-                // Let the async readers deliver the remaining stdout/stderr lines before subscribers learn of the exit and
-                // before the process (and its streams) is disposed. A process can exit before StartAsync has begun reading
-                // (it raced through its work while the prompt was being written), so first wait for the readers to start;
-                // then WaitForExitAsync completes when both redirected streams reach end of file.
-                readersStarted.Task.Wait(_OutputDrainTimeoutMs);
                 try
                 {
-                    using (CancellationTokenSource drain = new CancellationTokenSource(_OutputDrainTimeoutMs))
+                    // Let the async readers deliver the remaining stdout/stderr lines before subscribers learn of the exit and
+                    // before the process (and its streams) is disposed. A process can exit before StartAsync has begun reading
+                    // (it raced through its work while the prompt was being written), so first wait for the readers to start;
+                    // then WaitForExitAsync completes when both redirected streams reach end of file.
+                    await Task.WhenAny(readersStarted.Task, Task.Delay(_OutputDrainTimeoutMs)).ConfigureAwait(false);
+                    try
                     {
-                        process.WaitForExitAsync(drain.Token).GetAwaiter().GetResult();
+                        using (CancellationTokenSource drain = new CancellationTokenSource(_OutputDrainTimeoutMs))
+                        {
+                            await process.WaitForExitAsync(drain.Token).ConfigureAwait(false);
+                        }
                     }
-                }
-                catch (OperationCanceledException) { }
-                catch (InvalidOperationException) { }
+                    catch (OperationCanceledException) { }
+                    catch (InvalidOperationException) { }
 
-                // Output a structured stream still held (a Codex message whose turn never completed).
-                if (decoder != null)
-                {
-                    Armada.Core.Services.MissionStreamDecodeResult rest;
-                    lock (decoderLock) rest = decoder.Flush(DateTime.UtcNow);
-                    RaiseDecoded(launchedPid, rest, logWriter);
-                }
+                    // Output a structured stream still held (a Codex message whose turn never completed).
+                    if (decoder != null)
+                    {
+                        Armada.Core.Services.MissionStreamDecodeResult rest;
+                        lock (decoderLock) rest = decoder.Flush(DateTime.UtcNow);
+                        RaiseDecoded(launchedPid, rest, logWriter);
+                    }
 
-                int? code = null;
-                int processId = launchedPid;
-                if (processId == 0)
-                {
-                    try { processId = process.Id; } catch { }
-                }
-                try { code = ((Process?)sender)?.ExitCode; } catch { }
+                    int? code = null;
+                    int processId = launchedPid;
+                    if (processId == 0)
+                    {
+                        try { processId = process.Id; } catch { }
+                    }
+                    try { code = ((Process?)sender)?.ExitCode; } catch { }
 
-                // The runtime decides what its CLI's exit means (Mux exits non-zero after a recoverable error even when its
-                // run completed) and may supply the final message the CLI skipped.
-                int? reportedCode = code;
-                try { reportedCode = ResolveExitCode(code); }
-                catch (Exception ex) { _Logging.Warn(_Header + "exit code resolution failed for process " + processId + ": " + ex.Message); }
+                    // The runtime decides what its CLI's exit means (Mux exits non-zero after a recoverable error even when its
+                    // run completed) and may supply the final message the CLI skipped.
+                    int? reportedCode = code;
+                    try { reportedCode = ResolveExitCode(code); }
+                    catch (Exception ex) { _Logging.Warn(_Header + "exit code resolution failed for process " + processId + ": " + ex.Message); }
 
-                string exitNote = "Agent exited with code " + (code?.ToString() ?? "unknown");
-                if (reportedCode != code)
-                    exitNote += " (its run completed; reported as " + (reportedCode?.ToString() ?? "unknown") + ")";
-                try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] " + exitNote); }
-                catch (ObjectDisposedException) { }
-                logWriter?.Dispose();
+                    string exitNote = "Agent exited with code " + (code?.ToString() ?? "unknown");
+                    if (reportedCode != code)
+                        exitNote += " (its run completed; reported as " + (reportedCode?.ToString() ?? "unknown") + ")";
+                    try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] " + exitNote); }
+                    catch (ObjectDisposedException) { }
+                    logWriter?.Dispose();
 
-                // Notify subscribers that the process has exited BEFORE disposing.
-                // Disposing first invalidates the PID, which can cause the health check
-                // to race with the exit handler and trigger spurious recovery.
-                try { OnProcessExited?.Invoke(processId, reportedCode); }
-                catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessExited handler for process " + processId + ": " + ex.ToString()); }
+                    // Notify subscribers that the process has exited BEFORE disposing.
+                    // Disposing first invalidates the PID, which can cause the health check
+                    // to race with the exit handler and trigger spurious recovery.
+                    try { OnProcessExited?.Invoke(processId, reportedCode); }
+                    catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessExited handler for process " + processId + ": " + ex.ToString()); }
 
-                // A per-launch scoped config holds a session token; remove it as soon as the process is gone.
-                if (perLaunchConfigDirectory != null)
-                {
-                    try { if (Directory.Exists(perLaunchConfigDirectory)) Directory.Delete(perLaunchConfigDirectory, true); }
+                    // A per-launch scoped config holds a session token; remove it as soon as the process is gone.
+                    if (perLaunchConfigDirectory != null)
+                    {
+                        try { if (Directory.Exists(perLaunchConfigDirectory)) Directory.Delete(perLaunchConfigDirectory, true); }
+                        catch { }
+                    }
+
+                    // Dispose the Process object to release the working directory handle.
+                    // On Windows, undisposed Process objects hold handles on the WorkingDirectory
+                    // which prevents dock worktree directories from being deleted.
+                    try { process.Dispose(); }
                     catch { }
                 }
-
-                // Dispose the Process object to release the working directory handle.
-                // On Windows, undisposed Process objects hold handles on the WorkingDirectory
-                // which prevents dock worktree directories from being deleted.
-                try { process.Dispose(); }
-                catch { }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error handling exit of process " + launchedPid + ": " + ex.ToString());
+                }
             };
             process.EnableRaisingEvents = true;
 
@@ -559,44 +568,62 @@ namespace Armada.Runtimes
         /// <summary>
         /// Stop an agent process gracefully.
         /// </summary>
-        public virtual Task StopAsync(int processId, CancellationToken token = default)
+        public virtual async Task StopAsync(int processId, CancellationToken token = default)
         {
+            Process process;
             try
             {
-                Process process = Process.GetProcessById(processId);
-                if (!process.HasExited)
-                {
-                    // Try graceful shutdown first by closing stdin
-                    try
-                    {
-                        process.StandardInput.Close();
-                    }
-                    catch
-                    {
-                        // stdin may already be closed
-                    }
-
-                    // Wait for graceful exit up to the configured window before force-killing.
-                    bool exited = process.WaitForExit(_GracefulStopTimeoutMs);
-                    if (!exited)
-                    {
-                        _Logging.Warn(_Header + "process " + processId + " did not exit gracefully, killing");
-                        process.Kill(entireProcessTree: true);
-                    }
-                }
-
-                _Logging.Info(_Header + "stopped process " + processId);
+                process = Process.GetProcessById(processId);
             }
             catch (ArgumentException)
             {
                 _Logging.Debug(_Header + "process " + processId + " already exited");
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "error stopping process " + processId + ": " + ex.ToString());
+                return;
             }
 
-            return Task.CompletedTask;
+            using (process)
+            {
+                try
+                {
+                    if (process.HasExited)
+                    {
+                        _Logging.Debug(_Header + "process " + processId + " already exited");
+                        return;
+                    }
+
+                    // Ask the agent to shut down cleanly first (SIGTERM on Unix; CLIs flush their session and exit), then
+                    // wait without blocking a thread, and only force-kill the whole tree if it is still running.
+                    RequestGracefulExit(processId);
+                    using (CancellationTokenSource wait = CancellationTokenSource.CreateLinkedTokenSource(token))
+                    {
+                        wait.CancelAfter(_GracefulStopTimeoutMs);
+                        try
+                        {
+                            await process.WaitForExitAsync(wait.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Timed out, or the caller gave up waiting: fall through to the forced stop.
+                        }
+                    }
+
+                    if (!process.HasExited)
+                    {
+                        _Logging.Warn(_Header + "process " + processId + " did not exit gracefully, killing");
+                        process.Kill(entireProcessTree: true);
+                    }
+
+                    _Logging.Info(_Header + "stopped process " + processId);
+                }
+                catch (InvalidOperationException)
+                {
+                    _Logging.Debug(_Header + "process " + processId + " exited while stopping");
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "error stopping process " + processId + ": " + ex.ToString());
+                }
+            }
         }
 
         /// <summary>
@@ -619,6 +646,20 @@ namespace Armada.Runtimes
             if (!String.IsNullOrEmpty(line)) OnRawStdoutReceived?.Invoke(processId, line);
             OnOutputReceived?.Invoke(processId, line);
             OnStdoutReceived?.Invoke(processId, line);
+        }
+
+        /// <summary>
+        /// Raise <see cref="OnProviderError"/> with a structured provider error (for derived runtimes that run in-process
+        /// instead of launching a process, and so have no output line to parse it from).
+        /// </summary>
+        /// <param name="processId">Process id.</param>
+        /// <param name="error">The provider error.</param>
+        /// <exception cref="ArgumentNullException">Thrown when error is null.</exception>
+        protected void RaiseProviderError(int processId, RuntimeProviderError error)
+        {
+            if (error == null) throw new ArgumentNullException(nameof(error));
+            try { OnProviderError?.Invoke(processId, error); }
+            catch (Exception ex) { _Logging.Warn(_Header + "error in OnProviderError handler for process " + processId + ": " + ex.ToString()); }
         }
 
         /// <summary>
@@ -689,6 +730,23 @@ namespace Armada.Runtimes
         #endregion
 
         #region Private-Methods
+
+        private void RequestGracefulExit(int processId)
+        {
+            if (OperatingSystem.IsWindows()) return;
+            try
+            {
+                if (SysKill(processId, 15) != 0)
+                    _Logging.Debug(_Header + "SIGTERM to process " + processId + " was not delivered");
+            }
+            catch (Exception ex) when (ex is DllNotFoundException || ex is EntryPointNotFoundException)
+            {
+                _Logging.Debug(_Header + "SIGTERM is unavailable on this platform: " + ex.Message);
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "kill", SetLastError = true)]
+        private static extern int SysKill(int pid, int signal);
 
         /// <summary>
         /// Whether a process-start error code means the executable or the working directory was not found.

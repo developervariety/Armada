@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -137,6 +138,108 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("failed_handler_leaves_sequence_unacknowledged", "A job message whose handler throws is not acknowledged, so the Harbor replays it instead of dropping it", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    HarborConnectionManager manager = NewManager(testDb);
+                    List<HarborMessage> sent = new List<HarborMessage>();
+                    await manager.OnHandshakeAsync(Handshake("hbr_fail", "epoch-1"), null, null, Recorder(sent)).ConfigureAwait(false);
+
+                    FailingOnceListener listener = new FailingOnceListener();
+                    await manager.LaunchAsync("hbr_fail", new HarborLaunchRequest { JobId = "job-f", Runtime = "ClaudeCode", WorkingDirectory = "/w" }, listener).ConfigureAwait(false);
+                    await manager.OnMessageAsync("hbr_fail", new HarborStarted { JobId = "job-f", ProcessId = 1, OutboxSequence = 1 }).ConfigureAwait(false);
+
+                    bool threw = false;
+                    try { await manager.OnMessageAsync("hbr_fail", new HarborOutput { JobId = "job-f", Data = "x", OutboxSequence = 2 }).ConfigureAwait(false); }
+                    catch (InvalidOperationException) { threw = true; }
+                    AssertTrue(threw, "the handler failure reaches the link, which then closes for replay");
+
+                    await manager.OnMessageAsync("hbr_fail", new HarborHeartbeat { Sequence = 1, LiveJobIds = new List<string> { "job-f" } }).ConfigureAwait(false);
+                    AssertEqual(1L, sent.OfType<HarborHeartbeatAck>().Last().LastJobSequence, "the failed message is not acknowledged");
+
+                    await manager.OnMessageAsync("hbr_fail", new HarborOutput { JobId = "job-f", Data = "x", OutboxSequence = 2 }).ConfigureAwait(false);
+                    AssertEqual("x", String.Join(",", listener.Output), "the replay is processed, not dropped as a duplicate");
+                    await manager.OnMessageAsync("hbr_fail", new HarborHeartbeat { Sequence = 2, LiveJobIds = new List<string> { "job-f" } }).ConfigureAwait(false);
+                    AssertEqual(2L, sent.OfType<HarborHeartbeatAck>().Last().LastJobSequence, "acknowledged once handled");
+                }
+            }));
+
+            cases.Add(CaseAsync("superseded_link_fails_pending_requests", "A request sent over a Harbor link that a reconnect replaces fails at once instead of waiting out its timeout", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    HarborConnectionManager manager = NewManager(testDb);
+                    List<HarborMessage> sent = new List<HarborMessage>();
+                    await manager.OnHandshakeAsync(Handshake("hbr_swap", "epoch-1"), null, null, Recorder(sent)).ConfigureAwait(false);
+
+                    HarborGitRequest request = new HarborGitRequest { RequestId = Guid.NewGuid().ToString("N"), Executable = "git", WorkingDirectory = String.Empty, Arguments = new List<string> { "status" } };
+                    Task<HarborGitResult?> pending = manager.SendGitAsync("hbr_swap", request, 60000);
+                    await Task.Delay(50).ConfigureAwait(false);
+                    AssertFalse(pending.IsCompleted, "no reply yet");
+
+                    await manager.OnHandshakeAsync(Handshake("hbr_swap", "epoch-1"), null, null, Recorder(sent)).ConfigureAwait(false);
+                    Task finished = await Task.WhenAny(pending, Task.Delay(5000)).ConfigureAwait(false);
+                    AssertTrue(Object.ReferenceEquals(finished, pending), "the request ended when its link was replaced, not after 60 seconds");
+                    bool failed = false;
+                    try { await pending.ConfigureAwait(false); }
+                    catch (InvalidOperationException) { failed = true; }
+                    AssertTrue(failed, "the caller learns the request cannot be answered");
+                }
+            }));
+
+            cases.Add(CaseAsync("reconnect_restarts_vanished_job_grace", "A job missing from heartbeats before a reconnect gets a fresh grace period on the new link instead of being declared lost at once", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    HarborConnectionManager manager = NewManager(testDb);
+                    manager.VanishedJobGrace = TimeSpan.FromMilliseconds(400);
+                    List<HarborMessage> sent = new List<HarborMessage>();
+                    await manager.OnHandshakeAsync(Handshake("hbr_grace", "epoch-1"), null, null, Recorder(sent)).ConfigureAwait(false);
+
+                    RecordingHarborJobListener listener = new RecordingHarborJobListener();
+                    await manager.LaunchAsync("hbr_grace", new HarborLaunchRequest { JobId = "job-g", Runtime = "ClaudeCode", WorkingDirectory = "/w" }, listener).ConfigureAwait(false);
+                    await manager.OnMessageAsync("hbr_grace", new HarborStarted { JobId = "job-g", ProcessId = 1, OutboxSequence = 1 }).ConfigureAwait(false);
+                    await manager.OnMessageAsync("hbr_grace", new HarborHeartbeat { Sequence = 1, LiveJobIds = new List<string>() }).ConfigureAwait(false);
+
+                    await Task.Delay(300).ConfigureAwait(false);
+                    await manager.OnHandshakeAsync(Handshake("hbr_grace", "epoch-1"), null, null, Recorder(sent)).ConfigureAwait(false);
+                    await Task.Delay(200).ConfigureAwait(false);
+                    await manager.OnMessageAsync("hbr_grace", new HarborHeartbeat { Sequence = 2, LiveJobIds = new List<string>() }).ConfigureAwait(false);
+                    AssertNull(listener.Failure, "500 ms after first going missing, but only just measured on the new link: not lost yet");
+
+                    await Task.Delay(500).ConfigureAwait(false);
+                    await manager.OnMessageAsync("hbr_grace", new HarborHeartbeat { Sequence = 3, LiveJobIds = new List<string>() }).ConfigureAwait(false);
+                    AssertNotNull(listener.Failure, "still missing after a full grace on the new link: reported lost");
+                }
+            }));
+
+            cases.Add(CaseAsync("slow_stop_does_not_block_the_harbor_link", "A job stop that waits for its process does not hold up the Harbor's other requests", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    HarborConnectionManager manager = NewManager(testDb);
+                    BlockingStopRunner runner = new BlockingStopRunner();
+                    LoopbackHarborSession session = await LoopbackHarborSession.ConnectAsync(manager, "hbr_slowstop", NewClient("hbr_slowstop", runner, new HarborJobState(), 0)).ConfigureAwait(false);
+                    try
+                    {
+                        RecordingHarborJobListener listener = new RecordingHarborJobListener();
+                        await manager.LaunchAsync("hbr_slowstop", new HarborLaunchRequest { JobId = "job-s", Runtime = "ClaudeCode", WorkingDirectory = "/w" }, listener).ConfigureAwait(false);
+                        await manager.KillJobAsync("hbr_slowstop", "job-s", 10000).ConfigureAwait(false);
+                        await WaitUntilAsync(() => runner.StopRequested).ConfigureAwait(false);
+
+                        HarborGitRequest request = new HarborGitRequest { RequestId = Guid.NewGuid().ToString("N"), Executable = "git", WorkingDirectory = String.Empty, Arguments = new List<string> { "status" } };
+                        HarborGitResult? result = await manager.SendGitAsync("hbr_slowstop", request, 5000).ConfigureAwait(false);
+                        AssertNotNull(result, "the git request was answered while the stop was still waiting");
+                    }
+                    finally
+                    {
+                        runner.Release();
+                        await session.DropAsync().ConfigureAwait(false);
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("outbox_acknowledgement_modes", "The outbox keeps sent messages until acknowledged, drops them once written for an Admiral that does not acknowledge, and replays the rest on the next session", TestTags.Positive, () =>
             {
                 HarborJobOutbox outbox = new HarborJobOutbox();
@@ -263,6 +366,71 @@ namespace Test.Shared.Suites.Services
                 displayName: displayName,
                 executeAsync: (CancellationToken ct) => body(),
                 tags: new List<string> { tag });
+        }
+
+        #endregion
+
+        #region Private-Classes
+
+        private sealed class BlockingStopRunner : IHarborJobRunner
+        {
+            private readonly TaskCompletionSource<bool> _Gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public bool StopRequested { get; private set; } = false;
+
+            public Task StartAsync(HarborLaunchRequest request, string? mcpBaseUrl, Action<int> onStarted, Action<HarborOutputStreamEnum, string> onOutput, Action<int> onExited, CancellationToken token)
+            {
+                return Task.CompletedTask;
+            }
+
+            public string? ResolveWorkingDirectory(HarborLaunchRequest request)
+            {
+                return request.WorkingDirectory;
+            }
+
+            public async Task StopAsync(string jobId, int gracefulTimeoutMs, CancellationToken token)
+            {
+                StopRequested = true;
+                await _Gate.Task.ConfigureAwait(false);
+            }
+
+            public void Release()
+            {
+                _Gate.TrySetResult(true);
+            }
+        }
+
+        private sealed class FailingOnceListener : IHarborJobListener
+        {
+            public List<string> Output { get; } = new List<string>();
+
+            private bool _Failed = false;
+
+            public void OnStarted(int processId)
+            {
+            }
+
+            public void OnOutput(HarborOutputStreamEnum stream, string data)
+            {
+                if (!_Failed)
+                {
+                    _Failed = true;
+                    throw new InvalidOperationException("simulated handler fault");
+                }
+                Output.Add(data);
+            }
+
+            public void OnActivity(RuntimeActivity activity)
+            {
+            }
+
+            public void OnExited(int exitCode)
+            {
+            }
+
+            public void OnFailed(string message)
+            {
+            }
         }
 
         #endregion

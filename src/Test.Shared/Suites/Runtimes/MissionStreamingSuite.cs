@@ -140,6 +140,25 @@ namespace Test.Shared.Suites.Runtimes
                 AssertContains("stream-json", ShimArgs(record), "the CLI was asked for stream-json");
             }));
 
+            cases.Add(CaseAsync("claude_mission_writes_final_message_file", "A Claude Code mission writes its terminal result text to the final-message file, so control decisions read the final answer rather than the transcript", TestTags.Positive, async () =>
+            {
+                string root = TestTemp.NewDirectory("mission_stream_claude_final");
+                string record = Path.Combine(root, "record");
+                string shim = StreamingShimCli.Write(Path.Combine(root, "bin"), "claude", record,
+                    new List<List<string>> { new List<string> { ClaudeInit, ClaudeBash, ClaudeToolResult, ClaudeThinking, ClaudeResult } }, null, null);
+                ClaudeCodeRuntime runtime = new ClaudeCodeRuntime(Logging()) { ExecutablePath = shim, StructuredProgress = true };
+                string finalFile = Path.Combine(root, "final.txt");
+
+                await RunAsync(runtime, root, null, finalFile).ConfigureAwait(false);
+
+                AssertTrue(File.Exists(finalFile), "the final-message file is written");
+                string final = File.ReadAllText(finalFile);
+                AssertContains("All tests pass.", final);
+                AssertContains("[ARMADA:RESULT] COMPLETE", final);
+                AssertFalse(final.Contains("I will run the tests.", StringComparison.Ordinal), "intermediate assistant text is not part of the final answer");
+                AssertFalse(final.Contains("\"type\":", StringComparison.Ordinal), "no raw stream-json");
+            }));
+
             cases.Add(CaseAsync("codex_json_final_message_is_text_mode_output", "A Codex mission streaming exec --json raises only the turn's last agent message as stdout, still writes the final message file, and raises each activity", TestTags.Positive, async () =>
             {
                 string root = TestTemp.NewDirectory("mission_stream_codex");

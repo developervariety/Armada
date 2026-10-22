@@ -25,6 +25,12 @@ namespace Armada.Core.Models
         public double? TopP { get; set; } = null;
         /// <summary>Require an eligible Harbor for any launch of this endpoint's API captain.</summary>
         public bool RequireHarbor { get; set; } = false;
+        /// <summary>
+        /// Optional cap, from 1 through 64, on missions running at once against this endpoint's base URL across every captain
+        /// that uses it. Admiral-side admission only: a local model server serving one GPU stays within what it can hold
+        /// instead of swapping models and timing out. Null is unlimited.
+        /// </summary>
+        public int? MaxConcurrentMissions { get; set; } = null;
 
         /// <summary>Whether launching on a Harbor requires policy-aware execution support.</summary>
         [System.Text.Json.Serialization.JsonIgnore]
@@ -38,6 +44,7 @@ namespace Armada.Core.Models
             if (MaxTokens.HasValue && (MaxTokens < 1 || MaxTokens > 10000000)) throw new ArgumentException("InferenceOptions.MaxTokens must be between 1 and 10000000.");
             if (Temperature.HasValue && (!Double.IsFinite(Temperature.Value) || Temperature < 0 || Temperature > 2)) throw new ArgumentException("InferenceOptions.Temperature must be between 0 and 2.");
             if (TopP.HasValue && (!Double.IsFinite(TopP.Value) || TopP < 0 || TopP > 1)) throw new ArgumentException("InferenceOptions.TopP must be between 0 and 1.");
+            if (MaxConcurrentMissions.HasValue && (MaxConcurrentMissions < 1 || MaxConcurrentMissions > 64)) throw new ArgumentException("InferenceOptions.MaxConcurrentMissions must be between 1 and 64.");
             if (AllowedTools != null && (AllowedTools.Count > 256 || AllowedTools.Any(n => String.IsNullOrWhiteSpace(n) || n.Length > 256 || n != n.Trim()) || AllowedTools.Distinct(StringComparer.Ordinal).Count() != AllowedTools.Count))
                 throw new ArgumentException("InferenceOptions.AllowedTools must contain at most 256 distinct, nonblank exact tool names (maximum 256 characters each).");
         }

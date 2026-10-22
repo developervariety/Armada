@@ -119,7 +119,7 @@ namespace Test.Shared.Suites.Services
                 AssertNotEqual(MissionStatusEnum.Failed, approved.Status);
             }));
 
-            cases.Add(CaseAsync("ungated_judge_block_fails", "Without a review gate, a Judge block still fails the mission automatically", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("ungated_judge_block_fails", "Without a review gate, an unsubstantiated Judge block gets one output repair turn and then fails the mission automatically", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Harness h = new Harness(testDb, new DirCreatingGitService());
@@ -132,11 +132,33 @@ namespace Test.Shared.Suites.Services
                 Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("judged")).ConfigureAwait(false);
                 Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, judgeCaptain, "Judge", false).ConfigureAwait(false);
 
+                // First violation: a block without an affected-case section is a format failure, so the Judge runs again.
                 await h.Missions.HandleCompletionAsync(judgeCaptain, judge.Id).ConfigureAwait(false);
+                Mission? repaired = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                AssertTrue(repaired!.Status != MissionStatusEnum.Failed, "the first contract violation is repaired, not failed");
+                AssertEqual(1, repaired.OutputRepairAttempts);
+                AssertContains("Affected Case", repaired.Description ?? String.Empty, "the repair note quotes the Judge contract");
+                AssertEqual(0, landingCalls);
+
+                // Second violation with the budget spent: the mission fails closed and says why.
+                repaired.Status = MissionStatusEnum.InProgress;
+                repaired.CaptainId = judgeCaptain.Id;
+                await testDb.Driver.Missions.UpdateAsync(repaired).ConfigureAwait(false);
+                Captain? holder = await testDb.Driver.Captains.ReadAsync(judgeCaptain.Id).ConfigureAwait(false);
+                holder!.State = CaptainStateEnum.Working;
+                holder.CurrentMissionId = judge.Id;
+                await testDb.Driver.Captains.UpdateAsync(holder).ConfigureAwait(false);
+
+                await h.Missions.HandleCompletionAsync(holder, judge.Id).ConfigureAwait(false);
                 Mission? failed = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
                 AssertEqual(MissionStatusEnum.Failed, failed!.Status);
                 AssertEqual(MissionFailureKindEnum.JudgeRejected, failed.FailureKind);
+                AssertContains("output-contract repair", failed.FailureReason ?? String.Empty, "the reason records the spent repair");
+                AssertEqual(1, failed.OutputRepairAttempts, "the budget is not exceeded");
                 AssertEqual(0, landingCalls);
+
+                Captain? released = await testDb.Driver.Captains.ReadAsync(judgeCaptain.Id).ConfigureAwait(false);
+                AssertTrue(released!.CurrentMissionId != judge.Id, "the captain is released after the terminal failure");
             }));
 
             cases.Add(CaseAsync("restart_later_stage_keeps_branch", "Restarting a failed later stage keeps the earlier stage's branch, reopens the voyage, and restores the cancelled stages after it", TestTags.Positive, async () =>

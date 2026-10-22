@@ -15,6 +15,15 @@ namespace Armada.Core.Services.Interfaces
         Task<List<Voyage>> CheckCompletionsAsync(CancellationToken token = default);
 
         /// <summary>
+        /// Check all active voyages and mark complete if all child missions are done, treating a WorkProduced mission whose
+        /// completion is still being processed as active.
+        /// </summary>
+        /// <param name="isCompletionInFlight">Returns true for a mission whose completion handler is still running.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>List of voyages that were marked complete during this check.</returns>
+        Task<List<Voyage>> CheckCompletionsAsync(Func<string, bool>? isCompletionInFlight, CancellationToken token = default);
+
+        /// <summary>
         /// Get progress details for a specific voyage.
         /// </summary>
         /// <param name="voyageId">Voyage identifier.</param>

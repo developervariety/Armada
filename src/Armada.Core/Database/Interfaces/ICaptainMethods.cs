@@ -84,8 +84,45 @@ namespace Armada.Core.Database.Interfaces
         /// Atomically claim a captain for a mission. Sets state to Working and assigns
         /// mission/dock IDs, but only if the captain is currently Idle.
         /// Returns true if the claim succeeded, false if the captain was no longer Idle.
+        /// The dock may be null when the captain is claimed before its dock is provisioned; attach it later with
+        /// <see cref="TrySetDockAsync"/>.
         /// </summary>
-        Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default);
+        Task<bool> TryClaimAsync(string captainId, string missionId, string? dockId, CancellationToken token = default);
+
+        /// <summary>
+        /// Atomically release a captain from a mission: sets it Idle and clears its mission, dock, process identifier
+        /// and recovery attempts, but only while it is still Working, Stalled or Stopping on that mission. A captain that
+        /// has already moved on to another mission, or was quarantined, is left alone.
+        /// </summary>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="missionId">Mission the caller expects the captain to hold.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the captain was released.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when captainId or missionId is null or empty.</exception>
+        Task<bool> TryReleaseFromMissionAsync(string captainId, string missionId, CancellationToken token = default);
+
+        /// <summary>
+        /// Atomically record the dock of a captain's current mission, only while the captain still holds that mission.
+        /// </summary>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="missionId">Mission the caller expects the captain to hold.</param>
+        /// <param name="dockId">Dock identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the dock was recorded.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when captainId, missionId or dockId is null or empty.</exception>
+        Task<bool> TrySetDockAsync(string captainId, string missionId, string dockId, CancellationToken token = default);
+
+        /// <summary>
+        /// Atomically record the process handle of a captain's current mission, only while the captain still holds that
+        /// mission. A fast agent whose exit already released the captain is therefore never re-marked as running.
+        /// </summary>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="missionId">Mission the caller expects the captain to hold.</param>
+        /// <param name="processId">Process handle.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the process handle was recorded.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when captainId or missionId is null or empty.</exception>
+        Task<bool> TrySetProcessAsync(string captainId, string missionId, int processId, CancellationToken token = default);
 
         /// <summary>
         /// Read a captain by tenant and identifier (tenant-scoped).

@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Net.WebSockets;
     using System.Text;
 
@@ -12,6 +13,16 @@ namespace Armada.Core.Services
     /// </summary>
     public class WebSocketHarborTransport : IHarborTransport, IDisposable
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Largest message accepted from the Admiral, in bytes. A larger message closes the link with MessageTooBig
+        /// instead of growing memory without bound.
+        /// </summary>
+        public const int MaxMessageBytes = 128 * 1024 * 1024;
+
+        #endregion
+
         #region Private-Members
 
         private readonly Uri _ServerUri;
@@ -65,19 +76,29 @@ namespace Armada.Core.Services
         {
             if (_Socket == null) throw new InvalidOperationException("Transport is not connected.");
 
+            // Collect the whole message's bytes and decode once: decoding each receive chunk on its own corrupts any
+            // multi-byte UTF-8 character that straddles a chunk boundary.
             byte[] buffer = new byte[_ReceiveBufferBytes];
-            StringBuilder message = new StringBuilder();
-            while (true)
+            using (MemoryStream message = new MemoryStream())
             {
-                WebSocketReceiveResult result = await _Socket.ReceiveAsync(new ArraySegment<byte>(buffer), token).ConfigureAwait(false);
-                if (result.MessageType == WebSocketMessageType.Close)
+                while (true)
                 {
-                    await _Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, token).ConfigureAwait(false);
-                    return null;
-                }
+                    WebSocketReceiveResult result = await _Socket.ReceiveAsync(new ArraySegment<byte>(buffer), token).ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        await _Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, token).ConfigureAwait(false);
+                        return null;
+                    }
 
-                message.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
-                if (result.EndOfMessage) return message.ToString();
+                    if (message.Length + result.Count > MaxMessageBytes)
+                    {
+                        await _Socket.CloseAsync(WebSocketCloseStatus.MessageTooBig, "message exceeds " + MaxMessageBytes + " bytes", token).ConfigureAwait(false);
+                        throw new InvalidDataException("Harbor link message exceeded " + MaxMessageBytes + " bytes.");
+                    }
+
+                    message.Write(buffer, 0, result.Count);
+                    if (result.EndOfMessage) return DecodeUtf8(message);
+                }
             }
         }
 
@@ -95,6 +116,18 @@ namespace Armada.Core.Services
                 {
                 }
             }
+        }
+
+        /// <summary>
+        /// Decode a complete message's bytes as UTF-8.
+        /// </summary>
+        /// <param name="message">The message bytes.</param>
+        /// <returns>The text.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when message is null.</exception>
+        public static string DecodeUtf8(MemoryStream message)
+        {
+            if (message == null) throw new ArgumentNullException(nameof(message));
+            return Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
         }
 
         /// <summary>

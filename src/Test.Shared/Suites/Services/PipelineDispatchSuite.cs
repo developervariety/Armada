@@ -487,6 +487,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -581,6 +582,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -675,6 +677,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -764,7 +767,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("architect_numbered_summary_without_markers_fans_out_cleanly", "Architect numbered summary without markers fans out cleanly", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("architect_numbered_summary_without_plan_gets_repair_not_fan_out", "Architect numbered narration without a plan block is never fanned out; the Architect gets an output repair turn", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -857,27 +860,32 @@ namespace Test.Shared.Suites.Services
                     List<Mission> testMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Test Engineer", StringComparison.OrdinalIgnoreCase)).ToList();
                     List<Mission> judgeMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase)).ToList();
 
-                    AssertEqual(22, afterArchitect.Count, "Architect numbered summary should fan out the entire downstream chain");
-                    AssertEqual(7, workerMissions.Count, "Architect numbered summary should produce seven worker missions");
-                    AssertEqual(7, testMissions.Count, "Architect numbered summary should clone seven test stages");
-                    AssertEqual(7, judgeMissions.Count, "Architect numbered summary should clone seven judge stages");
+                    AssertEqual(4, afterArchitect.Count, "Numbered narration must not create any missions");
+                    AssertEqual(1, workerMissions.Count, "Only the original Worker slot exists");
+                    AssertEqual("[Worker] Placeholder", workerMissions[0].Title, "The Worker slot is not overwritten from narration");
+                    AssertEqual(MissionStatusEnum.Pending, workerMissions[0].Status, "The Worker keeps waiting for a real plan");
 
-                    Mission? apiMission = workerMissions.FirstOrDefault(m => m.Title == "REST + MCP API updates for captain model and mission total runtime [Worker]");
-                    AssertNotNull(apiMission, "Summary parser should preserve the numbered mission titles");
-                    AssertContains("Wire new fields through CaptainRoutes", apiMission!.Description ?? String.Empty, "Summary parser should carry the inline description into the worker mission");
+                    Mission? repaired = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+                    AssertNotNull(repaired);
+                    AssertEqual(1, repaired!.OutputRepairAttempts, "The Architect gets one output repair turn");
+                    AssertTrue(repaired.Status != MissionStatusEnum.Failed, "The first contract violation is repaired, not failed");
+                    AssertContains("Output contract repair (attempt 1 of 1)", repaired.Description ?? String.Empty);
+                    AssertContains("armada-plan", repaired.Description ?? String.Empty, "The repair note quotes the required plan format");
+                    AssertNull(repaired.AgentOutput, "The unusable output is cleared before the repair turn");
 
-                    Mission? firstWorker = workerMissions.FirstOrDefault(m => m.Title == "Captain model property + all database backends + migration scripts [Worker]");
-                    AssertNotNull(firstWorker, "First summary mission should map onto the existing worker slot");
-                    AssertEqual(MissionStatusEnum.InProgress, firstWorker!.Status, "First parsed worker mission should auto-dispatch after architect completion");
+                    Captain? releasedArchitect = await testDb.Driver.Captains.ReadAsync(architectCaptain.Id).ConfigureAwait(false);
+                    AssertTrue(releasedArchitect!.CurrentMissionId != architect.Id || releasedArchitect.State == CaptainStateEnum.Working,
+                        "The Architect captain is released from the unusable attempt (or re-assigned to the repair turn)");
                 }
             }));
 
-            cases.Add(CaseAsync("architect_markdown_mission_headings_with_multiline_descriptions_fan_out_cleanly", "Architect markdown mission headings with multiline descriptions fan out cleanly", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("architect_markdown_mission_headings_without_plan_fail_closed", "Markdown mission headings without a plan block fail closed once repair is exhausted, creating no missions", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0;
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -961,19 +969,15 @@ namespace Test.Shared.Suites.Services
                     List<Mission> testMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Test Engineer", StringComparison.OrdinalIgnoreCase)).ToList();
                     List<Mission> judgeMissions = afterArchitect.Where(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase)).ToList();
 
-                    AssertEqual(7, afterArchitect.Count, "Markdown architect summary should fan out two downstream chains");
-                    AssertEqual(2, workerMissions.Count, "Markdown architect summary should produce two worker missions");
-                    AssertEqual(2, testMissions.Count, "Markdown architect summary should produce two test missions");
-                    AssertEqual(2, judgeMissions.Count, "Markdown architect summary should produce two judge missions");
+                    AssertEqual(4, afterArchitect.Count, "Markdown narration must not create any missions");
+                    AssertEqual(1, workerMissions.Count, "Only the original Worker slot exists");
 
-                    Mission? secondWorker = workerMissions.FirstOrDefault(m =>
-                        (m.Description ?? String.Empty).Contains("Expose the new fields through REST and MCP", StringComparison.Ordinal));
-                    AssertNotNull(secondWorker, "Expected second markdown summary worker mission to exist");
-                    Mission? dependencyMission = afterArchitect.FirstOrDefault(m => m.Id == secondWorker!.DependsOnMissionId);
-                    AssertNotNull(dependencyMission, "Expected markdown summary dependency to resolve to an existing mission");
-                    AssertEqual("Judge", dependencyMission!.Persona, "Natural-language dependency sentence should point the second worker to the first chain terminal stage");
-                    AssertContains("Expose the new fields through REST and MCP", secondWorker.Description ?? String.Empty, "Trailing description after the dependency sentence should be preserved");
-                    AssertFalse((secondWorker.Description ?? String.Empty).StartsWith("Depends on", StringComparison.OrdinalIgnoreCase), "Dependency sentence should be removed from the worker description after parsing");
+                    Mission? failedArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, failedArchitect!.Status, "With repair exhausted the Architect fails closed");
+                    AssertEqual(MissionFailureKindEnum.InvalidOutput, failedArchitect.FailureKind);
+                    AssertContains("armada-plan", failedArchitect.FailureReason ?? String.Empty, "The failure names the missing plan block");
+                    foreach (Mission downstream in afterArchitect.Where(m => m.Id != architect.Id))
+                        AssertEqual(MissionStatusEnum.Cancelled, downstream.Status, "Downstream stages settle instead of waiting forever");
                 }
             }));
 
@@ -1854,6 +1858,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -2195,6 +2200,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -2263,6 +2269,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -2416,6 +2423,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -2495,6 +2503,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -2573,6 +2582,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -2665,6 +2675,7 @@ namespace Test.Shared.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0; // fail-closed outcome once output repair is exhausted
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
@@ -3503,7 +3514,8 @@ namespace Test.Shared.Suites.Services
                     AssertNull(reloadedMission.CaptainId, "Mission should clear the captain after launch failure");
                     AssertNull(reloadedMission.DockId, "Mission should clear the dock after launch failure");
                     AssertNotNull(reloadedCaptain, "Captain should remain readable after launch failure");
-                    AssertEqual(CaptainStateEnum.Idle, reloadedCaptain!.State, "Captain should be released back to Idle after launch failure");
+                    AssertNull(reloadedCaptain!.CurrentMissionId, "The captain no longer holds the failed mission");
+                    AssertEqual(CaptainStateEnum.Quarantined, reloadedCaptain.State, "A deterministic configuration failure quarantines the captain instead of handing it the next mission");
                     AssertEqual(0, docks.Count(d => d.Active), "Launch failure should not leave behind an active dock");
                 }
             }));

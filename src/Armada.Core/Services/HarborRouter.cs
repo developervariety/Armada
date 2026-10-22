@@ -46,6 +46,15 @@ namespace Armada.Core.Services
                     return HarborRoutingDecision.None("The Harbor that owns this dock (" + request.ExistingHarborId + ") is no longer registered.");
                 if (!isConnected(owner.Id))
                     return HarborRoutingDecision.None("Waiting for Harbor " + owner.Id + " (owns this mission's dock) to reconnect.");
+
+                // Affinity does not excuse capability: a Harbor that holds the dock but cannot run the captain's runtime
+                // would accept the launch and fail it on every attempt. Say so instead.
+                if (!owner.Enabled)
+                    return HarborRoutingDecision.None("The Harbor that owns this mission's dock (" + owner.Id + ") is disabled; enable it to continue.");
+                if (!HasCapabilities(owner, request))
+                    return HarborRoutingDecision.None("The Harbor that owns this mission's dock (" + owner.Id + ") does not advertise the required capabilities"
+                        + (String.IsNullOrWhiteSpace(request.RequestedRuntime) ? "" : " (runtime " + request.RequestedRuntime + ")")
+                        + "; install the runtime on that Harbor or route this stage to a captain whose runtime it has.");
                 return HarborRoutingDecision.Chosen(owner.Id, true, "Pinned to the Harbor that owns this mission's dock.");
             }
 

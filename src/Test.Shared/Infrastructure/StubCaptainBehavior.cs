@@ -62,6 +62,36 @@ namespace Test.Shared.Infrastructure
         /// </summary>
         public Task? MissionExitGate { get; set; }
 
+        /// <summary>
+        /// Optional per-launch mission script (fault injection). Null keeps the default: commit one file and exit 0, or exit
+        /// 1 when <see cref="MissionsSucceed"/> is false.
+        /// </summary>
+        public Func<StubMissionLaunch, StubMissionScript>? OnMission { get; set; } = null;
+
+        /// <summary>
+        /// Mission launches seen so far (used for <see cref="StubMissionLaunch.LaunchNumber"/>).
+        /// </summary>
+        public int MissionLaunches => _MissionLaunches;
+
+        #endregion
+
+        #region Private-Members
+
+        private int _MissionLaunches = 0;
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// Count a mission launch and return its one-based number.
+        /// </summary>
+        /// <returns>The launch number.</returns>
+        public int NextMissionLaunch()
+        {
+            return System.Threading.Interlocked.Increment(ref _MissionLaunches);
+        }
+
         #endregion
     }
 }

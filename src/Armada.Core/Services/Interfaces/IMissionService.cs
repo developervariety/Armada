@@ -71,6 +71,15 @@ namespace Armada.Core.Services.Interfaces
         Task HandleCompletionAsync(Captain captain, string missionId, CancellationToken token = default);
 
         /// <summary>
+        /// Whether a mission's completion is still being processed. Its status reads WorkProduced from the first step of
+        /// completion, before the flow has decided what follows (a handoff, a rework, an output repair, landing), so voyage
+        /// settlement must not treat such a mission as finished.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <returns>True while the mission's completion handler runs.</returns>
+        bool IsCompletionInFlight(string missionId);
+
+        /// <summary>
         /// Re-drive pipeline handoffs that dangled: WorkProduced missions whose Pending downstream
         /// stage was never prepared. Returns the number of missions whose handoff was re-driven.
         /// </summary>

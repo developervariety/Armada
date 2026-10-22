@@ -108,6 +108,14 @@ namespace Armada.Core.Models
         public int RedispatchAttempts { get; set; } = 0;
 
         /// <summary>
+        /// Number of output-contract repair turns used: the stage ran again, with the exact contract errors quoted,
+        /// after it finished with output that broke its contract (an invalid or missing Architect plan, a missing or
+        /// conflicting Judge verdict, an unsubstantiated PASS, or a block without an affected case). Bounded by
+        /// <c>ArmadaSettings.MaxOutputRepairAttempts</c>; counted separately from <see cref="RedispatchAttempts"/>.
+        /// </summary>
+        public int OutputRepairAttempts { get; set; } = 0;
+
+        /// <summary>
         /// Optional required capability tier. Dispatch routes the mission to an idle captain at or above
         /// this tier (preferring the lowest eligible tier). Null means Standard.
         /// </summary>

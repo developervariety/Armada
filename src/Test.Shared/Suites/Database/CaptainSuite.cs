@@ -289,6 +289,74 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("captain_try_claim_without_dock", "A captain can be claimed before its dock exists, and the dock attached later", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    Captain captain = new Captain("claim-first");
+                    await db.Captains.CreateAsync(captain);
+
+                    AssertTrue(await db.Captains.TryClaimAsync(captain.Id, "msn_first", null), "claim without a dock");
+                    Captain? claimed = await db.Captains.ReadAsync(captain.Id);
+                    AssertEqual(CaptainStateEnum.Working, claimed!.State);
+                    AssertEqual("msn_first", claimed.CurrentMissionId);
+                    AssertNull(claimed.CurrentDockId);
+
+                    AssertFalse(await db.Captains.TrySetDockAsync(captain.Id, "msn_other", "dck_other"), "dock for another mission is refused");
+                    AssertTrue(await db.Captains.TrySetDockAsync(captain.Id, "msn_first", "dck_first"), "dock for the held mission is recorded");
+                    AssertFalse(await db.Captains.TrySetProcessAsync(captain.Id, "msn_other", 4242), "process for another mission is refused");
+                    AssertTrue(await db.Captains.TrySetProcessAsync(captain.Id, "msn_first", 4242), "process for the held mission is recorded");
+
+                    Captain? attached = await db.Captains.ReadAsync(captain.Id);
+                    AssertEqual("dck_first", attached!.CurrentDockId);
+                    AssertEqual(4242, attached.ProcessId);
+                }
+            }));
+
+            cases.Add(CaseAsync("captain_try_release_from_mission_is_guarded", "Release only applies while the captain still holds the given mission", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    Captain captain = new Captain("guarded-release");
+                    await db.Captains.CreateAsync(captain);
+                    AssertTrue(await db.Captains.TryClaimAsync(captain.Id, "msn_current", "dck_current"));
+                    AssertTrue(await db.Captains.TrySetProcessAsync(captain.Id, "msn_current", 77));
+
+                    // A stale rollback for an earlier mission must not wipe the current assignment.
+                    AssertFalse(await db.Captains.TryReleaseFromMissionAsync(captain.Id, "msn_stale"), "stale release is refused");
+                    Captain? untouched = await db.Captains.ReadAsync(captain.Id);
+                    AssertEqual(CaptainStateEnum.Working, untouched!.State);
+                    AssertEqual("msn_current", untouched.CurrentMissionId);
+                    AssertEqual(77, untouched.ProcessId);
+
+                    AssertTrue(await db.Captains.TryReleaseFromMissionAsync(captain.Id, "msn_current"), "release of the held mission applies");
+                    Captain? released = await db.Captains.ReadAsync(captain.Id);
+                    AssertEqual(CaptainStateEnum.Idle, released!.State);
+                    AssertNull(released.CurrentMissionId);
+                    AssertNull(released.CurrentDockId);
+                    AssertNull(released.ProcessId);
+                    AssertFalse(await db.Captains.TryReleaseFromMissionAsync(captain.Id, "msn_current"), "a second release is a no-op");
+                }
+            }));
+
+            cases.Add(CaseAsync("captain_try_release_from_mission_keeps_quarantine", "Release never lifts a quarantine", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    Captain captain = new Captain("quarantined-release");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.CurrentMissionId = "msn_q";
+                    await db.Captains.CreateAsync(captain);
+
+                    AssertFalse(await db.Captains.TryReleaseFromMissionAsync(captain.Id, "msn_q"));
+                    Captain? result = await db.Captains.ReadAsync(captain.Id);
+                    AssertEqual(CaptainStateEnum.Quarantined, result!.State);
+                }
+            }));
+
             cases.Add(CaseAsync("captain_delete", "Captain_Delete", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

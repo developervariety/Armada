@@ -223,6 +223,24 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum number of output-contract repair turns per mission. When a Judge or Architect finishes with output
+        /// that breaks its contract (no verdict, conflicting verdicts, an unsubstantiated PASS, a block without an
+        /// affected case, or an invalid or missing plan), the same stage runs again with the exact errors quoted, up to
+        /// this many times, before the mission fails. Set to 0 to fail on the first contract violation. Must be in
+        /// range [0, 3].
+        /// </summary>
+        public int MaxOutputRepairAttempts
+        {
+            get => _MaxOutputRepairAttempts;
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 3) value = 3;
+                _MaxOutputRepairAttempts = value;
+            }
+        }
+
+        /// <summary>
         /// Maximum number of bounded rescue missions the autonomous-recovery coordinator dispatches for a
         /// single incident before it stops and leaves the incident open for a human. Set to 0 to disable
         /// autonomous rescue (incidents are still opened for visibility). Clamped to [0, 5].
@@ -284,6 +302,22 @@ namespace Armada.Core.Settings
             {
                 if (value < 0) throw new ArgumentOutOfRangeException(nameof(MaxMissionRuntimeMinutes), "Must be >= 0");
                 _MaxMissionRuntimeMinutes = value;
+            }
+        }
+
+        /// <summary>
+        /// Base delay, in seconds, before a captain is resumed in place after a transient model or endpoint failure. Each
+        /// further attempt doubles it (with jitter), up to 60 seconds, so a struggling local model server is not hit with
+        /// an immediate retry storm. 0 resumes immediately. Must be in range [0, 60].
+        /// </summary>
+        public int TransientResumeDelaySeconds
+        {
+            get => _TransientResumeDelaySeconds;
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 60) value = 60;
+                _TransientResumeDelaySeconds = value;
             }
         }
 
@@ -831,7 +865,9 @@ namespace Armada.Core.Settings
         private int _PlanningSessionAbandonmentTimeoutMinutes = Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes;
         private int _MaxLandingRetries = 3;
         private int _MaxNoOpRedispatchAttempts = 1;
+        private int _MaxOutputRepairAttempts = 1;
         private int _MaxMissionRecoveryAttempts = 2;
+        private int _TransientResumeDelaySeconds = 5;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _MaxConcurrentMissions = Constants.DefaultMaxConcurrentMissions;

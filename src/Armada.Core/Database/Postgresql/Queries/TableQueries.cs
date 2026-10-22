@@ -1768,7 +1768,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(87, "Add per-run approval choices and timeout decisions",
                     @"ALTER TABLE voyages ADD COLUMN IF NOT EXISTS approval_options_json TEXT NULL;",
                     @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS approval_options_json TEXT NULL;",
-                    @"ALTER TABLE cli_permission_requests ADD COLUMN IF NOT EXISTS timeout_decision VARCHAR(32) NOT NULL DEFAULT 'Deny';")
+                    @"ALTER TABLE cli_permission_requests ADD COLUMN IF NOT EXISTS timeout_decision VARCHAR(32) NOT NULL DEFAULT 'Deny';"),
+                new SchemaMigration(88, "Add output_repair_attempts to missions for bounded output-contract repair turns",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS output_repair_attempts INTEGER NOT NULL DEFAULT 0;")
 
 
             };

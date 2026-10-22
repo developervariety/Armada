@@ -96,6 +96,20 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual(1, lateTracker.ResolveExitCode(1) ?? -99);
             }));
 
+            cases.Add(Case("tracker_failed_run_overrides_exit_zero", "Exit 0 is reported as 1 when the structured outcome says the run failed; exit 0 without run_completed stays 0", TestTags.Negative, () =>
+            {
+                MuxRunOutcomeTracker failed = Feed(MuxJsonlFixtures.MaxIterationsRun(), out List<RuntimeProviderError> _);
+                AssertEqual(1, failed.ResolveExitCode(0) ?? -99, "a run stopped at its limit is not a success because the process exited 0");
+
+                List<string> fatal = new List<string> { MuxJsonlFixtures.RunStarted, MuxJsonlFixtures.ConnectionError };
+                fatal.AddRange(MuxJsonlFixtures.FinalTurnText);
+                fatal.Add(MuxJsonlFixtures.CompletedWithErrors);
+                AssertEqual(1, Feed(fatal, out List<RuntimeProviderError> _).ResolveExitCode(0) ?? -99, "a fatal error wins over exit 0");
+
+                MuxRunOutcomeTracker unstructured = Feed(new List<string> { "plain text from an older mux" }, out List<RuntimeProviderError> _);
+                AssertEqual(0, unstructured.ResolveExitCode(0) ?? -99, "no structured outcome: the process code stands");
+            }));
+
             cases.Add(Case("tracker_llm_error_status_classifies", "An llm_error names its HTTP status, so a 401 is an auth failure and a 429 a usage limit", TestTags.Positive, () =>
             {
                 MuxRunOutcomeTracker tracker = new MuxRunOutcomeTracker();

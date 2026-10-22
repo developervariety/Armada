@@ -26,6 +26,12 @@ namespace Armada.Core.Enums
         /// <summary>
         /// The Judge requests follow-up changes.
         /// </summary>
-        NeedsRevision
+        NeedsRevision,
+
+        /// <summary>
+        /// The Judge reports that an acceptance criterion cannot be satisfied as written (it contradicts another
+        /// requirement or a dependency's actual behavior). The stage goes to a person to decide; nothing is waived.
+        /// </summary>
+        SpecConflict
     }
 }

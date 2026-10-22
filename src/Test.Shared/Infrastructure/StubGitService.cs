@@ -47,6 +47,16 @@ namespace Test.Shared.Infrastructure
 
         // Failure injection
         public bool ShouldThrowOnWorktree { get; set; } = false;
+
+        /// <summary>
+        /// HEAD commit reported for every worktree.
+        /// </summary>
+        public string? HeadCommitResult { get; set; } = "abc123def456";
+
+        /// <summary>
+        /// Result of every ancestry check (null: a ref did not resolve).
+        /// </summary>
+        public bool? IsAncestorResult { get; set; } = null;
         public bool ShouldThrowOnPush { get; set; } = false;
         public bool ShouldThrowOnCreatePr { get; set; } = false;
         public bool ShouldThrowOnMergeLocal { get; set; } = false;
@@ -152,7 +162,7 @@ namespace Test.Shared.Infrastructure
             => Task.FromResult(ConflictedFilesResult);
 
         public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(IsPrMergedResult);
-        public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
+        public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>(HeadCommitResult);
         public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)
         {
             if (ExistingBranches.Contains(branchName)) return Task.FromResult(true);
@@ -193,7 +203,7 @@ namespace Test.Shared.Infrastructure
             => Task.FromResult<GitDivergenceCounts?>(new GitDivergenceCounts(0, 0));
 
         public Task<bool?> IsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
-            => Task.FromResult<bool?>(null);
+            => Task.FromResult<bool?>(IsAncestorResult);
 
         public Task<GitWorkingTreeStatus> GetWorkingTreeStatusAsync(string repoPath, CancellationToken token = default)
             => Task.FromResult(new GitWorkingTreeStatus());

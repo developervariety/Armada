@@ -949,11 +949,10 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <param name="dockId">Dock identifier to assign.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if claim succeeded, false otherwise.</returns>
-        public async Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default)
+        public async Task<bool> TryClaimAsync(string captainId, string missionId, string? dockId, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
-            if (string.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
 
             DateTime now = DateTime.UtcNow;
 
@@ -972,8 +971,93 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@id", captainId);
                     cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", missionId);
-                    cmd.Parameters.AddWithValue("@current_dock_id", dockId);
+                    cmd.Parameters.AddWithValue("@current_dock_id", (object?)dockId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    return rowsAffected > 0;
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TryReleaseFromMissionAsync(string captainId, string missionId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"UPDATE captains SET
+                        state = 'Idle',
+                        current_mission_id = NULL,
+                        current_dock_id = NULL,
+                        process_id = NULL,
+                        recovery_attempts = 0,
+                        last_update_utc = @last_update_utc
+                        WHERE id = @id AND current_mission_id = @current_mission_id AND state IN ('Working', 'Stalled', 'Stopping');";
+                    cmd.Parameters.AddWithValue("@id", captainId);
+                    cmd.Parameters.AddWithValue("@current_mission_id", missionId);
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    return rowsAffected > 0;
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TrySetDockAsync(string captainId, string missionId, string dockId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+            if (string.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"UPDATE captains SET
+                        current_dock_id = @current_dock_id,
+                        last_update_utc = @last_update_utc
+                        WHERE id = @id AND current_mission_id = @current_mission_id AND state IN ('Working', 'Stalled', 'Stopping');";
+                    cmd.Parameters.AddWithValue("@id", captainId);
+                    cmd.Parameters.AddWithValue("@current_mission_id", missionId);
+                    cmd.Parameters.AddWithValue("@current_dock_id", dockId);
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    return rowsAffected > 0;
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TrySetProcessAsync(string captainId, string missionId, int processId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"UPDATE captains SET
+                        process_id = @process_id,
+                        last_update_utc = @last_update_utc
+                        WHERE id = @id AND current_mission_id = @current_mission_id AND state IN ('Working', 'Stalled', 'Stopping');";
+                    cmd.Parameters.AddWithValue("@id", captainId);
+                    cmd.Parameters.AddWithValue("@current_mission_id", missionId);
+                    cmd.Parameters.AddWithValue("@process_id", processId);
                     cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;

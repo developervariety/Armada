@@ -38,6 +38,22 @@ namespace Armada.Runtimes
         /// <inheritdoc />
         public bool SupportsResume => false;
 
+        /// <summary>
+        /// Retries of one inference call after a retryable failure (no HTTP status, 408, 429, 5xx, 529, or a transport
+        /// exception) before the run gives up, from 0 through 5. A model call has no side effects, so retrying it keeps
+        /// the conversation instead of ending the run on a single transient blip.
+        /// </summary>
+        public int InferenceRetries
+        {
+            get => _InferenceRetries;
+            set => _InferenceRetries = value < 0 ? 0 : (value > 5 ? 5 : value);
+        }
+
+        /// <summary>
+        /// Delay before the first inference retry; each further retry doubles it, with jitter.
+        /// </summary>
+        public TimeSpan InferenceRetryBaseDelay { get; set; } = TimeSpan.FromSeconds(2);
+
         /// <inheritdoc />
         public bool SupportsPlanningSessions => Armada.Core.Services.AgentRuntimeCapabilities.SupportsPlanningSessions(Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint);
 
@@ -99,6 +115,7 @@ namespace Armada.Runtimes
         // Synthetic process ids start well above any real OS process id so a stray Process.GetProcessById does
         // not collide with an unrelated live process.
         private static int _PidCounter = 2_000_000_000;
+        private int _InferenceRetries = 2;
         private static readonly ConcurrentDictionary<int, CancellationTokenSource> _Running = new ConcurrentDictionary<int, CancellationTokenSource>();
 
         private readonly ModelEndpoint? _Endpoint;
@@ -255,6 +272,42 @@ namespace Armada.Runtimes
 
         #region Private-Methods
 
+        private async Task<T> WithInferenceRetryAsync<T>(Func<Task<T>> call, Func<T, bool> succeeded, Func<T, int?> status, Func<T, string?> error, int processId, CancellationToken token)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                T result;
+                try
+                {
+                    result = await call().ConfigureAwait(false);
+                }
+                catch (Exception ex) when (attempt < _InferenceRetries && !token.IsCancellationRequested
+                    && (ex is System.Net.Http.HttpRequestException || ex is IOException || ex is TaskCanceledException || ex is TimeoutException))
+                {
+                    await DelayBeforeInferenceRetryAsync(attempt, processId, ex.Message, token).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (succeeded(result) || attempt >= _InferenceRetries || !IsRetryableInferenceStatus(status(result))) return result;
+                await DelayBeforeInferenceRetryAsync(attempt, processId, (status(result).HasValue ? "HTTP " + status(result) + " " : String.Empty) + (error(result) ?? "no detail"), token).ConfigureAwait(false);
+            }
+        }
+
+        private static bool IsRetryableInferenceStatus(int? status)
+        {
+            if (!status.HasValue) return true;
+            int code = status.Value;
+            return code == 408 || code == 429 || code == 500 || code == 502 || code == 503 || code == 504 || code == 529;
+        }
+
+        private async Task DelayBeforeInferenceRetryAsync(int attempt, int processId, string reason, CancellationToken token)
+        {
+            double baseMs = Math.Max(0, InferenceRetryBaseDelay.TotalMilliseconds) * Math.Pow(2, attempt);
+            double jittered = baseMs * (0.75 + Random.Shared.NextDouble() * 0.5);
+            EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[retry] inference call failed (" + reason + "); retry " + (attempt + 1) + " of " + _InferenceRetries + " in " + (jittered / 1000).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "s");
+            if (jittered > 0) await Task.Delay(TimeSpan.FromMilliseconds(jittered), token).ConfigureAwait(false);
+        }
+
         private async Task RunLoopAsync(
             int processId,
             ModelEndpoint endpoint,
@@ -298,7 +351,7 @@ namespace Armada.Runtimes
                 async Task RunPlainChatAsync()
                 {
                     completionOptions.SystemPrompt = BuildSystemPrompt(workingDirectory);
-                    ChatResponse reply = await client.ChatAsync(prompt, completionOptions, token).ConfigureAwait(false);
+                    ChatResponse reply = await WithInferenceRetryAsync(() => client.ChatAsync(prompt, completionOptions, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, token).ConfigureAwait(false);
                     EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = 1, reply.Success, reply.FinishReason, reply.Usage, textLength = reply.Text?.Length ?? 0, toolCalls = 0 }));
                     if (!reply.Success)
                     {
@@ -410,7 +463,7 @@ namespace Armada.Runtimes
                     request.Tools = tools;
                     request.Options = completionOptions;
 
-                    ToolChatResponse response = await client.ToolChatAsync(request, token).ConfigureAwait(false);
+                    ToolChatResponse response = await WithInferenceRetryAsync(() => client.ToolChatAsync(request, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, token).ConfigureAwait(false);
 
                     EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = iteration + 1, maxIterations, response.Success, response.ResponseId, response.FinishReason, response.Usage, reasoningLength = response.Reasoning?.Length ?? 0, textLength = response.Text?.Length ?? 0, toolCalls = response.ToolCalls?.Count ?? 0 }));
 

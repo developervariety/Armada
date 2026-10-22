@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
 
     /// <summary>
     /// Consecutive failures to start a mission's captain, so assignment backs off instead of retrying every dispatch
@@ -29,6 +30,12 @@ namespace Armada.Core.Services
         /// Earliest time the mission is tried again (UTC).
         /// </summary>
         public DateTime NextAttemptUtc { get; set; } = DateTime.UtcNow;
+
+        /// <summary>
+        /// Captains that failed to start this mission. Assignment prefers any other eligible idle captain, so one broken
+        /// captain is not picked again and again for the same mission.
+        /// </summary>
+        public HashSet<string> FailedCaptainIds { get; set; } = new HashSet<string>(StringComparer.Ordinal);
 
         #endregion
 

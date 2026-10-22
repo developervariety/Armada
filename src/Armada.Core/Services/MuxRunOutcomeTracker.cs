@@ -50,6 +50,12 @@ namespace Armada.Core.Services
         public const int MaxReasonMessageChars = 300;
 
         /// <summary>
+        /// Longest assistant turn kept for the rebuilt final reply, in characters. Older text of a longer turn is dropped
+        /// so a model that never stops writing cannot grow memory without bound.
+        /// </summary>
+        public const int MaxTurnTextChars = 1024 * 1024;
+
+        /// <summary>
         /// Whether a <c>run_completed</c> event arrived.
         /// </summary>
         public bool RunCompleted
@@ -195,7 +201,12 @@ namespace Armada.Core.Services
                             _TurnClosed = false;
                         }
 
-                        if (!String.IsNullOrEmpty(evt.Text)) _CurrentTurn.Append(evt.Text);
+                        if (!String.IsNullOrEmpty(evt.Text))
+                        {
+                            _CurrentTurn.Append(evt.Text);
+                            // A degenerate model can stream text without end; keep the most recent part of the turn.
+                            if (_CurrentTurn.Length > MaxTurnTextChars) _CurrentTurn.Remove(0, _CurrentTurn.Length - MaxTurnTextChars);
+                        }
                         return null;
 
                     case MuxProtocolEvent.ToolCallProposed:
@@ -237,7 +248,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// The exit code to report to Armada for the process's exit: 0 in place of mux's error exits (1 and 2) when the
-        /// run succeeded (see <see cref="Succeeded"/>); otherwise the exit code unchanged.
+        /// run succeeded (see <see cref="Succeeded"/>); 1 in place of exit 0 when a <c>run_completed</c> event reported a
+        /// failed status or a fatal error arrived (the structured outcome wins over the process code); otherwise the exit
+        /// code unchanged. Exit 0 without any <c>run_completed</c> (an older mux, or text mode) stays 0.
         /// </summary>
         /// <param name="exitCode">The process exit code, or null when unknown.</param>
         /// <returns>The exit code to report.</returns>
@@ -245,6 +258,7 @@ namespace Armada.Core.Services
         {
             if (!exitCode.HasValue) return exitCode;
             if ((exitCode.Value == 1 || exitCode.Value == 2) && Succeeded) return 0;
+            if (exitCode.Value == 0 && (HasFatalError || (RunCompleted && !Succeeded))) return 1;
             return exitCode;
         }
 

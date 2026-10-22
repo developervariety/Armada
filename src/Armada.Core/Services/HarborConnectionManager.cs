@@ -195,7 +195,25 @@ namespace Armada.Core.Services
             connection.HeartbeatIntervalMs = handshake.HeartbeatIntervalMs;
             connection.LastSeenUtc = now;
             connection.CloseLink = closeLink;
+
+            // Requests sent over the link this handshake replaces can never be answered (the Harbor does not replay RPC
+            // replies, and the old link's own disconnect is ignored once it is no longer current): fail them now so their
+            // callers retry or report at once instead of waiting out their full timeout.
+            if (_Connections.ContainsKey(handshake.HarborId))
+            {
+                int superseded = FailPendingRequests(handshake.HarborId);
+                if (superseded > 0) _Logging.Info(_Header + "failed " + superseded + " pending request(s) of Harbor " + handshake.HarborId + " whose link was replaced");
+            }
+
             _Connections[handshake.HarborId] = connection;
+
+            // A job marked missing on the earlier link starts its grace again: the new link replays the outbox (which
+            // may carry the job's exit) before its first heartbeat says what still runs.
+            foreach (KeyValuePair<string, string> owner in _JobOwners)
+            {
+                if (String.Equals(owner.Value, handshake.HarborId, StringComparison.Ordinal))
+                    _VanishedSince.TryRemove(owner.Key, out DateTime _);
+            }
 
             long? lastJobSequence = null;
             if (!String.IsNullOrWhiteSpace(handshake.JobOutboxEpoch))
@@ -344,130 +362,17 @@ namespace Armada.Core.Services
             }
 
             // A job message the Harbor replays after a reconnect may have arrived over the earlier link already.
-            if (message.OutboxSequence.HasValue && !AcceptJobSequence(harborId, message.OutboxSequence.Value))
+            if (message.OutboxSequence.HasValue && IsReplayedJobSequence(harborId, message.OutboxSequence.Value))
             {
                 _Logging.Debug(_Header + "harbor " + harborId + " replayed job message " + message.OutboxSequence.Value + " already received; dropped");
                 return;
             }
 
-            if (message is HarborHeartbeat heartbeat)
-            {
-                bool linked = false;
-                if (_Connections.TryGetValue(harborId, out HarborConnection? connection))
-                {
-                    linked = true;
-                    // Acknowledge first, before any database work, so the Harbor's round-trip time measures the link.
-                    if (heartbeat.Sequence.HasValue)
-                    {
-                        try
-                        {
-                            await connection!.SendAsync(new HarborHeartbeatAck { Sequence = heartbeat.Sequence.Value, LastJobSequence = LastJobSequence(harborId) }, token).ConfigureAwait(false);
-                        }
-                        catch (Exception e) when (!(e is OperationCanceledException))
-                        {
-                            _Logging.Debug(_Header + "could not acknowledge heartbeat of harbor " + harborId + ": " + e.Message);
-                        }
-                    }
-
-                    DateTime now = _Clock();
-                    connection!.RecordHeartbeat(now);
-                    connection.SetLiveJobs(heartbeat.LiveJobIds);
-                    TrackReportedJobs(harborId, heartbeat.LiveJobIds ?? new List<string>(), now);
-                }
-
-                if (linked && heartbeat.StorageReport != null) StorageReportReceived?.Invoke(harborId, heartbeat.StorageReport);
-                if (Metrics != null) await Metrics.OnHeartbeatAsync(harborId, heartbeat, token).ConfigureAwait(false);
-
-                // A heartbeat that arrives on a link already dropped (the sweep found it dead) must not mark the Harbor
-                // connected again; its next handshake does.
-                if (linked) await _Harbors.MarkConnectionAsync(harborId, HarborConnectionStatusEnum.Connected, true, token).ConfigureAwait(false);
-                await ReportVanishedJobsAsync(_Clock(), token).ConfigureAwait(false);
-                return;
-            }
-
-            if (message is HarborGitResult gitResult)
-            {
-                if (_PendingGit.TryRemove(gitResult.RequestId, out TaskCompletionSource<HarborGitResult>? pending))
-                    pending.TrySetResult(gitResult);
-                return;
-            }
-
-            if (message is HarborDockResult dockResult)
-            {
-                if (_PendingDock.TryRemove(dockResult.RequestId, out TaskCompletionSource<HarborDockResult>? pendingDock))
-                    pendingDock.TrySetResult(dockResult);
-                return;
-            }
-
-            if (message is HarborFileResult fileResult)
-            {
-                if (_PendingFile.TryRemove(fileResult.RequestId, out TaskCompletionSource<HarborFileResult>? pendingFile))
-                    pendingFile.TrySetResult(fileResult);
-                return;
-            }
-
-            if (message is HarborDeferredLaunchAck deferredAck)
-            {
-                if (_PendingDeferredLaunch.TryRemove(deferredAck.RequestId, out TaskCompletionSource<HarborDeferredLaunchAck>? pendingDeferred))
-                    pendingDeferred.TrySetResult(deferredAck);
-                return;
-            }
-
-            if (message is HarborStarted started)
-            {
-                if (Metrics != null) await Metrics.OnStartedAsync(started.JobId, token).ConfigureAwait(false);
-                if (_JobListeners.TryGetValue(started.JobId, out IHarborJobListener? startListener))
-                {
-                    _StartedJobs[started.JobId] = 0;
-                    startListener.OnStarted(started.ProcessId);
-                }
-                return;
-            }
-
-            if (message is HarborOutput output)
-            {
-                Metrics?.OnOutput(output.JobId);
-                if (_JobListeners.TryGetValue(output.JobId, out IHarborJobListener? outputListener))
-                    outputListener.OnOutput(output.Stream, output.Data);
-                return;
-            }
-
-            if (message is HarborActivity activity)
-            {
-                // Structured activity is output too: it counts toward the job's time to first output.
-                Metrics?.OnOutput(activity.JobId);
-                if (activity.Activity != null && _JobListeners.TryGetValue(activity.JobId, out IHarborJobListener? activityListener))
-                    activityListener.OnActivity(activity.Activity);
-                return;
-            }
-
-            if (message is HarborExited exited)
-            {
-                if (Metrics != null) await Metrics.OnExitedAsync(exited, token).ConfigureAwait(false);
-                ForgetJob(exited.JobId);
-                if (_JobListeners.TryRemove(exited.JobId, out IHarborJobListener? exitListener))
-                    exitListener.OnExited(exited.ExitCode);
-                if (_PendingStops.TryRemove(exited.JobId, out TaskCompletionSource<bool>? stopped)) stopped.TrySetResult(true);
-                return;
-            }
-
-            if (message is HarborError error)
-            {
-                _Logging.Warn(_Header + "harbor " + harborId + " reported error"
-                    + (String.IsNullOrEmpty(error.JobId) ? "" : " (job " + error.JobId + ")") + ": " + error.Message);
-
-                // A job-scoped error ends the job (the Harbor could not launch it): tell its listener at once so the
-                // launch fails with the Harbor's reason instead of waiting out the start timeout.
-                if (!String.IsNullOrEmpty(error.JobId) && Metrics != null)
-                    await Metrics.OnLaunchFailedAsync(error.JobId!, token).ConfigureAwait(false);
-                if (!String.IsNullOrEmpty(error.JobId)) ForgetJob(error.JobId!);
-                if (!String.IsNullOrEmpty(error.JobId) && _JobListeners.TryRemove(error.JobId!, out IHarborJobListener? failedListener))
-                    failedListener.OnFailed(String.IsNullOrEmpty(error.Message) ? "The Harbor could not run the job." : error.Message);
-                return;
-            }
-
-            // started/output/exited are consumed by the remote process executor's pending-job handlers.
-            _Logging.Debug(_Header + "harbor " + harborId + " message " + message.GetType().Name);
+            // The sequence is acknowledged (through the next heartbeat's LastJobSequence) only after its handler finished.
+            // A handler that throws leaves it unacknowledged and ends the link, so the Harbor replays it on reconnect
+            // instead of dropping it from its outbox: an exit is never lost to a database fault.
+            await ApplyMessageAsync(harborId, message, token).ConfigureAwait(false);
+            if (message.OutboxSequence.HasValue) AcceptJobSequence(harborId, message.OutboxSequence.Value);
         }
 
         /// <summary>
@@ -1062,6 +967,134 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private async Task ApplyMessageAsync(string harborId, HarborMessage message, CancellationToken token)
+        {
+            if (message is HarborHeartbeat heartbeat)
+            {
+                bool linked = false;
+                if (_Connections.TryGetValue(harborId, out HarborConnection? connection))
+                {
+                    linked = true;
+                    // Acknowledge first, before any database work, so the Harbor's round-trip time measures the link.
+                    if (heartbeat.Sequence.HasValue)
+                    {
+                        try
+                        {
+                            await connection!.SendAsync(new HarborHeartbeatAck { Sequence = heartbeat.Sequence.Value, LastJobSequence = LastJobSequence(harborId) }, token).ConfigureAwait(false);
+                        }
+                        catch (Exception e) when (!(e is OperationCanceledException))
+                        {
+                            _Logging.Debug(_Header + "could not acknowledge heartbeat of harbor " + harborId + ": " + e.Message);
+                        }
+                    }
+
+                    DateTime now = _Clock();
+                    connection!.RecordHeartbeat(now);
+                    connection.SetLiveJobs(heartbeat.LiveJobIds);
+                    TrackReportedJobs(harborId, heartbeat.LiveJobIds ?? new List<string>(), now);
+                }
+
+                if (linked && heartbeat.StorageReport != null) StorageReportReceived?.Invoke(harborId, heartbeat.StorageReport);
+                if (Metrics != null) await Metrics.OnHeartbeatAsync(harborId, heartbeat, token).ConfigureAwait(false);
+
+                // A heartbeat that arrives on a link already dropped (the sweep found it dead) must not mark the Harbor
+                // connected again; its next handshake does.
+                if (linked) await _Harbors.MarkConnectionAsync(harborId, HarborConnectionStatusEnum.Connected, true, token).ConfigureAwait(false);
+                await ReportVanishedJobsAsync(_Clock(), token).ConfigureAwait(false);
+                return;
+            }
+
+            if (message is HarborGitResult gitResult)
+            {
+                if (_PendingGit.TryRemove(gitResult.RequestId, out TaskCompletionSource<HarborGitResult>? pending))
+                    pending.TrySetResult(gitResult);
+                return;
+            }
+
+            if (message is HarborDockResult dockResult)
+            {
+                if (_PendingDock.TryRemove(dockResult.RequestId, out TaskCompletionSource<HarborDockResult>? pendingDock))
+                    pendingDock.TrySetResult(dockResult);
+                return;
+            }
+
+            if (message is HarborFileResult fileResult)
+            {
+                if (_PendingFile.TryRemove(fileResult.RequestId, out TaskCompletionSource<HarborFileResult>? pendingFile))
+                    pendingFile.TrySetResult(fileResult);
+                return;
+            }
+
+            if (message is HarborDeferredLaunchAck deferredAck)
+            {
+                if (_PendingDeferredLaunch.TryRemove(deferredAck.RequestId, out TaskCompletionSource<HarborDeferredLaunchAck>? pendingDeferred))
+                    pendingDeferred.TrySetResult(deferredAck);
+                return;
+            }
+
+            if (message is HarborStarted started)
+            {
+                if (Metrics != null) await Metrics.OnStartedAsync(started.JobId, token).ConfigureAwait(false);
+                if (_JobListeners.TryGetValue(started.JobId, out IHarborJobListener? startListener))
+                {
+                    _StartedJobs[started.JobId] = 0;
+                    startListener.OnStarted(started.ProcessId);
+                }
+                return;
+            }
+
+            if (message is HarborOutput output)
+            {
+                Metrics?.OnOutput(output.JobId);
+                if (_JobListeners.TryGetValue(output.JobId, out IHarborJobListener? outputListener))
+                    outputListener.OnOutput(output.Stream, output.Data);
+                return;
+            }
+
+            if (message is HarborActivity activity)
+            {
+                // Structured activity is output too: it counts toward the job's time to first output.
+                Metrics?.OnOutput(activity.JobId);
+                if (activity.Activity != null && _JobListeners.TryGetValue(activity.JobId, out IHarborJobListener? activityListener))
+                    activityListener.OnActivity(activity.Activity);
+                return;
+            }
+
+            if (message is HarborExited exited)
+            {
+                if (Metrics != null) await Metrics.OnExitedAsync(exited, token).ConfigureAwait(false);
+                ForgetJob(exited.JobId);
+                if (_JobListeners.TryRemove(exited.JobId, out IHarborJobListener? exitListener))
+                    exitListener.OnExited(exited.ExitCode);
+                if (_PendingStops.TryRemove(exited.JobId, out TaskCompletionSource<bool>? stopped)) stopped.TrySetResult(true);
+                return;
+            }
+
+            if (message is HarborError error)
+            {
+                _Logging.Warn(_Header + "harbor " + harborId + " reported error"
+                    + (String.IsNullOrEmpty(error.JobId) ? "" : " (job " + error.JobId + ")") + ": " + error.Message);
+
+                // A job-scoped error ends the job (the Harbor could not launch it): tell its listener at once so the
+                // launch fails with the Harbor's reason instead of waiting out the start timeout.
+                if (!String.IsNullOrEmpty(error.JobId) && Metrics != null)
+                    await Metrics.OnLaunchFailedAsync(error.JobId!, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(error.JobId)) ForgetJob(error.JobId!);
+                if (!String.IsNullOrEmpty(error.JobId) && _JobListeners.TryRemove(error.JobId!, out IHarborJobListener? failedListener))
+                    failedListener.OnFailed(String.IsNullOrEmpty(error.Message) ? "The Harbor could not run the job." : error.Message);
+                return;
+            }
+
+            // started/output/exited are consumed by the remote process executor's pending-job handlers.
+            _Logging.Debug(_Header + "harbor " + harborId + " message " + message.GetType().Name);
+        }
+
+        private bool IsReplayedJobSequence(string harborId, long sequence)
+        {
+            if (!_JobSequences.TryGetValue(harborId, out HarborJobSequenceState? state)) return false;
+            lock (state!) return sequence <= state.LastSequence;
+        }
 
         private bool AcceptJobSequence(string harborId, long sequence)
         {

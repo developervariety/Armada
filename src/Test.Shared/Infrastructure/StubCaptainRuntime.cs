@@ -117,13 +117,15 @@ namespace Test.Shared.Infrastructure
                     {
                         _Behavior.MissionDirectories.Enqueue(workingDirectory);
                         Stopwatch lifetime = Stopwatch.StartNew();
-                        code = RunMission(processId, workingDirectory, logFilePath);
+                        StubMissionScript? script = _Behavior.OnMission?.Invoke(new StubMissionLaunch(workingDirectory, prompt, _Behavior.NextMissionLaunch()));
+                        code = script != null
+                            ? RunScriptedMission(processId, workingDirectory, logFilePath, finalMessageFilePath, script)
+                            : RunMission(processId, workingDirectory, logFilePath);
 
-                        // A real agent process lives at least as long as the server takes to record the launch (the
-                        // captain's current mission is written after StartAsync returns); an exit reported before then is
-                        // ignored as belonging to no mission. Keep a minimum lifetime like any real process has.
+                        // A real agent process lives at least as long as the server takes to record the launch; keep a
+                        // minimum lifetime like any real process has, unless the script asks for a millisecond exit.
                         int remaining = MinimumMissionLifetimeMs - (int)lifetime.ElapsedMilliseconds;
-                        if (remaining > 0) await Task.Delay(remaining).ConfigureAwait(false);
+                        if (remaining > 0 && (script == null || !script.ExitImmediately)) await Task.Delay(remaining).ConfigureAwait(false);
 
                         Task? exitGate = _Behavior.MissionExitGate;
                         if (exitGate != null) await exitGate.ConfigureAwait(false);
@@ -186,6 +188,32 @@ namespace Test.Shared.Infrastructure
         protected override List<string> BuildArguments(string workingDirectory, string prompt, string? model, string? finalMessageFilePath, Captain? captain)
         {
             return new List<string>();
+        }
+
+        private int RunScriptedMission(int processId, string workingDirectory, string? logFilePath, string? finalMessageFilePath, StubMissionScript script)
+        {
+            List<string> log = new List<string>();
+            log.Add("[stub captain] scripted mission started in " + workingDirectory);
+            if (script.Commit)
+            {
+                string fileName = "stub-captain-" + processId + ".txt";
+                File.WriteAllText(Path.Combine(workingDirectory, fileName), "Written by the stub captain.\n");
+                RunGit(workingDirectory, log, "add", "-A");
+                RunGit(workingDirectory, log, "-c", "user.name=Stub Captain", "-c", "user.email=stub@armada.test", "-c", "commit.gpgsign=false", "commit", "-m", "Stub captain: add " + fileName);
+            }
+
+            foreach (string line in script.Lines) RaiseStdout(processId, line);
+            if (script.ProviderError != null) RaiseProviderError(processId, script.ProviderError);
+            if (script.FinalMessage != null && !String.IsNullOrEmpty(finalMessageFilePath))
+            {
+                string? dir = Path.GetDirectoryName(finalMessageFilePath);
+                if (!String.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(finalMessageFilePath, script.FinalMessage);
+            }
+
+            log.AddRange(script.Lines);
+            WriteLog(logFilePath, log);
+            return script.ExitCode;
         }
 
         private int RunMission(int processId, string workingDirectory, string? logFilePath)

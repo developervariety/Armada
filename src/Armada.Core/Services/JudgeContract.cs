@@ -37,6 +37,12 @@ namespace Armada.Core.Services
         public const string AffectedCaseSection = "Affected Case";
 
         /// <summary>
+        /// Section heading a SPEC_CONFLICT verdict must carry: the criterion that cannot be satisfied as written and the
+        /// evidence why.
+        /// </summary>
+        public const string SpecConflictSection = "Spec Conflict";
+
+        /// <summary>
         /// Field label, inside the Affected Case section, that names the affected file (optionally with :line).
         /// </summary>
         public const string AffectedCaseFileField = "File";
@@ -197,7 +203,8 @@ namespace Armada.Core.Services
                 "To block, add `## Affected Case` with `File: <path>[:line]` or `Scenario: <inputs and wrong result>`, " +
                 "the violated requirement, expected/actual behavior, and required correction. " +
                 "Mark prior findings resolved, superseded (why), or unresolved. " +
-                "End with exactly one standalone `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION` line.";
+                "If an acceptance criterion cannot be satisfied as written (it contradicts another requirement or a dependency's verified behavior), do not request rework: add `## Spec Conflict` quoting the criterion and the evidence, and use `[ARMADA:VERDICT] SPEC_CONFLICT`; a person decides. " +
+                "End with exactly one standalone `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, `[ARMADA:VERDICT] NEEDS_REVISION`, or `[ARMADA:VERDICT] SPEC_CONFLICT` line.";
         }
 
         /// <summary>
@@ -231,6 +238,20 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// The body of the Judge's Spec Conflict section (the criterion and evidence), trimmed to at most 2,000 characters,
+        /// or null when the section is absent or empty.
+        /// </summary>
+        /// <param name="output">Judge agent output.</param>
+        /// <returns>The conflict text, or null.</returns>
+        public static string? ExtractSpecConflict(string? output)
+        {
+            if (String.IsNullOrWhiteSpace(output)) return null;
+            string body = ExtractSectionBody(output!, SpecConflictSection).Trim();
+            if (body.Length == 0) return null;
+            return body.Length > 2000 ? body.Substring(0, 2000) + " (truncated)" : body;
+        }
 
         private static string ExtractSectionBody(string output, string sectionName)
         {

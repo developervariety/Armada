@@ -61,6 +61,32 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(rescue.Title.StartsWith("[Rescue]", StringComparison.Ordinal), "the rescue title is marked");
             }));
 
+            cases.Add(CaseAsync("pipeline_and_review_stages_are_not_rescued", "A failed review stage or pipeline stage is not rescued by a standalone Worker that would land beside its pipeline", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.MaxMissionRecoveryAttempts = 2;
+                MissionRecoveryCoordinator coordinator = new MissionRecoveryCoordinator(CreateLogging(), testDb.Driver, settings);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission judge = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.Compile, "Definition-of-Done gate failed (Compile)").ConfigureAwait(false);
+                judge.Persona = "Judge";
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pipeline")).ConfigureAwait(false);
+                Mission stage = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.Compile, "Definition-of-Done gate failed (Compile)").ConfigureAwait(false);
+                stage.Persona = "Worker";
+                stage.VoyageId = voyage.Id;
+                await testDb.Driver.Missions.UpdateAsync(stage).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("[Judge] Review", "Review it") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", DependsOnMissionId = stage.Id, Status = MissionStatusEnum.Cancelled }).ConfigureAwait(false);
+
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+
+                List<Incident> recovery = await ReadRecoveryIncidentsAsync(incidents).ConfigureAwait(false);
+                AssertEqual(0, recovery.Count, "neither the Judge nor the pipeline Worker is rescued outside its pipeline");
+            }));
+
             cases.Add(CaseAsync("non_recoverable_failure_opens_no_incident", "A non-recoverable failure opens no incident", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -421,6 +421,56 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("transient_inference_failure_is_retried_in_loop", "A 503 from the model is retried inside the run, keeping the conversation, and the mission still completes", TestTags.Reliability, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    script.Enqueue(new ToolChatResponse { Success = false, StatusCode = 503, Error = "model loading", ToolCalls = new List<ToolCall>() });
+                    script.Enqueue(new ToolChatResponse { Success = true, Text = "[ARMADA:RESULT] COMPLETE\nDone after the retry.", FinishReason = "stop" });
+                    ModelEndpoint endpoint = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.OpenAICompatible, BaseUrl = "http://localhost:1", InferenceOptions = new InferenceOptions { McpToolsEnabled = false } };
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 10, (ep, log) => new ScriptedClient(script, log));
+                    runtime.InferenceRetryBaseDelay = TimeSpan.FromMilliseconds(10);
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                    int code = -1;
+                    List<ApiRuntimeDiagnostic> diagnostics = new List<ApiRuntimeDiagnostic>();
+                    runtime.OnDiagnostic += (pid, diagnostic) => { lock (diagnostics) diagnostics.Add(diagnostic); };
+                    runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+                    string finalPath = Path.Combine(dir, "result.txt");
+
+                    await runtime.StartAsync(dir, "Implement the mission. End with [ARMADA:RESULT] COMPLETE", finalMessageFilePath: finalPath).ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "the run finishes");
+                    AssertEqual(0, code, "one transient failure does not end the run");
+                    AssertContains("Done after the retry.", File.ReadAllText(finalPath));
+                    lock (diagnostics) AssertTrue(diagnostics.Exists(d => d.Message.Contains("[retry]", StringComparison.Ordinal)), "the retry is visible in diagnostics");
+                }
+                finally { Cleanup(dir); }
+            }));
+
+            cases.Add(CaseAsync("non_retryable_inference_failure_is_not_retried", "A 400 from the model fails the run without retrying", TestTags.Negative, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    script.Enqueue(new ToolChatResponse { Success = false, StatusCode = 400, Error = "unsupported tool shape", ToolCalls = new List<ToolCall>() });
+                    script.Enqueue(new ToolChatResponse { Success = true, Text = "[ARMADA:RESULT] COMPLETE\nmust not be reached", FinishReason = "stop" });
+                    ModelEndpoint endpoint = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.OpenAICompatible, BaseUrl = "http://localhost:1", InferenceOptions = new InferenceOptions { McpToolsEnabled = false } };
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 10, (ep, log) => new ScriptedClient(script, log));
+                    runtime.InferenceRetryBaseDelay = TimeSpan.FromMilliseconds(10);
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                    int code = -1;
+                    runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+
+                    await runtime.StartAsync(dir, "Implement the mission. End with [ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)));
+                    AssertEqual(1, code);
+                    AssertEqual(1, script.Count, "the second scripted reply was never requested");
+                }
+                finally { Cleanup(dir); }
+            }));
+
             cases.Add(CaseAsync("inference_failure_without_error_text_fails", "An unsuccessful inference response with no error text still fails the run", TestTags.Negative, async () =>
             {
                 string dir = NewTempDir();
@@ -431,6 +481,7 @@ namespace Test.Shared.Suites.Runtimes
 
                     ModelEndpoint endpoint = new ModelEndpoint { Name = "test-endpoint", Provider = ModelProviderEnum.OpenAICompatible, Kind = ModelEndpointKindEnum.Inference, Model = "test-model", BaseUrl = "http://localhost:1" };
                     ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new ScriptedClient(script, log));
+                    runtime.InferenceRetries = 0; // this case checks the outcome once retries are spent
 
                     int? exitCode = null;
                     List<ApiRuntimeDiagnostic> diagnostics = new List<ApiRuntimeDiagnostic>();

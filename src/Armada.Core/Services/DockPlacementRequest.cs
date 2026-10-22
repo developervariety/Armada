@@ -47,6 +47,12 @@ namespace Armada.Core.Services
         /// </summary>
         public string? BranchHarborId { get; set; } = null;
 
+        /// <summary>
+        /// True when the branch already lives in the Admiral host's repository (its most recent dock was created on the
+        /// Admiral). The dock then stays on the Admiral, so a later stage never starts on a Harbor that lacks the commits.
+        /// </summary>
+        public bool BranchOnAdmiral { get; set; } = false;
+
         #endregion
 
         #region Constructors-and-Factories
