@@ -32,6 +32,21 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("validation_notes_admiral_local_addresses", "Validating an Admiral-local address says the check did not reach a Harbor's computer; a remote address gets no note", TestTags.Positive, () =>
+            {
+                foreach (string local in new[] { "http://localhost:11434", "http://127.0.0.1:8080/v1", "http://[::1]:11434", "http://ollama.localhost" })
+                {
+                    string? note = ModelEndpointService.LocalAddressNote(local);
+                    AssertNotNull(note, local);
+                    AssertContains("Harbor", note!);
+                }
+                AssertNull(ModelEndpointService.LocalAddressNote("https://ollama.com:443"));
+                AssertNull(ModelEndpointService.LocalAddressNote("http://view.homedns.org:8900/v1.0/api/x/"));
+                AssertNull(ModelEndpointService.LocalAddressNote(null));
+                AssertNull(ModelEndpointService.LocalAddressNote("not a url"));
+                return Task.CompletedTask;
+            }));
+
             cases.Add(CaseAsync("duplicate_inherits_secrets_and_resets_identity_health", "Edited endpoint copies credentials server-side with fresh identity and health, leaving source unchanged", TestTags.Positive, async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

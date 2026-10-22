@@ -2834,6 +2834,7 @@ export interface ModelEndpointProbeResult {
   error: string | null;
   embeddingDimensions: number | null;
   sampleText: string | null;
+  note?: string | null;
   timestampUtc: string;
 }
 

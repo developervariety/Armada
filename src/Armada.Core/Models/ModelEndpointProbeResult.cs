@@ -46,6 +46,12 @@ namespace Armada.Core.Models
         public string? SampleText { get; set; } = null;
 
         /// <summary>
+        /// Where the check ran and what it could not cover, or null. Set when the endpoint's address is local to the
+        /// Admiral host, since an API captain running on a Harbor calls that address on the Harbor's computer instead.
+        /// </summary>
+        public string? Note { get; set; } = null;
+
+        /// <summary>
         /// When the probe ran (UTC).
         /// </summary>
         public DateTime TimestampUtc { get; set; } = DateTime.UtcNow;

@@ -711,6 +711,7 @@ export default function Endpoints() {
               {probe.result?.embeddingDimensions != null && (<><dt title={t('Length of the vector the embedding endpoint returned.')}>{t('Dimensions')}</dt><dd>{probe.result.embeddingDimensions}</dd></>)}
               {probe.result?.sampleText && (<><dt title={t('The start of the text the model returned.')}>{t('Sample')}</dt><dd className="mono" style={{ whiteSpace: 'pre-wrap' }}>{probe.result.sampleText}</dd></>)}
               {probe.result?.error && (<><dt>{t('Error')}</dt><dd className="text-danger">{probe.result.error}</dd></>)}
+              {probe.result?.note && (<><dt title={t('Where the check ran and what it could not cover.')}>{t('Note')}</dt><dd>{probe.result.note}</dd></>)}
             </dl>}
         </DialogShell>
       )}

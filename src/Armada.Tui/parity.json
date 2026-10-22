@@ -1817,6 +1817,14 @@
     },
     {
       "kind": "api",
+      "key": "duplicateModelEndpoint",
+      "status": "implemented",
+      "tui": "ArmadaClient.DuplicateModelEndpointAsync",
+      "workstream": "W0.2",
+      "notes": "Model endpoints (embedding/inference)"
+    },
+    {
+      "kind": "api",
       "key": "enableHarbor",
       "status": "implemented",
       "tui": "ArmadaClient.EnableHarborAsync",
@@ -4210,6 +4218,14 @@
     {
       "kind": "setting",
       "key": "settings.permissions.promptTimeoutSeconds",
+      "status": "implemented",
+      "tui": "ServerSettingsScreen",
+      "workstream": "W7.7",
+      "notes": ""
+    },
+    {
+      "kind": "setting",
+      "key": "settings.permissions.timeoutDecision",
       "status": "implemented",
       "tui": "ServerSettingsScreen",
       "workstream": "W7.7",

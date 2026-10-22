@@ -236,6 +236,9 @@ namespace Armada.Tui.Screens.Admin
         /// <summary>CLI tool permissions: prompt timeout in seconds.</summary>
         public InputField PermissionsTimeout { get; } = new InputField();
 
+        /// <summary>CLI tool permissions: the answer applied when a request times out (Deny or Approve).</summary>
+        public SelectField<string> PermissionsTimeoutDecision { get; } = new SelectField<string>();
+
         /// <summary>Remote tunnel enabled.</summary>
         public ToggleField RemoteEnabled { get; } = new ToggleField();
 
@@ -744,10 +747,19 @@ namespace Armada.Tui.Screens.Admin
             PermissionsMissionDefault.SetValue(CliPermissionPolicyChoice.ValueOf(new CliPermissionSettings().MissionDefaultPolicy));
             AddTracked(g, "Ask conversation default", PermissionsAskDefault, "Used by Ask conversation turns (default Approve in Armada). Narrations and summaries never ask; they refuse instead.");
             AddTracked(g, "Mission default", PermissionsMissionDefault, "Used by missions (default Bypass, the previous behavior). A vessel with auto-approve off caps missions at Refuse.");
-            AddNumber(g, "Prompt timeout (seconds)", PermissionsTimeout, "How long a request waits for a decision before it expires and is denied (10-3600, default 600).", v => ServerSettingsRules.WholeNumberRange(Context.Loc, v, 10, 3600));
+            AddNumber(g, "Prompt timeout (seconds)", PermissionsTimeout, "How long a request waits for a decision before its default answer is applied (10-3600, default 600).", v => ServerSettingsRules.WholeNumberRange(Context.Loc, v, 10, 3600));
+            PermissionsTimeoutDecision.ModalHost = Context.Modals;
+            PermissionsTimeoutDecision.PickerTitle = "Default answer on timeout";
+            PermissionsTimeoutDecision.Options = new List<SelectOption<string>>
+            {
+                new SelectOption<string>(nameof(ApprovalTimeoutDecisionEnum.Deny), Context.Loc.T("Deny")),
+                new SelectOption<string>(nameof(ApprovalTimeoutDecisionEnum.Approve), Context.Loc.T("Approve"))
+            };
+            PermissionsTimeoutDecision.SetValue(new CliPermissionSettings().TimeoutDecision.ToString());
+            AddTracked(g, "Default answer on timeout", PermissionsTimeoutDecision, "Applied when a request expires without a decision (default Deny). Each request keeps the answer in force when it was made.");
             PermissionsOwnerApproval.Caption = "Let owners approve their own requests";
             AddTracked(g, "Owner approval", PermissionsOwnerApproval, "When on, the owner of a conversation or mission may allow or deny its requests. Admins and tenant admins can always decide; only they can create rules.");
-            foreach (IWidget w in new IWidget[] { PermissionsAskDefault, PermissionsMissionDefault, PermissionsTimeout, PermissionsOwnerApproval }) _AdminOnlyEditable.Add(w);
+            foreach (IWidget w in new IWidget[] { PermissionsAskDefault, PermissionsMissionDefault, PermissionsTimeout, PermissionsTimeoutDecision, PermissionsOwnerApproval }) _AdminOnlyEditable.Add(w);
             AddButtons(g);
         }
 
@@ -1059,6 +1071,7 @@ namespace Armada.Tui.Screens.Admin
                 PermissionsAskDefault.SetValue(CliPermissionPolicyChoice.ValueOf(p.AskDefaultPolicy));
                 PermissionsMissionDefault.SetValue(CliPermissionPolicyChoice.ValueOf(p.MissionDefaultPolicy));
                 PermissionsTimeout.Value = Num(p.PromptTimeoutSeconds);
+                PermissionsTimeoutDecision.SetValue(p.TimeoutDecision.ToString());
                 PermissionsOwnerApproval.SetValue(p.AllowOwnerApproval, false);
             });
             Apply("remoteControl", force, () =>
@@ -1449,6 +1462,7 @@ namespace Armada.Tui.Screens.Admin
                 p.MissionDefaultPolicy = CliPermissionPolicyChoice.Parse(PermissionsMissionDefault.Value) ?? p.MissionDefaultPolicy;
                 p.AllowOwnerApproval = PermissionsOwnerApproval.Value;
                 p.PromptTimeoutSeconds = IntOf(PermissionsTimeout);
+                if (Enum.TryParse(PermissionsTimeoutDecision.Value, out ApprovalTimeoutDecisionEnum decision)) p.TimeoutDecision = decision;
                 SettingsData d = new SettingsData();
                 d.Permissions = p;
                 return d;

@@ -61,6 +61,13 @@ namespace Armada.Runtimes
         /// </summary>
         public TimeSpan GatewayDeadlineHint { get; set; } = TimeSpan.FromSeconds(10);
 
+        /// <summary>
+        /// While one model call is still in flight, a progress line is written this often, so a long generation on a slow
+        /// model is not mistaken for a stalled captain (stall detection watches output). The call stays bounded by its own
+        /// deadlines: the request timeout, or with streaming the first-response and idle deadlines.
+        /// </summary>
+        public TimeSpan LivenessInterval { get; set; } = TimeSpan.FromSeconds(60);
+
         /// <inheritdoc />
         public bool SupportsPlanningSessions => Armada.Core.Services.AgentRuntimeCapabilities.SupportsPlanningSessions(Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint);
 
@@ -301,7 +308,15 @@ namespace Armada.Runtimes
                 System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
-                    result = await call().ConfigureAwait(false);
+                    Task<T> pending = call();
+                    while (!pending.IsCompleted && !token.IsCancellationRequested)
+                    {
+                        Task tick = Task.Delay(LivenessInterval, token);
+                        if (await Task.WhenAny(pending, tick).ConfigureAwait(false) == pending || token.IsCancellationRequested) break;
+                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] waiting for the model ("
+                            + (watch.ElapsedMilliseconds / 1000) + " s so far); the call's own deadlines still apply");
+                    }
+                    result = await pending.ConfigureAwait(false);
                     lastCallMs.Value = watch.ElapsedMilliseconds;
                 }
                 catch (Exception ex) when (attempt < _InferenceRetries && !token.IsCancellationRequested

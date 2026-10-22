@@ -782,6 +782,27 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("long_model_call_reports_liveness", "A model call still in flight writes periodic progress lines, so stall detection does not flag a slow generation", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    ModelEndpoint endpoint = new ModelEndpoint { Name = "slow", Provider = ModelProviderEnum.OpenAICompatible, Kind = ModelEndpointKindEnum.Inference, Model = "m", BaseUrl = "http://localhost:1" };
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new GatewayClient(log, 700));
+                    runtime.InferenceRetries = 0;
+                    runtime.LivenessInterval = TimeSpan.FromMilliseconds(150);
+                    System.Collections.Concurrent.ConcurrentQueue<string> lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                    runtime.OnOutputReceived += (pid, line) => lines.Enqueue(line);
+                    runtime.OnProcessExited += (pid, code) => exited.Set();
+                    await runtime.StartAsync(dir, "do it").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "The run must finish.");
+                    int ticks = lines.Count(l => l.Contains("[inference] waiting for the model", StringComparison.Ordinal));
+                    AssertTrue(ticks >= 2, "Expected progress lines while the call was in flight, saw " + ticks);
+                }
+                finally { Cleanup(dir); }
+            }));
+
             cases.Add(CaseAsync("streaming_options_validated", "FirstResponseTimeoutMs is range-checked and streaming settings require a capable Harbor", TestTags.Negative, () =>
             {
                 AssertThrows<ArgumentException>(() => new InferenceOptions { FirstResponseTimeoutMs = 999 }.Validate());

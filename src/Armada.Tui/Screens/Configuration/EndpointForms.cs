@@ -284,6 +284,7 @@ namespace Armada.Tui.Screens.Configuration
             if (result.EmbeddingDimensions.HasValue) view.Row("Dimensions", result.EmbeddingDimensions.Value.ToString(CultureInfo.InvariantCulture));
             if (!String.IsNullOrEmpty(result.SampleText)) view.Row("Sample", result.SampleText, t => t.Code);
             if (!String.IsNullOrEmpty(result.Error)) view.Row("Error", result.Error, t => t.Error);
+            if (!String.IsNullOrEmpty(result.Note)) view.Row("Note", result.Note);
             ViewerModal modal = new ViewerModal("Validation Result", view, context.Loc, context.Theme.Current);
             modal.HeightRatio = 0.5;
             modal.CopyRequested += (s, e) => context.Clipboard.Copy(Armada.Client.ArmadaJson.Serialize(result), "JSON");

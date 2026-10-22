@@ -270,6 +270,7 @@ namespace Armada.Core.Services
             if (endpoint == null || !IsVisible(auth, endpoint)) throw new KeyNotFoundException("Model endpoint not found: " + id);
 
             ModelEndpointProbeResult result = await ValidateEndpointAsync(endpoint, token).ConfigureAwait(false);
+            result.Note = LocalAddressNote(endpoint.BaseUrl);
             await PersistProbeAsync(endpoint, result, token).ConfigureAwait(false);
             return result;
         }
@@ -411,6 +412,21 @@ namespace Armada.Core.Services
 
             string? reason = ModelEndpointClientFactory.UnsupportedReason(endpoint.Provider, endpoint.Kind);
             if (reason != null) throw new ArgumentException(reason);
+        }
+
+        /// <summary>
+        /// A validation runs on the Admiral host. For an address local to that host (localhost, a loopback IP), say so: a
+        /// mission on a Harbor calls the same address on the Harbor's own computer, which this check never reached (D14).
+        /// </summary>
+        internal static string? LocalAddressNote(string? baseUrl)
+        {
+            if (String.IsNullOrWhiteSpace(baseUrl) || !Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out Uri? uri)) return null;
+            bool local = uri.IsLoopback || String.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+                || uri.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase);
+            if (!local) return null;
+            return "Checked from the Admiral host. " + uri.Host + " means the computer making the call, so an API captain whose missions run on a Harbor "
+                + "calls " + uri.GetLeftPart(UriPartial.Authority) + " on that Harbor's computer, which this check did not reach. "
+                + "Use an address both can reach, or confirm the model server is running on the Harbor's computer too.";
         }
 
         private async Task<ModelEndpointProbeResult> ValidateEndpointAsync(ModelEndpoint endpoint, CancellationToken token)

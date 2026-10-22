@@ -5635,6 +5635,7 @@ Returned by `validate_model_endpoint`.
 | `Error` | string \| null | Error text when the probe failed |
 | `EmbeddingDimensions` | int \| null | Dimensionality returned by an embedding probe |
 | `SampleText` | string \| null | Sample completion text returned by an inference probe |
+| `Note` | string \| null | Validation only: set for an Admiral-local address (`localhost`, a loopback IP), saying a Harbor-hosted mission calls that address on the Harbor's computer, which the check did not reach |
 | `TimestampUtc` | string | ISO 8601 timestamp of when the probe ran |
 
 #### ModelEndpointHealthSweepResponse
