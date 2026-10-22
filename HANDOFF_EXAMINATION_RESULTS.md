@@ -656,7 +656,7 @@ Finding, not changed: the built-in mission prompt tells captains to commit and p
 | Item | Why it is still open |
 |---|---|
 | H10 | Treating WorkProduced as unsettled could block integration forever under manual landing; failing integration on a failed sibling is a policy decision (C4/C5). Needs an explicit integration-barrier policy. |
-| L1 Blocked status | A visible Blocked status and repeated-affected-case detection; HF-25 structured blocking outcomes for non-Judge verifiers. |
+| L1 Blocked status | A visible Blocked status for stages held by a failed dependency (today they are Cancelled and restored by restart); HF-25 structured blocking outcomes for non-Judge verifiers. |
 | L6 (HF-33 remainder) | Opaque per-attempt launch identity touches every runtime, Harbor protocol and lifecycle map. |
 | C1 remainder | Gemini, Cursor and OpenCode still hand off from the transcript; a missing artifact is not yet a classified `InvalidOutput`. |
 | R6 (runner side), R2 remainder | The live Conductor VMRs were raised from 60 s to 300 s on 2026-10-22 (bug report filed as `~/Code/Conductor/ARMADA_BUG_REPORT.md`); a 4,000-token blocking call then passed at 69.8 s. qwen3.5:122b still cannot load: Ollama's own `OLLAMA_LOAD_TIMEOUT` (5 minutes) expires first (`timed out waiting for llama-server to start` at 306 s), which needs a GB10 Ollama change or a smaller model, not an Armada change. For R2, `num_ctx` and the window-full stop are done; history compaction is not, and Ollama does not report cached prompt tokens, so the 95% tripwire can undercount on a warm KV cache. |
