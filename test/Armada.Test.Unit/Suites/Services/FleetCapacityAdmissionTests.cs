@@ -167,6 +167,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("armada_dispatch refuses a full sibling lane at submission with the reservation's code and accepts no job", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = Settings(5, 1);
+                Vessel alpha = await CreateVesselAsync(testDb.Driver, "vsl_submit_a").ConfigureAwait(false);
+                Vessel beta = await CreateVesselAsync(testDb.Driver, "vsl_submit_b").ConfigureAwait(false);
+                alpha.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                {
+                    new SiblingRepo { VesselRef = beta.Id, RelativePath = "../Beta", BuildParticipant = true }
+                });
+                await testDb.Driver.Vessels.UpdateAsync(alpha).ConfigureAwait(false);
+                await CreateWorkAsync(testDb.Driver, alpha, "occupied lane").ConfigureAwait(false);
+                int voyagesBefore = (await testDb.Driver.Voyages.EnumerateAsync(Constants.DefaultTenantId).ConfigureAwait(false)).Count;
+
+                AdmiralService admiral = CreateAdmiral(testDb.Driver, settings, logging);
+                Armada.Server.LongRunningJobService jobs = new Armada.Server.LongRunningJobService();
+                Func<JsonElement?, Task<object>>? dispatch = null;
+                Armada.Server.Mcp.Tools.McpVoyageTools.Register(
+                    (name, _, _, handler) => { if (name == "armada_dispatch") dispatch = McpTestCaller.Wrap(handler); },
+                    testDb.Driver,
+                    admiral,
+                    null,
+                    null,
+                    logging,
+                    null,
+                    null,
+                    jobs);
+                AssertNotNull(dispatch, "armada_dispatch must be registered");
+
+                object result = await dispatch!(JsonSerializer.SerializeToElement(new
+                {
+                    title = "into a full lane",
+                    vesselId = beta.Id,
+                    codeContextMode = "off",
+                    missions = new object[] { new { title = "only", description = "d" } }
+                })).ConfigureAwait(false);
+                string json = JsonSerializer.Serialize(result);
+
+                AssertFalse(json.Contains("\"JobId\"", StringComparison.Ordinal), "a full lane is refused, not accepted as a job: " + json);
+                AssertContains("sibling_lane_capacity_reached", json, "the refusal carries the reservation's code: " + json);
+                AssertEqual(0, jobs.ListJobs(out int _).Count, "no job is accepted");
+                AssertEqual(voyagesBefore, (await testDb.Driver.Voyages.EnumerateAsync(Constants.DefaultTenantId).ConfigureAwait(false)).Count,
+                    "nothing is created");
+            }).ConfigureAwait(false);
+
             await RunTest("Existing voyage cannot add a newly occupied sibling lane", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

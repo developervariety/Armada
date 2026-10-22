@@ -286,7 +286,8 @@ namespace Armada.Server
             _LongRunningJobs = new LongRunningJobService(
                 journalDirectory: Path.Combine(_Settings.DataDirectory, "jobs"),
                 onJobFailedAsync: RecordBackgroundJobFailureAsync,
-                warn: message => _Logging.Warn(_Header + message));
+                warn: message => _Logging.Warn(_Header + message),
+                requesterKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey);
 
             // Initialize services
             // PR-fallback wiring: per-call factory selects the right platform CLI (gh / glab).
@@ -2141,7 +2142,8 @@ namespace Armada.Server
 
         /// <summary>
         /// Record a background job that ended Failed or Lost as an event on its objective, or on the
-        /// job itself when it names none, so the failure is visible where the caller will look.
+        /// job itself when it names none, and post a board note addressed to the session that submitted
+        /// it, so the failure reaches the submitter without a poll of the job.
         /// </summary>
         private async Task RecordBackgroundJobFailureAsync(LongRunningJob job)
         {
@@ -2156,6 +2158,22 @@ namespace Armada.Server
                 job.ObjectiveId != null ? "objective" : "job",
                 job.ObjectiveId ?? job.JobId,
                 vesselId: job.VesselId).ConfigureAwait(false);
+
+            if (String.IsNullOrWhiteSpace(job.RequestedByParticipantKey)) return;
+            if (_CoordinationService == null)
+            {
+                _Logging.Warn(_Header + "job " + job.JobId + " ended " + job.Status
+                    + " but the coordination board is not available, so no note reached " + job.RequestedByParticipantKey);
+                return;
+            }
+            await _CoordinationService.PostMessageAsync(
+                CoordinationService.DefaultRoomKey,
+                CoordinationAuthorTypeEnum.System,
+                authorId: null,
+                authorName: "Background Jobs",
+                content: message + (job.ObjectiveId != null ? " Objective " + job.ObjectiveId + "." : ""),
+                vesselId: job.VesselId,
+                toParticipantKey: job.RequestedByParticipantKey).ConfigureAwait(false);
         }
 
         private async Task EmitEventAsync(string eventType, string message,

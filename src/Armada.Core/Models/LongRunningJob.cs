@@ -67,6 +67,12 @@ namespace Armada.Core.Models
         /// </summary>
         public string? SubjectId { get; set; }
 
+        /// <summary>
+        /// Coordination participant key of the session that submitted the job, when known. A failed or lost job
+        /// posts a board note addressed to it, so the submitter learns of the failure without polling the job.
+        /// </summary>
+        public string? RequestedByParticipantKey { get; set; }
+
         #endregion
 
         #region Public-Methods
@@ -101,7 +107,8 @@ namespace Armada.Core.Models
                 FailureMessage = FailureMessage,
                 ObjectiveId = ObjectiveId,
                 VesselId = VesselId,
-                SubjectId = SubjectId
+                SubjectId = SubjectId,
+                RequestedByParticipantKey = RequestedByParticipantKey
             };
         }
 

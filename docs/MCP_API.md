@@ -311,14 +311,18 @@ requested while a REST retry for the mission runs is refused with
 landing does not end `Complete` reads `Failed`, and its `FailureMessage` gives
 the mission status and failure reason.
 
-`armada_dispatch` validates the request, checks the dispatch hold and runs the
-objective preflight before it accepts anything. A refusal at that point returns
-its named code and creates nothing. Only then is the job accepted, and it is
+`armada_dispatch` validates the request, checks the dispatch hold, runs the
+objective preflight and checks fleet and sibling-lane capacity before it accepts
+anything. A refusal at that point returns its named code and creates nothing; a
+full fleet or lane returns `fleet_capacity_reached` or
+`sibling_lane_capacity_reached` with `ActiveCount`, `Limit`, `CandidateVesselId`
+and `LaneMembers`. Only then is the job accepted, and it is
 written to the job journal in the data directory before the `Accepted` response
 is returned. The voyage and mission rows are created when the job runs, not
 before the response: an `Accepted` job is not yet a voyage. Read the voyage ID
 from the job's result. A dispatch refused after acceptance (the hold engaged in
-between, or another dispatch won the objective) ends `Failed` with the refusal
+between, another dispatch won the objective, or another dispatch took the last
+capacity slot) ends `Failed` with the refusal
 body as its `FailureMessage`. `armada_job_status` reports a `Failed` or `Lost`
 job's reason in `FailureMessage`, and reading it is a successful call. A
 successful job is not evidence that a captain has started work.
@@ -339,7 +343,10 @@ job finishes, the next start records it as `Lost` with the reason
 `job_not_found`. A lost job is never resumed: check whether its effect exists,
 then submit it again. Every job that ends `Failed` or `Lost` writes a
 `job.failed` or `job.lost` event on its objective (on the job when it names no
-objective). Finished records are kept for 14 days. `armada_dispatch_hold`
+objective). A job records the participant key of the MCP session that submitted
+it as `RequestedByParticipantKey`; when it ends `Failed` or `Lost`, a board note
+addressed to that key names the job, its reason and its objective, so the
+submitter learns of the failure without polling the job. Finished records are kept for 14 days. `armada_dispatch_hold`
 `status` and `engage` list `UnfinishedJobs`, the jobs a restart would lose,
 `RunningGates`, the definition-of-done gates running or waiting for the host
 command slot, `GateReruns`, the interrupted gates being re-run, and `HostSlot`,

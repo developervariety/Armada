@@ -366,6 +366,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- `armada_dispatch` refuses a full fleet or sibling lane at submission with
+  `fleet_capacity_reached` or `sibling_lane_capacity_reached` and accepts no
+  job, instead of accepting a job that fails on capacity seconds later. The
+  reservation at creation still decides when capacity changes in between.
+- A background job that ends `Failed` or `Lost` posts a board note addressed to
+  the MCP session that submitted it (`RequestedByParticipantKey` on the job),
+  naming the job, its reason and its objective, beside the `job.failed` or
+  `job.lost` event.
 - The Git Anchors block no longer calls a present file absent when the text
   names it with the repository's own directory in front: the path is anchored
   at the file it names. A path with a declared sibling's directory in front, or

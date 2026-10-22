@@ -4238,7 +4238,8 @@ accepted.
       "FailureMessage": "dispatch_hold_active: ...",
       "ObjectiveId": "obj_abc123",
       "VesselId": "vsl_abc123",
-      "SubjectId": null
+      "SubjectId": null,
+      "RequestedByParticipantKey": "example-session"
     }
   ],
   "TotalRecords": 1,
@@ -4246,7 +4247,9 @@ accepted.
 }
 ```
 
-List entries omit `Result`; read one job for it. `UnreadableJournalRecords`
+List entries omit `Result`; read one job for it. `RequestedByParticipantKey`
+is the MCP session that submitted the job, or null for a job submitted without
+one; a `Failed` or `Lost` job posts a board note addressed to it. `UnreadableJournalRecords`
 counts journal records the Admiral could not read. Each one is also written to
 the Admiral log as a warning, so a shorter list is never silent.
 

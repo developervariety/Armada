@@ -225,6 +225,13 @@ namespace Armada.Server
                 return PipelineInactiveResult(inactive);
             }
 
+            // A full fleet or sibling lane refuses at submission with the code the reservation would give, so a
+            // background job is never accepted only to fail on capacity a moment later. The reservation at
+            // creation still decides, because capacity can change in between.
+            FleetCapacityAdmissionException? full = await _Admiral
+                .ProbeCapacityAsync(dispatchVessel, null, token).ConfigureAwait(false);
+            if (full != null) return CapacityConflictResult(full);
+
             return null;
         }
 
