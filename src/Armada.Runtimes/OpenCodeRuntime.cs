@@ -97,6 +97,19 @@ namespace Armada.Runtimes
         #region Private-Methods
 
         /// <summary>
+        /// Recognize provider failures the CLI writes to stderr (an HTTP error status, a Google RPC status, a network
+        /// error) so a rate limit, an auth failure or an outage is classified instead of reported as a crash. Text-mode
+        /// stdout is the agent's own narration and is never parsed.
+        /// </summary>
+        /// <param name="line">One output line.</param>
+        /// <param name="fromStdout">True for a stdout line.</param>
+        /// <returns>The provider error, or null.</returns>
+        protected override RuntimeProviderError? TryParseProviderError(string line, bool fromStdout)
+        {
+            return fromStdout ? null : RuntimeProviderErrorParser.TryParseCliStderrLine(line, "OpenCode");
+        }
+
+        /// <summary>
         /// The runtime this adapter drives.
         /// </summary>
         protected override Armada.Core.Enums.AgentRuntimeEnum RuntimeType => Armada.Core.Enums.AgentRuntimeEnum.OpenCode;

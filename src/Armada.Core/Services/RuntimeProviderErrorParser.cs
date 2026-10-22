@@ -35,6 +35,17 @@ namespace Armada.Core.Services
             @"^Claude AI usage limit reached\|(?<epoch>\d{9,11})$",
             RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+        // An HTTP error status in the forms CLIs print it: "status 429", "status code: 503", "HTTP 401", "HTTP/1.1 502",
+        // "[429 Too Many Requests]". A bare three-digit number is never read as a status.
+        private static readonly Regex _CliHttpStatus = new Regex(
+            @"(?:\bstatus(?:\s*code)?\s*[:=]?\s*|\bHTTP(?:/\d(?:\.\d)?)?\s*[:=]?\s*)(?<status>[45]\d\d)\b"
+            + @"|\b(?<status>[45]\d\d)\s+(?:Too Many Requests|Service Unavailable|Bad Gateway|Gateway Time-?out|Internal Server Error|Unauthorized|Forbidden|Request Timeout|Payload Too Large)\b",
+            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _CliNetworkError = new Regex(
+            @"\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET)\b|\bfetch failed\b",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
         #endregion
 
         #region Public-Methods
@@ -184,6 +195,42 @@ namespace Armada.Core.Services
             }
 
             return error;
+        }
+
+        /// <summary>
+        /// Try to read a provider error from one stderr line of a text-mode CLI that has no structured error channel
+        /// (Gemini, Cursor, OpenCode). Only explicit signals are read: an HTTP error status written as a status (never a
+        /// bare number), a Google RPC status name (RESOURCE_EXHAUSTED, UNAUTHENTICATED, PERMISSION_DENIED, UNAVAILABLE,
+        /// DEADLINE_EXCEEDED), or a network error code. Callers pass stderr only, so the agent's own narration on stdout
+        /// is never mistaken for a provider failure.
+        /// </summary>
+        /// <param name="line">One stderr line.</param>
+        /// <param name="runtimeName">Runtime name for the reason text.</param>
+        /// <returns>The provider error, or null when the line carries no recognizable provider signal.</returns>
+        public static RuntimeProviderError? TryParseCliStderrLine(string? line, string runtimeName)
+        {
+            if (String.IsNullOrWhiteSpace(line)) return null;
+            string text = line.Trim();
+            if (text.Length > 4000) text = text.Substring(0, 4000);
+
+            RuntimeProviderError error = new RuntimeProviderError();
+            error.Message = Shorten(text);
+            error.Reason = runtimeName + " reported a provider error: " + error.Message;
+
+            Match status = _CliHttpStatus.Match(text);
+            if (status.Success)
+            {
+                error.HttpStatusCode = Int32.Parse(status.Groups["status"].Value, CultureInfo.InvariantCulture);
+                return error;
+            }
+
+            if (text.Contains("RESOURCE_EXHAUSTED", StringComparison.Ordinal)) { error.ErrorType = "rate_limit_exceeded"; return error; }
+            if (text.Contains("UNAUTHENTICATED", StringComparison.Ordinal)) { error.ErrorType = "authentication_error"; return error; }
+            if (text.Contains("PERMISSION_DENIED", StringComparison.Ordinal)) { error.ErrorType = "permission_error"; return error; }
+            if (text.Contains("DEADLINE_EXCEEDED", StringComparison.Ordinal)) { error.ErrorType = "llm_timeout"; return error; }
+            if (text.Contains("UNAVAILABLE", StringComparison.Ordinal) && text.Contains("\"status\"", StringComparison.Ordinal)) { error.ErrorType = "server_error"; return error; }
+            if (_CliNetworkError.IsMatch(text)) { error.ErrorType = "llm_connection_error"; return error; }
+            return null;
         }
 
         #endregion

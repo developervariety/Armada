@@ -2,11 +2,14 @@ namespace Test.Shared.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Runtimes;
+    using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -116,6 +119,48 @@ namespace Test.Shared.Suites.Services
                 AssertNull(RuntimeProviderErrorParser.FromHttpStatus(0, null));
             }));
 
+            cases.Add(Case("cli_stderr_statuses_classified", "Gemini, Cursor and OpenCode stderr lines with an explicit HTTP status, a Google RPC status or a network code are classified instead of crashing", TestTags.Positive, () =>
+            {
+                Dictionary<string, RuntimeFailureKindEnum> lines = new Dictionary<string, RuntimeFailureKindEnum>
+                {
+                    ["[API Error: got status: 429 Too Many Requests. Please wait before retrying.]"] = RuntimeFailureKindEnum.UsageLimit,
+                    ["Error: Request failed with status code 503"] = RuntimeFailureKindEnum.Transient,
+                    ["AI_APICallError: Unauthorized (HTTP 401)"] = RuntimeFailureKindEnum.AuthFailure,
+                    ["upstream returned HTTP/1.1 502 Bad Gateway"] = RuntimeFailureKindEnum.Transient,
+                    ["{\"error\":{\"code\":429,\"message\":\"Quota exceeded\",\"status\":\"RESOURCE_EXHAUSTED\"}}"] = RuntimeFailureKindEnum.UsageLimit,
+                    ["Error: [UNAUTHENTICATED] API key not valid"] = RuntimeFailureKindEnum.AuthFailure,
+                    ["{\"error\":{\"message\":\"The model is overloaded\",\"status\":\"UNAVAILABLE\"}}"] = RuntimeFailureKindEnum.Transient,
+                    ["TypeError: fetch failed (cause: connect ECONNREFUSED 127.0.0.1:11434)"] = RuntimeFailureKindEnum.Transient,
+                };
+                foreach (KeyValuePair<string, RuntimeFailureKindEnum> entry in lines)
+                {
+                    RuntimeProviderError? error = RuntimeProviderErrorParser.TryParseCliStderrLine(entry.Key, "Gemini");
+                    AssertNotNull(error, entry.Key);
+                    AssertEqual(entry.Value, RuntimeFailureClassifier.Classify(1, error), entry.Key);
+                    AssertContains("Gemini reported a provider error", error!.Reason ?? String.Empty);
+                }
+            }));
+
+            cases.Add(Case("cli_stderr_ordinary_lines_ignored", "Ordinary stderr (bare numbers, log lines, words like unavailable) is not a provider error", TestTags.Negative, () =>
+            {
+                foreach (string line in new[] { "", "   ", "Loaded 429 files", "Processed 503 items in 2s", "warning: deprecated flag --foo",
+                    "The service is unavailable on Windows", "status: ok", "HTTP 200 OK", "Retrying in 3 seconds" })
+                    AssertNull(RuntimeProviderErrorParser.TryParseCliStderrLine(line, "Cursor"), line);
+            }));
+
+            cases.Add(Case("cli_runtimes_report_stderr_provider_errors", "A Gemini, Cursor or OpenCode process that prints a rate limit to stderr and exits 1 raises a typed provider error; the same text on stdout raises none", TestTags.Positive, () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                foreach (Func<LoggingModule, string, BaseAgentRuntime> factory in new Func<LoggingModule, string, BaseAgentRuntime>[] {
+                    (log, stub) => new GeminiRuntime(log) { ExecutablePath = stub },
+                    (log, stub) => new CursorRuntime(log) { ExecutablePath = stub },
+                    (log, stub) => new OpenCodeRuntime(log) { ExecutablePath = stub } })
+                {
+                    AssertEqual(RuntimeFailureKindEnum.UsageLimit, RunStubClassification(factory, ">&2"));
+                    AssertEqual(RuntimeFailureKindEnum.Crash, RunStubClassification(factory, String.Empty));
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.RuntimeProviderErrorParser",
                 displayName: "Runtime Provider Error Parser",
@@ -125,6 +170,33 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private static RuntimeFailureKindEnum RunStubClassification(Func<LoggingModule, string, BaseAgentRuntime> factory, string redirect)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "armada-stderr-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                string stub = Path.Combine(root, "stub.sh");
+                File.WriteAllText(stub, "#!/bin/sh\ncat > /dev/null\necho 'Error: Request failed with status code 429 Too Many Requests' " + redirect + "\nexit 1\n");
+                File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                BaseAgentRuntime runtime = factory(logging, stub);
+                RuntimeProviderError? error = null;
+                int? exitCode = null;
+                using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                runtime.OnProviderError += (pid, e) => error = RuntimeFailureClassifier.KeepMoreSignificant(error, e);
+                runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                runtime.StartAsync(root, "say hi").GetAwaiter().GetResult();
+                AssertTrue(exited.Wait(TimeSpan.FromSeconds(15)), "stub did not exit");
+                return RuntimeFailureClassifier.Classify(exitCode, error);
+            }
+            finally
+            {
+                try { Directory.Delete(root, true); } catch { }
+            }
+        }
 
         private static TestCaseDescriptor Case(string caseId, string displayName, string tag, Action body)
         {

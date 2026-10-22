@@ -482,6 +482,10 @@ namespace Armada.Runtimes
                     return _ParseStructuredErrors && fromStdout ? RuntimeProviderErrorParser.TryParseCodexJsonLine(data) : null;
                 case AgentRuntimeEnum.Mux:
                     return fromStdout ? _MuxOutcome?.ObserveLine(data) : null;
+                case AgentRuntimeEnum.Gemini:
+                case AgentRuntimeEnum.Cursor:
+                case AgentRuntimeEnum.OpenCode:
+                    return fromStdout ? null : RuntimeProviderErrorParser.TryParseCliStderrLine(data, _RuntimeType.ToString());
                 default:
                     return null;
             }
