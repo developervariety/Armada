@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using Armada.Core.Models;
     using PolyPrompt.Auth;
     using PolyPrompt.Clients;
+    using PolyPrompt.Options;
     using SyslogLogging;
 
     /// <summary>
@@ -123,6 +124,11 @@ namespace Armada.Core.Services
             if (endpoint.Provider != ModelProviderEnum.AzureOpenAI && !String.IsNullOrWhiteSpace(endpoint.Model))
                 client.Model = endpoint.Model;
             client.TimeoutMs = endpoint.TimeoutMs;
+
+            // Ollama otherwise runs at the model's default window and drops the oldest history without saying so.
+            int? contextLength = endpoint.InferenceOptions.ContextLength;
+            if (contextLength.HasValue && client.Defaults is OllamaCompletionOptions ollamaDefaults)
+                ollamaDefaults.ContextLength = contextLength;
             return client;
         }
 

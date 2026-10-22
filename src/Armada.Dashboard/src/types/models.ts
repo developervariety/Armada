@@ -2774,6 +2774,10 @@ export interface InferenceOptions {
   temperature: number | null;
   topP: number | null;
   requireHarbor: boolean;
+  /** Ollama num_ctx; null uses the model default. */
+  contextLength?: number | null;
+  /** Missions allowed at once against this base URL; null is unlimited. */
+  maxConcurrentMissions?: number | null;
 }
 
 export interface ModelEndpoint {

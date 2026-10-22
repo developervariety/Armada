@@ -477,6 +477,17 @@ namespace Armada.Runtimes
                         break;
                     }
 
+                    // A prompt that fills the configured window means the server has started (or is about to start) dropping
+                    // the oldest turns, which hold the mission brief. Stop with a typed error rather than act on a partial view.
+                    RuntimeProviderError? contextFailure = ContextLimitFailure(settings, response.Usage);
+                    if (contextFailure != null)
+                    {
+                        EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[error] " + contextFailure.Reason);
+                        RaiseProviderError(processId, contextFailure);
+                        exitCode = 1;
+                        break;
+                    }
+
                     if (!String.IsNullOrEmpty(response.Text))
                     {
                         finalText = response.Text!;
@@ -797,6 +808,20 @@ namespace Armada.Runtimes
                 try { _LogWriter?.Dispose(); } catch { }
                 _LogWriter = null;
             }
+        }
+
+        private static RuntimeProviderError? ContextLimitFailure(InferenceOptions settings, TokenUsage? usage)
+        {
+            if (!settings.ContextLength.HasValue || usage?.PromptTokens == null) return null;
+            int window = settings.ContextLength.Value;
+            long prompt = usage.PromptTokens.Value;
+            if (prompt * 100 < (long)window * 95) return null;
+            return new RuntimeProviderError
+            {
+                ErrorType = "context_limit_exceeded",
+                Reason = "The conversation reached the configured context window (prompt tokens: " + prompt + " of " + window
+                    + "). Further turns would run on truncated history, so the run stopped."
+            };
         }
 
         private static bool IsTokenLimit(string? reason) => String.Equals(reason, "length", StringComparison.OrdinalIgnoreCase) || String.Equals(reason, "max_tokens", StringComparison.OrdinalIgnoreCase) || String.Equals(reason, "max_output_tokens", StringComparison.OrdinalIgnoreCase);

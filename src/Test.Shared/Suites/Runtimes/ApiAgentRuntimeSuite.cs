@@ -163,7 +163,67 @@ namespace Test.Shared.Suites.Runtimes
                 finally { Cleanup(dir); }
             }));
 
-            cases.Add(CaseAsync("tools_write_then_read_round_trip", "Ported write_file and read_file round-trip in a working directory", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("context_window_full_fails_typed", "A prompt that fills the configured context window stops with context_limit_exceeded; one well under it does not", TestTags.Negative, async () =>
+            {
+                foreach (int promptTokens in new[] { 31500, 1000 })
+                {
+                    string dir = NewTempDir();
+                    try
+                    {
+                        Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                        script.Enqueue(new ToolChatResponse { Success = true, Usage = new TokenUsage { PromptTokens = promptTokens }, ToolCalls = new List<ToolCall> { new ToolCall { Id = "read", Name = "list_directory", ArgumentsJson = "{}" } } });
+                        script.Enqueue(new ToolChatResponse { Success = true, Usage = new TokenUsage { PromptTokens = promptTokens }, Text = "done", ToolCalls = new List<ToolCall>() });
+                        ModelEndpoint endpoint = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.Ollama, BaseUrl = "http://localhost:1",
+                            InferenceOptions = new InferenceOptions { McpToolsEnabled = false, ContextLength = 32768 } };
+                        ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new ScriptedClient(script, log));
+                        using ManualResetEventSlim exited = new ManualResetEventSlim(false); int code = -1;
+                        RuntimeProviderError? failure = null;
+                        runtime.OnProviderError += (pid, error) => failure = error;
+                        runtime.OnProcessExited += (pid, value) => { code = value ?? -1; exited.Set(); };
+                        await runtime.StartAsync(dir, "list the files").ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "The run must finish.");
+                        if (promptTokens == 31500)
+                        {
+                            AssertEqual(1, code);
+                            AssertNotNull(failure);
+                            AssertEqual("context_limit_exceeded", failure!.ErrorType);
+                            AssertContains("32768", failure.Reason ?? String.Empty);
+                            AssertEqual(RuntimeFailureKindEnum.TaskFailure, Armada.Core.Services.RuntimeFailureClassifier.Classify(code, failure), "a full window is the task's problem, not the captain's");
+                        }
+                        else
+                        {
+                            AssertEqual(0, code, "a prompt well under the window runs normally");
+                            AssertTrue(failure == null || failure.ErrorType != "context_limit_exceeded");
+                        }
+                    }
+                    finally { Cleanup(dir); }
+                }
+            }));
+
+            cases.Add(CaseAsync("context_length_reaches_ollama_clients_only", "ContextLength becomes num_ctx on Ollama and Ollama Cloud clients and is validated", TestTags.Positive, () =>
+            {
+                ModelEndpoint ollama = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.Ollama, BaseUrl = "http://localhost:11434", Model = "qwen3",
+                    InferenceOptions = new InferenceOptions { ContextLength = 65536 } };
+                using (CompletionClientBase client = Armada.Core.Services.ModelEndpointClientFactory.CreateCompletion(ollama, CreateLogging()))
+                    AssertEqual(65536, (client.Defaults as PolyPrompt.Options.OllamaCompletionOptions)?.ContextLength);
+
+                ModelEndpoint cloud = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.OllamaCloud, Model = "glm-4.6",
+                    InferenceOptions = new InferenceOptions { ContextLength = 131072 } };
+                cloud.ApiKey = "test-token";
+                using (CompletionClientBase client = Armada.Core.Services.ModelEndpointClientFactory.CreateCompletion(cloud, CreateLogging()))
+                    AssertEqual(131072, (client.Defaults as PolyPrompt.Options.OllamaCompletionOptions)?.ContextLength);
+
+                ModelEndpoint unset = new ModelEndpoint { Kind = ModelEndpointKindEnum.Inference, Provider = ModelProviderEnum.Ollama, BaseUrl = "http://localhost:11434", Model = "qwen3" };
+                using (CompletionClientBase client = Armada.Core.Services.ModelEndpointClientFactory.CreateCompletion(unset, CreateLogging()))
+                    AssertNull((client.Defaults as PolyPrompt.Options.OllamaCompletionOptions)?.ContextLength, "unset keeps the model default");
+
+                AssertThrows<ArgumentException>(() => new InferenceOptions { ContextLength = 100 }.Validate());
+                AssertThrows<ArgumentException>(() => new InferenceOptions { ContextLength = 3000000 }.Validate());
+                new InferenceOptions { ContextLength = 512 }.Validate();
+                return Task.CompletedTask;
+            }));
+
+            cases.Add(CaseAsync("tools_write_then_read_round_trip","Ported write_file and read_file round-trip in a working directory", TestTags.Positive, async () =>
             {
                 string dir = NewTempDir();
                 try

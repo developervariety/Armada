@@ -655,12 +655,15 @@ export default function Endpoints() {
               {([
                 ['maxIterations', 'Maximum model turns', 1, 1000, 1], ['maxTokens', 'Maximum output tokens', 1, 10000000, 1],
                 ['temperature', 'Temperature', 0, 2, 0.01], ['topP', 'Top P', 0, 1, 0.01],
+                ['contextLength', 'Context window (Ollama num_ctx)', 512, 2097152, 1], ['maxConcurrentMissions', 'Max concurrent missions (per base URL)', 1, 64, 1],
               ] as const).map(([key, label, min, max, step]) => <label key={key}>{t(label)}
-                <input type="number" min={min} max={max} step={step} required={key === 'maxIterations'} placeholder={t('Provider default')}
+                <input type="number" min={min} max={max} step={step} required={key === 'maxIterations'}
+                  placeholder={t(key === 'contextLength' ? 'Model default' : key === 'maxConcurrentMissions' ? 'Unlimited' : 'Provider default')}
                   value={form.inferenceOptions[key] ?? ''} onChange={e => setForm({ ...form, inferenceOptions: { ...form.inferenceOptions, [key]: e.target.value === '' ? null : Number(e.target.value) } })} />
               </label>)}
               </div>
               <p className="text-dim">{t('A model turn can contain several tool calls. Output tokens include reasoning and the visible answer; PolyPrompt defaults to 4,096 when no limit is set. Reasoning models may need a larger explicit budget.')}</p>
+              <p className="text-dim">{t('The context window applies to Ollama and Ollama Cloud; a run that fills it stops with a context-limit error instead of continuing on truncated history. Max concurrent missions limits how many missions run at once against this base URL across all captains.')}</p>
             </fieldset>}
             {form.kind === 'Inference' && <fieldset className="endpoint-auth-section endpoint-inference-section">
               <legend>{t('Captain')}</legend>

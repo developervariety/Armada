@@ -31,6 +31,12 @@ namespace Armada.Core.Models
         /// instead of swapping models and timing out. Null is unlimited.
         /// </summary>
         public int? MaxConcurrentMissions { get; set; } = null;
+        /// <summary>
+        /// Optional context window, from 512 through 2097152 tokens, sent as Ollama's num_ctx on Ollama and Ollama Cloud
+        /// endpoints. When set, an API captain whose prompt reaches the window fails with context_limit_exceeded instead
+        /// of continuing on silently truncated history. Null uses the model default.
+        /// </summary>
+        public int? ContextLength { get; set; } = null;
 
         /// <summary>Whether launching on a Harbor requires policy-aware execution support.</summary>
         [System.Text.Json.Serialization.JsonIgnore]
@@ -45,6 +51,7 @@ namespace Armada.Core.Models
             if (Temperature.HasValue && (!Double.IsFinite(Temperature.Value) || Temperature < 0 || Temperature > 2)) throw new ArgumentException("InferenceOptions.Temperature must be between 0 and 2.");
             if (TopP.HasValue && (!Double.IsFinite(TopP.Value) || TopP < 0 || TopP > 1)) throw new ArgumentException("InferenceOptions.TopP must be between 0 and 1.");
             if (MaxConcurrentMissions.HasValue && (MaxConcurrentMissions < 1 || MaxConcurrentMissions > 64)) throw new ArgumentException("InferenceOptions.MaxConcurrentMissions must be between 1 and 64.");
+            if (ContextLength.HasValue && (ContextLength < 512 || ContextLength > 2097152)) throw new ArgumentException("InferenceOptions.ContextLength must be between 512 and 2097152.");
             if (AllowedTools != null && (AllowedTools.Count > 256 || AllowedTools.Any(n => String.IsNullOrWhiteSpace(n) || n.Length > 256 || n != n.Trim()) || AllowedTools.Distinct(StringComparer.Ordinal).Count() != AllowedTools.Count))
                 throw new ArgumentException("InferenceOptions.AllowedTools must contain at most 256 distinct, nonblank exact tool names (maximum 256 characters each).");
         }
