@@ -17,5 +17,15 @@ namespace Armada.Core.Database.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>Rows deleted per table, in purge order.</returns>
         Task<DataExpiryResult> PurgeExpiredAsync(DataExpiryCutoffs cutoffs, CancellationToken token = default);
+
+        /// <summary>
+        /// Delete every expired row the retention rules select at the given cutoffs, handing each
+        /// delete statement's rows to the exporter first.
+        /// </summary>
+        /// <param name="cutoffs">Retention cutoffs. A null cutoff leaves its tables untouched.</param>
+        /// <param name="exporter">Receives the rows of each delete before it runs; null deletes without an export.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Rows deleted per table, in purge order.</returns>
+        Task<DataExpiryResult> PurgeExpiredAsync(DataExpiryCutoffs cutoffs, IDataExpiryRowExporter? exporter, CancellationToken token);
     }
 }

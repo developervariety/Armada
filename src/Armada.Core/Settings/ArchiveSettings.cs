@@ -2,6 +2,7 @@ namespace Armada.Core.Settings
 {
     using System;
     using System.Collections.Generic;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// Settings for the history archive: an S3-compatible bucket that receives raw history before
@@ -123,8 +124,20 @@ namespace Armada.Core.Settings
         /// <summary>
         /// True when every value the sink needs is present.
         /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
         public bool IsConfigured =>
             !String.IsNullOrEmpty(Endpoint) && !String.IsNullOrEmpty(Bucket) && !String.IsNullOrEmpty(CredentialsFile);
+
+        /// <summary>
+        /// How expired history is treated under these settings: archived when the archive is enabled
+        /// and configured, else kept, else (with <see cref="KeepHistoryWithoutArchive"/> off) deleted.
+        /// </summary>
+        /// <returns>History retention mode.</returns>
+        public HistoryRetentionModeEnum ResolveHistoryMode()
+        {
+            if (Enabled && IsConfigured) return HistoryRetentionModeEnum.Archive;
+            return KeepHistoryWithoutArchive ? HistoryRetentionModeEnum.Keep : HistoryRetentionModeEnum.Delete;
+        }
 
         #endregion
 

@@ -754,6 +754,18 @@ runs in low-space mode and uses `diskLifecycle.lowSpacePayloadRetentionHours`
 threshold, and records a `disk_lifecycle.low_space` event. The report carries
 `FreeBytes` and `LowSpace`.
 
+History (mission logs, diffs, instruction snapshots, dock metadata and stage
+records, final messages, whole operator-evidence folders and the configured
+`archive.sessionRoots`) is freed only with a verified copy in the history
+archive. While no archive is configured it is kept, unless
+`archive.keepHistoryWithoutArchive` is false. The report carries
+`HistoryMode` (`Archive`, `Keep` or `Delete`), `ArchivedItems`,
+`ArchivedBytes`, `ArchiveFailures` and `ArchiveManifestKey`; a pass whose
+uploads fail verification keeps each failed item, records a
+`disk_lifecycle.archive_failed` event and posts a board note. Deny-listed files
+such as credentials and settings files are never uploaded and never freed.
+`docs/ARCHIVE.md` describes the archive.
+
 `diskLifecycle.extraRetentionRoots` keeps operator directories outside
 Armada's own storage bounded, such as a folder of deploy database dumps or
 rehearsal scratch folders. Each entry names an absolute `path`, a

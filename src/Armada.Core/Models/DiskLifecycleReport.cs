@@ -83,6 +83,32 @@ namespace Armada.Core.Models
         /// </summary>
         public List<string> Errors { get; set; } = new List<string>();
 
+        /// <summary>
+        /// How the pass treated history: <c>Archive</c> (uploaded and verified before it is freed),
+        /// <c>Keep</c> (kept because no archive is configured) or <c>Delete</c> (freed without a copy).
+        /// </summary>
+        public string HistoryMode { get; set; } = "Keep";
+
+        /// <summary>
+        /// History files uploaded and verified by this pass.
+        /// </summary>
+        public int ArchivedItems { get; set; } = 0;
+
+        /// <summary>
+        /// Bytes of history uploaded and verified by this pass.
+        /// </summary>
+        public long ArchivedBytes { get; set; } = 0;
+
+        /// <summary>
+        /// History uploads that failed verification. Each failed file is kept.
+        /// </summary>
+        public int ArchiveFailures { get; set; } = 0;
+
+        /// <summary>
+        /// Object key of the manifest this pass uploaded, or null when it archived nothing.
+        /// </summary>
+        public string? ArchiveManifestKey { get; set; } = null;
+
         #endregion
     }
 }

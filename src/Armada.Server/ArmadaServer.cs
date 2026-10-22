@@ -18,6 +18,7 @@ namespace Armada.Server
     using Armada.Core.Models;
     using Armada.Core.Recovery;
     using Armada.Core.Services;
+    using Armada.Core.Services.Archive;
     using Armada.Core.Services.TypedDecisions;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -134,6 +135,7 @@ namespace Armada.Server
         private TraceRecorder _TraceRecorder = null!;
         private const int _TraceSweepEventsPerCycle = 5000;
         private DiskLifecycleService _DiskLifecycle = null!;
+        private ArchiveExpiryService _ArchiveExpiry = null!;
         private ArmadaTelemetryHost? _TelemetryHost = null;
         private BranchCleanupSweepService _BranchCleanupSweep = null!;
         private GitRefAuditService _GitRefAudit = null!;
@@ -555,9 +557,14 @@ namespace Armada.Server
 
             // Initialize log rotation and data expiry
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
-            _DataExpiry = new DataExpiryService(_Logging, _Database, _Settings.DataRetentionDays, _Settings.ProductionFactRetentionDays, _Settings.RequestHistoryRetentionDays);
+            _DataExpiry = new DataExpiryService(_Logging, _Database, _Settings.DataRetentionDays, _Settings.ProductionFactRetentionDays, _Settings.RequestHistoryRetentionDays)
+            {
+                ArchiveSettingsProvider = () => _Settings.Archive,
+                StagingDirectory = Path.Combine(_Settings.DataDirectory, "archive-staging")
+            };
             _TraceRecorder = new TraceRecorder(_Database, _Logging) { ArchiveSettingsProvider = () => _Settings.Archive };
             _DiskLifecycle = new DiskLifecycleService(_Database, _Settings, _Logging);
+            _ArchiveExpiry = new ArchiveExpiryService(_Logging, () => _Settings.Archive);
 
             // Telemetry export. ArmadaMetrics already emits the meters; without this host nothing
             // observes or exports them. Start is a no-op unless telemetry.enabled is true, so a
@@ -808,6 +815,7 @@ namespace Armada.Server
             _CoordinationService = new CoordinationService(_Logging, _Database, _WebSocketHub);
             _AutonomousRecovery.BoardNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Autonomous Recovery");
             _ObjectiveScheduler.BoardNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Objective Scheduler");
+            _DiskLifecycle.BoardNotes = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "History Archive");
             _AgentLifecycle.SetCoordinationService(_CoordinationService);
             // Every stored fleet event of a mirrored type becomes a board note, whichever service wrote it.
             CoordinationFleetEventMirror.Attach(_Database, _CoordinationService, _Logging);
@@ -2541,6 +2549,11 @@ namespace Armada.Server
                 // Observability and stale-lease purging always run; deletion is gated by diskLifecycle settings.
                 HealthLoopMaintenanceStep.EveryCycles("disk lifecycle reconciliation", () => _Settings.DiskLifecycle.ReconcileIntervalCycles,
                     async stepToken => await _DiskLifecycle.ReconcileAsync(stepToken).ConfigureAwait(false)),
+
+                // Archive objects past their retention are deleted from the bucket. The service does
+                // nothing while the archive is disabled or not configured.
+                HealthLoopMaintenanceStep.EveryCycles("archive expiry", () => 1000,
+                    async stepToken => await _ArchiveExpiry.ExpireAsync(stepToken).ConfigureAwait(false)),
 
                 // Detect HEAD changes that did not go through an Armada landing and schedule a reindex,
                 // so the dispatch guard does not silently block on a stale index.

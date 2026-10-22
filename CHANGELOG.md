@@ -15,6 +15,21 @@ upstream integrations and excludes changes already present at that baseline.
   again only when that set changes.
 - A preflight Q9 model flag quotes the brief lines that state a proof or expected
   value, and the lines declared unchanged on purpose apart from them.
+- History archive. Disk lifecycle frees history (mission logs, diffs,
+  instruction snapshots, dock metadata and stage records, final messages, whole
+  operator-evidence folders and configured captain session roots) only after
+  an S3-compatible upload is verified by size and SHA-256; with no archive it
+  keeps history by default, and a failed upload keeps the item, records a
+  `disk_lifecycle.archive_failed` event and posts a board note. Each pass
+  uploads a manifest to `raw/manifests/`. A built-in deny list keeps
+  credentials, settings files and their backups, keys and `secrets`/`.ssh`
+  folders out of the archive. Data expiry exports each delete statement's rows
+  as gzip JSON lines to `raw/db/<table>/` and verifies them before it deletes,
+  deletes nothing while no archive is configured, and hands each expiring row
+  to `IDataExpiryObserver` observers. The server deletes `raw/` objects past
+  `archive.rawRetentionDays` and `trace/` objects past
+  `archive.traceRetentionDays`. `docs/ARCHIVE.md` describes the modes, the deny
+  list and keeping the last two admiral backups.
 - History archive contract. The `archive` settings section (disabled by
   default; hot-reloads) names an S3-compatible endpoint, bucket, region,
   credentials file, key prefix, raw retention (90 days), trace retention (365

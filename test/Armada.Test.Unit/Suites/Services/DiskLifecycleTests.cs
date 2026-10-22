@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
@@ -9,6 +10,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -63,6 +65,8 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 Layout layout = CreateLayout();
+                // History is deleted without a copy only when keeping it is turned off.
+                layout.Settings.Archive.KeepHistoryWithoutArchive = false;
 
                 try
                 {
@@ -286,6 +290,8 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 Layout layout = CreateLayout();
+                // History is deleted without a copy only when keeping it is turned off.
+                layout.Settings.Archive.KeepHistoryWithoutArchive = false;
 
                 try
                 {
@@ -312,6 +318,208 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(
                         live.Actions.Any(a => a.Path == oldLog && a.Disposition == "reclaimed"),
                         "Enabled reconcile must record the reclaimed item.");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("With the archive active an expired history file is uploaded and verified before it is freed, and the pass writes a manifest", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string oldLog = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_old.log", DateTime.UtcNow.AddDays(-40));
+                    string freshLog = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_fresh.log", DateTime.UtcNow);
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+
+                    DiskLifecycleReport dry = await service.ScanAsync().ConfigureAwait(false);
+                    AssertEqual(0, sink.Objects.Count, "A scan uploads nothing");
+                    AssertTrue(dry.Actions.Any(a => a.Path == oldLog && a.Disposition == "dry-run-reclaim"), "A scan reports the file it would archive");
+
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    string key = sink.Objects.Keys.Single(k => k.EndsWith("/msn_old.log", StringComparison.Ordinal));
+                    AssertTrue(key.StartsWith("armada/raw/missionLogs/", StringComparison.Ordinal), "The log is stored under the raw mission-log prefix: " + key);
+                    AssertEqual(new string('d', 1024), System.Text.Encoding.UTF8.GetString(sink.Objects[key]), "The stored object is the file's content");
+                    AssertFalse(File.Exists(oldLog), "The archived log is freed");
+                    AssertTrue(File.Exists(freshLog), "A log inside its retention stays");
+                    AssertEqual("Archive", live.HistoryMode, "The pass reports archive mode");
+                    AssertEqual(1, live.ArchivedItems, "One file is archived");
+                    AssertTrue(live.Actions.Any(a => a.Path == oldLog && a.Disposition == "reclaimed" && a.Reason.Contains(key, StringComparison.Ordinal)), "The action names the object key");
+                    AssertTrue(live.ArchiveManifestKey != null && live.ArchiveManifestKey.StartsWith("armada/raw/manifests/", StringComparison.Ordinal), "The pass uploads a manifest: " + live.ArchiveManifestKey);
+                    string manifest = System.Text.Encoding.UTF8.GetString(sink.Objects[live.ArchiveManifestKey!]);
+                    AssertTrue(manifest.Contains(key, StringComparison.Ordinal) && manifest.Contains("\"verified\":true", StringComparison.Ordinal), "The manifest records the verified object: " + manifest);
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An upload that fails verification keeps the file, records an event and posts one board note", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string failing = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_fail.log", DateTime.UtcNow.AddDays(-40));
+                    string passing = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_pass.log", DateTime.UtcNow.AddDays(-40));
+                    FakeArchiveSink sink = new FakeArchiveSink { FailKeysContaining = "msn_fail" };
+                    FakeBoardNotePoster notes = new FakeBoardNotePoster();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    service.BoardNotes = notes;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertTrue(File.Exists(failing), "A file whose upload was not verified is kept");
+                    AssertFalse(File.Exists(passing), "A verified file in the same pass is freed");
+                    AssertEqual(1, live.ArchiveFailures, "The report counts the failed upload");
+                    AssertTrue(live.Actions.Any(a => a.Path == failing && a.Disposition == "skipped" && a.Reason.Contains("sha256_mismatch", StringComparison.Ordinal)), "The action names the failure code");
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "One archive-failure event is recorded");
+                    AssertTrue(events[0].Message!.Contains(failing, StringComparison.Ordinal), "The event names the kept file");
+                    AssertEqual(1, notes.Posts.Count, "One board note is posted");
+                    AssertTrue(notes.Posts[0].Contains("kept locally", StringComparison.Ordinal), "The note says the file is kept: " + notes.Posts[0]);
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("With no archive configured expired history is kept by default, and an enabled but incomplete archive is reported", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string oldLog = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_old.log", DateTime.UtcNow.AddDays(-40));
+                    string oldDiff = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "diffs"), "msn_old.diff", DateTime.UtcNow.AddDays(-40));
+                    string oldFinal = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "final-messages"), "msn_old.md", DateTime.UtcNow.AddDays(-40));
+                    string expired = CreateEvidenceFolder(Path.Combine(layout.Settings.LogDirectory, "operator-evidence"), "proof-v0", DateTime.UtcNow.AddDays(-20));
+                    layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertEqual("Keep", live.HistoryMode, "Default settings keep history");
+                    AssertTrue(File.Exists(oldLog) && File.Exists(oldDiff) && File.Exists(oldFinal), "Expired logs, diffs and final messages are kept");
+                    AssertTrue(File.Exists(Path.Combine(expired, "receipt.json")), "An idle evidence folder is not removed whole");
+                    AssertTrue(live.Actions.Any(a => a.Path == oldLog && a.Disposition == "kept" && a.Reason.Contains("no archive is configured", StringComparison.Ordinal)), "The kept file names why");
+
+                    layout.Settings.Archive.Enabled = true;
+                    DiskLifecycleReport incomplete = await service.ReconcileAsync().ConfigureAwait(false);
+                    AssertTrue(File.Exists(oldLog), "An enabled archive without endpoint, bucket or credentials still keeps history");
+                    AssertTrue(incomplete.Errors.Any(e => e.Contains("archive is enabled but", StringComparison.Ordinal)), "The incomplete archive is reported: " + String.Join(" | ", incomplete.Errors));
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Deny-listed files are neither uploaded nor freed", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string root = Path.Combine(layout.Settings.LogDirectory, "instructions");
+                    string auth = CreateRetentionFile(root, "auth.json", DateTime.UtcNow.AddDays(-40));
+                    string settingsBackup = CreateRetentionFile(root, "settings.json.bak", DateTime.UtcNow.AddDays(-40));
+                    string custom = CreateRetentionFile(root, "operator.private", DateTime.UtcNow.AddDays(-40));
+                    string brief = CreateRetentionFile(root, "msn_old.md", DateTime.UtcNow.AddDays(-40));
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    layout.Settings.Archive.DenyPatterns.Add("*.private");
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertTrue(File.Exists(auth) && File.Exists(settingsBackup) && File.Exists(custom), "Deny-listed files stay on disk");
+                    AssertFalse(sink.Objects.Keys.Any(k => k.Contains("auth.json", StringComparison.Ordinal) || k.Contains("settings.json", StringComparison.Ordinal) || k.Contains(".private", StringComparison.Ordinal)),
+                        "No deny-listed file is uploaded: " + String.Join(", ", sink.Objects.Keys));
+                    AssertFalse(File.Exists(brief), "An ordinary instruction snapshot is archived and freed");
+                    AssertEqual(3, live.Actions.Count(a => a.Disposition == "kept" && a.Reason.Contains("deny list", StringComparison.Ordinal)), "Each deny-listed file is reported kept");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A captain session transcript is freed only after a verified upload, never by a plain delete", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string sessions = Path.Combine(layout.Settings.DataDirectory, "captain-sessions");
+                    string old = CreateRetentionFile(Path.Combine(sessions, "project-a"), "session-old.jsonl", DateTime.UtcNow.AddDays(-45));
+                    string fresh = CreateRetentionFile(Path.Combine(sessions, "project-a"), "session-new.jsonl", DateTime.UtcNow);
+                    layout.Settings.Archive.SessionRoots.Add(new ArchiveSessionRoot { Path = sessions, Name = "runtime-a", Pattern = "*.jsonl", RetentionDays = 30 });
+                    layout.Settings.Archive.KeepHistoryWithoutArchive = false;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleService plain = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    DiskLifecycleReport noArchive = await plain.ReconcileAsync().ConfigureAwait(false);
+                    AssertTrue(File.Exists(old), "Without an archive a session transcript is kept even with keeping turned off");
+                    AssertTrue(noArchive.Actions.Any(a => a.Path == old && a.Disposition == "kept"), "The kept transcript is reported");
+
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertFalse(File.Exists(old), "An archived transcript past its retention is freed");
+                    AssertTrue(File.Exists(fresh), "A transcript inside its retention stays");
+                    AssertTrue(sink.Objects.Keys.Any(k => k.StartsWith("armada/raw/captainSessions-runtime-a/", StringComparison.Ordinal) && k.EndsWith("/project-a/session-old.jsonl", StringComparison.Ordinal)),
+                        "The transcript is stored under its session root with its relative path: " + String.Join(", ", sink.Objects.Keys));
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An idle operator-evidence folder is archived without its payload before it is removed", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string expired = CreateEvidenceFolder(Path.Combine(layout.Settings.LogDirectory, "operator-evidence"), "proof-v0", DateTime.UtcNow.AddDays(-20));
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertFalse(Directory.Exists(expired), "The archived folder is removed");
+                    List<string> keys = sink.Objects.Keys.Where(k => k.StartsWith("armada/raw/operatorEvidence/", StringComparison.Ordinal)).ToList();
+                    AssertTrue(keys.Any(k => k.EndsWith("/proof-v0/receipt.json", StringComparison.Ordinal)), "The receipt is archived: " + String.Join(", ", keys));
+                    AssertTrue(keys.Any(k => k.EndsWith("/proof-v0/checkout/src/Program.cs", StringComparison.Ordinal)), "Source files are archived");
+                    AssertFalse(keys.Any(k => k.Contains("/.git/", StringComparison.Ordinal) || k.Contains("/bin/", StringComparison.Ordinal)), "Clones and build outputs are not archived");
                 }
                 finally
                 {
@@ -399,6 +607,8 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Layout layout = CreateLayout();
+                // History is deleted without a copy only when keeping it is turned off.
+                layout.Settings.Archive.KeepHistoryWithoutArchive = false;
 
                 try
                 {
@@ -942,6 +1152,18 @@ namespace Armada.Test.Unit.Suites.Services
                 Directory.SetLastWriteTimeUtc(directory, writtenUtc);
             Directory.SetLastWriteTimeUtc(folder, writtenUtc);
             return folder;
+        }
+
+        private static DiskLifecycleService CreateArchivingService(TestDatabase testDb, Layout layout, FakeArchiveSink sink)
+        {
+            layout.Settings.Archive.Enabled = true;
+            layout.Settings.Archive.Endpoint = "http://archive.example.invalid";
+            layout.Settings.Archive.Bucket = "history";
+            layout.Settings.Archive.CredentialsFile = Path.Combine(layout.Settings.DataDirectory, "archive-credentials");
+            DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+            service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+            service.ArchiveSinkFactory = _ => sink;
+            return service;
         }
 
         private static string CreateRetentionFile(string root, string name, DateTime writtenUtc)

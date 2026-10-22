@@ -50,6 +50,7 @@ namespace Armada.Core.Database
 
         private readonly Func<DbConnection> _ConnectionFactory;
         private readonly DatabaseTypeEnum _Provider;
+        private const string _DeletePrefix = "DELETE FROM ";
 
         #endregion
 
@@ -69,7 +70,13 @@ namespace Armada.Core.Database
         #region Public-Methods
 
         /// <inheritdoc />
-        public async Task<DataExpiryResult> PurgeExpiredAsync(DataExpiryCutoffs cutoffs, CancellationToken token = default)
+        public Task<DataExpiryResult> PurgeExpiredAsync(DataExpiryCutoffs cutoffs, CancellationToken token = default)
+        {
+            return PurgeExpiredAsync(cutoffs, null, token);
+        }
+
+        /// <inheritdoc />
+        public async Task<DataExpiryResult> PurgeExpiredAsync(DataExpiryCutoffs cutoffs, IDataExpiryRowExporter? exporter, CancellationToken token)
         {
             if (cutoffs == null) throw new ArgumentNullException(nameof(cutoffs));
             DataExpiryResult result = new DataExpiryResult();
@@ -79,7 +86,7 @@ namespace Armada.Core.Database
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
                 if (cutoffs.RecordCutoffUtc.HasValue)
-                    await PurgeOperationalRecordsAsync(connection, cutoffs.RecordCutoffUtc.Value, cutoffs, result, token).ConfigureAwait(false);
+                    await PurgeOperationalRecordsAsync(connection, cutoffs.RecordCutoffUtc.Value, cutoffs, result, exporter, token).ConfigureAwait(false);
 
                 // Production metric facts are append-only and age out by creation time only, so a
                 // summary window before the fact cutoff sees no facts and reports them as unobserved.
@@ -88,7 +95,7 @@ namespace Armada.Core.Database
                     foreach (string table in DataExpiryCutoffs.ProductionFactTables)
                     {
                         await ExecuteAsync(connection, table, result, "DELETE FROM " + table + " WHERE created_utc < @cutoff;",
-                            table, cutoffs.ProductionFactCutoffUtc.Value, cutoffs, token).ConfigureAwait(false);
+                            table, cutoffs.ProductionFactCutoffUtc.Value, cutoffs, token, exporter).ConfigureAwait(false);
                     }
                 }
 
@@ -98,9 +105,9 @@ namespace Armada.Core.Database
                 {
                     await ExecuteAsync(connection, "request_history_detail", result,
                         "DELETE FROM request_history_detail WHERE request_history_id IN (SELECT id FROM request_history WHERE created_utc < @cutoff);",
-                        "request_history", cutoffs.RequestHistoryCutoffUtc.Value, cutoffs, token).ConfigureAwait(false);
+                        "request_history", cutoffs.RequestHistoryCutoffUtc.Value, cutoffs, token, exporter).ConfigureAwait(false);
                     await ExecuteAsync(connection, "request_history", result, "DELETE FROM request_history WHERE created_utc < @cutoff;",
-                        "request_history", cutoffs.RequestHistoryCutoffUtc.Value, cutoffs, token).ConfigureAwait(false);
+                        "request_history", cutoffs.RequestHistoryCutoffUtc.Value, cutoffs, token, exporter).ConfigureAwait(false);
                 }
             }
             return result;
@@ -110,7 +117,7 @@ namespace Armada.Core.Database
 
         #region Private-Methods
 
-        private async Task PurgeOperationalRecordsAsync(DbConnection connection, DateTime cutoff, DataExpiryCutoffs cutoffs, DataExpiryResult result, CancellationToken token)
+        private async Task PurgeOperationalRecordsAsync(DbConnection connection, DateTime cutoff, DataExpiryCutoffs cutoffs, DataExpiryResult result, IDataExpiryRowExporter? exporter, CancellationToken token)
         {
             {
 
@@ -123,14 +130,14 @@ namespace Armada.Core.Database
                 // A mission whose parent expires loses the link instead of blocking the delete, matching
                 // ON DELETE SET NULL on the providers whose foreign key declares it.
                 await ExecuteAsync(connection, "missions", null, ClearParentSql(missionsOfExpiredVoyages), "voyages", cutoff, cutoffs, token).ConfigureAwait(false);
-                await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + missionsOfExpiredVoyages + ";", "voyages", cutoff, cutoffs, token).ConfigureAwait(false);
+                await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + missionsOfExpiredVoyages + ";", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
                 await ExecuteAsync(connection, "voyages", result, "DELETE FROM voyages WHERE status IN (" + Literals(ExpiringVoyageStatuses) + ")"
-                    + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff;", "voyages", cutoff, cutoffs, token).ConfigureAwait(false);
+                    + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff;", "voyages", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
                 await ExecuteAsync(connection, "missions", null, ClearParentSql(expiredStandaloneMissions), "missions", cutoff, cutoffs, token).ConfigureAwait(false);
-                await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + expiredStandaloneMissions + ";", "missions", cutoff, cutoffs, token).ConfigureAwait(false);
+                await ExecuteAsync(connection, "missions", result, "DELETE FROM missions WHERE " + expiredStandaloneMissions + ";", "missions", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
 
                 await ExecuteAsync(connection, "signals", result, "DELETE FROM signals WHERE " + ReadColumn() + " = @true AND created_utc < @cutoff;",
-                    "signals", cutoff, cutoffs, token).ConfigureAwait(false);
+                    "signals", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
 
                 // Some events are the only record of something, so each kept class survives the cutoff:
                 // dispatch attempt records inside the reconciliation look-back (an attempt whose process
@@ -141,7 +148,7 @@ namespace Armada.Core.Database
                 // typed-decision outcome labels (the outcome a decision's action reached, linked to it).
                 string anyKept = String.Join(" OR ", _KeptEventClasses.Select(item => "(" + item.Value + ")"));
                 await ExecuteAsync(connection, "events", result, "DELETE FROM events WHERE created_utc < @cutoff AND NOT (" + anyKept + ");",
-                    "events", cutoff, cutoffs, token).ConfigureAwait(false);
+                    "events", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
                 foreach (KeyValuePair<string, string> keptClass in _KeptEventClasses)
                 {
                     int kept = await CountAsync(connection, "events", "SELECT COUNT(*) FROM events WHERE created_utc < @cutoff AND (" + keptClass.Value + ");",
@@ -150,10 +157,10 @@ namespace Armada.Core.Database
                 }
 
                 await ExecuteAsync(connection, "docks", result, "DELETE FROM docks WHERE active = @false AND captain_id IS NULL AND created_utc < @cutoff;",
-                    "docks", cutoff, cutoffs, token).ConfigureAwait(false);
+                    "docks", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
 
                 await ExecuteAsync(connection, "merge_entries", result, "DELETE FROM merge_entries WHERE status IN (" + Literals(ExpiringMergeStatuses) + ")"
-                    + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff;", "merge_entries", cutoff, cutoffs, token).ConfigureAwait(false);
+                    + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff;", "merge_entries", cutoff, cutoffs, token, exporter).ConfigureAwait(false);
             }
         }
 
@@ -180,8 +187,11 @@ namespace Armada.Core.Database
         }
 
         private async Task ExecuteAsync(DbConnection connection, string table, DataExpiryResult? result, string sql, string timestampTable,
-            DateTime cutoff, DataExpiryCutoffs cutoffs, CancellationToken token)
+            DateTime cutoff, DataExpiryCutoffs cutoffs, CancellationToken token, IDataExpiryRowExporter? exporter = null)
         {
+            if (exporter != null)
+                await ExportAsync(connection, table, sql, timestampTable, cutoff, cutoffs, exporter, token).ConfigureAwait(false);
+
             using (DbCommand command = CreateCommand(connection, sql, timestampTable, cutoff, cutoffs))
             {
                 int deleted;
@@ -194,6 +204,33 @@ namespace Armada.Core.Database
                     throw new InvalidOperationException("data expiry of " + table + " failed on " + _Provider + ": " + ex.Message, ex);
                 }
                 result?.Add(table, deleted);
+            }
+        }
+
+        // Reads the rows a delete statement selects, with the same predicate and parameters, and hands
+        // them to the exporter before the delete runs.
+        private async Task ExportAsync(DbConnection connection, string table, string deleteSql, string timestampTable,
+            DateTime cutoff, DataExpiryCutoffs cutoffs, IDataExpiryRowExporter exporter, CancellationToken token)
+        {
+            if (!deleteSql.StartsWith(_DeletePrefix, StringComparison.Ordinal))
+                throw new InvalidOperationException("data expiry export of " + table + " needs a DELETE FROM statement");
+            string selectSql = "SELECT * FROM " + deleteSql.Substring(_DeletePrefix.Length);
+            using (DbCommand command = CreateCommand(connection, selectSql, timestampTable, cutoff, cutoffs))
+            {
+                DbDataReader reader;
+                try
+                {
+                    reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+                }
+                catch (DbException ex)
+                {
+                    throw new InvalidOperationException("data expiry export of " + table + " failed on " + _Provider + ": " + ex.Message, ex);
+                }
+
+                await using (reader.ConfigureAwait(false))
+                {
+                    await exporter.ExportAsync(table, reader, token).ConfigureAwait(false);
+                }
             }
         }
 
