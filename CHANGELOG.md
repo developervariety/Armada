@@ -9,6 +9,23 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A `skipStages` entry names one stage of the effective pipeline by persona, by
+  stage order (`"5"` or `"#5"`), or by persona and occurrence in stage order
+  (`"Worker#2"` is the second Worker), on every dispatch surface (MCP
+  `armada_dispatch`, REST `POST /api/v1/voyages`, WebSocket `create_voyage`,
+  alias dispatch, a stored objective skip and the dispatch preview), through the
+  one `PipelineStageSkip` parser. A pipeline with a first Worker and a revising
+  Worker can drop either one. A bare persona name that two stages carry is still
+  refused with `stage_skip_ambiguous_persona`, and its message lists the order
+  and occurrence name of each such stage; the Judge is refused by order as well
+  as by name. A revising Worker runs unless it is named.
+
+- A mission that a captain could serve but that finds no idle captain records
+  `mission.waiting_for_captain` when the wait is first seen and again when its
+  reason changes. The reason names the tier floor, the busy captains that may
+  take the mission, and how many idle captains each eligibility rule excludes
+  (`persona_not_allowed`, `below_tier_floor`, `model_pin_mismatch`).
+
 - A UnitTest or IntegrationTest Check, the landing integration Check among them,
   re-runs its failing tests once alone under the same rule and bound as the
   definition-of-done gate, through the shared isolated re-run plan: a test
@@ -539,6 +556,12 @@ upstream integrations and excludes changes already present at that baseline.
   request.
 
 ### Fixed
+
+- Smart Routing reports a persona model list dead
+  (`routing.persona_model_list_dead`, reason `persona_models_matched_nothing`)
+  only when eligibility admitted idle captains and none runs a listed model. A
+  mission whose only eligible captains are busy waits for capacity and records
+  no dead-list event on each assignment pass.
 
 - Every build or test command the admiral runs (Checks, Definition-of-Done
   gate commands, merge-queue test commands, workspace exec, the API-endpoint

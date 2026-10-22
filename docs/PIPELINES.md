@@ -121,7 +121,11 @@ the failed mission, evidence, and recovery options.
 Every stage of a pipeline runs; a stage has no optional flag. To leave a stage
 out, remove it from the pipeline, or skip it for one dispatch or objective with
 a recorded stage skip (`skipStages` with a reason), which every later stage and
-rescue honours.
+rescue honours. A skip entry names one stage by persona, by stage order (`5` or
+`#5`), or by persona and occurrence (`Worker#2`); use the order or occurrence
+form when two stages share a persona, such as a first Worker and a revising
+Worker. A revising Worker runs unless it is named, even when every reviewing
+stage before it is skipped.
 
 A stage whose final result is `[ARMADA:RESULT] BLOCKED` is a failure of this
 kind: it does not hand off, its later stages are cancelled, and no rescue runs.

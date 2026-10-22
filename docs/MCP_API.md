@@ -446,19 +446,26 @@ event naming the operator, the blocking question numbers, and the
 model-flagged question numbers. A refusal without the force flag lists both
 `IncompleteQuestions` and `ModelFlaggedQuestions`.
 
-`armada_dispatch` accepts `skipStages`, an array of persona names the operator
+`armada_dispatch` accepts `skipStages`, an array of pipeline stages the operator
 confirms the voyage does not need (for example `["TestEngineer"]`), and an
-optional `skipStagesReason`. The named stages are dropped when the voyage is
+optional `skipStagesReason`. Each entry names one stage: a persona name when only
+one stage carries that persona, a stage order (`"5"` or `"#5"`), or a persona and
+its occurrence in stage order (`"Worker#2"` is the second Worker, so a pipeline
+with a first Worker and a revising Worker can drop either one). The `PipelineStageSkip`
+parser reads every entry, so every dispatch surface below accepts the same
+forms. The named stages are dropped when the voyage is
 materialised and the remaining stages chain across the gap: each kept stage
 depends on the last kept stage before it. One `voyage.stage_skipped` event is
 recorded per dropped stage; its payload carries `Persona`, `StageOrder`,
 `Reason` and `Confirmer` (the calling principal). The same rule applies to REST
 `POST /api/v1/voyages` (`SkipStages`), WebSocket `create_voyage` (`skipStages`), alias dispatch,
 and the autonomous scheduler. The dispatch is refused, and nothing is created,
-when a name is the Judge (`stage_skip_judge_refused`), is blank or is not a stage
-of the effective pipeline (`stage_skip_unknown_persona`), is the persona of more
-than one stage of the effective pipeline (`stage_skip_ambiguous_persona`), or
-when only the Judge would remain (`stage_skip_leaves_no_work`). A `stage_optional` preview Warning
+when an entry names the Judge by persona or by order (`stage_skip_judge_refused`),
+is blank or malformed or names no stage of the effective pipeline
+(`stage_skip_unknown_persona`), is a bare persona name that more than one stage
+carries or an order that parallel stages share (`stage_skip_ambiguous_persona`;
+the message lists the order and occurrence name of each such stage), or when
+only the Judge would remain (`stage_skip_leaves_no_work`). A `stage_optional` preview Warning
 is advice only: nothing is skipped unless the operator names it. The autonomous
 scheduler reads an operator-confirmed skip from the objective's
 `preparation.stageSkip` (`stages`, `reason`, `confirmedBy`, `confirmedUtc`, and
@@ -478,7 +485,9 @@ the rescue chain through the same rule, and records one `voyage.stage_skipped`
 event per carried stage on the rescue voyage, with the original `Reason` plus
 `carried from <voyage id>` and the original `Confirmer`. A skip is not carried
 when the failure reason or review comment names that stage's persona, or when
-its persona names more than one stage of the rescue chain, and the Judge is
+its persona names more than one stage of the rescue chain (a skip that named one
+of two same-persona stages by order or occurrence is carried by its persona, so
+such a rescue runs both stages), and the Judge is
 never skipped. A voyage with no recorded skip gets the full chain.
 `preview_objective_dispatch` lists `effectivePipelineStages` after that same
 `PipelineStageSkip` rule, names `skippedPipelineStages`, reports whether the

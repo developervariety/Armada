@@ -295,6 +295,9 @@ namespace Armada.Core.Services
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _UnassignableTicks =
             new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.Ordinal);
+        // Last captain-wait reason recorded per waiting mission; cleared when the mission is assigned.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _CaptainWaitReasons =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private int _UnassignableIncidentTickThreshold = 10;
 
         /// <summary>
@@ -936,11 +939,13 @@ namespace Armada.Core.Services
                     mission.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
                 await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
-                await TrackUnassignableByConstructionAsync(mission, token).ConfigureAwait(false);
+                if (!await TrackUnassignableByConstructionAsync(mission, token).ConfigureAwait(false))
+                    await RecordCaptainWaitAsync(mission, token).ConfigureAwait(false);
                 return false;
             }
 
             _UnassignableTicks.TryRemove(mission.Id, out int _);
+            _CaptainWaitReasons.TryRemove(mission.Id, out string? _);
 
             // Downstream pipeline stages continue on the upstream branch prepared during handoff,
             // which copies the upstream mission's branch name onto the dependent. Standalone
@@ -12960,7 +12965,8 @@ namespace Armada.Core.Services
         /// one named event; after <see cref="UnassignableIncidentTickThreshold"/> consecutive passes one
         /// incident opens. The mission itself is not changed.
         /// </summary>
-        private async Task TrackUnassignableByConstructionAsync(Mission mission, CancellationToken token)
+        /// <returns>True when the mission is unassignable by construction.</returns>
+        private async Task<bool> TrackUnassignableByConstructionAsync(Mission mission, CancellationToken token)
         {
             string? reason;
             try
@@ -12974,13 +12980,13 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not evaluate whether mission " + mission.Id + " is unassignable by construction: " + ex.Message);
-                return;
+                return false;
             }
 
             if (reason == null)
             {
                 _UnassignableTicks.TryRemove(mission.Id, out int _);
-                return;
+                return false;
             }
 
             int ticks = _UnassignableTicks.AddOrUpdate(mission.Id, 1, (_, count) => count + 1);
@@ -13010,7 +13016,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (ticks != UnassignableIncidentTickThreshold) return;
+            if (ticks != UnassignableIncidentTickThreshold) return true;
 
             try
             {
@@ -13027,7 +13033,7 @@ namespace Armada.Core.Services
                     MissionId = mission.Id
                 }, token).ConfigureAwait(false);
                 if (existing.Count > 0)
-                    return;
+                    return true;
 
                 string title = mission.Title ?? mission.Id;
                 if (title.Length > 96) title = title.Substring(0, 96);
@@ -13054,6 +13060,94 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not open the unassignable-mission incident for " + mission.Id + ": " + ex.Message);
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Name why a mission that some captain could serve still has no idle captain. The wait is recorded as
+        /// one <c>mission.waiting_for_captain</c> event when it is first seen and again only when the reason
+        /// changes, so a mission that waits for a busy captain says which captains could take it and why each
+        /// idle captain cannot.
+        /// </summary>
+        private async Task RecordCaptainWaitAsync(Mission mission, CancellationToken token)
+        {
+            try
+            {
+                List<Captain> roster = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+                string reason = DescribeCaptainWait(_Settings.ModelTier, mission, roster, DateTime.UtcNow);
+                if (_CaptainWaitReasons.TryGetValue(mission.Id, out string? previous)
+                    && String.Equals(previous, reason, StringComparison.Ordinal))
+                    return;
+                _CaptainWaitReasons[mission.Id] = reason;
+
+                _Logging.Info(_Header + "mission " + mission.Id + " waits for a captain: " + reason);
+                ArmadaEvent evt = new ArmadaEvent(CaptainWaitEventType, "Mission " + mission.Id + " waits for a captain: " + reason);
+                EventOwnerScope.ApplyFromMission(evt, mission);
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.Payload = JsonSerializer.Serialize(new { missionId = mission.Id, persona = mission.Persona, preferredModel = mission.PreferredModel, reason });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record why mission " + mission.Id + " waits for a captain: " + ex.Message);
+            }
+        }
+
+        /// <summary>Event recorded when an assignable mission finds no idle captain, naming why.</summary>
+        public const string CaptainWaitEventType = "mission.waiting_for_captain";
+
+        /// <summary>
+        /// Why a mission has no idle captain: the captains of its tenant the eligibility layer would admit that are
+        /// busy, and for each idle captain the eligibility reason that excludes it. Idle captains the eligibility
+        /// layer admits but assignment still passed over are counted as held by quarantine, reservation, retry
+        /// exclusion or Smart Routing.
+        /// </summary>
+        /// <param name="tiers">Model tier settings.</param>
+        /// <param name="mission">The waiting mission.</param>
+        /// <param name="roster">Every captain, in any state.</param>
+        /// <param name="nowUtc">The evaluation time.</param>
+        /// <returns>One line naming the wait.</returns>
+        public static string DescribeCaptainWait(ModelTierSettings tiers, Mission mission, IReadOnlyList<Captain> roster, DateTime nowUtc)
+        {
+            if (tiers == null) throw new System.ArgumentNullException(nameof(tiers));
+            if (mission == null) throw new System.ArgumentNullException(nameof(mission));
+            List<Captain> tenant = (roster ?? new List<Captain>())
+                .Where(captain => captain != null && CaptainServesTenant(captain, mission.TenantId))
+                .ToList();
+            List<Captain> idle = tenant.Where(captain => captain.State == CaptainStateEnum.Idle).ToList();
+            List<Captain> busy = tenant
+                .Where(captain => captain.State != CaptainStateEnum.Idle
+                    && PersonaModelListHealth.CanTakeWork(captain, nowUtc)
+                    && LegacyCaptainSelector.CouldSelect(tiers, mission, captain))
+                .OrderBy(captain => captain.Name, StringComparer.Ordinal)
+                .ToList();
+            Dictionary<string, string> exclusions = LegacyCaptainSelector.ExplainExclusions(tiers, mission, idle);
+
+            string persona = String.IsNullOrWhiteSpace(mission.Persona) ? "(none)" : mission.Persona!;
+            string floor = String.Join(" or ", LegacyCaptainSelector.TierOrderFor(tiers, mission));
+            string text = "no idle captain may take persona " + persona + " at tier " + floor
+                + (String.IsNullOrWhiteSpace(mission.PreferredModel) ? String.Empty : " (preferredModel " + mission.PreferredModel + ")")
+                + "; " + busy.Count + " captain(s) that may take it are busy";
+            if (busy.Count > 0)
+                text += " (" + String.Join(", ", busy.Take(5).Select(captain => captain.Name + " " + captain.State))
+                    + (busy.Count > 5 ? ", ..." : String.Empty) + ")";
+            List<string> idleParts = exclusions.Values
+                .GroupBy(value => value, StringComparer.Ordinal)
+                .OrderBy(group => group.Key, StringComparer.Ordinal)
+                .Select(group => group.Count() + " " + group.Key)
+                .ToList();
+            int held = idle.Count - exclusions.Count;
+            if (held > 0) idleParts.Add(held + " admitted but held by quarantine, reservation, retry exclusion or Smart Routing");
+            text += "; idle captains: " + (idleParts.Count == 0 ? "none" : String.Join(", ", idleParts));
+            return text;
         }
 
         /// <summary>

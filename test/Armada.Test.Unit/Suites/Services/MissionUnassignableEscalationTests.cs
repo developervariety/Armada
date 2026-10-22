@@ -119,6 +119,57 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, await CountEventsAsync(testDb, scene.Mission.Id).ConfigureAwait(false), "capacity waiting is not unassignable by construction");
                 AssertEqual(0, await CountOpenIncidentsAsync(testDb, scene.Mission.Id).ConfigureAwait(false), "capacity waiting opens no incident");
             }).ConfigureAwait(false);
+
+            await RunTest("A mission waiting for its only busy eligible captain names the wait and reports no dead model list", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Scene scene = await CreateSceneAsync(testDb, "[\"Worker\", \"Judge\"]", CaptainStateEnum.Working, (settings, captain) =>
+                {
+                    settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                    {
+                        Enabled = true,
+                        PersonaModels = new Dictionary<string, PersonaModelSettings>
+                        {
+                            ["Worker"] = new PersonaModelSettings { Default = new List<string> { "example-premium-model" } }
+                        }
+                    };
+                }).ConfigureAwait(false);
+                Captain busy = (await testDb.Driver.Captains.EnumerateAsync().ConfigureAwait(false)).Single();
+                busy.Model = "example-premium-model";
+                busy.Tier = CaptainTierEnum.Premium;
+                await testDb.Driver.Captains.UpdateAsync(busy).ConfigureAwait(false);
+                await testDb.Driver.Captains.CreateAsync(new Captain("idle-reviewer")
+                {
+                    TenantId = TenantId, State = CaptainStateEnum.Idle, AllowedPersonas = "[\"Judge\"]",
+                    Model = "example-premium-model", Tier = CaptainTierEnum.Premium
+                }).ConfigureAwait(false);
+                await testDb.Driver.Captains.CreateAsync(new Captain("idle-standard-worker")
+                {
+                    TenantId = TenantId, State = CaptainStateEnum.Idle, AllowedPersonas = "[\"Worker\"]",
+                    Model = "example-standard-model", Tier = CaptainTierEnum.Standard
+                }).ConfigureAwait(false);
+                scene.Mission.Persona = "Worker";
+                scene.Mission.PreferredModel = "high";
+                await testDb.Driver.Missions.UpdateAsync(scene.Mission).ConfigureAwait(false);
+
+                await scene.Missions.TryAssignAsync(scene.Mission, scene.Vessel).ConfigureAwait(false);
+                await scene.Missions.TryAssignAsync(scene.Mission, scene.Vessel).ConfigureAwait(false);
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false);
+                AssertTrue(String.IsNullOrEmpty(after!.CaptainId), "precondition: the only eligible captain is busy, so nothing is assigned");
+                EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(
+                    new EnumerationQuery { PageNumber = 1, PageSize = 500 }).ConfigureAwait(false);
+                List<ArmadaEvent> waits = events.Objects
+                    .Where(e => e.EventType == "mission.waiting_for_captain" && e.MissionId == scene.Mission.Id)
+                    .ToList();
+                AssertEqual(1, waits.Count, "the wait is named once while its reason holds");
+                AssertContains("persona-locked-captain Working", waits[0].Message ?? "", "the wait names the busy captain that may take the mission");
+                AssertContains("1 persona_not_allowed", waits[0].Message ?? "", "the wait names the idle captain the persona lock excludes");
+                AssertContains("1 below_tier_floor", waits[0].Message ?? "", "the wait names the idle captain the tier floor excludes");
+                AssertEqual(0, events.Objects.Count(e => e.EventType == PersonaModelListHealth.EventType && e.MissionId == scene.Mission.Id),
+                    "a list whose model a busy eligible captain runs is not dead");
+                AssertEqual(0, await CountEventsAsync(testDb, scene.Mission.Id).ConfigureAwait(false), "a busy eligible captain is capacity, not construction");
+            }).ConfigureAwait(false);
         }
 
         private sealed class Scene

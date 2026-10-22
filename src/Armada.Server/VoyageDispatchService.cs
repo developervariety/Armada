@@ -1329,7 +1329,7 @@ namespace Armada.Server
                 Error = refused.Message,
                 refused.Code,
                 refused.Persona,
-                Action = "Remove the refused name from skipStages. The Judge is never skippable; other names must match a stage of the effective pipeline."
+                Action = "Remove or correct the refused entry in skipStages. The Judge is never skippable; every other entry must name one stage of the effective pipeline: " + PipelineStageSkip.NamingHelp
             });
         }
 

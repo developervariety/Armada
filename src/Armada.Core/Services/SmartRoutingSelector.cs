@@ -147,7 +147,11 @@ namespace Armada.Core.Services
                 List<Captain> grouped = new List<Captain>();
                 List<string> chosenModels = reading.Choice == CapacityChoiceEnum.Lighter ? models.Lighter
                     : reading.Choice == CapacityChoiceEnum.Stronger ? models.Stronger : models.Default;
+                // The chosen list matched nothing only when eligibility admitted captains and none runs a listed
+                // model. With no admitted captain at all the mission waits for capacity, not for a list, and the
+                // list must not be reported dead.
                 if (chosenModels.Count > 0
+                    && decision.LegacyOrder.Count > 0
                     && !decision.LegacyOrder.Any(captain => chosenModels.Contains(captain.Model ?? String.Empty, StringComparer.OrdinalIgnoreCase)))
                 {
                     decision.MatchedNothing = true;

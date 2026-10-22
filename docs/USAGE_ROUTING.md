@@ -54,7 +54,14 @@ use a Premium captain when no Standard captain is available. A captain below
 the effective floor is never chosen, even when a persona model list names its
 model or it runs the mission's pinned model. When no captain of the mission's
 tenant clears this layer, Armada records `mission.unassignable_by_construction`
-once and opens an incident if the mission stays that way.
+once and opens an incident if the mission stays that way. When a captain clears
+this layer but none of them is idle, the mission waits and Armada records
+`mission.waiting_for_captain` when the wait is first seen and again only when
+its reason changes. The reason names the tier floor, the busy captains that
+may take the mission, and a count of idle captains per exclusion reason
+(`persona_not_allowed`, `below_tier_floor`, `model_pin_mismatch`), plus the
+idle captains that eligibility admits but quarantine, a reservation, a retry
+exclusion or Smart Routing holds back.
 
 A mission continued on another runtime after a policy refusal uses the same
 rules as assignment. A captain on another runtime is an approved alternate when
@@ -222,9 +229,11 @@ lock plus the capability tier floor) and can take work runs that model. Saving t
 succeeds and reports every dead entry in `personaModelHealth` on
 `GET`/`PUT /api/v1/settings` and on `usage-preview`. Startup logs one summary
 so existing misconfiguration is visible without anyone asking. When the
-capacity-chosen list matches nothing eligible, assignment falls through to
-the remaining groups and the reason is `persona_models_matched_nothing`; an
-event `routing.persona_model_list_dead` names the list. A list that did
+capacity-chosen list matches none of the captains eligibility admitted,
+assignment falls through to the remaining groups and the reason is
+`persona_models_matched_nothing`; an event `routing.persona_model_list_dead`
+names the list. When eligibility admits no idle captain at all, no list is
+reported dead: the mission waits for capacity (`mission.waiting_for_captain`). A list that did
 supply the captain is `persona_models_applied_<group>:<captainId>`. Dead
 lists never refuse dispatch.
 

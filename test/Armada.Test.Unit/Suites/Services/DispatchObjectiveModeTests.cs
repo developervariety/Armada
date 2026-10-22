@@ -560,6 +560,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("stage_skip_ambiguous_persona", code ?? "(no refusal)",
                     "a name that matches two stages cannot say which one to skip, so the request is refused");
                 AssertContains("Worker", message, "the refusal names the persona");
+                AssertContains("Worker#2", message, "the refusal says how to name one of the stages");
 
                 PipelineStageSkipResult unique = PipelineStageSkip.Apply(revise, new StageSkipRequest
                 {
@@ -569,6 +570,70 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, unique.SkippedStages.Count, "a name that matches one stage still skips it");
                 AssertEqual(4, unique.Pipeline!.Stages.Count, "both Worker stages are kept");
                 await Task.CompletedTask.ConfigureAwait(false);
+            });
+
+            await RunTest("skipStages drops one of two Worker stages named by order or occurrence and chains the Judge to the other", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    await TestDatabaseHelper.SeedEligibleDispatchCaptainAsync(testDb, harness.Vessel,
+                        "Architect", "Worker", "TestEngineer", "Linter", "Judge", "Recorder").ConfigureAwait(false);
+                    Pipeline revise = new Pipeline("ReviseRecordedExample");
+                    revise.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Architect"),
+                        new PipelineStage(2, PersonaCatalog.Worker),
+                        new PipelineStage(3, "TestEngineer"),
+                        new PipelineStage(4, "Linter"),
+                        new PipelineStage(5, PersonaCatalog.Worker),
+                        new PipelineStage(6, PersonaCatalog.Judge),
+                        new PipelineStage(7, "Recorder")
+                    };
+                    revise = await testDb.Driver.Pipelines.CreateAsync(revise).ConfigureAwait(false);
+
+                    foreach (string reviseWorker in new[] { "Worker#2", "5", "#5" })
+                    {
+                        VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                        {
+                            Title = "skip the revising Worker as " + reviseWorker,
+                            VesselId = harness.Vessel.Id,
+                            PipelineId = revise.Id,
+                            CodeContextMode = "off",
+                            SkipStages = new List<string> { "Recorder", "Architect", "TestEngineer", "Linter", reviseWorker },
+                            Missions = new List<MissionDescription> { new MissionDescription("Merge main", "Merge and prove.") }
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(result.Succeeded, reviseWorker + " names one stage, so the dispatch succeeds: " + JsonSerializer.Serialize(result.Value));
+                        List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
+                        AssertEqual("Worker|2|none;Judge|6|Worker", String.Join(";", DescribePipelineGraph(created)),
+                            reviseWorker + " drops only the second Worker; the Judge depends on the first");
+                    }
+
+                    VoyageDispatchResult ambiguous = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "bare Worker",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = revise.Id,
+                        CodeContextMode = "off",
+                        SkipStages = new List<string> { "Worker" },
+                        Missions = new List<MissionDescription> { new MissionDescription("Merge main", "Merge and prove.") }
+                    }).ConfigureAwait(false);
+                    AssertFalse(ambiguous.Succeeded, "a bare persona name that two stages carry is still refused");
+                    AssertContains(PipelineStageSkip.AmbiguousPersonaCode, JsonSerializer.Serialize(ambiguous.Value));
+
+                    VoyageDispatchResult judgeByOrder = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "Judge by order",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = revise.Id,
+                        CodeContextMode = "off",
+                        SkipStages = new List<string> { "6" },
+                        Missions = new List<MissionDescription> { new MissionDescription("Merge main", "Merge and prove.") }
+                    }).ConfigureAwait(false);
+                    AssertFalse(judgeByOrder.Succeeded, "the Judge cannot be skipped by its order either");
+                    AssertContains(PipelineStageSkip.JudgeRefusedCode, JsonSerializer.Serialize(judgeByOrder.Value));
+                }
             });
 
             await RunTest("Alias dispatch and a skipped whole order group chain the remaining stages across the gap", async () =>
