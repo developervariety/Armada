@@ -70,6 +70,58 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(CaptainTierEnum.Standard, CaptainTierSelector.EffectiveTier(null!));
             }));
 
+            cases.Add(Case("classify_small_parameter_count_economy", "A parameter count of 8B or less classifies as Economy", TestTags.Positive, () =>
+            {
+                AssertEqual(CaptainTierEnum.Economy, CaptainTierSelector.ClassifyModel("qwen2.5-coder:7b"));
+                AssertEqual(CaptainTierEnum.Economy, CaptainTierSelector.ClassifyModel("llama3.2:3b"));
+                AssertEqual(CaptainTierEnum.Economy, CaptainTierSelector.ClassifyModel("gemma-2b"));
+                AssertEqual(CaptainTierEnum.Economy, CaptainTierSelector.ClassifyModel("phi3:3.8b"));
+                AssertEqual(CaptainTierEnum.Economy, CaptainTierSelector.ClassifyModel("deepseek-r1:8b"));
+                AssertEqual(CaptainTierEnum.Standard, CaptainTierSelector.ClassifyModel("qwen3.8:27b"));
+                AssertEqual(CaptainTierEnum.Standard, CaptainTierSelector.ClassifyModel("llama3.1:70b"));
+                AssertEqual(CaptainTierEnum.Standard, CaptainTierSelector.ClassifyModel("deepseek-v4.1"));
+            }));
+
+            // ---- Vendor default model ----
+            cases.Add(Case("vendor_cli_default_model_handles_any_tier", "A Claude Code, Codex or Gemini captain with no model can take Premium work but ranks Standard", TestTags.Positive, () =>
+            {
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini })
+                {
+                    Captain captain = new Captain();
+                    captain.Runtime = runtime;
+                    AssertEqual(CaptainTierEnum.Standard, CaptainTierSelector.EffectiveTier(captain));
+                    AssertTrue(CaptainTierSelector.CanHandle(captain, CaptainTierEnum.Premium), runtime + " default model should take Premium work");
+                    AssertEqual(captain.Id, CaptainTierSelector.Select(new List<Captain> { captain }, CaptainTierEnum.Premium)!.Id);
+                }
+            }));
+
+            cases.Add(Case("vendor_default_ranking_unchanged_for_standard_work", "A no-model Claude captain still competes as Standard, below an explicit Premium captain", TestTags.Positive, () =>
+            {
+                Captain vendorDefault = new Captain();
+                Captain premium = MakeCaptain("claude-opus-4-8", null);
+                Captain? chosen = CaptainTierSelector.Select(new List<Captain> { premium, vendorDefault }, CaptainTierEnum.Standard);
+                AssertEqual(vendorDefault.Id, chosen!.Id);
+            }));
+
+            cases.Add(Case("other_runtime_default_model_not_premium", "Mux, OpenCode, Cursor and API captains with no model stay Standard for Premium work", TestTags.Negative, () =>
+            {
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.Mux, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.ApiEndpoint, AgentRuntimeEnum.Custom })
+                {
+                    Captain captain = new Captain();
+                    captain.Runtime = runtime;
+                    AssertFalse(CaptainTierSelector.CanHandle(captain, CaptainTierEnum.Premium), runtime + " should not take Premium work");
+                    AssertTrue(CaptainTierSelector.CanHandle(captain, CaptainTierEnum.Standard), runtime + " should take Standard work");
+                }
+            }));
+
+            cases.Add(Case("explicit_tier_declared_wins_over_vendor_default", "An explicit tier on a no-model Claude captain is taken as declared", TestTags.Negative, () =>
+            {
+                Captain declared = new Captain();
+                declared.Tier = CaptainTierEnum.Economy;
+                AssertFalse(CaptainTierSelector.CanHandle(declared, CaptainTierEnum.Standard));
+                AssertFalse(CaptainTierSelector.CanHandle(null!, CaptainTierEnum.Economy));
+            }));
+
             // ---- Selection ----
             cases.Add(Case("select_prefers_lowest_eligible", "Select prefers lowest eligible tier at/above required", TestTags.Positive, () =>
             {

@@ -116,7 +116,8 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Optional capability/cost tier used by dispatch to route missions of a given complexity. Null
-        /// means the tier is auto-classified from the model name at selection time (defaulting to Standard).
+        /// means the tier is auto-classified from the model name at selection time (defaulting to Standard); a
+        /// Claude Code, Codex or Gemini captain with no model also takes Premium work, since it runs the vendor default.
         /// </summary>
         public CaptainTierEnum? Tier { get; set; } = null;
 

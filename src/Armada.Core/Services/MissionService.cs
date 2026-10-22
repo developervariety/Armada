@@ -4622,7 +4622,7 @@ namespace Armada.Core.Services
             string routingPersona = RoutingPersona(mission);
             eligible = eligible.Where(c => String.IsNullOrEmpty(c.AllowedPersonas) || CaptainAllowsPersona(c, routingPersona));
             if (mission.Tier.HasValue)
-                eligible = eligible.Where(c => CaptainTierSelector.EffectiveTier(c) >= mission.Tier.Value);
+                eligible = eligible.Where(c => CaptainTierSelector.CanHandle(c, mission.Tier.Value));
             if (String.IsNullOrEmpty(mission.RequestedCaptainId))
             {
                 Persona? definition = await ReadPersonaByNameAsync(mission.TenantId, routingPersona, token, mission.UserId).ConfigureAwait(false);
@@ -4794,7 +4794,7 @@ namespace Armada.Core.Services
                 if (definition != null && definition.CaptainPriorities.Count > 0)
                 {
                     List<Captain> priorityEligible = eligible.Where(c => !requiredTier.HasValue ||
-                        CaptainTierSelector.EffectiveTier(c) >= requiredTier.Value).ToList();
+                        CaptainTierSelector.CanHandle(c, requiredTier.Value)).ToList();
                     Captain? selected = PersonaCaptainPrioritySelector.Select(definition, priorityEligible);
                     if (selected != null)
                     {
@@ -4813,7 +4813,7 @@ namespace Armada.Core.Services
             if (requiredTier.HasValue)
             {
                 List<Captain> tierEligible = eligible
-                    .Where(c => CaptainTierSelector.EffectiveTier(c) >= requiredTier.Value)
+                    .Where(c => CaptainTierSelector.CanHandle(c, requiredTier.Value))
                     .ToList();
                 if (tierEligible.Count == 0)
                 {

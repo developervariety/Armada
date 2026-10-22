@@ -47,7 +47,7 @@ namespace Armada.Core.Services
             if (priority == null) throw new ArgumentNullException(nameof(priority));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (priority.Runtime.HasValue && priority.Runtime != captain.Runtime) return false;
-            if (priority.MinimumTier.HasValue && CaptainTierSelector.EffectiveTier(captain) < priority.MinimumTier.Value) return false;
+            if (priority.MinimumTier.HasValue && !CaptainTierSelector.CanHandle(captain, priority.MinimumTier.Value)) return false;
             if (priority.Model != null && !String.Equals(priority.Model, captain.Model, StringComparison.OrdinalIgnoreCase)) return false;
             if (priority.Endpoint != null)
             {

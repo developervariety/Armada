@@ -11,7 +11,7 @@ Set `captainPriorities` on a persona through REST, MCP, or its configuration edi
 | `runtime` | Exact Armada runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, or Custom |
 | `model` | Exact captain model identifier, ignoring case (maximum 1024 characters); no wildcard or substring matching |
 | `endpoint` | For `runtime: Mux`, an exact endpoint name ignoring case. For `runtime: ApiEndpoint`, the exact, case-sensitive managed inference endpoint ID (`mep_...`), matched against `Captain.ModelEndpointId`. Maximum 1024 characters. Other runtimes cannot set this field. |
-| `minimumTier` | Minimum effective Economy, Standard, or Premium tier; explicit captain tier overrides model classification |
+| `minimumTier` | Minimum effective Economy, Standard, or Premium tier; explicit captain tier overrides model classification (see Effective tier below) |
 
 For example, a persona can prefer Codex, then Claude Code, then a Mux endpoint. Reverse the entries to prefer Mux. Model and endpoint fields select already-configured captains; routing does not modify their launch configuration. Configure the Mux captain's model and `RuntimeOptionsJson.endpoint` separately.
 
@@ -126,6 +126,8 @@ The following controls remain future work and are not implied by enabling functi
 `priorityAvailability` defaults to `FallThrough`: Armada selects an eligible idle captain from the first entry with an available match, trying lower entries when earlier ones are busy, missing, quarantined, or otherwise ineligible. `WaitForFirstPriority` considers only the first entry and waits for it, including when no configured captain matches. It never falls through and ignores the exhaustion setting.
 
 With `FallThrough`, `priorityExhaustion: Wait` keeps unmatched work Pending until a later scheduling tick. `UseEligibleCaptain` explicitly permits normal persona/tier routing after every entry is exhausted. Empty priorities preserve legacy behavior regardless of these policies.
+
+**Effective tier.** A captain's explicit `tier` is used as declared. Without one, the tier comes from the model name: 8B parameters or fewer (`:7b`, `-3b`) and families such as Haiku, mini, flash and gpt-oss are Economy; Opus, GPT-5, o3/o4 and Gemini Pro are Premium; everything else, including an unknown model, is Standard. A Claude Code, Codex or Gemini captain with no model runs its vendor's default flagship model, so it meets any tier floor (`minimumTier`, a mission tier) but still ranks as Standard when dispatch prefers the cheapest captain that qualifies. No configuration is needed; set `tier` only to override the inference.
 
 All hierarchy candidates must satisfy mission ownership/tenant boundaries, AllowedPersonas, the mission's tier floor, and availability. Within a matched class, PreferredPersona breaks ties, followed by stable captain ID order. Hierarchy choices are reevaluated on every assignment attempt and are not saved as RequestedCaptainId.
 

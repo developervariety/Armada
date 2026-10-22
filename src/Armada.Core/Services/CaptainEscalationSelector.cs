@@ -30,7 +30,7 @@ namespace Armada.Core.Services
                 && (c.UserId == null || c.UserId == mission.UserId)
                 && (c.State == CaptainStateEnum.Idle || c.State == CaptainStateEnum.Working)
                 && (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)
-                && (!mission.Tier.HasValue || CaptainTierSelector.EffectiveTier(c) >= mission.Tier.Value)
+                && (!mission.Tier.HasValue || CaptainTierSelector.CanHandle(c, mission.Tier.Value))
                 && AllowsWorker(c)).ToList();
             foreach (string role in new[] { PersonaCatalog.Architect, PersonaCatalog.ProductManager })
             {
