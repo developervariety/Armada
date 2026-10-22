@@ -394,7 +394,11 @@ upstream integrations and excludes changes already present at that baseline.
   owner file, waits until the host has `--min-available-mb` of available memory
   (default 8000), and releases the lock from its exit trap after it shuts down
   this run's build servers. A lock whose owner process is gone is taken over and
-  reported. `--lock-held` serves a caller that already holds the lock.
+  reported only when its owner file names a numeric pid that no longer runs on
+  the host; any other owner, or no owner file, counts as live. A gate
+  releases the lock only while the owner file names its own pid, and otherwise
+  leaves it and warns. `--lock-held` serves a caller that already holds the
+  lock.
 - Dispatch preflight Q1 names a moved symbol at its declaration nearest the
   cited lines, never at an earlier call site. A symbol within 10 lines of its
   cited range passes the question and adds a `preflight_citation_drift` Warning

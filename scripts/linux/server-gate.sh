@@ -234,8 +234,16 @@ lock_taken=0
 release_host_lock() {
   dotnet build-server shutdown < /dev/null > /dev/null 2>&1 9>&- || true
   if [ "$lock_taken" = "1" ]; then
-    rm -f "$host_lock/owner"
-    rmdir "$host_lock" 2>/dev/null || echo "WARNING: could not remove host lock $host_lock"
+    # Release only a lock this gate still owns. When the owner file names another holder, or is gone,
+    # the lock is left in place and reported, so this gate never removes a lock another gate holds.
+    local current_pid
+    current_pid="$(sed -n 's/^pid=//p' "$host_lock/owner" 2>/dev/null)"
+    if [ "$current_pid" = "$$" ]; then
+      rm -f "$host_lock/owner"
+      rmdir "$host_lock" 2>/dev/null || echo "WARNING: could not remove host lock $host_lock"
+    else
+      echo "WARNING: host lock $host_lock is not this gate's (owner pid '${current_pid:-none}', this gate $$); it is left in place"
+    fi
   fi
 }
 trap release_host_lock EXIT
@@ -249,13 +257,15 @@ else
   waited=0
   until mkdir "$host_lock" 2>/dev/null; do
     owner_pid="$(sed -n 's/^pid=//p' "$host_lock/owner" 2>/dev/null)"
-    if [ -n "$owner_pid" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
+    # Only a numeric pid of a process on this host can be checked; any other owner, or no owner file,
+    # counts as live, so a waiter never takes the lock from a holder it cannot see.
+    if [[ "$owner_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$owner_pid" 2>/dev/null; then
       # Only one waiter can move the owner file, so only one takes over. The moved file is checked again:
       # when its owner is alive (another waiter took over first), it goes back untouched.
       claimed="$host_lock.stale.$$"
       if mv "$host_lock/owner" "$claimed" 2>/dev/null; then
         claimed_pid="$(sed -n 's/^pid=//p' "$claimed" 2>/dev/null)"
-        if [ -n "$claimed_pid" ] && kill -0 "$claimed_pid" 2>/dev/null; then
+        if ! [[ "$claimed_pid" =~ ^[0-9]+$ ]] || kill -0 "$claimed_pid" 2>/dev/null; then
           mv "$claimed" "$host_lock/owner" 2>/dev/null || true
         else
           echo "Host lock: owner pid $claimed_pid is gone; taking over ($(tr '\n' ' ' < "$claimed"))"
@@ -266,7 +276,7 @@ else
       fi
     fi
     if [ $(( waited % 300 )) -eq 0 ]; then
-      echo "Host lock: waiting ${waited}s for $host_lock ($(tr '\n' ' ' < "$host_lock/owner" 2>/dev/null || echo 'no owner file'))"
+      echo "Host lock: waiting ${waited}s for $host_lock ($(tr '\n' ' ' 2>/dev/null < "$host_lock/owner" || echo 'no owner file'))"
     fi
     sleep 15
     waited=$(( waited + 15 ))
