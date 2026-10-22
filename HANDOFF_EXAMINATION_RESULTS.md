@@ -615,6 +615,22 @@ Goal: handoff and dispatch must hold up regardless of model or runtime configura
 | R12 | Done | The local process exit handler is async (output drain no longer blocks a thread-pool thread), with an outer catch so a fault cannot escape an async event handler. The lifecycle handler's wait for a late PID mapping runs on a background task with `Task.Delay` instead of blocking the exit thread with `Thread.Sleep`. | Existing lifecycle, streaming and fault-matrix suites (repeated runs) |
 | Leftover-commit scope loop (new, found live) | Done | Found on the live deployment with a Mux/Qwen Worker and a Codex Judge on Timestamps: the model committed only README.md, its build regenerated tracked `src/Timestamps/Timestamps.xml`, and `CommitLeftoverWorkAsync` committed that under Armada's name. The Judge correctly rejected the out-of-scope file, the model reverted it, rebuilt, and Armada re-committed it, exhausting both rework rounds on Armada's own commit. Armada now commits leftovers only for a captain that made no commit this attempt (HEAD still at the dock's start commit). | `Services.HandoffResilience`: leftover changes kept off after the captain committed; still rescued for a captain that never commits |
 
+### Live verification on the deployment, 2026-10-22
+
+Deployed `de09aae4` and then `f2c52983` (`jchristn77/armada-server:v1.1.0`, digests `fb247527…` and `267de59a…`) through DocMon with the bind-preserving compose helper (mounts verified identical, both services healthy); the local Harbor was restarted on the matching Release build. A full backup and the remote refs of Timestamps and Wilson were captured first. Every test voyage used the Timestamps vessel with landing mode None.
+
+| Voyage | Captains | Outcome |
+|---|---|---|
+| WorkerOnly | Claude Code | Complete in 60 s; produced commit recorded; handoff output was Claude's final answer (no progress JSON); captain released |
+| Reviewed | Claude Worker, Codex Judge | Complete; the Judge started from the Worker's exact commit; verdict `PASS` with all three lenses read from Codex's final message |
+| WorkerOnly | Mux qwen3.8:27b (local) | Complete in 135 s; correct change |
+| WorkerOnly | DeepSeek (API endpoint) | Complete in 30 s |
+| Reviewed | Mux Worker, Codex Judge | **Failed on the old build**: Armada's leftover-work commit kept re-adding a build-regenerated file, so both rework rounds were spent on Armada's own commit (fixed in `f2c52983`). **Rerun on the fix: Complete first time, one README-only commit.** |
+| WilsonArchitectReviewed | Claude Architect, Mux Workers, Codex Judges | Complete across three slices. The Architect's first plan broke the contract (no final integration slice); the output repair turn quoted the error and the corrected plan fanned out. Previously this failed the voyage outright. |
+| WorkerOnly, then captain stop | Mux | Stop returned in 0.3 s and the Mux process exited within about 1 s (SIGTERM); captain Idle; mission Failed (OperatorAction); voyage settled Failed on the next health tick |
+
+Finding, not changed: the built-in mission prompt tells captains to commit and push, so captains publish their mission branches to the vessel's remote even when landing mode is None. Test branches were deleted afterwards.
+
 ### Open items and why
 
 | Item | Why it is still open |

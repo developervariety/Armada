@@ -3213,7 +3213,7 @@ namespace Armada.Core.Services
                 ArchitectPlanParser.TryParse(completedMission.AgentOutput, out _, out string? planError);
                 if (planError != null)
                 {
-                    if (await TryScheduleOutputRepairAsync(completedMission, "Architect plan contract rejected: " + planError, ArchitectPlanParser.FormatInstructions(), token).ConfigureAwait(false))
+                    if (await TryScheduleOutputRepairAsync(completedMission, planError, ArchitectPlanParser.FormatInstructions(), token).ConfigureAwait(false))
                         return false;
 
                     completedMission.FailureReason = AppendRepairHistory(planError, completedMission);
