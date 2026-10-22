@@ -3758,7 +3758,7 @@ namespace Armada.Core.Services
             List<Mission> cancelled = await MissionDependentCancellation.CancelBlockedAsync(
                 _Database,
                 failedMission,
-                "Blocked by failed dependency " + failedMission.Id + ": " + failureReason,
+                MissionDependentCancellation.BlockedByFailedDependencyPrefix + " " + failedMission.Id + ": " + failureReason,
                 token).ConfigureAwait(false);
             foreach (Mission dependent in cancelled)
             {

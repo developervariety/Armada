@@ -185,6 +185,18 @@ and a reason that names the voyage and its status, and nothing changes.
 Assignment cancels a `Pending` mission of an ended voyage, so a restart there
 cannot run. Dispatch a new voyage, or a rescue, for that work instead.
 
+One ended voyage is reopened instead: a `Failed` voyage whose mission is a
+downstream stage `Cancelled` with `Blocked by failed dependency`. Its dependency
+chain must reach, through `Failed` or `Cancelled` stages, a stage of the same
+voyage that handed off work with a commit, and no skipped stage may have moved
+the branch past that commit (it carries the same commit, or it never started).
+The restarted stage then depends on that stage, so it runs on that commit; each
+skipped stage is recorded `Cancelled` with `Superseded by an operator restart`
+and its earlier status and reason; the voyage returns to `InProgress`; its
+Checks are armed again; and a `voyage.reopened` event is written. A `Complete`
+voyage, a `Cancelled` voyage, a stage an operator cancelled, and a skipped stage
+that moved the branch stay refused with `voyage_ended`.
+
 `armada_mission_output` pages the authoritative safe report artifact. Follow
 `NextOffset` until `HasMore` is false. Then verify `Sha256`, `Finalized`, and
 `Complete`. MCP results keep the model's PascalCase property names. A missing page, incomplete artifact, or digest mismatch is an
@@ -991,6 +1003,15 @@ Three operator facts:
   is exempt because its deliverable is a report. When the dock start commit
   cannot be read and no branch diff was captured, the result is unknown rather
   than empty, and an unknown never fails the mission.
+- **A revising Worker with nothing to fix completes.** The no-op rule judges a
+  stage's own work. A Worker whose dependency chain holds an earlier Worker
+  stage (a lower stage order, the same branch) that produced a commit and handed
+  it off already sits on verified work, so when it prints its completion marker
+  and commits nothing it completes with no change needed, its activity log says
+  so, and the next stage (the Judge) runs. The first producing Worker of a
+  pipeline or of a rescue, and a plan block chained behind another block at the
+  same stage order, keep the rule above. The operator Complete transition runs
+  the same completion path, so the same rule applies there.
 - **The Recorder never writes shared memory.** It writes native memory only, and
   hands anything that belongs in the shared external memory repository to the
   operator as a proposal in its summary.

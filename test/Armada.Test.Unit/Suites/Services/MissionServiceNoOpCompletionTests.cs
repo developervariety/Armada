@@ -1,10 +1,18 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
+    using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
+    using SyslogLogging;
 
     /// <summary>
     /// Unit coverage for the captain "false complete" detection. The platform catches
@@ -471,6 +479,150 @@ namespace Armada.Test.Unit.Suites.Services
                     "When AgentOutput IS populated on the mission object (as it is after the reordered capture block), " +
                     "a short runtime + empty diff + short AgentOutput must be detected as false-complete.");
             }).ConfigureAwait(false);
+
+            await RunTest("A Worker that claims completion with nothing to commit fails as a no-op unless an earlier Worker stage of its chain produced the branch's work", async () =>
+            {
+                // Each case completes a Worker that printed the completion marker after a long run and changed
+                // nothing since its dock started, with a Judge waiting on it.
+                RevisionScenarioResult revising = await RunRevisionScenarioAsync(2, 5).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.WorkProduced, revising.Mission.Status,
+                    "A revising Worker after a producing Worker stage completes with no change needed. FailureReason: " + revising.Mission.FailureReason);
+                AssertNotEqual(MissionStatusEnum.Cancelled, revising.Judge.Status, "The Judge that reviews the produced work is not cancelled");
+                AssertContains("revision made no change", revising.Activity, "The activity log says why the empty result was accepted");
+
+                RevisionScenarioResult first = await RunRevisionScenarioAsync(null, 2).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, first.Mission.Status, "The first producing Worker that produced nothing still fails");
+                AssertContains("no_op_completion_detected", first.Mission.FailureReason ?? String.Empty, "It fails as a no-op");
+                AssertEqual(MissionStatusEnum.Cancelled, first.Judge.Status, "Its Judge is cancelled as before");
+
+                RevisionScenarioResult sameOrder = await RunRevisionScenarioAsync(2, 2).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, sameOrder.Mission.Status,
+                    "A Worker chained behind another Worker at the same stage order owns its own deliverable and still fails as a no-op");
+                AssertContains("no_op_completion_detected", sameOrder.Mission.FailureReason ?? String.Empty, "It fails as a no-op");
+            }).ConfigureAwait(false);
+        }
+
+        private const string _ScenarioStartCommit = "abc123def456";
+
+        private sealed class RevisionScenarioResult
+        {
+            public Mission Mission { get; set; } = null!;
+            public Mission Judge { get; set; } = null!;
+            public string Activity { get; set; } = String.Empty;
+        }
+
+        /// <summary>
+        /// Complete a Worker at <paramref name="stageOrder"/> that claimed completion and changed nothing since its
+        /// dock started. When <paramref name="upstreamStageOrder"/> is set, the Worker depends on an earlier Worker
+        /// stage of the same voyage and branch that produced a commit and reached WorkProduced.
+        /// </summary>
+        private static async Task<RevisionScenarioResult> RunRevisionScenarioAsync(int? upstreamStageOrder, int stageOrder)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_noop_docks_" + Guid.NewGuid().ToString("N"));
+                settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_noop_repos_" + Guid.NewGuid().ToString("N"));
+                settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_noop_logs_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    StubGitService git = new StubGitService();
+                    git.HeadCommitHashResult = _ScenarioStartCommit;
+                    git.ChangedFilesSinceResult = Array.Empty<string>();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    missions.OnGetMissionOutput = _ => "Verified every earlier finding; nothing needed a change.\n" + new String('r', 1500) + "\n[ARMADA:RESULT] COMPLETE";
+                    missions.OnMissionComplete = (m, d) => Task.CompletedTask;
+
+                    Vessel vessel = new Vessel("noop-revision-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, "bare");
+                    vessel.WorkingDirectory = Path.Combine(settings.ReposDirectory, "work");
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("noop-revision-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("noop-revision-voyage")).ConfigureAwait(false);
+                    const string branch = "armada/noop-revision/stage";
+
+                    string? upstreamId = null;
+                    if (upstreamStageOrder.HasValue)
+                    {
+                        Mission upstream = new Mission("Implement the change", "Implement.");
+                        upstream.Persona = "Worker";
+                        upstream.Mode = MissionModeEnum.Implementation;
+                        upstream.Status = MissionStatusEnum.WorkProduced;
+                        upstream.StageOrder = upstreamStageOrder.Value;
+                        upstream.VesselId = vessel.Id;
+                        upstream.VoyageId = voyage.Id;
+                        upstream.BranchName = branch;
+                        upstream.CommitHash = _ScenarioStartCommit;
+                        upstream = await testDb.Driver.Missions.CreateAsync(upstream).ConfigureAwait(false);
+                        upstreamId = upstream.Id;
+                    }
+
+                    Mission mission = new Mission("Revise the branch", "Revise the branch once.");
+                    mission.Persona = "Worker";
+                    mission.Mode = MissionModeEnum.Implementation;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.StageOrder = stageOrder;
+                    mission.StartedUtc = DateTime.UtcNow.AddMinutes(-20);
+                    mission.VesselId = vessel.Id;
+                    mission.VoyageId = voyage.Id;
+                    mission.CaptainId = captain.Id;
+                    mission.BranchName = branch;
+                    mission.DependsOnMissionId = upstreamId;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(settings.DocksDirectory, "wt");
+                    dock.BranchName = branch;
+                    dock.Active = true;
+                    dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                    Directory.CreateDirectory(dock.WorktreePath);
+
+                    mission.DockId = dock.Id;
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    captain.CurrentMissionId = mission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    Mission judge = new Mission("[Judge] Review the revised tip", "Review.");
+                    judge.Persona = "Judge";
+                    judge.Mode = MissionModeEnum.Implementation;
+                    judge.Status = MissionStatusEnum.Pending;
+                    judge.StageOrder = stageOrder + 1;
+                    judge.VesselId = vessel.Id;
+                    judge.VoyageId = voyage.Id;
+                    judge.DependsOnMissionId = mission.Id;
+                    judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+                    Directory.CreateDirectory(Path.Combine(settings.LogDirectory, "docks"));
+                    await File.WriteAllTextAsync(Path.Combine(settings.LogDirectory, "docks", dock.Id + ".start"), _ScenarioStartCommit + "\n").ConfigureAwait(false);
+
+                    await missions.HandleCompletionAsync(captain, mission.Id).ConfigureAwait(false);
+
+                    RevisionScenarioResult result = new RevisionScenarioResult();
+                    result.Mission = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    result.Judge = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    string logPath = Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log");
+                    result.Activity = File.Exists(logPath) ? await File.ReadAllTextAsync(logPath).ConfigureAwait(false) : String.Empty;
+                    return result;
+                }
+                finally
+                {
+                    foreach (string path in new[] { settings.DocksDirectory, settings.ReposDirectory, settings.LogDirectory })
+                    {
+                        if (Directory.Exists(path)) Directory.Delete(path, true);
+                    }
+                }
+            }
         }
     }
 }

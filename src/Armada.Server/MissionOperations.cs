@@ -256,7 +256,10 @@ namespace Armada.Server
         /// restart signal owned by the mission's owner, write a <c>mission.restarted</c> event, and broadcast the
         /// change. A LandingFailed mission is refused with a pointer to retry-landing. A mission whose voyage has ended
         /// (Complete, Failed or Cancelled) is refused with the voyage's status and a pointer to a new voyage, because
-        /// assignment cancels a Pending mission of an ended voyage. A refusal changes nothing.
+        /// assignment cancels a Pending mission of an ended voyage. The exception is a downstream stage cancelled by an
+        /// upstream failure on a Failed voyage: it is restarted on the last verified stage's commit and the voyage is
+        /// reopened (<see cref="MissionRestartService.PlanUpstreamFailureReopenAsync"/>), with a voyage.reopened event.
+        /// A refusal changes nothing.
         /// </summary>
         /// <param name="mission">Mission, already read under the caller's scope.</param>
         /// <param name="title">Optional new title; blank keeps the current one.</param>
@@ -272,7 +275,7 @@ namespace Armada.Server
 
             MissionRestartService restarter = new MissionRestartService(_Database, _Settings, _Logging);
             Voyage? voyage = await restarter.ReadVoyageAsync(mission, token).ConfigureAwait(false);
-            string? voyageEnded = MissionRestartService.FindVoyageIneligibility(mission, voyage);
+            string? voyageEnded = await restarter.FindVoyageIneligibilityAsync(mission, voyage, token).ConfigureAwait(false);
             if (voyageEnded != null)
             {
                 _Logging?.Info(_Header + "restart of mission " + mission.Id + " refused: " + voyageEnded);
@@ -298,6 +301,17 @@ namespace Armada.Server
             await Notifier.EmitAsync("mission.restarted", "Mission " + restarted.Id + " restarted",
                 "mission", restarted.Id, null, restarted.Id, restarted.VesselId, restarted.VoyageId).ConfigureAwait(false);
             Notifier.MissionChanged(restarted);
+
+            if (voyage != null && TerminalVoyageMissionRule.IsTerminalVoyage(voyage.Status))
+            {
+                Voyage? reopened = await restarter.ReadVoyageAsync(restarted, token).ConfigureAwait(false);
+                await Notifier.EmitAsync("voyage.reopened",
+                    "Voyage " + voyage.Id + " reopened from " + voyage.Status + " to restart mission " + restarted.Id
+                    + " on " + restarted.DependsOnMissionId,
+                    "voyage", voyage.Id, null, restarted.Id, restarted.VesselId, voyage.Id).ConfigureAwait(false);
+                if (reopened != null) Notifier.VoyageChanged(reopened);
+            }
+
             return MissionRestartResult.Restarted(restarted);
         }
 

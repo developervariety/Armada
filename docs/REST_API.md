@@ -1980,8 +1980,10 @@ REST, WebSocket `restart_mission` and MCP `armada_restart_mission` share one res
 mission is restarted. A `LandingFailed` mission keeps its produced work: the restart is refused and the reason names
 `POST /api/v1/missions/{id}/retry-landing` (MCP `armada_retry_landing`), which re-lands that work instead. A mission
 whose voyage is `Complete`, `Failed` or `Cancelled` is refused, and the reason names the voyage and its status: assignment
-cancels a `Pending` mission of an ended voyage, so dispatch a new voyage (or a rescue) for that work instead. A restart
-records a restart signal owned by the mission's owner, writes a `mission.restarted` event, and broadcasts the change.
+cancels a `Pending` mission of an ended voyage, so dispatch a new voyage (or a rescue) for that work instead. The one
+exception is a downstream stage cancelled behind a failed upstream stage of a `Failed` voyage: it is restarted on the
+commit of the last stage that handed off verified work, and its voyage is reopened (`docs/MCP_TOOL_CATALOG.md` states
+the conditions). A restart records a restart signal owned by the mission's owner, writes a `mission.restarted` event, and broadcasts the change.
 
 **Path Parameters:**
 | Parameter | Description |

@@ -16,7 +16,8 @@ namespace Armada.Test.Unit.Suites.Routes
     /// work: every surface refuses to restart it and names retry-landing. A Failed mission returns to Pending, and every
     /// surface writes the same event, broadcasts the same change, and records a restart signal its owner can read. A
     /// mission whose voyage has ended (Failed, Complete or Cancelled) is refused on every surface, because a mission of
-    /// an ended voyage is never assigned.
+    /// an ended voyage is never assigned, except a stage cancelled behind a failed upstream stage of a Failed voyage: it
+    /// reopens the voyage and runs on the last stage that produced verified work.
     /// </summary>
     public class MissionRestartParityTests : TestSuite
     {
@@ -124,6 +125,110 @@ namespace Armada.Test.Unit.Suites.Routes
                     }
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("RestartMission_StageCancelledByUpstreamFailure_ReopensTheFailedVoyageOnTheLastVerifiedCommitOnEverySurface", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    foreach (string surface in Surfaces)
+                    {
+                        UpstreamFailureChain chain = await SeedUpstreamFailureChainAsync(harness, surface, _ProducedCommit).ConfigureAwait(false);
+                        harness.ResetRecordings();
+
+                        SurfaceReply reply = await RestartAsync(harness, surface, chain.Judge.Id).ConfigureAwait(false);
+
+                        AssertFalse(reply.Refused, surface + ": a stage cancelled by an upstream failure is restarted: " + reply);
+                        Mission? judge = await harness.Driver.Missions.ReadAsync(chain.Judge.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Pending, judge!.Status, surface + ": the Judge is Pending");
+                        AssertEqual(chain.Producer.Id, judge.DependsOnMissionId, surface + ": the Judge runs on the stage that produced verified work");
+                        Voyage? voyage = await harness.Driver.Voyages.ReadAsync(chain.Voyage.Id).ConfigureAwait(false);
+                        AssertEqual(VoyageStatusEnum.InProgress, voyage!.Status, surface + ": the voyage is reopened");
+                        AssertNull(voyage.CompletedUtc, surface + ": the reopened voyage has no completion time");
+                        Mission? revision = await harness.Driver.Missions.ReadAsync(chain.FailedStage.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Cancelled, revision!.Status, surface + ": the failed stage is superseded");
+                        AssertContains("Superseded by an operator restart", revision.FailureReason ?? String.Empty, surface + ": the supersession is named");
+                        AssertContains("no_op_completion_detected", revision.FailureReason ?? String.Empty, surface + ": the earlier failure is kept");
+                        AssertEqual(1, harness.EventTypes().Count(type => type == "voyage.reopened:" + chain.Voyage.Id),
+                            surface + ": one voyage.reopened event: " + String.Join(",", harness.EventTypes()));
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RestartMission_StageBehindAFailedStageThatMovedTheBranch_IsRefusedOnEverySurface", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    foreach (string surface in Surfaces)
+                    {
+                        UpstreamFailureChain chain = await SeedUpstreamFailureChainAsync(harness, surface + "-moved", "fedcba9876543210fedcba9876543210fedcba98").ConfigureAwait(false);
+                        harness.ResetRecordings();
+
+                        SurfaceReply reply = await RestartAsync(harness, surface, chain.Judge.Id).ConfigureAwait(false);
+
+                        AssertTrue(reply.Refused, surface + ": a branch tip no stage verified is not reviewed: " + reply);
+                        AssertContains(chain.FailedStage.Id, reply.Body, surface + ": the refusal names the stage that moved the branch: " + reply);
+                        Mission? judge = await harness.Driver.Missions.ReadAsync(chain.Judge.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Cancelled, judge!.Status, surface + ": the Judge keeps its status");
+                        Voyage? voyage = await harness.Driver.Voyages.ReadAsync(chain.Voyage.Id).ConfigureAwait(false);
+                        AssertEqual(VoyageStatusEnum.Failed, voyage!.Status, surface + ": the voyage stays Failed");
+                        AssertEqual(0, harness.Events.Count, surface + ": a refused restart writes no event");
+                    }
+                }
+            }).ConfigureAwait(false);
+        }
+
+        private const string _ProducedCommit = "0123456789abcdef0123456789abcdef01234567";
+
+        private sealed class UpstreamFailureChain
+        {
+            public Voyage Voyage { get; set; } = null!;
+            public Mission Producer { get; set; } = null!;
+            public Mission FailedStage { get; set; } = null!;
+            public Mission Judge { get; set; } = null!;
+        }
+
+        /// <summary>
+        /// A Failed voyage whose Worker produced <see cref="_ProducedCommit"/>, whose revising Worker then failed
+        /// leaving the branch at <paramref name="failedStageCommit"/>, and whose Judge was cancelled behind it.
+        /// </summary>
+        private static async Task<UpstreamFailureChain> SeedUpstreamFailureChainAsync(SurfaceParityHarness harness, string surface, string failedStageCommit)
+        {
+            Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("restart-chain-vessel-" + surface, "https://github.com/test/restart.git")
+            {
+                TenantId = Constants.DefaultTenantId,
+                UserId = Constants.DefaultUserId
+            }).ConfigureAwait(false);
+            Voyage voyage = await harness.Driver.Voyages.CreateAsync(new Voyage("restart chain " + surface, "restart parity")
+            {
+                TenantId = Constants.DefaultTenantId,
+                UserId = Constants.DefaultUserId,
+                Status = VoyageStatusEnum.Failed,
+                CompletedUtc = DateTime.UtcNow
+            }).ConfigureAwait(false);
+            string branch = "armada/restart-chain-" + surface;
+
+            Mission producer = await harness.Driver.Missions.CreateAsync(new Mission("produce " + surface)
+            {
+                TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, VesselId = vessel.Id, VoyageId = voyage.Id,
+                Persona = "Worker", StageOrder = 2, BranchName = branch, CommitHash = _ProducedCommit,
+                Status = MissionStatusEnum.WorkProduced, StartedUtc = DateTime.UtcNow.AddHours(-2)
+            }).ConfigureAwait(false);
+            Mission failed = await harness.Driver.Missions.CreateAsync(new Mission("revise " + surface)
+            {
+                TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, VesselId = vessel.Id, VoyageId = voyage.Id,
+                Persona = "Worker", StageOrder = 5, BranchName = branch, CommitHash = failedStageCommit, DependsOnMissionId = producer.Id,
+                Status = MissionStatusEnum.Failed, StartedUtc = DateTime.UtcNow.AddHours(-1), CompletedUtc = DateTime.UtcNow,
+                FailureReason = "no_op_completion_detected: captain exited with a completion marker"
+            }).ConfigureAwait(false);
+            Mission judge = await harness.Driver.Missions.CreateAsync(new Mission("judge " + surface)
+            {
+                TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, VesselId = vessel.Id, VoyageId = voyage.Id,
+                Persona = "Judge", StageOrder = 6, BranchName = branch, DependsOnMissionId = failed.Id,
+                Status = MissionStatusEnum.Cancelled, CompletedUtc = DateTime.UtcNow,
+                FailureReason = "Blocked by failed dependency " + failed.Id
+            }).ConfigureAwait(false);
+
+            return new UpstreamFailureChain { Voyage = voyage, Producer = producer, FailedStage = failed, Judge = judge };
         }
 
         private static async Task<Voyage> AttachVoyageAsync(SurfaceParityHarness harness, Mission mission, VoyageStatusEnum status)

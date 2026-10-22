@@ -2480,6 +2480,43 @@ namespace Armada.Core.Services
             bool hasCompletionMarker,
             bool dockChangesKnown)
         {
+            return DetectNoOpCompletion(
+                mission,
+                runtime,
+                diffLineCount,
+                agentOutputLength,
+                hasAgentOutput,
+                hasChangesSinceDockStart,
+                hasCompletionMarker,
+                dockChangesKnown,
+                false);
+        }
+
+        /// <summary>
+        /// Detect a false completion, stating whether an earlier Worker stage of the same chain already produced
+        /// the branch's work (<see cref="FindUpstreamProducingStageAsync"/>).
+        /// </summary>
+        /// <param name="mission">Mission under completion.</param>
+        /// <param name="runtime">Captain runtime.</param>
+        /// <param name="diffLineCount">Captured branch diff line count, kept for diagnostics.</param>
+        /// <param name="agentOutputLength">Captured AgentOutput length.</param>
+        /// <param name="hasAgentOutput">Whether a real captain wrote output.</param>
+        /// <param name="hasChangesSinceDockStart">Whether files changed since the dock was provisioned.</param>
+        /// <param name="hasCompletionMarker">Whether the captain claimed completion.</param>
+        /// <param name="dockChangesKnown">False when the dock start commit could not be read and no change was seen.</param>
+        /// <param name="upstreamStageProducedWork">True when an earlier Worker stage of this mission's chain, on the same branch, produced verified work.</param>
+        /// <returns>True when the completion is a no-op.</returns>
+        internal static bool DetectNoOpCompletion(
+            Mission mission,
+            TimeSpan runtime,
+            int diffLineCount,
+            int agentOutputLength,
+            bool hasAgentOutput,
+            bool hasChangesSinceDockStart,
+            bool hasCompletionMarker,
+            bool dockChangesKnown,
+            bool upstreamStageProducedWork)
+        {
             if (mission == null) return false;
 
             // A persona whose deliverable is not a repository commit is always exempt: the
@@ -2519,6 +2556,13 @@ namespace Armada.Core.Services
             // Neither runtime nor output length can discriminate here, because a stream that
             // dies mid-run leaves a long runtime and a long truncated narration behind.
             if (!hasCompletionMarker) return true;
+
+            // A no-op is judged against the stage's OWN work. A revising Worker runs after an earlier Worker
+            // stage of the same chain already produced the branch's change and passed this check; when the
+            // reviews before it leave nothing to fix, an unchanged branch is its correct result, and failing it
+            // would cancel the Judge that reviews that change. The first producing Worker has no such
+            // predecessor, so it keeps the rule below.
+            if (upstreamStageProducedWork) return false;
 
             // A persona that must commit and changed nothing since its dock was provisioned
             // delivered nothing, whatever it claimed. Neither runtime nor narration length can
@@ -2792,7 +2836,12 @@ namespace Armada.Core.Services
                 bool hasChangesSinceDockStart = changesSinceDockStart == true;
                 dockProducedChanges = hasChangesSinceDockStart;
                 bool hasCompletionMarker = HasCompletionMarker(mission.AgentOutput);
-                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart, hasCompletionMarker, changesSinceDockStart.HasValue))
+                Mission? upstreamProducer = null;
+                if (!hasChangesSinceDockStart && hasCompletionMarker && !mission.IsReadOnlyMode && PersonaMustProduceChanges(mission.Persona))
+                {
+                    upstreamProducer = await FindUpstreamProducingStageAsync(mission, token).ConfigureAwait(false);
+                }
+                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart, hasCompletionMarker, changesSinceDockStart.HasValue, upstreamProducer != null))
                 {
                     failedForNoOpCompletion = true;
                     mission.Status = MissionStatusEnum.Failed;
@@ -2803,6 +2852,15 @@ namespace Armada.Core.Services
                     await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " failed no-op-completion check runtime="
                         + Math.Round(runtime.TotalSeconds, 1) + "s diffLines=" + diffLineCount + " agentOutputLen=" + agentOutputLength);
+                }
+                else if (upstreamProducer != null && !hasChangesSinceDockStart)
+                {
+                    string note = "revision made no change: the captain claimed completion with nothing committed since dock start; "
+                        + "earlier stage " + upstreamProducer.Id + " (" + (upstreamProducer.Persona ?? "Worker") + ", stage "
+                        + upstreamProducer.StageOrder + ") produced the branch's work at " + upstreamProducer.CommitHash
+                        + ", so this stage completes with no change needed";
+                    await AppendMissionActivityAsync(mission.Id, note, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " " + note);
                 }
             }
 
@@ -5712,6 +5770,50 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Find the earlier Worker stage whose verified work a later stage of the same chain revises. Walks the
+        /// mission's dependency chain inside its voyage and returns the first ancestor that must produce changes,
+        /// ran at an EARLIER pipeline stage order, works on the same branch, produced a commit, and reached a
+        /// status that hands off work (WorkProduced, Complete or PullRequestOpen) -- so it passed its own no-op
+        /// check. Null when no such stage exists, which is the case for the first producing Worker of a pipeline,
+        /// for the first Worker of a rescue, and for a sequential plan block that runs at the same stage order as
+        /// the block before it.
+        /// </summary>
+        /// <param name="mission">The completing mission.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The upstream producing stage, or null.</returns>
+        internal async Task<Mission?> FindUpstreamProducingStageAsync(Mission mission, CancellationToken token)
+        {
+            if (mission == null || mission.StageOrder == null) return null;
+            if (String.IsNullOrWhiteSpace(mission.VoyageId) || String.IsNullOrWhiteSpace(mission.DependsOnMissionId)) return null;
+
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal) { mission.Id };
+            string? nextId = mission.DependsOnMissionId;
+            const int maxDepth = 64;
+            for (int depth = 0; depth < maxDepth && !String.IsNullOrWhiteSpace(nextId) && visited.Add(nextId!); depth++)
+            {
+                Mission? ancestor = await _Database.Missions.ReadAsync(nextId!, token).ConfigureAwait(false);
+                if (ancestor == null || !String.Equals(ancestor.VoyageId, mission.VoyageId, StringComparison.Ordinal)) return null;
+
+                bool sameBranch = String.IsNullOrWhiteSpace(mission.BranchName)
+                    || String.IsNullOrWhiteSpace(ancestor.BranchName)
+                    || String.Equals(ancestor.BranchName, mission.BranchName, StringComparison.Ordinal);
+                if (PersonaMustProduceChanges(ancestor.Persona)
+                    && ancestor.StageOrder != null
+                    && ancestor.StageOrder.Value < mission.StageOrder.Value
+                    && sameBranch
+                    && !String.IsNullOrWhiteSpace(ancestor.CommitHash)
+                    && IsDependencySatisfyingStatus(ancestor.Status))
+                {
+                    return ancestor;
+                }
+
+                nextId = ancestor.DependsOnMissionId;
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Returns true when a persona must hold the mission branch attached, because it commits its
         /// work there. Git allows only one worktree per branch, so an attached stage that provisions
         /// while an earlier stage still holds the branch fails with exit 128 -- the collision behind
@@ -7096,7 +7198,7 @@ namespace Armada.Core.Services
                 {
                     if (dependent.DependsOnMissionId == completedMission.Id
                         && dependent.Status == MissionStatusEnum.Cancelled
-                        && (dependent.FailureReason == null || dependent.FailureReason.StartsWith("Blocked by failed dependency", StringComparison.Ordinal)))
+                        && (dependent.FailureReason == null || dependent.FailureReason.StartsWith(MissionDependentCancellation.BlockedByFailedDependencyPrefix, StringComparison.Ordinal)))
                     {
                         dependent.FailureReason = reason;
                         dependent.LastUpdateUtc = DateTime.UtcNow;
@@ -10224,7 +10326,7 @@ namespace Armada.Core.Services
             foreach (Mission dependent in directDependents)
             {
                 dependent.Status = MissionStatusEnum.Cancelled;
-                dependent.FailureReason = "Blocked by failed dependency " + failedMission.Id;
+                dependent.FailureReason = MissionDependentCancellation.BlockedByFailedDependencyPrefix + " " + failedMission.Id;
                 dependent.CompletedUtc = DateTime.UtcNow;
                 dependent.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);

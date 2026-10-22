@@ -9,6 +9,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- An operator restart of a downstream stage that was cancelled behind a failed
+  upstream stage reopens its `Failed` voyage. The stage runs on the commit of
+  the nearest earlier stage that handed off work, each skipped stage is
+  recorded `Cancelled` as superseded by the restart with its earlier reason,
+  the voyage returns to `InProgress`, its Checks are armed again, and a
+  `voyage.reopened` event is written. A skipped stage that moved the branch, a
+  `Complete` or `Cancelled` voyage, and a stage an operator cancelled stay
+  refused with `voyage_ended`.
+
 - A prepared objective whose recorded branch moved stays dispatchable when the
   move changed no file it depends on. The dispatch preview reads the files that
   changed between the recorded commit and the branch tip; when none is a cited
@@ -531,6 +540,13 @@ upstream integrations and excludes changes already present at that baseline.
   returns the note, each key gets its own wake, and `AddressNotice` names every
   key. A filtered read also returns a note already stored under a name the key
   used in that window.
+- A revising Worker stage that finds nothing to fix completes instead of
+  failing as `no_op_completion_detected`. When an earlier Worker stage of its
+  chain, on the same branch and at a lower stage order, already produced and
+  handed off a commit, a completion marker with no new commit means no change
+  was needed; the activity log says so and the Judge runs instead of being
+  cancelled. The first producing Worker of a pipeline or a rescue keeps the
+  no-op rule.
 - `ActiveDispatchedCount` in `armada_objective_scheduler_status` describes the
   latest sweep tick, including a sweep that is disabled or paused. It counts each
   Open or InProgress voyage that holds a mission on a vessel once, by the same

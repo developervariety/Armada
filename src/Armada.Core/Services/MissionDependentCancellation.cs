@@ -15,6 +15,12 @@ namespace Armada.Core.Services
     public static class MissionDependentCancellation
     {
         /// <summary>
+        /// Failure-reason prefix recorded on a stage cancelled because a stage it depends on failed. The restart rule
+        /// reads it to tell a stage stranded by an upstream failure from one an operator cancelled.
+        /// </summary>
+        public const string BlockedByFailedDependencyPrefix = "Blocked by failed dependency";
+
+        /// <summary>
         /// Cancel every mission of the root's voyage that waits, directly or through other stages, on the root.
         /// <para>
         /// The walk follows the whole downstream chain, not only its first link: a cancelled dependent is itself a
