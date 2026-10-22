@@ -1293,6 +1293,89 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("interrupted_architect_fanout_is_finished_without_duplicates", "An Architect fan-out interrupted by a restart is finished by recovery: unstarted fan-out runs, missing slices and stage chains are created once, and started slices are not rewired", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("fanout-recovery-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("fanout-recovery-voyage")).ConfigureAwait(false);
+
+                    ArchitectPlan plan = new ArchitectPlan { ContractVersion = 3, Requirements = new List<string> { "REQ-1" }, Decisions = new List<string> { "Keep it small." } };
+                    string[] titles = { "Core slice", "Second slice", "Integrate slices" };
+                    for (int i = 0; i < titles.Length; i++) plan.Missions.Add(new ArchitectPlanMission
+                    {
+                        Title = titles[i], Description = "Do the work; run dotnet test.", Kind = i == 2 ? "integration" : "implementation",
+                        DependsOn = i == 1 ? 1 : null, WaitForOtherMissions = i == 2, ValidationCommands = new List<string> { "dotnet test" },
+                        AcceptanceCriteria = new List<ArchitectAcceptanceCriterion> { new ArchitectAcceptanceCriterion
+                        {
+                            Id = "AC-" + (i + 1), RequirementIds = new List<string> { "REQ-1" }, DecisionIndexes = new List<int> { 1 },
+                            Scenario = "Run it", Expected = "It works", Verification = "A test checks it", NegativeCases = new List<string> { "Bad input is rejected" }
+                        } }
+                    });
+
+                    Mission architect = await testDb.Driver.Missions.CreateAsync(new Mission("[Architect] Plan", "Break this down")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Architect", Status = MissionStatusEnum.WorkProduced,
+                        AgentOutput = "```armada-plan\n" + JsonSerializer.Serialize(plan) + "\n```"
+                    }).ConfigureAwait(false);
+                    Mission placeholder = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Placeholder", "Initial worker")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", DependsOnMissionId = architect.Id
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(new Mission("[Judge] Placeholder", "Initial review")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", DependsOnMissionId = placeholder.Id
+                    }).ConfigureAwait(false);
+
+                    // A restart before the fan-out started: recovery runs it.
+                    AssertEqual(1, await missionService.RecoverDanglingHandoffsAsync().ConfigureAwait(false), "the unstarted fan-out is run");
+                    List<Mission> fanned = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    foreach (string title in titles) AssertEqual(1, fanned.Count(m => m.Title == title + " [Worker]"), title);
+                    AssertContains("armada:fanout-complete", (await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!.Description ?? "");
+                    AssertEqual(0, await missionService.RecoverDanglingHandoffsAsync().ConfigureAwait(false), "a completed fan-out is left alone");
+
+                    // A restart part-way through: the third slice was never created, the second lost its stage chain, and the
+                    // first already started.
+                    Mission third = fanned.Single(m => m.Title == "Integrate slices [Worker]");
+                    foreach (Mission stage in fanned.Where(m => m.DependsOnMissionId == third.Id)) await testDb.Driver.Missions.DeleteAsync(stage.Id).ConfigureAwait(false);
+                    await testDb.Driver.Missions.DeleteAsync(third.Id).ConfigureAwait(false);
+                    Mission second = fanned.Single(m => m.Title == "Second slice [Worker]");
+                    foreach (Mission stage in fanned.Where(m => m.DependsOnMissionId == second.Id)) await testDb.Driver.Missions.DeleteAsync(stage.Id).ConfigureAwait(false);
+                    second.DependsOnMissionId = architect.Id;
+                    await testDb.Driver.Missions.UpdateAsync(second).ConfigureAwait(false);
+                    Mission first = fanned.Single(m => m.Title == "Core slice [Worker]");
+                    first.Status = MissionStatusEnum.InProgress;
+                    first.BranchName = "armada/core";
+                    await testDb.Driver.Missions.UpdateAsync(first).ConfigureAwait(false);
+                    Mission interrupted = (await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!;
+                    interrupted.Description = "Break this down";
+                    await testDb.Driver.Missions.UpdateAsync(interrupted).ConfigureAwait(false);
+
+                    AssertEqual(1, await missionService.RecoverDanglingHandoffsAsync().ConfigureAwait(false), "the interrupted fan-out is finished");
+                    List<Mission> repaired = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    foreach (string title in titles) AssertEqual(1, repaired.Count(m => m.Title == title + " [Worker]"), "exactly one Worker for " + title);
+                    Mission rebuilt = repaired.Single(m => m.Title == "Integrate slices [Worker]");
+                    AssertTrue(rebuilt.WaitForVoyageWorkers, "the recreated integration slice keeps its barrier");
+                    AssertTrue(repaired.Any(m => m.DependsOnMissionId == rebuilt.Id && m.Persona == "Judge"), "the recreated slice has its Judge");
+                    Mission secondAfter = repaired.Single(m => m.Id == second.Id);
+                    AssertTrue(repaired.Any(m => m.DependsOnMissionId == second.Id && m.Persona == "Judge"), "the slice that lost its chain gets one");
+                    Mission coreJudge = repaired.Single(m => m.DependsOnMissionId == first.Id && m.Persona == "Judge");
+                    AssertEqual(coreJudge.Id, secondAfter.DependsOnMissionId, "dependsOn: 1 is applied to the slice that has not started");
+                    Mission firstAfter = repaired.Single(m => m.Id == first.Id);
+                    AssertEqual(MissionStatusEnum.InProgress, firstAfter.Status);
+                    AssertEqual("armada/core", firstAfter.BranchName, "a started slice is never rewired");
+                    AssertEqual(0, await missionService.RecoverDanglingHandoffsAsync().ConfigureAwait(false));
+                    AssertEqual(repaired.Count, (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false)).Count, "nothing is created twice");
+                }
+            }));
+
             cases.Add(CaseAsync("architect_legacy_marker_deferral_phrase_sets_structured_flag", "Legacy marker-format deferral wording is converted once into the structured flag", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
