@@ -25,8 +25,11 @@ namespace Armada.Test.Unit.Suites.Services
                 JsonElement result = JsonSerializer.SerializeToElement(
                     McpResultPreview.Apply(payload, includeFullContent: false));
 
-                AssertEqual(McpResultPreview.DefaultPreviewChars,
-                    result.GetProperty("Description").GetString()!.Length);
+                string preview = result.GetProperty("Description").GetString()!;
+                AssertEqual(new string('d', McpResultPreview.DefaultPreviewChars) + McpResultPreview.PreviewMarker, preview,
+                    "The preview keeps the leading text and ends with the marker.");
+                AssertContains("includeFullContent=true", preview,
+                    "A clipped field names the flag that returns it whole.");
                 AssertEqual(5000, result.GetProperty("DescriptionLength").GetInt32(),
                     "The reader must be able to see what was withheld.");
                 AssertEqual(1, result.GetProperty("TruncatedFieldCount").GetInt32());

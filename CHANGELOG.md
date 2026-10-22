@@ -519,6 +519,11 @@ upstream integrations and excludes changes already present at that baseline.
 - A brief no longer tells the captain to read a `_briefing/` file the dock does
   not hold. Each such read points at the staged complete handoff text, or at
   the inline text when none is staged.
+- A previewed MCP read field ends with ` ... [preview; call again with
+  includeFullContent=true for the full text]`, so a clipped objective,
+  incident, runbook, prompt-template or campaign-status field names the flag
+  that returns it whole. The captain brief's objective section names the flag
+  beside `get_objective`.
 - A high model reading on dispatch preflight question 9 no longer blocks a
   brief that states its proof value changes, such as "freezes 2 after the fix
   and 3 at the old commit". When no deterministic fact fails and a brief

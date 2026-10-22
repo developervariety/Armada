@@ -194,6 +194,15 @@ Do not infer success from the absence of a JSON-RPC error. Many Armada tools
 return a structured application result with `success`, `status`, `code`,
 `error`, or `action` fields. Read those fields.
 
+The objective, incident, runbook and prompt-template read tools and
+`armada_campaign_status` preview long free text. A string longer than 250 characters keeps its first
+250 characters and ends with ` ... [preview; call again with
+includeFullContent=true for the full text]`; it gains a companion
+`<name>Length` with the original length, and the result carries
+`TruncatedFieldCount`. A long list of short strings keeps 5 items and gains
+`<name>Count`. Pass `includeFullContent=true` to get every field whole. The
+captain brief's objective section names the flag beside `get_objective`.
+
 ## Coordination And AgentWake
 
 Every concurrent operator uses one stable coordination `participantKey`.

@@ -41,6 +41,13 @@ namespace Armada.Server.Mcp.Tools
         public const int DefaultPreviewChars = 250;
 
         /// <summary>
+        /// Text appended to every previewed string. It names the flag that returns the field whole, so a reader of
+        /// a clipped field learns how to fetch the rest from the field itself. Every tool that previews accepts
+        /// <c>includeFullContent</c>.
+        /// </summary>
+        public const string PreviewMarker = " ... [preview; call again with includeFullContent=true for the full text]";
+
+        /// <summary>
         /// Elements of a long primitive array kept when previewing.
         /// <para>
         /// The bulk of a rich record is usually not one long string but MANY SHORT ONES:
@@ -96,7 +103,8 @@ namespace Armada.Server.Mcp.Tools
 
         /// <summary>
         /// Return <paramref name="payload"/> with every string longer than
-        /// <paramref name="previewChars"/> replaced by a preview, each gaining a
+        /// <paramref name="previewChars"/> replaced by its first <paramref name="previewChars"/>
+        /// characters followed by <see cref="PreviewMarker"/>, each gaining a
         /// companion <c>&lt;name&gt;Length</c> property carrying the original length,
         /// plus a top-level <c>TruncatedFieldCount</c> so a reader can see at a glance
         /// whether anything was trimmed.
@@ -213,7 +221,7 @@ namespace Armada.Server.Mcp.Tools
 
             foreach (System.Collections.Generic.KeyValuePair<string, string> field in longFields)
             {
-                obj[field.Key] = field.Value.Substring(0, previewChars);
+                obj[field.Key] = field.Value.Substring(0, previewChars) + PreviewMarker;
                 obj[field.Key + "Length"] = field.Value.Length;
                 truncated++;
             }
