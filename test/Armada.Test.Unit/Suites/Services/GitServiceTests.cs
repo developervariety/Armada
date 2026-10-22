@@ -2212,6 +2212,88 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
             });
+
+            await RunTest("A dock snapshot saves uncommitted and untracked work to the next recover branch without touching the dock", async () =>
+            {
+                // A stalled captain's dock is reclaimed after its last recovery fails; the snapshot is the only
+                // copy of the work it never committed, so it must hold that work and leave the dock exactly as it was.
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_snapshot_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string seed = Path.Combine(rootDir, "seed");
+                    string bare = Path.Combine(rootDir, "vessel.git");
+                    string dock = Path.Combine(rootDir, "dock");
+                    SeedTemplateRepository(seed);
+                    await RunGitAsync(rootDir, "clone", "--bare", seed, bare).ConfigureAwait(false);
+                    await RunGitAsync(bare, "worktree", "add", "-b", "armada/worker/example", dock).ConfigureAwait(false);
+                    await RunGitAsync(dock, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(dock, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    string headBefore = (await RunGitAsync(dock, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                    await File.WriteAllTextAsync(Path.Combine(dock, "README.md"), "staged edit").ConfigureAwait(false);
+                    await RunGitAsync(dock, "add", "README.md").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(dock, "README.md"), "unstaged edit").ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.Combine(dock, "src"));
+                    await File.WriteAllTextAsync(Path.Combine(dock, "src", "ExampleReader.cs"), "// new").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(dock, ".gitignore"), "*.log\n").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(dock, "build.log"), "ignored").ConfigureAwait(false);
+                    string statusBefore = await RunGitAsync(dock, "status", "--porcelain").ConfigureAwait(false);
+                    string stagedBefore = await RunGitAsync(dock, "diff", "--cached", "--name-only").ConfigureAwait(false);
+
+                    GitService git = CreateService();
+                    DockWorkSnapshot first = await git.SnapshotDockWorkAsync(dock, "msn_snapshot", "Example snapshot").ConfigureAwait(false);
+
+                    AssertEqual(Armada.Core.Enums.DockWorkSnapshotStatusEnum.Saved, first.Status, first.Message);
+                    AssertEqual("refs/heads/recover/msn_snapshot-1", first.RefName ?? "", "the first snapshot takes number 1");
+                    AssertEqual("unstaged edit", (await RunGitAsync(bare, "show", first.RefName + ":README.md").ConfigureAwait(false)).Trim(),
+                        "the snapshot holds the working-tree content, not the staged content");
+                    string files = await RunGitAsync(bare, "ls-tree", "-r", "--name-only", first.RefName!).ConfigureAwait(false);
+                    AssertContains("src/ExampleReader.cs", files, "an untracked file is saved");
+                    AssertFalse(files.Contains("build.log", StringComparison.Ordinal), "an ignored file is not saved");
+                    AssertEqual(headBefore, (await RunGitAsync(bare, "rev-parse", first.RefName + "^").ConfigureAwait(false)).Trim(),
+                        "the snapshot's parent is the dock's HEAD, so the branch commits are kept too");
+
+                    AssertEqual(headBefore, (await RunGitAsync(dock, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "the dock's HEAD does not move");
+                    AssertEqual("refs/heads/armada/worker/example", (await RunGitAsync(dock, "symbolic-ref", "HEAD").ConfigureAwait(false)).Trim(),
+                        "the dock stays on its branch");
+                    AssertEqual(statusBefore, await RunGitAsync(dock, "status", "--porcelain").ConfigureAwait(false), "the dock's files are unchanged");
+                    AssertEqual(stagedBefore, await RunGitAsync(dock, "diff", "--cached", "--name-only").ConfigureAwait(false), "the dock's index is unchanged");
+
+                    DockWorkSnapshot repeat = await git.SnapshotDockWorkAsync(dock, "msn_snapshot", "Example snapshot").ConfigureAwait(false);
+                    AssertEqual(Armada.Core.Enums.DockWorkSnapshotStatusEnum.AlreadySaved, repeat.Status, "the same work is not saved twice");
+                    AssertEqual(first.RefName ?? "", repeat.RefName ?? "", "the repeat names the branch that holds the work");
+
+                    await File.WriteAllTextAsync(Path.Combine(dock, "src", "ExampleReader.cs"), "// changed").ConfigureAwait(false);
+                    DockWorkSnapshot second = await git.SnapshotDockWorkAsync(dock, "msn_snapshot", "Example snapshot").ConfigureAwait(false);
+                    AssertEqual("refs/heads/recover/msn_snapshot-2", second.RefName ?? "", "new work takes the next number");
+                    AssertEqual(first.CommitSha ?? "", (await RunGitAsync(bare, "rev-parse", first.RefName!).ConfigureAwait(false)).Trim(),
+                        "an earlier snapshot is never moved");
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("A dock snapshot of a clean dock writes no recover branch", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_gitsvc_snapshot_clean_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string repo = Path.Combine(rootDir, "repo");
+                    SeedTemplateRepository(repo);
+
+                    DockWorkSnapshot snapshot = await CreateService().SnapshotDockWorkAsync(repo, "msn_clean", "Example snapshot").ConfigureAwait(false);
+
+                    AssertEqual(Armada.Core.Enums.DockWorkSnapshotStatusEnum.NoChanges, snapshot.Status, snapshot.Message);
+                    AssertFalse(snapshot.HasRef, "no branch is named");
+                    AssertEqual("", (await RunGitAsync(repo, "for-each-ref", "refs/heads/recover/").ConfigureAwait(false)).Trim(), "no recover branch is written");
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
         }
 
         /// <summary>

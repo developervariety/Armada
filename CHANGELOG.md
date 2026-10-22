@@ -435,6 +435,23 @@ upstream integrations and excludes changes already present at that baseline.
   a bare file name a provisioned sibling tracks, is a sibling path whose cited
   lines are checked in that sibling, and a bare name found nowhere is stated as
   not found rather than as absent.
+- A captain waiting on its own build or test run is not stopped as stalled. A
+  live descendant of the agent process that started after the agent's last
+  output (two minutes of slack) clears the stall as the `child_process` signal,
+  until `StallChildProcessCeilingMinutes` (default 45, clamped to [0, 1440], 0
+  turns it off) measured from that output. The agent process and the companions
+  it starts in its first minute never count. The admiral reads the process tree
+  from Linux `/proc`; on a host where it cannot, the decision uses the output,
+  dock and branch signals alone, says why in the stall event, and logs it.
+- Stall recovery saves a captain's uncommitted dock work before the final
+  relaunch and before recovery exhaustion reclaims the dock. The work, untracked
+  files included and ignored files excluded, is committed on the dock's HEAD in a
+  private index and written to `refs/heads/recover/<missionId>-<n>` in the vessel
+  repository; the dock's files, index and branch do not change. The
+  `mission.work_snapshot_saved` event names the branch, and an exhausted mission's
+  failure reason ends with `uncommitted work saved to <ref>`. A snapshot that
+  cannot be written records `mission.work_snapshot_failed` and does not stop the
+  recovery.
 
 - Smart Routing persona model lists fall back when they are dead. When no
   captain that may serve the persona runs a listed model and can take work

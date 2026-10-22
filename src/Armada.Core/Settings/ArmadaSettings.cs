@@ -160,6 +160,19 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Longest time, in minutes from a quiet captain's last output, that a build or test it started
+        /// holds the stall window open. A live descendant of the agent process that started after that
+        /// output counts as work; the agent process and its launch-time companions never do. Past the
+        /// ceiling the captain is judged on its output, dock and branch alone. Clamped to [0, 1440];
+        /// 0 turns the child-process signal off. Default 45.
+        /// </summary>
+        public int StallChildProcessCeilingMinutes
+        {
+            get => _StallChildProcessCeilingMinutes;
+            set => _StallChildProcessCeilingMinutes = Math.Max(0, Math.Min(1440, value));
+        }
+
+        /// <summary>
         /// Stage-level watchdog timeout in minutes for Assigned/WorkProduced missions
         /// that have no captain/process heartbeat. Clamped to [5, 180].
         /// </summary>
@@ -1050,6 +1063,7 @@ namespace Armada.Core.Settings
         private int _MergeQueueTestTimeoutSeconds = 3600;
         private int _MaxInterruptedExitRedispatchAttempts = 2;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
+        private int _StallChildProcessCeilingMinutes = 45;
         private int _StageWatchdogTimeoutMinutes = 30;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;

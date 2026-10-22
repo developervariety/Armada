@@ -727,5 +727,25 @@ namespace Armada.Core.Services.Interfaces
         {
             throw new NotSupportedException("This git service cannot push a checkout HEAD to a repository path.");
         }
+
+        /// <summary>
+        /// Save a dock's uncommitted work, untracked files included and ignored files excluded, as a commit on
+        /// the next free <c>refs/heads/recover/{missionId}-{n}</c> branch in the vessel repository the dock is a
+        /// worktree of. The commit's parent is the dock's HEAD, so the branch also keeps every commit the dock made.
+        /// </summary>
+        /// <remarks>
+        /// The snapshot is built in a private index, so the dock's own index, files and branch are never changed.
+        /// When the newest recover branch of the mission already holds the same tree, no new branch is written.
+        /// The default implementation reports a failure, so a double that cannot snapshot says so.
+        /// </remarks>
+        /// <param name="worktreePath">Dock worktree.</param>
+        /// <param name="missionId">Mission whose work the dock holds; it names the branch.</param>
+        /// <param name="message">Snapshot commit message.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The branch that holds the work, or why none does.</returns>
+        Task<DockWorkSnapshot> SnapshotDockWorkAsync(string worktreePath, string missionId, string message, CancellationToken token = default)
+        {
+            return Task.FromResult(DockWorkSnapshot.Failed("this git service cannot snapshot a dock"));
+        }
     }
 }

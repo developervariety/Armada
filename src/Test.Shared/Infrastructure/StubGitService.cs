@@ -4,6 +4,7 @@ namespace Test.Shared.Infrastructure
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -250,6 +251,19 @@ namespace Test.Shared.Infrastructure
         public string? LandingCommitShaResult { get; set; } = new string('c', 40);
 
         public List<string> RevisionCommitShaCalls { get; } = new List<string>();
+
+        /// <summary>Recorded dock snapshots as "worktreePath|missionId".</summary>
+        public List<string> SnapshotCalls { get; } = new List<string>();
+
+        /// <summary>Result every dock snapshot returns.</summary>
+        public DockWorkSnapshot SnapshotResult { get; set; } = DockWorkSnapshot.NoChanges();
+
+        public Task<DockWorkSnapshot> SnapshotDockWorkAsync(string worktreePath, string missionId, string message, CancellationToken token = default)
+        {
+            SnapshotCalls.Add(worktreePath + "|" + missionId);
+            OperationCalls.Add("snapshot:" + missionId);
+            return Task.FromResult(SnapshotResult);
+        }
 
         /// <summary>Committer times keyed by "repoPath|revision".</summary>
         public Dictionary<string, DateTime?> CommitTimes { get; } = new Dictionary<string, DateTime?>();

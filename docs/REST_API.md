@@ -4779,6 +4779,8 @@ A recorded event representing a state change in the system.
 - `captain.stop_refused` - A stop left the agent process running; the message names the reason (`process_identity_unverified`, `process_identifier_reused`, `kill_failed`)
 - `captain.stall_confirmed` - The stall evaluator confirmed that a captain is stalled; the message names the evidence
 - `captain.stall_cleared` - The stall evaluator found a signal inside the window, so a quiet captain is not stalled
+- `mission.work_snapshot_saved` - Stall recovery saved a captain's uncommitted dock work before the final relaunch or before recovery exhaustion reclaimed the dock; the message names the `recover/<missionId>-<n>` branch
+- `mission.work_snapshot_failed` - Stall recovery could not save a captain's uncommitted dock work; the message names why, and the recovery continues
 - `voyage.dispatched` - A voyage was created: by a dispatch with all of its missions, by an autonomous rescue with its missions, or without missions (the message then counts 0 missions)
 - `voyage.completed` - The voyage completion rule wrote the voyage Complete: every mission done without failure, a cancelled stage only beside a `Complete` mission, and its Checks green or absent
 - `voyage.deleted` - Voyage permanently deleted

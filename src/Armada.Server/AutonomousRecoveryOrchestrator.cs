@@ -3499,7 +3499,7 @@ namespace Armada.Server
                 // Quiet output is not a stall on its own: the shared evaluator also reads the dock
                 // worktree and the branch tip, and records the decision with its evidence.
                 CaptainStallDecision stall = await _StallEvaluator.EvaluateAsync(
-                    captain, mission, thresholdMinutes, nowUtc, lastProviderProgressUtc, token).ConfigureAwait(false);
+                    captain, mission, thresholdMinutes, nowUtc, lastProviderProgressUtc, _Settings.StallChildProcessCeilingMinutes, token).ConfigureAwait(false);
                 await _StallEvaluator.RecordAsync(stall, "autonomous_recovery_nudge", captain, mission, token).ConfigureAwait(false);
                 if (!stall.IsStalled) continue;
 

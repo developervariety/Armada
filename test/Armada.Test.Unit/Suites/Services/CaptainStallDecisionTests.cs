@@ -172,13 +172,13 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         private static AdmiralService CreateAdmiral(Scene scene, CaptainService captains, DispatchHold? hold = null, IResourcePressureAdmission? admission = null,
-            ProviderProgressTracker? providerProgress = null, TerminalMarkerTracker? terminalMarkers = null)
+            ProviderProgressTracker? providerProgress = null, TerminalMarkerTracker? terminalMarkers = null, ICaptainProcessTreeReader? processTree = null)
         {
             LoggingModule logging = CreateLogging();
             IDockService docks = new DockService(logging, scene.Db, scene.Settings, scene.Git);
             MissionService missions = new MissionService(logging, scene.Db, scene.Settings, docks, captains, git: scene.Git);
             AdmiralService admiral = new AdmiralService(logging, scene.Db, scene.Settings, captains, missions, new VoyageService(logging, scene.Db), docks,
-                resourcePressureAdmission: admission, git: scene.Git, dispatchHold: hold);
+                resourcePressureAdmission: admission, git: scene.Git, dispatchHold: hold, processTree: processTree);
             if (providerProgress != null) admiral.SetProviderProgress(providerProgress);
             if (terminalMarkers != null) admiral.SetTerminalMarkers(terminalMarkers);
             return admiral;
@@ -208,6 +208,51 @@ namespace Armada.Test.Unit.Suites.Services
             public void MarkOom() { OomMarks++; }
 
             public bool IsCapacitySuspended() { return false; }
+        }
+
+        // Answers every read with the same process tree and counts the reads.
+        private sealed class FixedProcessTree : ICaptainProcessTreeReader
+        {
+            private readonly CaptainProcessTreeRead _Read;
+
+            public int Reads;
+
+            public FixedProcessTree(CaptainProcessTreeRead read)
+            {
+                _Read = read;
+            }
+
+            public CaptainProcessTreeRead ReadDescendants(int rootProcessId)
+            {
+                Reads++;
+                return _Read;
+            }
+        }
+
+        // An agent process started 40 minutes ago with one launch-time companion and the given later children.
+        private static FixedProcessTree TreeWithChildren(params CaptainChildProcess[] children)
+        {
+            DateTime rootStartedUtc = DateTime.UtcNow.AddMinutes(-40);
+            List<CaptainChildProcess> all = new List<CaptainChildProcess>
+            {
+                new CaptainChildProcess(5001, 5000, "codex", rootStartedUtc.AddSeconds(2))
+            };
+            all.AddRange(children);
+            return new FixedProcessTree(CaptainProcessTreeRead.Read(all, rootStartedUtc));
+        }
+
+        private static CaptainStallEvaluator CreateEvaluator(Scene scene, ICaptainProcessTreeReader tree)
+        {
+            return new CaptainStallEvaluator(scene.Db, scene.Git, CreateLogging(), processTree: tree);
+        }
+
+        // Writes a fake /proc/<pid>/stat whose start time is the given clock ticks after boot.
+        private static void WriteProcStat(string procRoot, int pid, string name, char state, int parentPid, long startTicks)
+        {
+            string directory = Path.Combine(procRoot, pid.ToString());
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "stat"),
+                pid + " (" + name + ") " + state + " " + parentPid + " " + String.Join(" ", Enumerable.Repeat("0", 17)) + " " + startTicks + " 0 0 0\n");
         }
 
         private static async Task<Scene> CreateConfirmedStallSceneAsync(TestDatabase testDb, int processId)
@@ -595,6 +640,9 @@ namespace Armada.Test.Unit.Suites.Services
                         List<ArmadaEvent> confirmed = await StallEventsAsync(scene, ConfirmedEvent).ConfigureAwait(false);
                         AssertEqual(1, confirmed.Count, "the confirmed stall is recorded");
                         AssertContains("newest dock write 60", confirmed[0].Message, "the event names the dock evidence");
+                        AssertContains("child processes: process tree unreadable", confirmed[0].Message,
+                            "a process the host cannot read falls back to the other signals and says so");
+                        AssertEqual(0, scene.Git.SnapshotCalls.Count, "an early relaunch keeps its dock and saves no snapshot");
                     }
                     finally
                     {
@@ -711,6 +759,240 @@ namespace Armada.Test.Unit.Suites.Services
                         ProcessSupervisor.UnregisterSyntheticProcess(pid);
                     }
                 }
+            }).ConfigureAwait(false);
+
+            await RunTest("ChildProcess_TestRunStartedAfterTheLastOutput_HoldsTheStallWindowOpen", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Scene scene = await CreateConfirmedStallSceneAsync(testDb, 88110020).ConfigureAwait(false);
+                    FixedProcessTree tree = TreeWithChildren(new CaptainChildProcess(5002, 5001, "dotnet", DateTime.UtcNow.AddMinutes(-29)));
+
+                    CaptainStallDecision decision = await CreateEvaluator(scene, tree).EvaluateAsync(
+                        scene.Captain, scene.Mission, 10, DateTime.UtcNow, null, 45).ConfigureAwait(false);
+
+                    AssertFalse(decision.IsStalled, "a captain waiting on its own test run is not stalled: " + decision.DescribeEvidence());
+                    AssertEqual(CaptainStallEvaluator.SignalChildProcess, decision.DecidingSignal, "the running child decides");
+                    AssertEqual(1, decision.ChildProcessCount, "only the child started after the last output counts, not the launch-time agent binary");
+                    AssertContains("dotnet", decision.DescribeEvidence(), "the evidence names the running child");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ChildProcess_CeilingReached_ConfirmsTheStall", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Scene scene = await CreateConfirmedStallSceneAsync(testDb, 88110021).ConfigureAwait(false);
+                    FixedProcessTree tree = TreeWithChildren(new CaptainChildProcess(5002, 5001, "dotnet", DateTime.UtcNow.AddMinutes(-29)));
+
+                    // The last output is 30 minutes old, so a 20-minute ceiling is already spent.
+                    CaptainStallDecision decision = await CreateEvaluator(scene, tree).EvaluateAsync(
+                        scene.Captain, scene.Mission, 10, DateTime.UtcNow, null, 20).ConfigureAwait(false);
+
+                    AssertTrue(decision.IsStalled, "a child running past the ceiling no longer holds the window");
+                    AssertTrue(decision.ChildProcessCeilingReached, "the decision says the ceiling ended the hold");
+                    AssertContains("20-minute child-process ceiling is reached", decision.DescribeEvidence(), "the evidence names the ceiling");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ChildProcess_OnlyLaunchCompanionsAndOlderChildren_DoNotHoldTheWindow", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Scene scene = await CreateConfirmedStallSceneAsync(testDb, 88110022).ConfigureAwait(false);
+
+                    // A child started well before the last output (30 minutes ago) is not work the agent waits on.
+                    FixedProcessTree older = TreeWithChildren(new CaptainChildProcess(5004, 5001, "bash", DateTime.UtcNow.AddMinutes(-35)));
+                    CaptainStallDecision decision = await CreateEvaluator(scene, older).EvaluateAsync(
+                        scene.Captain, scene.Mission, 10, DateTime.UtcNow, null, 45).ConfigureAwait(false);
+                    AssertTrue(decision.IsStalled, "an idle agent CLI with a standing older child is still stalled");
+                    AssertEqual(0, decision.ChildProcessCount, "the older child does not count");
+                    AssertContains("no descendant started after the last output", decision.DescribeEvidence(), "the evidence says why no child counted");
+
+                    // An agent relaunched just before its last output: the runtime binary and the tool server it starts
+                    // at launch are inside the start slack, and still never count.
+                    DateTime rootStartedUtc = DateTime.UtcNow.AddMinutes(-31);
+                    FixedProcessTree launched = new FixedProcessTree(CaptainProcessTreeRead.Read(new List<CaptainChildProcess>
+                    {
+                        new CaptainChildProcess(5001, 5000, "codex", rootStartedUtc.AddSeconds(5)),
+                        new CaptainChildProcess(5003, 5001, "mcp-server", rootStartedUtc.AddSeconds(30))
+                    }, rootStartedUtc));
+                    CaptainStallDecision companions = await CreateEvaluator(scene, launched).EvaluateAsync(
+                        scene.Captain, scene.Mission, 10, DateTime.UtcNow, null, 45).ConfigureAwait(false);
+                    AssertTrue(companions.IsStalled, "launch-time companions do not hold the window");
+                    AssertEqual(0, companions.ChildProcessCount, "no launch-time companion counts");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ChildProcess_UnreadableTreeOrSignalOff_FallsBackToTheOtherSignals", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Scene scene = await CreateConfirmedStallSceneAsync(testDb, 88110023).ConfigureAwait(false);
+                    FixedProcessTree unreadable = new FixedProcessTree(CaptainProcessTreeRead.Unavailable(
+                        CaptainProcessTreeRead.ProcessTableUnavailableReason, "no process table at /example"));
+
+                    CaptainStallDecision decision = await CreateEvaluator(scene, unreadable).EvaluateAsync(
+                        scene.Captain, scene.Mission, 10, DateTime.UtcNow, null, 45).ConfigureAwait(false);
+                    AssertTrue(decision.IsStalled, "an unreadable process tree decides as before");
+                    AssertContains("process tree unreadable (process_table_unavailable)", decision.DescribeEvidence(), "the evidence names why");
+
+                    FixedProcessTree live = TreeWithChildren(new CaptainChildProcess(5002, 5001, "dotnet", DateTime.UtcNow.AddMinutes(-29)));
+                    CaptainStallDecision off = await CreateEvaluator(scene, live).EvaluateAsync(
+                        scene.Captain, scene.Mission, 10, DateTime.UtcNow, null, 0).ConfigureAwait(false);
+                    AssertTrue(off.IsStalled, "a ceiling of 0 turns the child-process signal off");
+                    AssertEqual(0, live.Reads, "the process tree is not read while the signal is off");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("AdmiralHeartbeatStall_LiveTestRunChild_IsNotStopped", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110024;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateConfirmedStallSceneAsync(testDb, pid).ConfigureAwait(false);
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        int stops = 0;
+                        captains.OnStopAgent = _ => { stops++; return Task.CompletedTask; };
+                        FixedProcessTree tree = TreeWithChildren(new CaptainChildProcess(5002, 5001, "dotnet", DateTime.UtcNow.AddMinutes(-29)));
+                        AdmiralService admiral = CreateAdmiral(scene, captains, processTree: tree);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        Captain after = (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!;
+                        AssertEqual(0, stops, "a captain whose test run is still running is not stopped");
+                        AssertEqual(0, after.RecoveryAttempts, "no recovery attempt is spent");
+                        List<ArmadaEvent> cleared = await StallEventsAsync(scene, ClearedEvent).ConfigureAwait(false);
+                        AssertEqual(1, cleared.Count, "the clearing is recorded");
+                        AssertContains("child_process", cleared[0].Message, "the event names the child-process signal");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("AdmiralHeartbeatStall_FinalRecoveryAttempt_SavesTheDockWorkFirst", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110025;
+                    const int relaunchedPid = 88110026;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateConfirmedStallSceneAsync(testDb, pid).ConfigureAwait(false);
+                        scene.Settings.MaxRecoveryAttempts = 1;
+                        string refName = "refs/heads/recover/" + scene.Mission.Id + "-1";
+                        scene.Git.SnapshotResult = DockWorkSnapshot.Saved(refName, new string('d', 40));
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        captains.OnStopAgent = _ => Task.CompletedTask;
+                        captains.OnLaunchAgent = (_, _, _) => Task.FromResult(relaunchedPid);
+                        AdmiralService admiral = CreateAdmiral(scene, captains);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        AssertEqual(1, scene.Git.SnapshotCalls.Count, "the final relaunch saves the dock's work");
+                        AssertEqual(scene.Worktree + "|" + scene.Mission.Id, scene.Git.SnapshotCalls[0], "the snapshot reads the mission's dock");
+                        List<ArmadaEvent> saved = (await scene.Db.Events.EnumerateByMissionAsync(scene.Mission.Id, 200).ConfigureAwait(false))
+                            .Where(e => e.EventType == "mission.work_snapshot_saved").ToList();
+                        AssertEqual(1, saved.Count, "the snapshot is recorded on the mission");
+                        AssertContains(refName, saved[0].Message, "the event names the recover branch");
+                        Captain after = (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!;
+                        AssertEqual(1, after.RecoveryAttempts, "the final relaunch still runs");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("AdmiralHeartbeatStall_RecoveryExhausted_SavesTheDockWorkBeforeReclaim_AndNamesTheBranch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    const int pid = 88110027;
+                    ProcessSupervisor.RegisterSyntheticProcess(pid);
+                    try
+                    {
+                        Scene scene = await CreateConfirmedStallSceneAsync(testDb, pid).ConfigureAwait(false);
+                        scene.Settings.MaxRecoveryAttempts = 0;
+                        string refName = "refs/heads/recover/" + scene.Mission.Id + "-1";
+                        scene.Git.SnapshotResult = DockWorkSnapshot.Saved(refName, new string('d', 40));
+                        LoggingModule logging = CreateLogging();
+                        CaptainService captains = new CaptainService(logging, scene.Db, scene.Settings, scene.Git, new DockService(logging, scene.Db, scene.Settings, scene.Git));
+                        captains.OnStopAgent = _ => Task.CompletedTask;
+                        AdmiralService admiral = CreateAdmiral(scene, captains);
+
+                        await admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                        Mission failed = (await scene.Db.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Failed, failed.Status, "an exhausted stall fails the mission");
+                        AssertContains("recovery exhausted", failed.FailureReason ?? "", "the failure keeps its reason");
+                        AssertContains(refName, failed.FailureReason ?? "", "the failure names the branch that holds the work");
+                        int snapshotAt = scene.Git.OperationCalls.IndexOf("snapshot:" + scene.Mission.Id);
+                        AssertTrue(snapshotAt >= 0, "the dock's work is saved");
+                        for (int i = 0; i < scene.Git.OperationCalls.Count; i++)
+                        {
+                            if (scene.Git.OperationCalls[i].StartsWith("remove-worktree:", StringComparison.Ordinal))
+                                AssertTrue(i > snapshotAt, "the dock is removed only after its work is saved");
+                        }
+                        List<ArmadaEvent> saved = (await scene.Db.Events.EnumerateByMissionAsync(scene.Mission.Id, 200).ConfigureAwait(false))
+                            .Where(e => e.EventType == "mission.work_snapshot_saved").ToList();
+                        AssertEqual(1, saved.Count, "the snapshot is recorded on the mission");
+                        AssertContains(refName, saved[0].Message, "the event names the recover branch");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.UnregisterSyntheticProcess(pid);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ProcTreeReader_WalksDescendants_SkipsZombies_AndNamesAMissingRoot", () =>
+            {
+                string procRoot = Path.Combine(Path.GetTempPath(), "armada_stall_proc_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(procRoot);
+                    File.WriteAllText(Path.Combine(procRoot, "stat"), "cpu  1 2 3 4\nbtime 1700000000\nprocesses 10\n");
+                    WriteProcStat(procRoot, 100, "node", 'S', 1, 1000);
+                    WriteProcStat(procRoot, 101, "codex", 'S', 100, 1100);
+                    WriteProcStat(procRoot, 102, "odd) (name", 'R', 101, 50000);
+                    WriteProcStat(procRoot, 103, "dotnet", 'Z', 102, 50100);
+                    WriteProcStat(procRoot, 104, "testhost", 'S', 103, 50200);
+                    WriteProcStat(procRoot, 200, "unrelated", 'S', 1, 60000);
+
+                    ProcCaptainProcessTreeReader reader = new ProcCaptainProcessTreeReader(procRoot);
+                    CaptainProcessTreeRead read = reader.ReadDescendants(100);
+
+                    AssertTrue(read.Available, "a readable table is read");
+                    List<int> ids = read.Descendants.Select(d => d.ProcessId).OrderBy(id => id).ToList();
+                    AssertEqual("101,102,104", String.Join(",", ids), "descendants are walked through every level, zombies excluded");
+                    AssertEqual("odd) (name", read.Descendants.First(d => d.ProcessId == 102).Name, "a name holding parentheses is read whole");
+                    DateTime boot = DateTimeOffset.FromUnixTimeSeconds(1700000000).UtcDateTime;
+                    AssertEqual(boot.AddSeconds(500), read.Descendants.First(d => d.ProcessId == 102).StartedUtc, "start time is boot time plus ticks over USER_HZ");
+                    AssertEqual(boot.AddSeconds(10), read.RootStartedUtc ?? DateTime.MinValue, "the agent process start time is reported");
+
+                    CaptainProcessTreeRead missing = reader.ReadDescendants(999);
+                    AssertFalse(missing.Available, "a missing agent process is not an empty tree");
+                    AssertEqual(CaptainProcessTreeRead.RootNotFoundReason, missing.UnavailableReason ?? "", "the reason is named");
+
+                    CaptainProcessTreeRead noTable = new ProcCaptainProcessTreeReader(Path.Combine(procRoot, "absent")).ReadDescendants(100);
+                    AssertEqual(CaptainProcessTreeRead.ProcessTableUnavailableReason, noTable.UnavailableReason ?? "", "a host without a process table says so");
+                }
+                finally
+                {
+                    try { Directory.Delete(procRoot, true); } catch { }
+                }
+                return Task.CompletedTask;
             }).ConfigureAwait(false);
         }
     }

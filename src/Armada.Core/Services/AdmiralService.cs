@@ -126,6 +126,7 @@ namespace Armada.Core.Services
         public IntentionalProcessStops IntentionalStops => _IntentionalStops;
 
         private readonly IntentionalProcessStops _IntentionalStops;
+        private readonly ICaptainProcessTreeReader _ProcessTree;
 
         /// <summary>
         /// The D3 <c>runtime_failure</c> typed-decision adapter, when wired. Null keeps runtime
@@ -183,6 +184,7 @@ namespace Armada.Core.Services
         /// <param name="dispatchHold">Optional emergency dispatch hold.</param>
         /// <param name="fleetCapacityAdmission">Optional universal fleet-capacity admission service.</param>
         /// <param name="intentionalStops">Optional registry of processes stopped on purpose, shared with the process-exit source.</param>
+        /// <param name="processTree">Optional reader for a captain's descendant processes; the host's <c>/proc</c> by default.</param>
         public AdmiralService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -198,7 +200,8 @@ namespace Armada.Core.Services
             IGitService? git = null,
             DispatchHold? dispatchHold = null,
             FleetCapacityAdmission? fleetCapacityAdmission = null,
-            IntentionalProcessStops? intentionalStops = null)
+            IntentionalProcessStops? intentionalStops = null,
+            ICaptainProcessTreeReader? processTree = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -219,6 +222,7 @@ namespace Armada.Core.Services
                 ?? new FleetCapacityAdmission(_Database, _Settings, _Logging);
             _CrashLoopTracker = new CaptainCrashLoopTracker(_Settings.CrashLoopDetection);
             _IntentionalStops = intentionalStops ?? new IntentionalProcessStops();
+            _ProcessTree = processTree ?? new ProcCaptainProcessTreeReader();
             _HealthCheckSteps = BuildHealthCheckSteps();
         }
 
@@ -2030,7 +2034,7 @@ namespace Armada.Core.Services
 
         // Created on first use so the stall rule reads the same database and git service the
         // admiral was built with.
-        private CaptainStallEvaluator StallEvaluator => _StallEvaluator ??= new CaptainStallEvaluator(_Database, _Git, _Logging);
+        private CaptainStallEvaluator StallEvaluator => _StallEvaluator ??= new CaptainStallEvaluator(_Database, _Git, _Logging, processTree: _ProcessTree);
 
         /// <summary>
         /// Process health check for a single captain. Isolated so exceptions in one captain
@@ -2253,7 +2257,7 @@ namespace Armada.Core.Services
                     if (stallKind != ProviderStallKind.None)
                     {
                         CaptainStallDecision stall = await StallEvaluator.EvaluateAsync(
-                            captain, mission, _Settings.StallThresholdMinutes, nowUtc, lastProviderProgressUtc, token).ConfigureAwait(false);
+                            captain, mission, _Settings.StallThresholdMinutes, nowUtc, lastProviderProgressUtc, _Settings.StallChildProcessCeilingMinutes, token).ConfigureAwait(false);
                         await StallEvaluator.RecordAsync(stall, "admiral_heartbeat_stall", captain, mission, token).ConfigureAwait(false);
                         if (!stall.IsStalled) return;
 
@@ -2267,6 +2271,10 @@ namespace Armada.Core.Services
                             await StopSupersededProcessAsync(captain, processId.Value, "before recovery", token).ConfigureAwait(false);
                             // A restarted process must establish its own provider-progress baseline.
                             _ProviderProgress?.Clear(captain.Id);
+
+                            // The last relaunch is the one whose failure reclaims the dock, so its work is saved first.
+                            if (captain.RecoveryAttempts + 1 >= _Settings.MaxRecoveryAttempts)
+                                await SnapshotStalledDockWorkAsync(captain, mission, "the final recovery attempt", token).ConfigureAwait(false);
 
                             // A relaunch continues an in-flight mission in its own dock; it is not a new dispatch,
                             // so an engaged dispatch hold, which refuses only new dispatches, does not stop it.
@@ -2306,6 +2314,18 @@ namespace Armada.Core.Services
                                 }
                             }
 
+                            // Save the dock's uncommitted work before the dock can be reclaimed, and name the
+                            // branch in the failure so the rescue and the operator find it.
+                            DockWorkSnapshot? snapshot = DockRetentionRule.MissionStillUsesDock(mission)
+                                ? null
+                                : await SnapshotStalledDockWorkAsync(captain, mission, "stall recovery exhaustion", token).ConfigureAwait(false);
+                            if (snapshot != null && snapshot.HasRef && mission != null && mission.Status == MissionStatusEnum.Failed)
+                            {
+                                mission.FailureReason = (mission.FailureReason ?? "Captain stalled, recovery exhausted") + "; uncommitted work saved to " + snapshot.RefName;
+                                mission.LastUpdateUtc = DateTime.UtcNow;
+                                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                            }
+
                             // Reclaim the dock worktree so it doesn't leak -- unless the mission still lands
                             // or is approved from it (its work was produced before the stall).
                             if (DockRetentionRule.MissionStillUsesDock(mission))
@@ -2330,6 +2350,65 @@ namespace Armada.Core.Services
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Save a stalled captain's uncommitted dock work to a <c>recover/{missionId}-{n}</c> branch in the vessel
+        /// repository. The dock's files, index and branch are not changed. Every outcome except "nothing to save" is
+        /// recorded as an event; a failure never stops the recovery it precedes.
+        /// </summary>
+        /// <returns>The snapshot, or null when there was no mission or dock to read.</returns>
+        private async Task<DockWorkSnapshot?> SnapshotStalledDockWorkAsync(Captain captain, Mission? mission, string stage, CancellationToken token)
+        {
+            if (mission == null) return null;
+
+            string? dockId = !String.IsNullOrEmpty(mission.DockId) ? mission.DockId : captain.CurrentDockId;
+            Dock? dock = String.IsNullOrEmpty(dockId) ? null : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
+            if (dock == null || String.IsNullOrWhiteSpace(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
+            {
+                _Logging.Info(_Header + "no dock worktree to snapshot for mission " + mission.Id + " before " + stage);
+                return null;
+            }
+
+            DockWorkSnapshot snapshot;
+            try
+            {
+                snapshot = await _Git.SnapshotDockWorkAsync(dock.WorktreePath, mission.Id,
+                    "Armada recovery snapshot of mission " + mission.Id + " before " + stage, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                snapshot = DockWorkSnapshot.Failed(ex.Message);
+            }
+
+            if (snapshot.Status == DockWorkSnapshotStatusEnum.NoChanges)
+            {
+                _Logging.Info(_Header + "dock " + dock.Id + " of mission " + mission.Id + " has no uncommitted work to snapshot before " + stage);
+                return snapshot;
+            }
+
+            if (snapshot.HasRef)
+            {
+                _Logging.Info(_Header + "mission " + mission.Id + " before " + stage + ": " + snapshot.Message + " (" + snapshot.CommitSha + ")");
+                await EmitEventAsync("mission.work_snapshot_saved",
+                    "Uncommitted work of mission " + mission.Id + " saved to " + snapshot.RefName + " (" + snapshot.CommitSha + ") before " + stage,
+                    entityType: "mission", entityId: mission.Id,
+                    captainId: captain.Id, missionId: mission.Id, vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+            }
+            else
+            {
+                _Logging.Warn(_Header + "could not snapshot the dock of mission " + mission.Id + " before " + stage + ": " + snapshot.Message);
+                await EmitEventAsync("mission.work_snapshot_failed",
+                    "Uncommitted work of mission " + mission.Id + " was not saved before " + stage + ": " + snapshot.Message,
+                    entityType: "mission", entityId: mission.Id,
+                    captainId: captain.Id, missionId: mission.Id, vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+            }
+
+            return snapshot;
         }
 
         /// <summary>

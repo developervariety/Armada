@@ -21,8 +21,12 @@ namespace Armada.Core.Services
     /// only when every signal is older than the stall window: its output (the heartbeat, or the
     /// provider-progress time for a runtime that reports it), the newest write in its dock worktree
     /// outside <c>.git</c>, and the committer time of its branch tip. Any one signal inside the window
-    /// clears the stall. The autonomous recovery nudge and the admiral heartbeat-stall restart both
-    /// call this evaluator, and both record the decision through <see cref="RecordAsync"/>.
+    /// clears the stall. A build or test the agent started and is waiting on also clears it: a live
+    /// descendant of the agent process that started after the agent's last output holds the window
+    /// open until the child-process ceiling, measured from that output. The agent process itself and
+    /// the companions it starts at launch never count, so an idle agent CLI is not progress. The
+    /// autonomous recovery nudge and the admiral heartbeat-stall restart both call this evaluator,
+    /// and both record the decision through <see cref="RecordAsync"/>.
     /// </remarks>
     public sealed class CaptainStallEvaluator
     {
@@ -43,11 +47,29 @@ namespace Armada.Core.Services
         /// <summary>Deciding signal: the branch tip was committed inside the window.</summary>
         public const string SignalBranchTip = "branch_tip";
 
+        /// <summary>
+        /// Deciding signal: a descendant of the agent process that started after its last output is
+        /// still running, and the child-process ceiling is not reached.
+        /// </summary>
+        public const string SignalChildProcess = "child_process";
+
         /// <summary>Deciding signal for a confirmed stall: no signal is inside the window.</summary>
         public const string SignalNone = "no_signal";
 
         /// <summary>Default bound on dock entries one evaluation reads.</summary>
         public const int DefaultMaxDockEntries = 50000;
+
+        /// <summary>
+        /// How long before the agent's last output a descendant may have started and still count. The
+        /// agent usually announces a command just after it starts it.
+        /// </summary>
+        public static readonly TimeSpan ChildProcessStartSlack = TimeSpan.FromMinutes(2);
+
+        /// <summary>
+        /// Descendants started this soon after the agent process are launch companions, such as the
+        /// runtime binary under a wrapper or its tool servers, and never count as work.
+        /// </summary>
+        public static readonly TimeSpan LaunchCompanionWindow = TimeSpan.FromSeconds(60);
 
         #endregion
 
@@ -59,6 +81,7 @@ namespace Armada.Core.Services
         private readonly IGitService? _Git;
         private readonly LoggingModule _Logging;
         private readonly int _MaxDockEntries;
+        private readonly ICaptainProcessTreeReader _ProcessTree;
 
         // Last cleared decision recorded per decision path and mission, so a quiet but working captain
         // records one event per clearing signal per stall window instead of one per sweep tick.
@@ -74,12 +97,14 @@ namespace Armada.Core.Services
         /// <param name="git">Git service used to read the branch tip; null reports the tip as unavailable.</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="maxDockEntries">Bound on dock entries one evaluation reads.</param>
-        public CaptainStallEvaluator(DatabaseDriver database, IGitService? git, LoggingModule logging, int maxDockEntries = DefaultMaxDockEntries)
+        /// <param name="processTree">Reader for the agent's descendant processes; the host's <c>/proc</c> by default.</param>
+        public CaptainStallEvaluator(DatabaseDriver database, IGitService? git, LoggingModule logging, int maxDockEntries = DefaultMaxDockEntries, ICaptainProcessTreeReader? processTree = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Git = git;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _MaxDockEntries = maxDockEntries > 0 ? maxDockEntries : DefaultMaxDockEntries;
+            _ProcessTree = processTree ?? new ProcCaptainProcessTreeReader();
         }
 
         #endregion
@@ -109,6 +134,10 @@ namespace Armada.Core.Services
         /// <param name="windowMinutes">Stall window in minutes.</param>
         /// <param name="nowUtc">Reference time.</param>
         /// <param name="lastProviderProgressUtc">Provider-progress time, when the runtime reports one.</param>
+        /// <param name="childProcessCeilingMinutes">
+        /// Longest time, measured from the agent's last output, that a running descendant process holds
+        /// the window open; 0 or less turns the child-process signal off.
+        /// </param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The decision and the evidence behind it.</returns>
         public async Task<CaptainStallDecision> EvaluateAsync(
@@ -117,6 +146,7 @@ namespace Armada.Core.Services
             double windowMinutes,
             DateTime nowUtc,
             DateTime? lastProviderProgressUtc = null,
+            double childProcessCeilingMinutes = 0,
             CancellationToken token = default)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
@@ -168,6 +198,12 @@ namespace Armada.Core.Services
             if (decision.BranchTipUtc.HasValue && decision.BranchTipUtc.Value >= cutoffUtc)
             {
                 decision.DecidingSignal = SignalBranchTip;
+                return decision;
+            }
+
+            if (ReadChildProcessSignal(captain, mission, decision, childProcessCeilingMinutes, nowUtc, lastProviderProgressUtc))
+            {
+                decision.DecidingSignal = SignalChildProcess;
                 return decision;
             }
 
@@ -247,7 +283,12 @@ namespace Armada.Core.Services
                     dockScanCapped = decision.DockScanCapped,
                     dockUnreadableDirectories = decision.DockUnreadableDirectories,
                     branchName = decision.BranchName,
-                    branchTipUtc = decision.BranchTipUtc
+                    branchTipUtc = decision.BranchTipUtc,
+                    childProcessCeilingMinutes = decision.ChildProcessCeilingMinutes,
+                    childProcessCount = decision.ChildProcessCount,
+                    childProcessNames = decision.ChildProcessNames,
+                    childProcessCeilingReached = decision.ChildProcessCeilingReached,
+                    childProcessNote = decision.ChildProcessNote
                 })
             };
 
@@ -327,6 +368,78 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        // True when a descendant the agent started after its last output is still running inside the
+        // ceiling. Every other outcome writes its reason to the decision, so a stall confirmed without
+        // this signal says why the signal was absent.
+        private bool ReadChildProcessSignal(Captain captain, Mission? mission, CaptainStallDecision decision, double ceilingMinutes, DateTime nowUtc, DateTime? lastProviderProgressUtc)
+        {
+            if (ceilingMinutes <= 0)
+            {
+                decision.ChildProcessNote = "child-process signal is off";
+                return false;
+            }
+
+            decision.ChildProcessCeilingMinutes = ceilingMinutes;
+            int? processId = captain.ProcessId ?? mission?.ProcessId;
+            if (!processId.HasValue || processId.Value <= 0)
+            {
+                decision.ChildProcessNote = "no agent process recorded";
+                return false;
+            }
+
+            DateTime? referenceUtc = lastProviderProgressUtc ?? captain.LastHeartbeatUtc;
+            if (!referenceUtc.HasValue)
+            {
+                decision.ChildProcessNote = "no output time to measure the ceiling from";
+                return false;
+            }
+
+            CaptainProcessTreeRead tree;
+            try
+            {
+                tree = _ProcessTree.ReadDescendants(processId.Value);
+            }
+            catch (Exception ex)
+            {
+                tree = CaptainProcessTreeRead.Unavailable(CaptainProcessTreeRead.ReadFailedReason, ex.Message);
+            }
+
+            if (!tree.Available)
+            {
+                decision.ChildProcessNote = "process tree unreadable (" + tree.UnavailableReason + ")";
+                _Logging.Debug(_Header + "child-process signal unavailable for captain " + captain.Id + " process " + processId.Value
+                    + ": " + tree.UnavailableReason + (tree.Detail != null ? " (" + tree.Detail + ")" : String.Empty)
+                    + "; deciding on output, dock and branch signals only");
+                return false;
+            }
+
+            DateTime earliestStartUtc = referenceUtc.Value - ChildProcessStartSlack;
+            DateTime? companionsUntilUtc = tree.RootStartedUtc.HasValue ? tree.RootStartedUtc.Value + LaunchCompanionWindow : (DateTime?)null;
+            List<string> names = new List<string>();
+            foreach (CaptainChildProcess child in tree.Descendants)
+            {
+                if (child.StartedUtc < earliestStartUtc) continue;
+                if (companionsUntilUtc.HasValue && child.StartedUtc <= companionsUntilUtc.Value) continue;
+                names.Add(child.Name);
+            }
+
+            decision.ChildProcessCount = names.Count;
+            if (names.Count == 0)
+            {
+                decision.ChildProcessNote = "no descendant started after the last output (" + tree.Descendants.Count + " older or launch-time descendants)";
+                return false;
+            }
+
+            decision.ChildProcessNames = String.Join(", ", names.Count > 5 ? names.GetRange(0, 5) : names) + (names.Count > 5 ? ", ..." : String.Empty);
+            if (nowUtc - referenceUtc.Value >= TimeSpan.FromMinutes(ceilingMinutes))
+            {
+                decision.ChildProcessCeilingReached = true;
+                return false;
+            }
+
+            return true;
+        }
 
         private async Task<Dock?> ReadDockAsync(Captain captain, Mission? mission, CancellationToken token)
         {
@@ -418,6 +531,21 @@ namespace Armada.Core.Services
         /// <summary>Committer time of the branch tip, when it could be read.</summary>
         public DateTime? BranchTipUtc { get; set; } = null;
 
+        /// <summary>Child-process ceiling in minutes the decision used; 0 when the signal was off.</summary>
+        public double ChildProcessCeilingMinutes { get; set; } = 0;
+
+        /// <summary>Running descendants that started after the agent's last output.</summary>
+        public int ChildProcessCount { get; set; } = 0;
+
+        /// <summary>Names of the counted descendants, at most five.</summary>
+        public string? ChildProcessNames { get; set; } = null;
+
+        /// <summary>True when counted descendants were running but the ceiling was reached.</summary>
+        public bool ChildProcessCeilingReached { get; set; } = false;
+
+        /// <summary>Why no descendant counted, when none did.</summary>
+        public string? ChildProcessNote { get; set; } = null;
+
         /// <summary>Human-readable evidence for events and logs.</summary>
         public string DescribeEvidence()
         {
@@ -442,6 +570,16 @@ namespace Armada.Core.Services
                 parts.Add(BranchTipUtc.HasValue
                     ? "branch tip " + (BranchName ?? "?") + " committed " + Age(BranchTipUtc)
                     : "branch tip unavailable" + (BranchName != null ? " for " + BranchName : " (no branch recorded)"));
+            }
+
+            if (ChildProcessCount > 0)
+            {
+                parts.Add(ChildProcessCount + " running child process(es) started after the last output (" + ChildProcessNames + ")"
+                    + (ChildProcessCeilingReached ? ", but the " + ChildProcessCeilingMinutes.ToString("0.#") + "-minute child-process ceiling is reached" : String.Empty));
+            }
+            else if (ChildProcessNote != null && (IsStalled || ChildProcessCeilingMinutes > 0))
+            {
+                parts.Add("child processes: " + ChildProcessNote);
             }
 
             return String.Join("; ", parts) + ".";
