@@ -1018,6 +1018,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // The Judge's output is redacted when it is stored, so a criterion holding a secret-shaped value is
+            // compared in its redacted form on both sides.
+            await RunTest("Judge PASS that copies a criterion holding a secret-shaped value passes the criteria walk", async () =>
+            {
+                // Built at run time so no committed line has a credential shape.
+                string fixtureValue = "fixture" + "Value42";
+                string secretCriterion = "A loader throwing InvalidOperationException(\"tok" + "en=" + fixtureValue
+                    + " at /data/x\") stores reason unavailable, not \"tok" + "en=" + fixtureValue + " at /data/x\"";
+                string brief = FormatBrief.Replace("- CHANGELOG names the behaviour\n", "- CHANGELOG names the behaviour\n- " + secretCriterion + "\n");
+                string walk =
+                    "## Acceptance Criteria\n" +
+                    "- The parser rejects a truncated frame -- MET. src/Parser/FrameParser.cs:88\n" +
+                    "- CHANGELOG names the behaviour -- MET. CHANGELOG.md:12\n";
+                string verdict = "\n## Verdict\n[ARMADA:VERDICT] PASS\n";
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    string output = FormatReviewBody + walk + "- " + secretCriterion + " -- MET. src/Loader.cs:40\n" + verdict;
+                    Mission judge = await CompleteJudgeAsync(testDb, brief, output).ConfigureAwait(false);
+                    AssertFalse((judge.AgentOutput ?? String.Empty).Contains(fixtureValue, StringComparison.Ordinal), "The stored output is redacted");
+                    AssertNull(judge.FailureReason, "The redacted criterion still matches its brief text");
+                    AssertFalse((judge.Description ?? String.Empty).Contains("## Judge Format Correction", StringComparison.Ordinal), "No format re-run");
+                    AssertEqual(MissionStatusEnum.Complete, judge.Status, "The PASS is accepted");
+                }
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Mission judge = await CompleteJudgeAsync(testDb, brief, FormatReviewBody + walk + verdict).ConfigureAwait(false);
+                    AssertNotEqual(MissionStatusEnum.Complete, judge.Status, "A PASS that omits the criterion is not accepted");
+                    AssertContains("does not list every acceptance criterion", judge.Description ?? String.Empty, "The omission is named");
+                }
+            });
+
             await RunTest("Judge parser accepts structured ARMADA verdict signal", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

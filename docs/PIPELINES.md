@@ -434,6 +434,12 @@ entry that contradicts a `MET` entry. The same words inside the copied criterion
 or its evidence do not act as verdicts. The gate checks the citation format;
 the Judge checks its truth. A criterion the brief lists twice, with identical
 text, is one criterion.
+The Judge's output is stored through the shared secret redactor, so a
+secret-shaped value in a criterion (for example `token=<value>`) reaches the
+check as `[REDACTED]`. The check passes each brief criterion and each claimed
+line through the same redactor before it compares them, so a criterion the Judge
+copied exactly still matches. Criteria that read the same once redacted are one
+criterion.
 
 A PASS that this check refuses on format alone (no section, an unlisted
 criterion, or missing evidence; not a `NOT MET` entry) does not fail the

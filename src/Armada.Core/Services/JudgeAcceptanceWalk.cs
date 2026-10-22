@@ -162,6 +162,14 @@ namespace Armada.Core.Services
             if (LacksWalkSection(agentOutput, brief))
                 return "Judge PASS verdict missing required review sections: " + SectionName;
             string block = ExtractSection(agentOutput, SectionName)!;
+            // Criteria that read the same once redacted are one criterion, as the stored output cannot tell them apart.
+            List<string> expectedClaims = new List<string>();
+            HashSet<string> seenClaims = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string criterion in expected)
+            {
+                string comparable = ComparableClaim(criterion);
+                if (seenClaims.Add(comparable)) expectedClaims.Add(comparable);
+            }
             HashSet<int> covered = new HashSet<int>();
             foreach (string raw in block.Replace("\r\n", "\n").Split('\n'))
             {
@@ -169,11 +177,11 @@ namespace Armada.Core.Services
                 MatchCollection marks = _Met.Matches(line);
                 foreach (Match mark in marks)
                 {
-                    string claim = NormalizeClaim(line.Substring(0, mark.Index));
+                    string claim = ComparableClaim(line.Substring(0, mark.Index));
                     string evidence = line.Substring(mark.Index + mark.Length);
-                    for (int index = 0; index < expected.Count; index++)
+                    for (int index = 0; index < expectedClaims.Count; index++)
                     {
-                        if (!String.Equals(claim, NormalizeClaim(expected[index]), StringComparison.OrdinalIgnoreCase))
+                        if (!String.Equals(claim, expectedClaims[index], StringComparison.OrdinalIgnoreCase))
                             continue;
                         if (_NotMet.IsMatch(mark.Value))
                             return NotMetReason;
@@ -186,7 +194,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            return covered.Count == expected.Count
+            return covered.Count == expectedClaims.Count
                 ? null
                 : "Judge PASS does not list every acceptance criterion from the brief";
         }
@@ -202,6 +210,18 @@ namespace Armada.Core.Services
         {
             if (ExtractCriteria(brief).Count == 0) return false;
             return String.IsNullOrWhiteSpace(ExtractSection(agentOutput, SectionName));
+        }
+
+        /// <summary>
+        /// The form in which a Judge's criterion claim and a brief criterion are compared. A Judge's output is
+        /// stored through <see cref="SecretRedactor.Redact(string?)"/>, so a criterion whose text holds a
+        /// secret-shaped value reaches the check with that value replaced. Both sides pass through the same
+        /// redactor before they are compared, so a criterion the Judge copied exactly still matches its brief
+        /// text, and the brief's unredacted value is never compared with stored output.
+        /// </summary>
+        private static string ComparableClaim(string value)
+        {
+            return NormalizeClaim(SecretRedactor.Redact(value));
         }
 
         private static string NormalizeClaim(string value)

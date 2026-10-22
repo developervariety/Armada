@@ -557,6 +557,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A Judge PASS that copies an acceptance criterion holding a secret-shaped value
+  (for example `token=<value>`) passes the criteria walk. The Judge's output is
+  stored redacted, so the walk passes each brief criterion and each claimed line
+  through the same shared secret redactor before it compares them. A criterion
+  the Judge copied exactly is not read as missing (`does not list every
+  acceptance criterion from the brief`).
+
 - Smart Routing reports a persona model list dead
   (`routing.persona_model_list_dead`, reason `persona_models_matched_nothing`)
   only when eligibility admitted idle captains and none runs a listed model. A
