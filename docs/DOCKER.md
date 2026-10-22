@@ -516,11 +516,14 @@ in the image. `src/Armada.Server/Dockerfile` installs:
 | `pdftotext` | Read text from PDF sources | `poppler-utils` |
 | `monodis` | Disassemble .NET IL | `mono-utils` |
 | `dnfile` (Python) | Walk .NET metadata tables, for example custom attributes | pip `dnfile`, pinned by the `DNFILE_VERSION` build argument |
+| `rg` | Search a dock's files | `ripgrep` |
+| `python` | Run Python scripts as `python` (it is `python3`) | `python-is-python3` |
+| `slopwatch` | Check a .NET change for slop patterns; the .NET captain skill runs it | .NET tool `Slopwatch.Cmd` in `/opt/slopwatch`, pinned by the `SLOPWATCH_VERSION` build argument and linked as `/usr/local/bin/slopwatch` |
 | `sha256sum` | Hash an artifact | `coreutils` (in the base image) |
 
 An image built without them takes a rebuild (see "Rebuilding a local image with
 rollback retention"). Verify with
-`docker exec armada-admiral bash -lc 'pdftotext -v; command -v monodis; python3 -c "import dnfile"'`.
+`docker exec armada-admiral bash -lc 'pdftotext -v; command -v monodis; python3 -c "import dnfile"; rg --version; python --version; slopwatch --version'`.
 
 ## Ports Reference
 

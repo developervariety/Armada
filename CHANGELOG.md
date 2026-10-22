@@ -1095,8 +1095,10 @@ upstream integrations and excludes changes already present at that baseline.
   `not_found`) without revealing another owner's record.
 - The admiral image carries the captain study tools `pdftotext`, `monodis` and
   the Python `dnfile` package, so a study can read PDF sources, disassemble IL
-  and walk .NET metadata without hand-written decoders. A running deployment
-  gets them on its next image rebuild.
+  and walk .NET metadata without hand-written decoders. It also carries `rg`
+  (ripgrep), `python` (as `python3`) and the pinned `slopwatch` .NET tool that
+  the .NET captain skill runs. A running deployment gets them on its next image
+  rebuild.
 - Staged AI-Memory files are stable for a whole voyage. The first slimmed brief
   in a voyage pins its memory files, and every later stage receives the same
   bytes, with `_briefing/memory/manifest.json` giving each file's bytes and

@@ -109,15 +109,18 @@ WORKDIR /app
 #
 # Captain study tools: pdftotext (poppler-utils) reads PDF sources, monodis
 # (mono-utils) disassembles .NET IL, and the dnfile Python package walks .NET
-# metadata tables. sha256sum ships with coreutils. dnfile is pinned so a rebuild
-# installs the version these tools were checked against; the base image's
-# Python is externally managed, so pip installs it system-wide explicitly.
+# metadata tables. rg (ripgrep) searches a dock, and python-is-python3 makes
+# `python` run python3. sha256sum ships with coreutils. dnfile is pinned so a
+# rebuild installs the version these tools were checked against; the base
+# image's Python is externally managed, so pip installs it system-wide
+# explicitly. The slopwatch .NET tool, which the .NET captain skill runs, is
+# installed below at the pinned SLOPWATCH_VERSION.
 ARG CLI_REFRESH=0
 ARG DNFILE_VERSION=0.18.0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl default-jdk-headless gh git glab gnupg iproute2 \
         postgresql-client-16 mysql-client-8.0 \
-        poppler-utils mono-utils python3-pip \
+        poppler-utils mono-utils python3-pip python-is-python3 ripgrep \
     && pip3 install --no-cache-dir --break-system-packages "dnfile==${DNFILE_VERSION}" \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
@@ -130,6 +133,14 @@ RUN apt-get update \
     && npm install -g @anthropic-ai/claude-code@latest @openai/codex@latest @google/gemini-cli@latest @nothumanwork/cursor-agent-cli@latest opencode-ai@latest \
     && apt-get purge -y --auto-remove gnupg \
     && rm -rf /var/lib/apt/lists/* /root/.npm
+
+# slopwatch (Slopwatch.Cmd) checks a .NET change for slop patterns. It is a
+# pinned .NET tool in its own path, linked onto PATH, and the NuGet cache it
+# fills is cleared in the same layer.
+ARG SLOPWATCH_VERSION=0.4.2
+RUN dotnet tool install --tool-path /opt/slopwatch Slopwatch.Cmd --version "${SLOPWATCH_VERSION}" \
+    && ln -sf /opt/slopwatch/slopwatch /usr/local/bin/slopwatch \
+    && rm -rf /root/.nuget/packages /tmp/NuGetScratch
 
 COPY --from=build /app .
 
