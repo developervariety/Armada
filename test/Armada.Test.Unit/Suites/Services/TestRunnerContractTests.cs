@@ -13,6 +13,32 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            // A network call that never answers, and ignores its token, must fail the test with a named
+            // timeout instead of hanging the run.
+            await RunTest("A bounded call that never finishes fails with a timeout that names it", async () =>
+            {
+                TaskCompletionSource<int> never = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+                TimeoutException? expired = null;
+                try
+                {
+                    await TestTimeout.WithinAsync("relay ws.open", _ => never.Task, TimeSpan.FromMilliseconds(200));
+                }
+                catch (TimeoutException ex)
+                {
+                    expired = ex;
+                }
+
+                AssertNotNull(expired, "the stalled call times out");
+                AssertContains("relay ws.open", expired!.Message, "the timeout names the call");
+                AssertTrue(watch.Elapsed < TimeSpan.FromSeconds(10), "the timeout ends the wait at the limit");
+            });
+            await RunTest("A bounded call keeps its own failure and result", async () =>
+            {
+                AssertEqual(7, await TestTimeout.WithinAsync("value", _ => Task.FromResult(7)));
+                await AssertThrowsAsync<InvalidOperationException>(() =>
+                    TestTimeout.WithinAsync("failing", _ => Task.FromException(new InvalidOperationException("own failure"))));
+            });
             await RunTest("Empty registry fails", async () =>
             {
                 AssertEqual(1, await new TestRunner("empty").RunAllAsync());

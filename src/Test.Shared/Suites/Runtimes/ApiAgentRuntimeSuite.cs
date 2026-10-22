@@ -984,7 +984,7 @@ namespace Test.Shared.Suites.Runtimes
             int contentLength = 0;
             while (headerEnd < 0 || bytes.Length < headerEnd + 4 + contentLength)
             {
-                int count = await stream.ReadAsync(buffer.AsMemory(), CancellationToken.None).ConfigureAwait(false);
+                int count = await global::Armada.Test.Common.TestTimeout.WithinAsync("stream.ReadAsync", bounded => stream.ReadAsync(buffer.AsMemory(), bounded)).ConfigureAwait(false);
                 if (count == 0) break;
                 bytes.Write(buffer, 0, count);
                 byte[] snapshot = bytes.ToArray();

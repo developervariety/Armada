@@ -282,7 +282,7 @@ namespace Armada.Test.Automated.Suites
                 using (ClientWebSocket ws = new ClientWebSocket())
                 {
                     ws.Options.SetRequestHeader("X-Api-Key", _ApiKey);
-                    await ws.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+                    await TestTimeout.WithinAsync("ws.ConnectAsync", bounded => ws.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), bounded)).ConfigureAwait(false);
                     JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
                     AssertTrue(frame.HasValue, "Expected an authentication reply for header credentials");
                     AssertEqual("auth.result", frame!.Value.GetProperty("type").GetString());
@@ -298,7 +298,7 @@ namespace Armada.Test.Automated.Suites
                 using (ClientWebSocket ws = new ClientWebSocket())
                 {
                     ws.Options.SetRequestHeader("X-Api-Key", "invalid-" + Guid.NewGuid().ToString("N"));
-                    await ws.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+                    await TestTimeout.WithinAsync("ws.ConnectAsync", bounded => ws.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), bounded)).ConfigureAwait(false);
                     JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
                     AssertTrue(frame.HasValue, "Expected a refusal frame before the close");
                     AssertEqual("auth.failed", frame!.Value.GetProperty("type").GetString());
@@ -311,7 +311,7 @@ namespace Armada.Test.Automated.Suites
 
                 string msg = JsonHelper.Serialize(new { Route = "subscribe" });
                 byte[] bytes = Encoding.UTF8.GetBytes(msg);
-                await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+                await TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
 
                 byte[] buffer = new byte[1048576];
                 using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -1194,7 +1194,7 @@ namespace Armada.Test.Automated.Suites
 
                 string msg = JsonHelper.Serialize(new { Route = "bad_route" });
                 byte[] bytes = Encoding.UTF8.GetBytes(msg);
-                await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+                await TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
 
                 byte[] buffer = new byte[1048576];
                 using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -1212,7 +1212,7 @@ namespace Armada.Test.Automated.Suites
 
                 string msg = JsonHelper.Serialize(new { hello = "world" });
                 byte[] bytes = Encoding.UTF8.GetBytes(msg);
-                await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+                await TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
 
                 byte[] buffer = new byte[1048576];
                 using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -1358,7 +1358,7 @@ namespace Armada.Test.Automated.Suites
         {
             ClientWebSocket ws = new ClientWebSocket();
             Uri uri = new Uri("ws://localhost:" + _RestPort + "/ws");
-            await ws.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
+            await TestTimeout.WithinAsync("ws.ConnectAsync", bounded => ws.ConnectAsync(uri, bounded)).ConfigureAwait(false);
             return ws;
         }
 
@@ -1409,7 +1409,7 @@ namespace Armada.Test.Automated.Suites
         private static async Task SendJsonAsync(ClientWebSocket socket, object value)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(value));
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await TestTimeout.WithinAsync("socket.SendAsync", bounded => socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
         }
 
         private static async Task<JsonElement> ReceiveFrameAsync(
@@ -1454,7 +1454,7 @@ namespace Armada.Test.Automated.Suites
 
             string payload = JsonHelper.Serialize(msg);
             byte[] bytes = Encoding.UTF8.GetBytes(payload);
-            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
 
             byte[] buffer = new byte[1048576];
             using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));

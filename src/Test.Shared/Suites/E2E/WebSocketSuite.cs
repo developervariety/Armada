@@ -361,7 +361,7 @@ namespace Test.Shared.Suites.E2E
         {
             ClientWebSocket ws = new ClientWebSocket();
             Uri uri = new Uri("ws://127.0.0.1:" + fx.RestPort + "/ws");
-            await ws.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
+            await global::Armada.Test.Common.TestTimeout.WithinAsync("ws.ConnectAsync", bounded => ws.ConnectAsync(uri, bounded)).ConfigureAwait(false);
             await AuthenticateAsync(ws, fx.ApiKey).ConfigureAwait(false);
             return ws;
         }
@@ -374,7 +374,7 @@ namespace Test.Shared.Suites.E2E
         private static async Task AuthenticateAsync(ClientWebSocket ws, string apiKey)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(new { Route = "authenticate", apiKey = apiKey }));
-            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await global::Armada.Test.Common.TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
             JsonElement reply = await WaitForEventAsync(ws, root => root.TryGetProperty("type", out JsonElement type)
                 && (type.GetString() == "auth.result" || type.GetString() == "auth.error" || type.GetString() == "error")).ConfigureAwait(false);
             if (reply.GetProperty("type").GetString() != "auth.result")
@@ -385,7 +385,7 @@ namespace Test.Shared.Suites.E2E
         {
             string payload = JsonHelper.Serialize(new { Route = "subscribe" });
             byte[] bytes = Encoding.UTF8.GetBytes(payload);
-            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await global::Armada.Test.Common.TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
             await WaitForEventAsync(ws, root => root.GetProperty("type").GetString() == "status.snapshot").ConfigureAwait(false);
         }
 
@@ -437,7 +437,7 @@ namespace Test.Shared.Suites.E2E
 
             string payload = JsonHelper.Serialize(msg);
             byte[] bytes = Encoding.UTF8.GetBytes(payload);
-            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await global::Armada.Test.Common.TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
 
             byte[] buffer = new byte[1048576];
             using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));

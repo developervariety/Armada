@@ -270,7 +270,7 @@ namespace Test.Shared.Suites.Services
         private static async Task SendWebSocketTextAsync(ClientWebSocket socket, string text)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(text);
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await global::Armada.Test.Common.TestTimeout.WithinAsync("socket.SendAsync", bounded => socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
         }
 
         private static async Task<string> ReceiveWebSocketTextAsync(ClientWebSocket socket)
@@ -279,7 +279,7 @@ namespace Test.Shared.Suites.Services
             using MemoryStream stream = new MemoryStream();
             while (true)
             {
-                WebSocketReceiveResult result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None).ConfigureAwait(false);
+                WebSocketReceiveResult result = await global::Armada.Test.Common.TestTimeout.WithinAsync("socket.ReceiveAsync", bounded => socket.ReceiveAsync(new ArraySegment<byte>(buffer), bounded)).ConfigureAwait(false);
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
                     throw new Exception("Expected a text websocket message but the socket closed.");
@@ -888,7 +888,7 @@ namespace Test.Shared.Suites.Services
                 await _SendLock.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    await _Socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+                    await global::Armada.Test.Common.TestTimeout.WithinAsync("_Socket.SendAsync", bounded => _Socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
                 }
                 finally
                 {

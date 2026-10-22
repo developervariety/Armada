@@ -132,7 +132,7 @@ namespace Armada.Test.Automated
         {
             using (ClientWebSocket socket = new ClientWebSocket())
             {
-                await socket.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+                await TestTimeout.WithinAsync("socket.ConnectAsync", bounded => socket.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), bounded)).ConfigureAwait(false);
                 string auth = bearer == null
                     ? "{\"Route\":\"authenticate\",\"apiKey\":" + JsonSerializer.Serialize(_ApiKey) + "}"
                     : "{\"Route\":\"authenticate\",\"token\":" + JsonSerializer.Serialize(bearer) + "}";
@@ -251,7 +251,7 @@ namespace Armada.Test.Automated
         private static async Task SendAsync(ClientWebSocket socket, string text)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(text);
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await TestTimeout.WithinAsync("socket.SendAsync", bounded => socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
         }
 
         private static async Task<JsonElement> ReceiveAsync(ClientWebSocket socket)

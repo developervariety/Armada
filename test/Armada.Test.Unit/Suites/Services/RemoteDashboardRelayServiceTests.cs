@@ -35,7 +35,7 @@ namespace Armada.Test.Unit.Suites.Services
                 collector.OnPublishAsync = async (method, payload) =>
                 {
                     if (!String.Equals(method, "armada.ws.closed", StringComparison.OrdinalIgnoreCase)) return;
-                    sentOnClosedEvent = await service.HandleAsync(
+                    sentOnClosedEvent = await TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                         RemoteTunnelProtocol.CreateRequest(
                             "armada.ws.message",
                             new RemoteTunnelWebSocketMessage
@@ -43,10 +43,10 @@ namespace Armada.Test.Unit.Suites.Services
                                 ProxySocketId = "sock-race",
                                 Data = "sent on the closed event"
                             }),
-                        CancellationToken.None).ConfigureAwait(false);
+                        bounded)).ConfigureAwait(false);
                 };
 
-                RemoteTunnelRequestResult openResult = await service.HandleAsync(
+                RemoteTunnelRequestResult openResult = await TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.ws.open",
                         new RemoteTunnelWebSocketOpenRequest
@@ -54,10 +54,10 @@ namespace Armada.Test.Unit.Suites.Services
                             ProxySocketId = "sock-race",
                             Path = "/ws"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
                 AssertEqual(200, openResult.StatusCode, "WebSocket open should succeed");
 
-                await service.HandleAsync(
+                await TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.ws.message",
                         new RemoteTunnelWebSocketMessage
@@ -65,7 +65,7 @@ namespace Armada.Test.Unit.Suites.Services
                             ProxySocketId = "sock-race",
                             Data = "close-me"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 await collector.WaitForAsync<RemoteTunnelWebSocketCloseRequest>(
                     "armada.ws.closed",

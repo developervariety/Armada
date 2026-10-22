@@ -149,6 +149,8 @@ A test does not wait out a real timeout, interval or retry backoff. When product
 - a `TimeProvider` paired with a delay that advances it (`FakeTimeProvider` from `Microsoft.Extensions.TimeProvider.Testing`, as in `OpenCodeServerLauncher`);
 - a delay function that records the requested wait and returns at once, so the test asserts the backoff instead of sleeping (`ReleaseWebhookDispatcher`, `DeepSeekInferenceClient`, `VoyageEmbeddingClient`).
 
+A test never makes a network or relay call without a time limit. A connect, send, receive or HTTP call that a test awaits runs through `TestTimeout.WithinAsync("<call>", token => ...)` (`Armada.Test.Common`). The call gets a token that is cancelled after 60 s, and the wait ends then even when the call ignores the token. A stuck call fails its test with `Timed out after 60 s: <call>`, and the run continues. A receive loop that lives as long as its socket is not bounded this way; it ends when the socket closes.
+
 ## Test Projects
 
 | Project | Tests | What It Covers |

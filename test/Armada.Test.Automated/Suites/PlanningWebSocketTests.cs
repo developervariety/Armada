@@ -162,9 +162,9 @@ namespace Armada.Test.Automated.Suites
         private async Task<ClientWebSocket> ConnectAsync()
         {
             ClientWebSocket ws = new ClientWebSocket();
-            await ws.ConnectAsync(new Uri("ws://127.0.0.1:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+            await TestTimeout.WithinAsync("ws.ConnectAsync", bounded => ws.ConnectAsync(new Uri("ws://127.0.0.1:" + _RestPort + "/ws"), bounded)).ConfigureAwait(false);
             byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(new { Route = "authenticate", apiKey = _ApiKey }));
-            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
             await WaitForEventAsync(ws, root => root.GetProperty("type").GetString() == "auth.result").ConfigureAwait(false);
             return ws;
         }
@@ -172,7 +172,7 @@ namespace Armada.Test.Automated.Suites
         private async Task SubscribeAsync(ClientWebSocket ws)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(new { Route = "subscribe" }));
-            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await TestTimeout.WithinAsync("ws.SendAsync", bounded => ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
             await WaitForEventAsync(ws, root => root.GetProperty("type").GetString() == "status.snapshot").ConfigureAwait(false);
         }
 

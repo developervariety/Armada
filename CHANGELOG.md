@@ -502,6 +502,10 @@ upstream integrations and excludes changes already present at that baseline.
   candidates when they hold in several, and fails with the candidates when they
   hold in none. A failed question names each failing citation as written, with
   its reason.
+- A test network call that does not answer no longer hangs the test run.
+  Every connect, send, receive, relay and HTTP call that a test awaits runs
+  through `TestTimeout.WithinAsync`. A call that is still running after 60 s
+  fails its test with a timeout that names the call.
 
 - A Judge verdict held for a criterion ruling no longer reads as a failure.
   The mission, its voyage and the inbox showed `Failed` until someone opened

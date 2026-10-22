@@ -69,7 +69,7 @@ namespace Test.Shared.Suites.Services
                     CreateSettings(host.Port),
                     (_, _, _) => Task.CompletedTask);
 
-                RemoteTunnelRequestResult getResult = await service.HandleAsync(
+                RemoteTunnelRequestResult getResult = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.http.request",
                         new RemoteTunnelHttpRelayRequest
@@ -82,7 +82,7 @@ namespace Test.Shared.Suites.Services
                                 ["X-Test-Header"] = "demo"
                             }
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 RemoteTunnelHttpRelayResponse getPayload = RequireRelayResponse(getResult, "GET relay");
                 JsonElement getJson = JsonDocument.Parse(DecodeBody(getPayload.BodyBase64)).RootElement;
@@ -93,7 +93,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("demo", getJson.GetProperty("header").GetString(), "GET headers should relay");
 
                 const string postJson = "{\"mode\":\"post\",\"count\":2}";
-                RemoteTunnelRequestResult postResult = await service.HandleAsync(
+                RemoteTunnelRequestResult postResult = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.http.request",
                         new RemoteTunnelHttpRelayRequest
@@ -103,7 +103,7 @@ namespace Test.Shared.Suites.Services
                             ContentType = "application/json",
                             BodyBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(postJson))
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 RemoteTunnelHttpRelayResponse postPayload = RequireRelayResponse(postResult, "POST relay");
                 JsonElement postBody = JsonDocument.Parse(DecodeBody(postPayload.BodyBase64)).RootElement;
@@ -112,7 +112,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(postJson, postBody.GetProperty("bodyText").GetString(), "POST body should relay");
 
                 byte[] uploadBytes = Enumerable.Range(0, 32).Select(value => (byte)value).ToArray();
-                RemoteTunnelRequestResult putResult = await service.HandleAsync(
+                RemoteTunnelRequestResult putResult = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.http.request",
                         new RemoteTunnelHttpRelayRequest
@@ -122,14 +122,14 @@ namespace Test.Shared.Suites.Services
                             ContentType = "application/octet-stream",
                             BodyBase64 = Convert.ToBase64String(uploadBytes)
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 RemoteTunnelHttpRelayResponse putPayload = RequireRelayResponse(putResult, "PUT relay");
                 AssertEqual(200, putPayload.StatusCode, "PUT status should relay");
                 AssertEqual("application/octet-stream", putPayload.ContentType, "PUT binary content type should relay");
                 AssertEqual(Convert.ToBase64String(uploadBytes), Convert.ToBase64String(DecodeBody(putPayload.BodyBase64)), "PUT binary body should relay");
 
-                RemoteTunnelRequestResult deleteResult = await service.HandleAsync(
+                RemoteTunnelRequestResult deleteResult = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.http.request",
                         new RemoteTunnelHttpRelayRequest
@@ -137,13 +137,13 @@ namespace Test.Shared.Suites.Services
                             Method = "DELETE",
                             Path = "/api/v1/delete-target"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 RemoteTunnelHttpRelayResponse deletePayload = RequireRelayResponse(deleteResult, "DELETE relay");
                 AssertEqual(204, deletePayload.StatusCode, "DELETE status should relay");
                 AssertNull(deletePayload.BodyBase64, "DELETE should not return a body");
 
-                RemoteTunnelRequestResult errorResult = await service.HandleAsync(
+                RemoteTunnelRequestResult errorResult = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.http.request",
                         new RemoteTunnelHttpRelayRequest
@@ -151,14 +151,14 @@ namespace Test.Shared.Suites.Services
                             Method = "GET",
                             Path = "/api/v1/error"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 RemoteTunnelHttpRelayResponse errorPayload = RequireRelayResponse(errorResult, "Error relay");
                 AssertEqual(502, errorPayload.StatusCode, "Upstream error status should relay");
                 AssertContains("upstream failed", Encoding.UTF8.GetString(DecodeBody(errorPayload.BodyBase64)), "Error body should relay");
 
                 byte[] oversizeRequest = new byte[Constants.DefaultRemoteRelayMaxBodyBytes + 1];
-                RemoteTunnelRequestResult requestTooLarge = await service.HandleAsync(
+                RemoteTunnelRequestResult requestTooLarge = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.http.request",
                         new RemoteTunnelHttpRelayRequest
@@ -168,12 +168,12 @@ namespace Test.Shared.Suites.Services
                             ContentType = "application/octet-stream",
                             BodyBase64 = Convert.ToBase64String(oversizeRequest)
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 AssertEqual(413, requestTooLarge.StatusCode, "Oversize request should be rejected");
                 AssertEqual("relay_body_too_large", requestTooLarge.ErrorCode, "Oversize request should return a clear error code");
 
-                RemoteTunnelRequestResult responseTooLarge = await service.HandleAsync(
+                RemoteTunnelRequestResult responseTooLarge = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.http.request",
                         new RemoteTunnelHttpRelayRequest
@@ -181,7 +181,7 @@ namespace Test.Shared.Suites.Services
                             Method = "GET",
                             Path = "/api/v1/large-response"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 AssertEqual(413, responseTooLarge.StatusCode, "Oversize response should be rejected");
                 AssertEqual("relay_body_too_large", responseTooLarge.ErrorCode, "Oversize response should return a clear error code");
@@ -196,7 +196,7 @@ namespace Test.Shared.Suites.Services
                     CreateSettings(host.Port),
                     collector.RecordAsync);
 
-                RemoteTunnelRequestResult openResult = await service.HandleAsync(
+                RemoteTunnelRequestResult openResult = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.ws.open",
                         new RemoteTunnelWebSocketOpenRequest
@@ -204,11 +204,11 @@ namespace Test.Shared.Suites.Services
                             ProxySocketId = "sock-1",
                             Path = "/ws"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 AssertEqual(200, openResult.StatusCode, "WebSocket open should succeed");
 
-                RemoteTunnelRequestResult messageResult = await service.HandleAsync(
+                RemoteTunnelRequestResult messageResult = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.ws.message",
                         new RemoteTunnelWebSocketMessage
@@ -216,7 +216,7 @@ namespace Test.Shared.Suites.Services
                             ProxySocketId = "sock-1",
                             Data = "hello relay"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 AssertEqual(202, messageResult.StatusCode, "WebSocket message should be accepted");
 
@@ -225,7 +225,7 @@ namespace Test.Shared.Suites.Services
                     payload => payload.ProxySocketId == "sock-1" && payload.Data == "echo:hello relay").ConfigureAwait(false);
                 AssertEqual("echo:hello relay", echoed.Data, "Echoed websocket message should publish back through the relay");
 
-                await service.HandleAsync(
+                await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.ws.message",
                         new RemoteTunnelWebSocketMessage
@@ -233,14 +233,14 @@ namespace Test.Shared.Suites.Services
                             ProxySocketId = "sock-1",
                             Data = "close-me"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 RemoteTunnelWebSocketCloseRequest closed = await collector.WaitForAsync<RemoteTunnelWebSocketCloseRequest>(
                     "armada.ws.closed",
                     payload => payload.ProxySocketId == "sock-1").ConfigureAwait(false);
                 AssertEqual("remote close", closed.Reason, "Remote close reason should relay back");
 
-                RemoteTunnelRequestResult missingSession = await service.HandleAsync(
+                RemoteTunnelRequestResult missingSession = await global::Armada.Test.Common.TestTimeout.WithinAsync("service.HandleAsync", bounded => service.HandleAsync(
                     RemoteTunnelProtocol.CreateRequest(
                         "armada.ws.message",
                         new RemoteTunnelWebSocketMessage
@@ -248,7 +248,7 @@ namespace Test.Shared.Suites.Services
                             ProxySocketId = "sock-1",
                             Data = "after close"
                         }),
-                    CancellationToken.None).ConfigureAwait(false);
+                    bounded)).ConfigureAwait(false);
 
                 AssertEqual(404, missingSession.StatusCode, "Closed websocket sessions should be removed from relay state");
             }));

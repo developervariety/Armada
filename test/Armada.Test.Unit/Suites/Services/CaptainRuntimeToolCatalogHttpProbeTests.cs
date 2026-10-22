@@ -236,7 +236,7 @@ namespace Armada.Test.Unit.Suites.Services
                     TransportType = "http",
                     Url = "http://127.0.0.1:1/mcp"
                 };
-                return await service.ProbeHttpToolsAsync(server, CancellationToken.None).ConfigureAwait(false);
+                return await TestTimeout.WithinAsync("service.ProbeHttpToolsAsync", bounded => service.ProbeHttpToolsAsync(server, bounded)).ConfigureAwait(false);
             }
         }
 

@@ -264,7 +264,7 @@ namespace Test.Shared.Suites.Services
                 RecordingHandler handler = new RecordingHandler(HttpStatusCode.OK, responseJson);
                 using (ArmadaApiClient client = CreateClient(handler))
                 {
-                    T? result = await call(client, CancellationToken.None);
+                    T? result = await global::Armada.Test.Common.TestTimeout.WithinAsync("API client call", bounded => call(client, bounded));
                     AssertEqual(method, handler.Method);
                     AssertEqual(path, handler.PathAndQuery);
                     AssertNotNull(result);
@@ -314,7 +314,7 @@ namespace Test.Shared.Suites.Services
                 RecordingHandler handler = new RecordingHandler(HttpStatusCode.OK, ResponseBody<T>());
                 using (ArmadaApiClient client = CreateClient(handler))
                 {
-                T? result = await call(client, CancellationToken.None);
+                T? result = await global::Armada.Test.Common.TestTimeout.WithinAsync("API client call", bounded => call(client, bounded));
                 AssertEqual(method, handler.Method);
                 AssertEqual(path, handler.PathAndQuery);
                 if (method != "DELETE") AssertTypedResponse(result);
@@ -428,7 +428,7 @@ namespace Test.Shared.Suites.Services
                 RecordingHandler handler = new RecordingHandler(HttpStatusCode.NoContent, String.Empty);
                 using (ArmadaApiClient client = CreateClient(handler))
                 {
-                await call(client, CancellationToken.None);
+                await global::Armada.Test.Common.TestTimeout.WithinAsync("API client call", bounded => call(client, bounded));
                 AssertEqual(method, handler.Method);
                 AssertEqual(path, handler.PathAndQuery);
                 }

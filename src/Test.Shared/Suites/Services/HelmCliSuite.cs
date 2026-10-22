@@ -268,7 +268,7 @@ namespace Test.Shared.Suites.Services
                         ScriptedAdmiral admiral = new ScriptedAdmiral { StopStatus = HttpStatusCode.OK, ExitOnStop = true };
                         using (HttpClient client = new HttpClient(admiral))
                         {
-                            int exit = await ResetCommand.ResetDataAsync(settings, FastShutdown(client), CancellationToken.None);
+                            int exit = await global::Armada.Test.Common.TestTimeout.WithinAsync("ResetCommand.ResetDataAsync", bounded => ResetCommand.ResetDataAsync(settings, FastShutdown(client), bounded));
                             AssertEqual(0, exit, "Reset must succeed once the Admiral has exited.");
                         }
 
@@ -308,7 +308,7 @@ namespace Test.Shared.Suites.Services
                     using (HttpClient client = new HttpClient(partial))
                     using (Armada.Core.Client.ArmadaApiClient api = new Armada.Core.Client.ArmadaApiClient(client, "http://127.0.0.1:1"))
                     {
-                        partialExit = await CaptainStopAllCommand.StopAllAsync(api, CreateConsole(partialOutput), CancellationToken.None);
+                        partialExit = await global::Armada.Test.Common.TestTimeout.WithinAsync("CaptainStopAllCommand.StopAllAsync", bounded => CaptainStopAllCommand.StopAllAsync(api, CreateConsole(partialOutput), bounded));
                     }
 
                     AssertTrue(partial.Requests.SequenceEqual(new[] { "POST /api/v1/captains/stop-all" }),
@@ -327,7 +327,7 @@ namespace Test.Shared.Suites.Services
                     using (HttpClient client = new HttpClient(complete))
                     using (Armada.Core.Client.ArmadaApiClient api = new Armada.Core.Client.ArmadaApiClient(client, "http://127.0.0.1:1"))
                     {
-                        AssertEqual(0, await CaptainStopAllCommand.StopAllAsync(api, CreateConsole(new StringWriter()), CancellationToken.None), "A stop-all that stopped everything exits zero.");
+                        AssertEqual(0, await global::Armada.Test.Common.TestTimeout.WithinAsync("CaptainStopAllCommand.StopAllAsync", bounded => CaptainStopAllCommand.StopAllAsync(api, CreateConsole(new StringWriter()), bounded)), "A stop-all that stopped everything exits zero.");
                     }
                 }),
                 CaseAsync("server_restart_does_not_start_beside_a_running_admiral", "Helm server restart refuses to start while the old Admiral keeps running", TestTags.Negative, async () =>
@@ -452,7 +452,7 @@ namespace Test.Shared.Suites.Services
                 ArmadaSettings settings = ResetSettingsIn(root);
                 using (HttpClient client = new HttpClient(admiral))
                 {
-                    int exit = await ResetCommand.ResetDataAsync(settings, FastShutdown(client), CancellationToken.None);
+                    int exit = await global::Armada.Test.Common.TestTimeout.WithinAsync("ResetCommand.ResetDataAsync", bounded => ResetCommand.ResetDataAsync(settings, FastShutdown(client), bounded));
                     AssertEqual(1, exit, "Reset must fail after " + situation + ".");
                 }
 
@@ -493,7 +493,7 @@ namespace Test.Shared.Suites.Services
         {
             using (HttpClient client = new HttpClient(admiral))
             {
-                return await ServerStopCommand.StopAsync(FastShutdown(client), CancellationToken.None);
+                return await global::Armada.Test.Common.TestTimeout.WithinAsync("ServerStopCommand.StopAsync", bounded => ServerStopCommand.StopAsync(FastShutdown(client), bounded));
             }
         }
 
@@ -501,7 +501,7 @@ namespace Test.Shared.Suites.Services
         {
             using (HttpClient client = new HttpClient(admiral))
             {
-                return await ServerRestartCommand.StopRunningServerAsync(FastShutdown(client), CancellationToken.None);
+                return await global::Armada.Test.Common.TestTimeout.WithinAsync("ServerRestartCommand.StopRunningServerAsync", bounded => ServerRestartCommand.StopRunningServerAsync(FastShutdown(client), bounded));
             }
         }
 
