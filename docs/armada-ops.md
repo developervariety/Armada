@@ -115,13 +115,16 @@ consumer repository, or corrects the producer change when the consumer failure
 is shown to come from it, and reruns the gate. A `TestFail` in the vessel's own
 suite stays eligible for rescue.
 
-A Judge NEEDS_REVISION or FAIL that declares a `CRITERION-CONFLICT:` line also
-blocks the rescue, with the reason `criterion_conflict:`. The Judge requires a
-fix that cannot be made without breaking a stated acceptance criterion, so a
-rescue would fail the next Judge. The incident with root cause
-`criterion_conflict` lists each conflict. The operator corrects the criterion
-or rules the fix out of scope, then dispatches the work again. See
-[PIPELINES.md](PIPELINES.md), "Criterion conflicts".
+A Judge NEEDS_REVISION or FAIL that declares a `CRITERION-CONFLICT:` line is
+held for an operator ruling, not failed. The Judge requires a fix that cannot
+be made without breaking a stated acceptance criterion, so a rescue would fail
+the next Judge. The mission stays `WorkProduced` under the operator-review
+hold, the voyage stays open, and the inbox reads "Awaiting operator ruling on a
+criterion conflict" with the incident whose root cause `criterion_conflict`
+lists each conflict. Rule with `armada_review_hold`: `clear` lands the work as
+it stands, `fail` ends it `Failed` with the `criterion_conflict:` rescue block.
+Either ruling closes the incident. See [PIPELINES.md](PIPELINES.md),
+"Criterion conflicts".
 
 ## Check rules on a split voyage
 

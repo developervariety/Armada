@@ -462,15 +462,31 @@ CRITERION-CONFLICT: <criterion text exactly as the brief lists it> -- <the requi
 Armada reads the line mechanically. A line counts when it starts with the
 prefix (after an optional list bullet or code quote) and names a criterion and
 a conflict around ` -- `. A placeholder that opens with `<` is ignored. When a
-NEEDS_REVISION or FAIL verdict carries one or more such lines:
+NEEDS_REVISION or FAIL verdict carries one or more such lines, the verdict is
+held for an operator ruling and is not recorded as a failure:
 
-- The failure reason gains the `[judge:criterion_conflict]` marker.
+- The mission stays `WorkProduced` with the operator-review hold set. The hold
+  reason opens with `criterion_review incident <id>:` and names the incident.
+  Nothing hands off, lands or is rescued while the hold stands.
+- The voyage stays open (`operator_review_hold`), and the inbox lists the
+  mission as `criterion_review_hold`: "Awaiting operator ruling on a criterion
+  conflict", with the incident id. It never appears under Failed.
 - One open incident with root cause `criterion_conflict` lists each declared
-  conflict for the operator.
-- A `mission.criterion_conflict` event records the hold.
-- Autonomous recovery dispatches no rescue, whatever the remaining budget. Its
-  blocked event names the `criterion_conflict:` reason.
+  conflict for the operator. A `mission.criterion_conflict` event records the
+  hold.
 
-The operator corrects the criterion on the objective, or rules the required
-fix out of scope, and dispatches the work again. The `revision_kind` decision
-is not consulted for a verdict that is already held this way.
+The operator rules with `armada_review_hold`:
+
+- `clear` lands the work as it stands (the criterion was wrong, or the
+  required fix is out of scope). The mission then hands off or lands as a
+  released PASS does.
+- `fail` ends the mission `Failed` with the `[judge:criterion_conflict]`
+  marker, so autonomous recovery dispatches no rescue against the unchanged
+  criterion; its blocked event names the `criterion_conflict:` reason. The
+  operator corrects the criterion on the objective and dispatches the work
+  again.
+
+Either ruling closes the incident and records the ruling as its postmortem.
+Closing the incident by hand while the hold stands is refused with
+`criterion_review_hold_open`. The `revision_kind` decision is not consulted
+for a verdict held this way.

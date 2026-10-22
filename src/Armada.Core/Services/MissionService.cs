@@ -1509,10 +1509,14 @@ namespace Armada.Core.Services
                     + "mission (failure) by itself; use action fail to reject the work now. Hold: " + previousHold);
             }
 
+            string? criterionIncidentId = JudgeCriterionConflicts.IsHoldReason(previousHold) ? JudgeCriterionConflicts.ReadIncidentId(previousHold) : null;
             ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             await AppendMissionActivityAsync(mission.Id, "operator review hold cleared by " + operatorText + ": " + reasonText, token).ConfigureAwait(false);
+            if (criterionIncidentId != null)
+                await CloseCriterionReviewIncidentAsync(mission, criterionIncidentId, "Operator " + operatorText
+                    + " ruled the criterion conflict in favour of the work as it stands; it proceeds to handoff or landing: " + reasonText, token).ConfigureAwait(false);
             await RecordHoldEventAsync(mission, OperatorHoldClearedEventType,
                 "Operator " + operatorText + " cleared the Judge PASS hold on mission " + mission.Id + " (" + previousHold + "): " + reasonText,
                 operatorText, reasonText, previousHold, token).ConfigureAwait(false);
@@ -1879,9 +1883,17 @@ namespace Armada.Core.Services
             string previousHold = mission.HeldForOperatorReviewReason ?? "no reason recorded";
             Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
 
+            bool criterionReview = JudgeCriterionConflicts.IsHoldReason(previousHold);
+            string? criterionIncidentId = criterionReview ? JudgeCriterionConflicts.ReadIncidentId(previousHold) : null;
             ClearOperatorReviewHold(mission);
             mission.Status = MissionStatusEnum.Failed;
-            mission.FailureReason = "operator_review_hold_failed: operator " + operatorText + " failed the held Judge PASS: " + reasonText;
+            // A rejected criterion-review verdict keeps the rescue-block marker: a rescue would build the required fix
+            // and fail the next Judge against the same criterion, so the work is dispatched again only after the
+            // criterion is corrected.
+            mission.FailureReason = criterionReview
+                ? "operator_review_hold_failed: operator " + operatorText + " rejected the work held for a criterion ruling: " + reasonText
+                    + " " + JudgeCriterionConflicts.RescueBlockMarker
+                : "operator_review_hold_failed: operator " + operatorText + " failed the held Judge PASS: " + reasonText;
             mission.CompletedUtc = DateTime.UtcNow;
             mission.ProcessId = null;
             mission.DockId = null;
@@ -1892,6 +1904,9 @@ namespace Armada.Core.Services
                 "Operator " + operatorText + " failed the held Judge PASS on mission " + mission.Id + " (" + previousHold + "): " + reasonText,
                 operatorText, reasonText, previousHold, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "mission " + mission.Id + " held Judge PASS failed by operator " + operatorText + ": " + reasonText);
+            if (criterionIncidentId != null)
+                await CloseCriterionReviewIncidentAsync(mission, criterionIncidentId, "Operator " + operatorText
+                    + " rejected the work held for the criterion conflict; the mission is Failed with no rescue: " + reasonText, token).ConfigureAwait(false);
 
             if (dock != null)
             {
@@ -3136,6 +3151,14 @@ namespace Armada.Core.Services
                     // yet: the Judge runs again once the Checks resolve (ReleaseJudgeCheckWaitHoldsAsync).
                     heldRevisionForChecks = true;
                 }
+                else if ((verdict == JudgeVerdict.NeedsRevision || verdict == JudgeVerdict.Fail) && !judgeGateRejected
+                    && await TryHoldForCriterionConflictAsync(mission, verdict, verdictFailureReason, token).ConfigureAwait(false))
+                {
+                    // A required fix that necessarily breaks a stated acceptance criterion cannot be rescued: the rescue
+                    // builds the fix and the next Judge fails it against the unchanged criterion. The verdict is held for
+                    // an operator ruling instead of recorded as a failure, so the mission and its voyage do not read as a
+                    // defect while the ruling is pending.
+                }
                 else if (verdict != JudgeVerdict.Pass && !judgeGateRejected)
                 {
                     mission.Status = MissionStatusEnum.Failed;
@@ -3156,20 +3179,14 @@ namespace Armada.Core.Services
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing with verdict " + verdict);
 
-                    // A required fix that necessarily breaks a stated acceptance criterion cannot be rescued:
-                    // the rescue builds the fix and the next Judge fails it against the unchanged criterion.
-                    // A verdict that declares such a conflict is held for operator criterion review.
-                    bool heldForCriterionReview = (verdict == JudgeVerdict.NeedsRevision || verdict == JudgeVerdict.Fail)
-                        && await HoldForCriterionConflictAsync(mission, token).ConfigureAwait(false);
-
                     // D21 revision_kind. A NEEDS_REVISION whose every item is comment, doc, or boundary
                     // wording is an operator landing, not a rescue chain (memory: 11 comment-only rows,
                     // each a wasted rescue). Ask the model, before autonomous recovery classifies the
                     // failure; a gated all-non-behavioural reading marks the failure so recovery holds the
                     // rescue and opens an incident tagged for operator landing. When the adapter is not
                     // wired or the decision is Off, the deterministic recovery path stands unchanged. A verdict
-                    // already held for criterion review is not asked: either hold routes it to the operator.
-                    if (verdict == JudgeVerdict.NeedsRevision && !heldForCriterionReview)
+                    // held for criterion review never reaches this branch: that hold routes it to the operator.
+                    if (verdict == JudgeVerdict.NeedsRevision)
                     {
                         await ApplyRevisionKindDecisionAsync(mission, token).ConfigureAwait(false);
                     }
@@ -7334,39 +7351,31 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Hold a Judge NEEDS_REVISION or FAIL for operator criterion review when the review declares that a
-        /// required fix conflicts with a stated acceptance criterion (<see cref="JudgeCriterionConflicts"/>).
-        /// The failure reason is marked <see cref="JudgeCriterionConflicts.RescueBlockMarker"/> so autonomous
-        /// recovery holds the rescue, an incident names each conflict, and a
-        /// <see cref="JudgeCriterionConflicts.HeldEventType"/> event is recorded. Nothing is landed. A review
-        /// with no conflict line returns false and leaves the rescue path unchanged.
+        /// Hold a Judge NEEDS_REVISION or FAIL for an operator ruling when the review declares that a required fix
+        /// conflicts with a stated acceptance criterion (<see cref="JudgeCriterionConflicts"/>). The mission stays
+        /// WorkProduced with the operator-review hold flag set and a hold reason that names the criterion-review
+        /// incident, so neither the mission nor its voyage reads as failed while the ruling is pending, and no handoff,
+        /// landing or rescue runs. The Judge's review is kept as the review comment, the incident names each conflict,
+        /// and a <see cref="JudgeCriterionConflicts.HeldEventType"/> event is recorded. A review with no conflict line
+        /// returns false and leaves the verdict to be recorded as usual.
         /// </summary>
-        /// <param name="mission">The failed Judge mission; its failure reason is already recorded.</param>
+        /// <param name="mission">The Judge mission, still WorkProduced.</param>
+        /// <param name="verdict">The Judge verdict, NEEDS_REVISION or FAIL.</param>
+        /// <param name="verdictFailureReason">The verdict's failure reason, if the verdict check wrote one.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>True when the verdict was held for criterion review.</returns>
-        private async Task<bool> HoldForCriterionConflictAsync(Mission mission, CancellationToken token)
+        private async Task<bool> TryHoldForCriterionConflictAsync(Mission mission, JudgeVerdict verdict, string? verdictFailureReason, CancellationToken token)
         {
             List<string> conflicts = JudgeCriterionConflicts.Extract(mission.AgentOutput);
             if (conflicts.Count == 0) return false;
 
-            if (mission.FailureReason == null
-                || !mission.FailureReason.Contains(JudgeCriterionConflicts.RescueBlockMarker, StringComparison.Ordinal))
-            {
-                mission.FailureReason = (mission.FailureReason ?? "Judge verdict: NEEDS_REVISION")
-                    + " " + JudgeCriterionConflicts.RescueBlockMarker;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-            }
+            string verdictText = verdictFailureReason
+                ?? (verdict == JudgeVerdict.Fail ? "Judge verdict: FAIL" : "Judge verdict: NEEDS_REVISION");
 
-            string summary = JudgeCriterionConflicts.ReasonCode + ": the Judge's required fix conflicts with "
-                + conflicts.Count + " acceptance criteri" + (conflicts.Count == 1 ? "on" : "a")
-                + "; the rescue is held for operator criterion review";
-            await AppendMissionActivityAsync(mission.Id, summary, token).ConfigureAwait(false);
-            _Logging.Warn(_Header + "judge mission " + mission.Id + " " + summary);
-
+            string? incidentId = null;
             try
             {
-                await OpenCriterionConflictIncidentAsync(mission, conflicts, token).ConfigureAwait(false);
+                incidentId = await OpenCriterionConflictIncidentAsync(mission, conflicts, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -7374,16 +7383,29 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
-                // The marker on the failure reason already holds the rescue; recovery opens its own
-                // incident for the blocked mission when this one could not be written.
-                _Logging.Warn(_Header + "could not open the criterion-conflict incident for mission " + mission.Id + ": " + ex.Message);
+                // The hold stands without the incident: the hold reason says no incident was opened, and the
+                // operator still rules with armada_review_hold.
+                _Logging.Warn(_Header + "could not open the criterion-conflict incident for mission " + mission.Id
+                    + "; the hold reason names no incident: " + ex.Message);
             }
+
+            mission.HeldForOperatorReview = true;
+            mission.HeldForOperatorReviewReason = JudgeCriterionConflicts.BuildHoldReason(incidentId, conflicts.Count);
+            mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, verdictText);
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+
+            string summary = JudgeCriterionConflicts.ReasonCode + ": the Judge's required fix conflicts with "
+                + conflicts.Count + " acceptance criteri" + (conflicts.Count == 1 ? "on" : "a")
+                + "; the verdict is held for an operator ruling" + (incidentId == null ? String.Empty : " on incident " + incidentId);
+            await AppendMissionActivityAsync(mission.Id, summary, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "judge mission " + mission.Id + " " + verdict + " " + summary);
 
             try
             {
                 ArmadaEvent evt = new ArmadaEvent(JudgeCriterionConflicts.HeldEventType,
                     "Judge mission " + mission.Id + " declared " + conflicts.Count
-                    + " criterion conflict(s); the rescue is held for operator criterion review.");
+                    + " criterion conflict(s); the verdict is held for an operator ruling.");
                 EventOwnerScope.ApplyFromMission(evt, mission);
                 evt.EntityType = "mission";
                 evt.EntityId = mission.Id;
@@ -7394,6 +7416,7 @@ namespace Armada.Core.Services
                 {
                     missionId = mission.Id,
                     reason = JudgeCriterionConflicts.ReasonCode,
+                    incidentId = incidentId,
                     conflicts = conflicts
                 });
                 await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
@@ -7411,11 +7434,45 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Close the criterion-review incident of a verdict the operator ruled on, recording the ruling. A failure to
+        /// close is logged and does not undo the ruling; the incident then stays open for the operator to close.
+        /// </summary>
+        private async Task CloseCriterionReviewIncidentAsync(Mission mission, string incidentId, string ruling, CancellationToken token)
+        {
+            try
+            {
+                IncidentService incidents = new IncidentService(_Database);
+                AuthContext auth = AuthContext.Authenticated(
+                    mission.TenantId ?? Constants.DefaultTenantId,
+                    mission.UserId ?? Constants.DefaultUserId,
+                    false,
+                    true,
+                    "MissionHandoff",
+                    principalDisplay: "Armada Mission Handoff");
+                await incidents.UpdateAutomaticallyAsync(auth, incidentId, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Closed,
+                    Postmortem = ruling,
+                    ClosedUtc = DateTime.UtcNow
+                }, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "the ruling on mission " + mission.Id + " stands, but criterion-review incident " + incidentId
+                    + " could not be closed; close it by hand: " + ex.Message);
+            }
+        }
+
+        /// <summary>
         /// Open one incident for a Judge verdict held for operator criterion review. Idempotent per
         /// mission: an active incident whose root cause already names the reason is not duplicated, and
         /// autonomous recovery reuses this incident for its own block note.
         /// </summary>
-        private async Task OpenCriterionConflictIncidentAsync(Mission mission, IReadOnlyList<string> conflicts, CancellationToken token)
+        private async Task<string> OpenCriterionConflictIncidentAsync(Mission mission, IReadOnlyList<string> conflicts, CancellationToken token)
         {
             IncidentService incidents = new IncidentService(_Database);
             AuthContext auth = AuthContext.Authenticated(
@@ -7430,21 +7487,19 @@ namespace Armada.Core.Services
             {
                 MissionId = mission.Id
             }, token).ConfigureAwait(false);
-            if (existing.Any(item => item.RootCause != null && item.RootCause.Contains(JudgeCriterionConflicts.ReasonCode, StringComparison.Ordinal)))
-            {
-                return;
-            }
+            Incident? open = existing.FirstOrDefault(item => item.RootCause != null && item.RootCause.Contains(JudgeCriterionConflicts.ReasonCode, StringComparison.Ordinal));
+            if (open != null) return open.Id;
 
             string title = mission.Title ?? mission.Id;
             if (title.Length > 96) title = title.Substring(0, 96);
             System.Text.StringBuilder lines = new System.Text.StringBuilder();
             foreach (string conflict in conflicts) lines.AppendLine("- " + conflict);
 
-            await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            Incident created = await incidents.CreateAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Criterion review: a required fix conflicts with an acceptance criterion on " + title,
                 Summary = "The Judge for mission " + mission.Id + " requires a fix that cannot be made without breaking a stated "
-                    + "acceptance criterion. The rescue is held; an operator decides whether the criterion or the required fix changes.",
+                    + "acceptance criterion. The verdict is held for an operator ruling, so no rescue runs and the voyage stays open until the ruling.",
                 Status = IncidentStatusEnum.Open,
                 Severity = IncidentSeverityEnum.Medium,
                 VesselId = mission.VesselId,
@@ -7452,10 +7507,12 @@ namespace Armada.Core.Services
                 VoyageId = mission.VoyageId,
                 Impact = "A rescue would build the fix and fail the next Judge against the unchanged criterion, so none is dispatched.",
                 RootCause = JudgeCriterionConflicts.ReasonCode,
-                RecoveryNotes = "Review each criterion below. Correct the criterion on the objective, or rule the required fix out of scope, "
-                    + "then dispatch the work again; do not dispatch a rescue against the unchanged criterion.\n\nConflicts (criterion -- conflict):\n" + lines,
+                RecoveryNotes = "Review each criterion below and rule on mission " + mission.Id + " with armada_review_hold. Clear lands the work as "
+                    + "it stands (the criterion was wrong, or the required fix is out of scope). Fail ends the mission Failed with no rescue; correct "
+                    + "the criterion on the objective and dispatch the work again. Either ruling closes this incident.\n\nConflicts (criterion -- conflict):\n" + lines,
                 DetectedUtc = DateTime.UtcNow
             }, token).ConfigureAwait(false);
+            return created.Id;
         }
 
         /// <summary>

@@ -173,7 +173,8 @@ namespace Armada.Core.Services
                 // A Judge PASS held for operator review waits on the operator: it neither hands off nor
                 // lands until armada_review_hold clears or fails it.
                 List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
-                foreach (Mission mission in produced.Concat(reviews).Where(m => m.HeldForOperatorReview && !HandoffOutcomeHold.IsHeld(m)).Take(_MaxPerCategory))
+                foreach (Mission mission in produced.Concat(reviews)
+                    .Where(m => m.HeldForOperatorReview && !HandoffOutcomeHold.IsHeld(m) && !JudgeCriterionConflicts.IsHeld(m)).Take(_MaxPerCategory))
                 {
                     items.Add(new InboxItem
                     {
@@ -182,6 +183,26 @@ namespace Armada.Core.Services
                         Title = "Judge PASS held: " + mission.Title,
                         Detail = "Held for operator review: " + (mission.HeldForOperatorReviewReason ?? "no reason recorded")
                             + ". Clear it to proceed, or fail it, with armada_review_hold.",
+                        EntityType = "mission",
+                        EntityId = mission.Id,
+                        VesselIds = VesselsOf(mission.VesselId),
+                        Href = "/missions/" + mission.Id
+                    });
+                }
+
+                // A Judge verdict whose required fix conflicts with a stated criterion waits on an operator ruling. It is
+                // not a failure, so it is listed here and never under Failed; the item names the incident to read.
+                foreach (Mission mission in produced.Concat(reviews).Where(m => JudgeCriterionConflicts.IsHeld(m)).Take(_MaxPerCategory))
+                {
+                    string? incidentId = JudgeCriterionConflicts.ReadIncidentId(mission.HeldForOperatorReviewReason);
+                    items.Add(new InboxItem
+                    {
+                        Kind = "criterion_review_hold",
+                        Severity = InboxSeverityEnum.Warning,
+                        Title = "Awaiting ruling: " + mission.Title,
+                        Detail = "Awaiting operator ruling on a criterion conflict"
+                            + (incidentId == null ? " (no incident could be opened)" : " -- incident " + incidentId)
+                            + ". Rule with armada_review_hold: clear lands the work as it stands, fail ends it Failed with no rescue.",
                         EntityType = "mission",
                         EntityId = mission.Id,
                         VesselIds = VesselsOf(mission.VesselId),

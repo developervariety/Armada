@@ -1492,7 +1492,7 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("JudgeNeedsRevision_DeclaringACriterionConflict_IsHeldForCriterionReview", async () =>
+            await RunTest("JudgeNeedsRevision_DeclaringACriterionConflict_IsHeldForAnOperatorRulingAndReadsAsNoFailure", async () =>
             {
                 const string conflictOutput =
                     "## Correctness\nThe cache grows without bound.\n\n" +
@@ -1519,9 +1519,8 @@ namespace Armada.Test.Unit
                         svc.OnGetMissionOutput = _ => declaresConflict ? conflictOutput : ordinaryOutput;
                         await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
 
-                        Mission? failed = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
-                        AssertEqual(MissionStatusEnum.Failed, failed!.Status, "a NEEDS_REVISION verdict blocks landing either way");
-                        string reason = failed.FailureReason ?? String.Empty;
+                        Mission? after = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                        string reason = after!.FailureReason ?? String.Empty;
 
                         AuthContext auth = AuthContext.Authenticated(
                             Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest");
@@ -1532,18 +1531,122 @@ namespace Armada.Test.Unit
 
                         if (declaresConflict)
                         {
-                            AssertContains(JudgeCriterionConflicts.RescueBlockMarker, reason, "the failure reason carries the marker recovery holds on");
-                            AssertEqual(1, criterionIncidents, "one incident asks the operator to review the criterion");
+                            // The held verdict is not a failure on any surface that derives state from it.
+                            AssertEqual(MissionStatusEnum.WorkProduced, after.Status, "the held verdict is not recorded as a failure");
+                            AssertTrue(JudgeCriterionConflicts.IsHeld(after), "the mission is held for an operator ruling");
+                            AssertEqual(1, criterionIncidents, "one incident asks the operator to rule on the criterion");
                             Incident incident = incidents.First(item => String.Equals(item.RootCause, JudgeCriterionConflicts.ReasonCode, StringComparison.Ordinal));
+                            AssertEqual(incident.Id, JudgeCriterionConflicts.ReadIncidentId(after.HeldForOperatorReviewReason), "the hold names the incident");
                             AssertContains("LRU eviction", incident.RecoveryNotes ?? String.Empty, "the incident names the conflict the Judge declared");
+                            AssertContains("LRU eviction", after.ReviewComment ?? String.Empty, "the Judge's review is kept for the ruling");
                             AssertEqual(1, held.Count, "the hold is recorded as a named event");
+
+                            List<Voyage> ended = await new VoyageService(CreateLogging(), testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
+                            Voyage? voyageAfter = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                            AssertEqual(VoyageStatusEnum.InProgress, voyageAfter!.Status, "the voyage stays open while the ruling is pending");
+                            AssertEqual(0, ended.Count, "the completion sweep ends no voyage on a pending ruling");
+
+                            List<InboxItem> inbox = await new InboxService(testDb.Driver, CreateLogging()).GetInboxAsync().ConfigureAwait(false);
+                            InboxItem? ruling = inbox.FirstOrDefault(item => item.EntityId == judge.Id && item.Kind == "criterion_review_hold");
+                            AssertNotNull(ruling, "the inbox lists the verdict as awaiting a ruling");
+                            AssertContains("Awaiting operator ruling on a criterion conflict", ruling!.Detail ?? String.Empty, "the item says what it waits on");
+                            AssertContains(incident.Id, ruling.Detail ?? String.Empty, "the item names the incident");
+                            AssertFalse(inbox.Any(item => item.EntityId == judge.Id && (item.Kind == "failed" || item.Kind == "judge_pass_held")),
+                                "the inbox never lists the held verdict as a failure or as a held PASS");
+
+                            bool refused = false;
+                            try
+                            {
+                                await new IncidentService(testDb.Driver).UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                                {
+                                    Status = IncidentStatusEnum.Closed,
+                                    RootCause = "the criterion was wrong"
+                                }).ConfigureAwait(false);
+                            }
+                            catch (InvalidOperationException ex)
+                            {
+                                refused = ex.Message.StartsWith(JudgeCriterionConflicts.IncidentCloseRefusedCode, StringComparison.Ordinal);
+                            }
+                            AssertTrue(refused, "closing the incident by hand while the hold stands is refused with a named code");
                         }
                         else
                         {
+                            AssertEqual(MissionStatusEnum.Failed, after.Status, "an ordinary NEEDS_REVISION blocks landing as a failure");
                             AssertFalse(reason.Contains(JudgeCriterionConflicts.RescueBlockMarker, StringComparison.Ordinal),
                                 "an ordinary NEEDS_REVISION, or a quoted placeholder line, keeps the rescue path");
                             AssertEqual(0, criterionIncidents, "no criterion-review incident without a declared conflict");
                             AssertEqual(0, held.Count, "no criterion-conflict event without a declared conflict");
+                        }
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            // The operator rules on a held criterion conflict with armada_review_hold. Clear lands the work as it
+            // stands; fail ends the mission Failed with the rescue-block marker, so no rescue runs against the unchanged
+            // criterion. Either ruling closes the incident and lets the voyage finish.
+            await RunTest("CriterionReviewRuling_ClearLandsTheWorkAndFailEndsItFailedWithNoRescue_AndClosesTheIncident", async () =>
+            {
+                const string conflictOutput =
+                    "## Correctness\nThe cache grows without bound.\n\n" +
+                    "- CRITERION-CONFLICT: Exactly one git process runs per (commit, path) per process. -- Bounding the cache re-runs git for an evicted key.\n\n" +
+                    "## Verdict\nThe required bound and the criterion cannot both hold.\n\n" +
+                    "[ARMADA:VERDICT] NEEDS_REVISION";
+
+                foreach (bool clear in new bool[] { true, false })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                            testDb, MissionModeEnum.Implementation, MissionStatusEnum.Pending).ConfigureAwait(false);
+                        Dock dock = new Dock(judge.VesselId!);
+                        dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_criterion_ruling_" + Guid.NewGuid().ToString("N"));
+                        dock.BranchName = _WorkBranch;
+                        dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                        judge.DockId = dock.Id;
+                        await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                        Captain captain = await StartJudgeAsync(testDb, judge, "criterion-ruling-captain").ConfigureAwait(false);
+                        svc.OnGetMissionOutput = _ => conflictOutput;
+                        int landings = 0;
+                        svc.OnMissionComplete = async (Mission m, Dock d) =>
+                        {
+                            landings++;
+                            m.Status = MissionStatusEnum.Complete;
+                            m.CompletedUtc = DateTime.UtcNow;
+                            await testDb.Driver.Missions.UpdateAsync(m).ConfigureAwait(false);
+                        };
+                        await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+
+                        Mission? held = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                        AssertTrue(JudgeCriterionConflicts.IsHeld(held), "the verdict is held before the ruling");
+                        AssertEqual(0, landings, "nothing lands before the ruling");
+                        string incidentId = JudgeCriterionConflicts.ReadIncidentId(held!.HeldForOperatorReviewReason)!;
+
+                        Mission ruled = clear
+                            ? await svc.ClearOperatorReviewHoldAsync(judge.Id, "operator", "the criterion was wrong").ConfigureAwait(false)
+                            : await svc.FailOperatorReviewHoldAsync(judge.Id, "operator", "the fix is required").ConfigureAwait(false);
+
+                        AuthContext auth = AuthContext.Authenticated(
+                            Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest");
+                        Incident? incident = await new IncidentService(testDb.Driver).ReadAsync(auth, incidentId).ConfigureAwait(false);
+                        AssertEqual(IncidentStatusEnum.Closed, incident!.Status, "the ruling closes the incident");
+                        AssertContains(clear ? "the criterion was wrong" : "the fix is required", incident.Postmortem ?? String.Empty, "the incident records the ruling");
+
+                        await new VoyageService(CreateLogging(), testDb.Driver).CheckCompletionsAsync().ConfigureAwait(false);
+                        Voyage? voyageAfter = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                        if (clear)
+                        {
+                            AssertEqual(1, landings, "clear lands the work as it stands");
+                            AssertEqual(MissionStatusEnum.Complete, ruled.Status, "the landed mission is Complete");
+                            AssertEqual(VoyageStatusEnum.Complete, voyageAfter!.Status, "the voyage completes once the ruled work lands");
+                        }
+                        else
+                        {
+                            AssertEqual(0, landings, "a rejected ruling lands nothing");
+                            AssertEqual(MissionStatusEnum.Failed, ruled.Status, "fail ends the mission Failed");
+                            AssertContains(JudgeCriterionConflicts.RescueBlockMarker, ruled.FailureReason ?? String.Empty,
+                                "the failure keeps the marker, so recovery dispatches no rescue against the unchanged criterion");
+                            AssertEqual(VoyageStatusEnum.Failed, voyageAfter!.Status, "the voyage ends Failed when the ruling rejects the work");
                         }
                     }
                 }

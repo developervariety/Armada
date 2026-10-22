@@ -335,6 +335,8 @@ namespace Armada.Core.Services
             }
 
             RegressionLinkRules.RequirePurposeForLinks(incident.RegressionPurpose, incident.RegressionCause, incident.RegressionObjectiveId, incident.RegressionLandedCommit);
+            if (!automatic && IsTerminal(incident.Status) && !IsTerminal(previousStatus))
+                await RefuseCloseWhileCriterionReviewHeldAsync(incident, token).ConfigureAwait(false);
             ApplyRootCauseAuthorship(auth, incident, previousStatus, previousRootCause, request.RootCause != null, automatic);
             ApplyLifecycleTimestamps(incident);
             await WriteSnapshotAsync(auth, incident, token).ConfigureAwait(false);
@@ -555,6 +557,20 @@ namespace Armada.Core.Services
             if (incident.OpenedReason == null && incident.RootCauseWrittenBy == null)
                 incident.OpenedReason = incident.RootCause;
             return incident;
+        }
+
+        // A criterion-review incident stands for a Judge verdict held for an operator ruling. Closing it by hand would
+        // leave the mission held with no incident to point at, so the close is refused while the hold names it; the
+        // ruling (armada_review_hold clear or fail) closes the incident itself.
+        private async Task RefuseCloseWhileCriterionReviewHeldAsync(Incident incident, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(incident.MissionId)) return;
+            Mission? mission = await _Database.Missions.ReadAsync(incident.MissionId!, token).ConfigureAwait(false);
+            if (!JudgeCriterionConflicts.IsHeld(mission)) return;
+            if (!String.Equals(JudgeCriterionConflicts.ReadIncidentId(mission!.HeldForOperatorReviewReason), incident.Id, StringComparison.Ordinal)) return;
+            throw new InvalidOperationException(JudgeCriterionConflicts.IncidentCloseRefusedCode + ": mission " + mission.Id
+                + " is still held for an operator ruling on this criterion conflict. Rule with armada_review_hold (clear lands the work, "
+                + "fail ends it Failed with no rescue); the ruling closes this incident.");
         }
 
         private static bool IsSnapshotNewer(ArmadaEvent candidate, ArmadaEvent existing)

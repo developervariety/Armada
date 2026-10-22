@@ -282,12 +282,18 @@ upstream integrations and excludes changes already present at that baseline.
 - A Judge declares a required fix that cannot be made without breaking a stated
   acceptance criterion on a standalone
   `CRITERION-CONFLICT: <criterion> -- <conflict>` line and returns
-  NEEDS_REVISION. A NEEDS_REVISION or FAIL that carries one is held for
-  operator criterion review: the failure reason gains
-  `[judge:criterion_conflict]`, one incident with root cause
-  `criterion_conflict` lists each conflict, a `mission.criterion_conflict`
-  event is recorded, and autonomous recovery dispatches no rescue, with the
-  blocked reason `criterion_conflict:`. The Judge template carries the rule in
+  NEEDS_REVISION. A NEEDS_REVISION or FAIL that carries one is held for an
+  operator ruling, not recorded as a failure: the mission stays `WorkProduced`
+  under the operator-review hold with a `criterion_review incident <id>:`
+  reason, the voyage stays open, the inbox lists it as
+  `criterion_review_hold` ("Awaiting operator ruling on a criterion conflict"
+  and the incident id), one incident with root cause `criterion_conflict`
+  lists each conflict, and a `mission.criterion_conflict` event is recorded.
+  `armada_review_hold` clear lands the work as it stands; fail ends it
+  `Failed` with `[judge:criterion_conflict]`, so autonomous recovery
+  dispatches no rescue (blocked reason `criterion_conflict:`). Either ruling
+  closes the incident; a hand close while the hold stands is refused with
+  `criterion_review_hold_open`. The Judge template carries the rule in
   a `## When A Required Fix Breaks A Criterion` section that reaches the
   embedded default and existing built-in rows through the append-if-missing
   upgrader, the Judge output contract states the line form, and a rescue's
@@ -458,6 +464,12 @@ upstream integrations and excludes changes already present at that baseline.
   request.
 
 ### Fixed
+
+- A Judge verdict held for a criterion ruling no longer reads as a failure.
+  The mission, its voyage and the inbox showed `Failed` until someone opened
+  the incident, so the voyage read as a real defect. The held verdict stays
+  `WorkProduced` under the operator-review hold, the voyage stays open, and the
+  inbox names the ruling and the incident.
 
 - A definition-of-done command that names failing tests and then hits its time
   limit fails as `TestFail` with the named tests, and records `TimedOut` as a

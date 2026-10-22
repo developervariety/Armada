@@ -44,7 +44,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_review_hold",
-                "Resolve a Judge PASS held for operator review (inbox item kind judge_pass_held). action=clear releases the hold and the PASS proceeds through the normal handoff or landing path; action=fail fails the mission and cancels its dependent stages. Each writes a mission.hold_cleared or mission.hold_failed event naming the operator and reason. Operator-only: the model never approves a hold and nothing clears one automatically.",
+                "Resolve a Judge PASS held for operator review (inbox item kind judge_pass_held). action=clear releases the hold and the PASS proceeds through the normal handoff or landing path; action=fail fails the mission and cancels its dependent stages. It also rules on a Judge verdict held for a criterion conflict (inbox item kind criterion_review_hold): clear lands the work as it stands, fail ends it Failed with no rescue, and either ruling closes the criterion-review incident. Each writes a mission.hold_cleared or mission.hold_failed event naming the operator and reason. Operator-only: the model never approves a hold and nothing clears one automatically.",
                 new
                 {
                     type = "object",

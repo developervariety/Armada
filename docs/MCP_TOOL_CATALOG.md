@@ -116,7 +116,11 @@ request on another surface.
 other than a global administrator. `clear` releases the hold and runs the
 handoff or landing the hold stopped; `fail` fails the mission and cancels its
 dependent stages. Each records `mission.hold_cleared` or `mission.hold_failed`
-naming the operator and reason. A mission that is not held is refused with
+naming the operator and reason. It also rules on a Judge NEEDS_REVISION or
+FAIL held for a criterion conflict (inbox kind `criterion_review_hold`): `clear`
+lands the work as it stands, `fail` ends the mission `Failed` with the
+`[judge:criterion_conflict]` rescue block, and either ruling closes the
+criterion-review incident. A mission that is not held is refused with
 `not_held`. A held mission keeps its voyage open. Under a voyage that has
 already ended, the decision settles the mission and leaves the voyage status
 and completion time unchanged.
