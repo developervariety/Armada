@@ -13,7 +13,8 @@ namespace Armada.Core.Services
     /// The one create, update and delete rule for pipelines. REST, MCP and WebSocket call it and only map
     /// its result, so a field is validated, defaulted and allow-listed the same way on every surface.
     ///
-    /// A pipeline is found by name as the caller sees it (<see cref="OwnedRecordScope.ReadByNameAsync{T}"/>):
+    /// A pipeline is found by name as the caller sees it (<see cref="OwnedRecordScope.ReadByNameAsync{T}"/>),
+    /// or by its id when no visible pipeline has that name, since voyages and missions record the id:
     /// a record the caller may not read reads as absent, and one it may read but not change is refused as
     /// forbidden. A stage list that gives no order is stored in list order 1..n; one that gives every stage
     /// a positive order keeps it, so stages that share an order run as parallel siblings; a list that orders
@@ -45,21 +46,25 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Find a pipeline by name as the caller sees it.
+        /// Find a pipeline by name, or by id when no visible pipeline has that name, as the caller sees it.
         /// </summary>
         /// <param name="caller">Caller.</param>
-        /// <param name="name">Pipeline name.</param>
+        /// <param name="nameOrId">Pipeline name or id.</param>
         /// <returns>The pipeline, or null when absent or not visible.</returns>
-        public Task<Pipeline?> ReadVisibleAsync(AuthContext caller, string? name)
+        public async Task<Pipeline?> ReadVisibleAsync(AuthContext caller, string? nameOrId)
         {
             if (caller == null) throw new ArgumentNullException(nameof(caller));
-            if (String.IsNullOrWhiteSpace(name)) return Task.FromResult<Pipeline?>(null);
-            return OwnedRecordScope.ReadByNameAsync(
+            if (String.IsNullOrWhiteSpace(nameOrId)) return null;
+            Pipeline? byName = await OwnedRecordScope.ReadByNameAsync(
                 caller,
-                name!,
+                nameOrId!,
                 (tenantId, pipelineName) => _Database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
                 () => _Database.Pipelines.EnumerateAsync(),
-                record => record.Name);
+                record => record.Name).ConfigureAwait(false);
+            if (byName != null || !caller.IsAuthenticated) return byName;
+
+            Pipeline? byId = await _Database.Pipelines.ReadAsync(nameOrId!).ConfigureAwait(false);
+            return byId != null && OwnershipPolicy.CanView(caller, byId) ? byId : null;
         }
 
         /// <summary>

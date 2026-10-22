@@ -205,6 +205,34 @@ namespace Armada.Test.Automated.Suites
                 AssertFalse(tenantView.IsError, "a global administrator's delete by name leaves the other tenant's record: " + tenantView);
                 await _Surfaces.RestAsync(HttpMethod.Delete, "/api/v1/pipelines/" + name, null, tenantToken).ConfigureAwait(false);
             }).ConfigureAwait(false);
+
+            await RunTest("A pipeline reads by the id a voyage records on REST, MCP and WebSocket, and stays hidden from another tenant", async () =>
+            {
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+                string name = "ParityById-" + suffix;
+                SurfaceReply create = await _Surfaces.RestAsync(HttpMethod.Post, "/api/v1/pipelines", ConfigurationSurfaces.Json(new { name = name, stages = new object[] { new { personaName = "Worker" } } })).ConfigureAwait(false);
+                AssertFalse(create.IsError, "create: " + create);
+                string id = ConfigurationSurfaces.Text(create.Json(), "id");
+                AssertTrue(id.StartsWith("ppl_", StringComparison.Ordinal), "the created pipeline has an id: " + id);
+
+                SurfaceReply rest = await _Surfaces.RestAsync(HttpMethod.Get, "/api/v1/pipelines/" + id, null).ConfigureAwait(false);
+                AssertFalse(rest.IsError, "REST read by id: " + rest);
+                AssertEqual(name, ConfigurationSurfaces.Text(rest.Json(), "name"), "REST read by id returns the pipeline");
+
+                SurfaceReply mcp = await _Surfaces.McpAsync("get_pipeline", ConfigurationSurfaces.Json(new { name = id })).ConfigureAwait(false);
+                AssertFalse(mcp.IsError, "MCP read by id: " + mcp);
+                AssertEqual(name, ConfigurationSurfaces.Text(mcp.Json(), "name"), "MCP read by id returns the pipeline");
+
+                SurfaceReply ws = await _Surfaces.WsAsync("get_pipeline", id, null).ConfigureAwait(false);
+                AssertFalse(ws.IsError, "WebSocket read by id: " + ws);
+                AssertTrue(ws.Text.Contains(name, StringComparison.Ordinal), "WebSocket read by id returns the pipeline: " + ws);
+
+                string tenantToken = await _Surfaces.CreateTenantAdministratorTokenAsync("pipeline-by-id").ConfigureAwait(false);
+                SurfaceReply other = await _Surfaces.RestAsync(HttpMethod.Get, "/api/v1/pipelines/" + id, null, tenantToken).ConfigureAwait(false);
+                AssertEqual(404, other.Status, "another tenant reads the id as absent: " + other);
+
+                await _Surfaces.RestAsync(HttpMethod.Delete, "/api/v1/pipelines/" + name, null).ConfigureAwait(false);
+            }).ConfigureAwait(false);
         }
 
         #endregion

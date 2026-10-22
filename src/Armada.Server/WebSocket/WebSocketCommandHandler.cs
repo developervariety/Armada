@@ -254,17 +254,11 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Find a pipeline by name as the caller sees it, through the shared caller scope.
+        /// Find a pipeline by name or id as the caller sees it, through the shared pipeline lookup.
         /// </summary>
         private Task<Pipeline?> ReadVisiblePipelineAsync(AuthContext caller, string? name)
         {
-            if (String.IsNullOrEmpty(name)) return Task.FromResult<Pipeline?>(null);
-            return Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
-                caller,
-                name,
-                (tenantId, pipelineName) => _Database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
-                () => _Database.Pipelines.EnumerateAsync(),
-                record => record.Name);
+            return new Armada.Core.Services.PipelineService(_Database).ReadVisibleAsync(caller, name);
         }
 
         /// <summary>

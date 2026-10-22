@@ -899,7 +899,7 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `create_persona` | Create a persona through the persona service REST and MCP use | `data` (name, promptTemplateName, description, minimumTier, defaultCaptainId, defaultPlaybooks, active, ownershipScope) |
 | | `update_persona` | Update persona properties; omitted fields keep their stored value | `id` (persona name), `data` (the create fields except name and ownershipScope) |
 | | `delete_persona` | Delete a custom persona (blocked for built-in) | `id` (persona name) |
-| **Pipeline** | `get_pipeline` | Get a pipeline by name | `id` (pipeline name) |
+| **Pipeline** | `get_pipeline` | Get a pipeline by name or id | `id` (pipeline name or id) |
 | | `create_pipeline` | Create a pipeline with stages, through the pipeline service REST and MCP use | `data` (name, description, stages, active, ownershipScope) |
 | | `update_pipeline` | Update pipeline and stages; a stage field left out keeps the existing stage's value | `id` (pipeline name), `data` (description, stages, active) |
 | | `delete_pipeline` | Delete a custom pipeline (blocked for built-in) | `id` (pipeline name) |

@@ -517,6 +517,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A pipeline reads by its id as well as its name. REST
+  `GET /api/v1/pipelines/{name}` and the MCP and WebSocket `get_pipeline` match
+  the value as a name first, then as an id, so the pipeline id a voyage records
+  no longer reads as not found. Visibility rules are unchanged: another
+  tenant's pipeline still reads as absent.
 - A coordination note addressed to the name a session posts under reaches that
   session after it has only read the board for over an hour, and after an
   admiral restart. The address book holds every name a participant key posted

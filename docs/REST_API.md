@@ -3689,12 +3689,14 @@ curl -X POST http://localhost:7890/api/v1/pipelines/enumerate \
 
 #### GET /api/v1/pipelines/{name}
 
-Get a pipeline by name, including its stages.
+Get a pipeline by name or id, including its stages. The path value is matched as
+a name first, then as an id (`ppl_` prefix), so the pipeline id a voyage records
+reads the same pipeline. A pipeline the caller may not read returns `404`.
 
 **Path Parameters:**
 | Parameter | Description |
 |---|---|
-| `name` | Pipeline name |
+| `name` | Pipeline name or id |
 
 **Response:** `200 OK` - Pipeline
 **Error:** `404` - Pipeline not found

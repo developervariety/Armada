@@ -379,7 +379,7 @@ model names in pipeline documentation or persona prompts.
 Use:
 
 - `armada_enumerate` with `entityType: "pipelines"`;
-- `get_pipeline`;
+- `get_pipeline` (by name, or by the id a voyage records);
 - `create_pipeline`;
 - `update_pipeline`;
 - `delete_pipeline`;

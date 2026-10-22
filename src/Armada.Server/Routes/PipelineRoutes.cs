@@ -93,7 +93,7 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            // Get pipeline by name
+            // Get pipeline by name or id
             app.Get("/api/v1/pipelines/{name}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -101,21 +101,15 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string name = req.Parameters["name"];
-                Pipeline? pipeline = await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
-                    ctx,
-                    name,
-                    (tenantId, pipelineName) => _database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
-                    () => _database.Pipelines.EnumerateAsync(),
-                    record => record.Name).ConfigureAwait(false);
+                Pipeline? pipeline = await new PipelineService(_database).ReadVisibleAsync(ctx, req.Parameters["name"]).ConfigureAwait(false);
                 if (pipeline == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
                 return (object)pipeline;
             },
             api => api
                 .WithTag("Pipelines")
-                .WithSummary("Get a pipeline by name")
-                .WithDescription("Returns a single pipeline by its unique name, including its stages.")
-                .WithParameter(OpenApiParameterMetadata.Path("name", "Pipeline name (e.g. WorkerOnly, FullPipeline)"))
+                .WithSummary("Get a pipeline by name or id")
+                .WithDescription("Returns a single pipeline, including its stages. The path value is matched as a name first, then as an id (ppl_ prefix), so the id a voyage records reads the same pipeline.")
+                .WithParameter(OpenApiParameterMetadata.Path("name", "Pipeline name (e.g. WorkerOnly, FullPipeline) or id"))
                 .WithResponse(200, OpenApiJson.For<Pipeline>("Pipeline details with stages"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));

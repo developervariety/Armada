@@ -56,13 +56,13 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "get_pipeline",
-                "Get a pipeline by name, including its stages",
+                "Get a pipeline by name or id, including its stages",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        name = new { type = "string", description = "Pipeline name" }
+                        name = new { type = "string", description = "Pipeline name, or its id (ppl_ prefix)" }
                     },
                     required = new[] { "name" }
                 },
