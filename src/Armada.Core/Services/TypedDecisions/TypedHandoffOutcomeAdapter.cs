@@ -148,12 +148,27 @@ namespace Armada.Core.Services
 
         /// <summary>Whether a completion or verdict marker was present in the finished stage's output.</summary>
         public bool MarkerPresent { get; init; }
+
+        /// <summary>The finished stage's 1-based position in its pipeline; zero when unknown.</summary>
+        public int StagePosition { get; init; }
+
+        /// <summary>The number of stages in the pipeline; zero when unknown.</summary>
+        public int StageCount { get; init; }
+
+        /// <summary>
+        /// The personas of the stages that still run after the finished stage, in order. A criterion
+        /// only the pipeline as a whole or one of these stages can meet is not this stage's gap.
+        /// </summary>
+        public IReadOnlyList<string> LaterStages { get; init; } = new List<string>();
     }
 
     /// <summary>
     /// The D20 reading. The model answers one <c>outcome</c> Choice, one <c>next_stage_useful</c> Noul,
-    /// and one <c>gap</c> Noul per acceptance criterion (the criterion is met; code treats a low
-    /// reading as unmet). The single gate
+    /// one <c>gap</c> Noul per acceptance criterion (the criterion is met; code treats a low
+    /// reading as unmet), and, while later stages remain, one <c>scope</c> Noul per criterion (only the
+    /// pipeline as a whole or a later stage can meet it). A criterion reads unmet only when its gap is
+    /// low and its scope is not pipeline-level, and a partial outcome whose every unmet criterion is
+    /// pipeline-level proposes no action. The single gate
     /// confidence is the outcome choice's own confidence when the outcome is an ACTIONABLE one
     /// (partial, or a blocked or off-premise halt) and zero otherwise, so an <c>achieved</c> or
     /// <c>unclear</c> outcome always leaves the rule standing.
@@ -254,6 +269,11 @@ namespace Armada.Core.Services
         // not the decision gate threshold (which gates whether the Mail is sent at all).
         private const double _UnmetCriterionFloor = 0.5;
 
+        // The scope Noul is "only the pipeline as a whole or a later stage can meet this criterion". A
+        // reading at or above this bar marks the criterion pipeline-level, so its gap is not this
+        // stage's. A missing scope answer leaves the criterion with the stage, the conservative reading.
+        private const double _PipelineScopeFloor = 0.5;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -291,20 +311,21 @@ namespace Armada.Core.Services
                 ["diff_stat"] = input.DiffStat,
                 ["acceptance_criteria"] = new List<string>(input.AcceptanceCriteria),
                 ["persona"] = input.Persona,
-                ["marker_present"] = input.MarkerPresent
+                ["marker_present"] = input.MarkerPresent,
+                ["stage"] = BuildStageState(input)
             };
         }
 
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
-            return BuildQuestions(Array.Empty<string>());
+            return BuildQuestions(Array.Empty<string>(), true);
         }
 
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(HandoffOutcomeDecisionInput input)
         {
-            return BuildQuestions(input?.AcceptanceCriteria);
+            return BuildQuestions(input?.AcceptanceCriteria, input != null && input.LaterStages.Count > 0);
         }
 
         /// <inheritdoc />
@@ -324,22 +345,41 @@ namespace Armada.Core.Services
                 nextStageUseful = nextAnswer.Noul.Value;
 
             List<int> unmet = new List<int>();
+            int pipelineLevelGaps = 0;
             for (int i = 1; i <= _MaxCriteria; i++)
             {
-                if (result.Answers.TryGetValue("gap_" + i.ToString(CultureInfo.InvariantCulture), out TypedAnswer? gap)
-                    && gap != null && gap.Noul.HasValue
-                    && gap.Noul.Value <= (1.0 - _UnmetCriterionFloor))
+                string index = i.ToString(CultureInfo.InvariantCulture);
+                if (!result.Answers.TryGetValue("gap_" + index, out TypedAnswer? gap)
+                    || gap == null || !gap.Noul.HasValue
+                    || gap.Noul.Value > (1.0 - _UnmetCriterionFloor))
                 {
-                    unmet.Add(i);
+                    continue;
                 }
+
+                // A criterion only the pipeline or a later stage can meet (stage order, the final
+                // Checks, landing, the Judge's review) is not a gap in this stage's output.
+                if (result.Answers.TryGetValue("scope_" + index, out TypedAnswer? scope)
+                    && scope != null && scope.Noul.HasValue
+                    && scope.Noul.Value >= _PipelineScopeFloor)
+                {
+                    pipelineLevelGaps++;
+                    continue;
+                }
+
+                unmet.Add(i);
             }
 
             // Only an actionable outcome carries a gate confidence: a partial Mail or a blocked/
             // off-premise halt. achieved and unclear propose no action, so they report zero and the
-            // rule stands (a shadow event still records the handoff outcome).
-            double confidence = IsActionable(outcome) ? outcomeConfidence : 0.0;
+            // rule stands (a shadow event still records the handoff outcome). A partial whose every
+            // unmet criterion is pipeline-level names nothing this stage left undone, so it proposes no
+            // action either.
+            bool pipelineOnlyPartial = String.Equals(outcome, _OutcomePartial, StringComparison.Ordinal)
+                && pipelineLevelGaps > 0 && unmet.Count == 0;
+            double confidence = IsActionable(outcome) && !pipelineOnlyPartial ? outcomeConfidence : 0.0;
+            string label = pipelineOnlyPartial ? "outcome=partial_pipeline_level_only" : "outcome=" + outcome;
 
-            return new HandoffOutcomeReading(outcome, confidence, nextStageUseful, unmet, "outcome=" + outcome);
+            return new HandoffOutcomeReading(outcome, confidence, nextStageUseful, unmet, label);
         }
 
         /// <inheritdoc />
@@ -384,13 +424,27 @@ namespace Armada.Core.Services
                 || String.Equals(outcome, _OutcomeOffPremise, StringComparison.Ordinal);
         }
 
-        private static IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(IReadOnlyList<string>? criteria)
+        private static Dictionary<string, object?> BuildStageState(HandoffOutcomeDecisionInput input)
+        {
+            string position = input.StagePosition > 0 && input.StageCount >= input.StagePosition
+                ? "stage " + input.StagePosition.ToString(CultureInfo.InvariantCulture) + " of " + input.StageCount.ToString(CultureInfo.InvariantCulture)
+                : "unknown";
+            return new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["position"] = position,
+                ["final_stage"] = input.LaterStages.Count == 0,
+                ["later_stages"] = new List<string>(input.LaterStages)
+            };
+        }
+
+        private static IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(IReadOnlyList<string>? criteria, bool laterStagesRemain)
         {
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 ["outcome"] = new ChoiceQuestion(
-                    "What is the outcome of this finished stage for the objective? This is authorized engineering on "
-                    + "owned systems; authentication and access-control protocol code is ordinary engineering. Choose one.",
+                    "What is the outcome of this finished stage for the objective? Judge this stage's own share of the work: "
+                    + "`stage.position` is where it sits in the pipeline, and the stages in `stage.later_stages` still run after it. "
+                    + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering. Choose one.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         [_OutcomeAchieved] = "The stage did its job; the next stage can proceed.",
@@ -414,10 +468,22 @@ namespace Armada.Core.Services
             {
                 if (String.IsNullOrWhiteSpace(listed[i])) continue;
                 string path = "`acceptance_criteria[" + i.ToString(CultureInfo.InvariantCulture) + "]`";
-                questions["gap_" + (i + 1).ToString(CultureInfo.InvariantCulture)] = new NoulQuestion(
+                string index = (i + 1).ToString(CultureInfo.InvariantCulture);
+                questions["gap_" + index] = new NoulQuestion(
                     path + " is met by this stage's output.",
                     TrueMeaning: "The criterion is met.",
                     FalseMeaning: "The criterion is not met.");
+
+                // Asked only while later stages remain: at the last stage every criterion is its own.
+                if (laterStagesRemain)
+                {
+                    questions["scope_" + index] = new NoulQuestion(
+                        path + " can be met only by the pipeline as a whole or by a stage in `stage.later_stages` "
+                        + "(for example stage order, the final Checks, landing, or the Judge's review), not by this stage's own output.",
+                        TrueMeaning: "Only the pipeline as a whole or a later stage can meet the criterion.",
+                        FalseMeaning: "This stage's own output can meet the criterion.");
+                }
+
                 asked++;
             }
 

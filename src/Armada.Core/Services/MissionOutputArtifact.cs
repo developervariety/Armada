@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System;
     using System.Security.Cryptography;
     using System.Text;
     using Armada.Core.Enums;
@@ -48,9 +49,7 @@ namespace Armada.Core.Services
                 : mission.AgentOutput == null
                     ? (finalized ? "output_unavailable" : "mission_not_finalized")
                     : finalized ? null : "mission_not_finalized";
-            List<string> missingSections = finalized && reason == null && IsSuccessful(mission.Status)
-                ? StageReportContract.MissingSections(mission.Persona, output)
-                : new List<string>();
+            List<string> missingSections = MissingReportSections(mission, output, finalized && reason == null);
             if (missingSections.Count > 0) reason = "report_contract_missing";
             bool hasMore = safeOffset + pageLength < output.Length;
             string content = pageLength == 0 ? String.Empty : output.Substring(safeOffset, pageLength);
@@ -74,6 +73,27 @@ namespace Armada.Core.Services
                 TruncationReason = reason,
                 MissingReportSections = missingSections
             };
+        }
+
+        /// <summary>
+        /// The report sections a finished stage's output lacks. A Judge whose verdict is PASS is held to
+        /// the same section rule its verdict check applies (<see cref="JudgeReviewSections.Missing"/>)
+        /// whatever its final status, so a PASS refused for a missing section reads the same gap here; a
+        /// FAIL or NEEDS_REVISION review is not checked for sections, there or here. Other personas are
+        /// held to their template's sections once they finish successfully.
+        /// </summary>
+        private static List<string> MissingReportSections(Mission mission, string output, bool readable)
+        {
+            if (!readable) return new List<string>();
+            if (String.Equals(PersonaCatalog.NormalizeName(mission.Persona), PersonaCatalog.Judge, StringComparison.OrdinalIgnoreCase))
+            {
+                return MissionService.IsJudgePass(output)
+                    ? JudgeReviewSections.Missing(output, mission.IsReadOnlyMode, mission.Description ?? String.Empty)
+                    : new List<string>();
+            }
+            return IsSuccessful(mission.Status)
+                ? StageReportContract.MissingSections(mission.Persona, output)
+                : new List<string>();
         }
 
         private static bool IsSuccessful(MissionStatusEnum status)

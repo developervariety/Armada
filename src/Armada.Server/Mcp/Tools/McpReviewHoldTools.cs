@@ -68,14 +68,9 @@ namespace Armada.Server.Mcp.Tools
                         : new ReviewHoldArgs();
 
                     string action = (request.Action ?? String.Empty).Trim().ToLowerInvariant();
-                    if (action != "clear" && action != "fail")
-                        return (object)new { Error = "action must be clear or fail.", Reason = "invalid_action" };
-                    if (String.IsNullOrWhiteSpace(request.MissionId))
-                        return (object)new { Error = "missionId is required.", Reason = "missing_mission_id" };
-                    if (String.IsNullOrWhiteSpace(request.Operator))
-                        return (object)new { Error = "operator is required.", Reason = "missing_operator" };
-                    if (String.IsNullOrWhiteSpace(request.Reason))
-                        return (object)new { Error = "reason is required.", Reason = "missing_reason" };
+                    object? refusal = McpHoldArgumentCheck.Check(
+                        action == "clear" || action == "fail", "action must be clear or fail", request.MissionId, request.Operator, request.Reason);
+                    if (refusal != null) return refusal;
 
                     try
                     {

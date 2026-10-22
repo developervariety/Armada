@@ -234,7 +234,9 @@ PASS held for operator review as kind `judge_pass_held`. Resolve it with
 The tool refuses any caller other than a global administrator
 (`global_administrator_required`), a missing argument (`missing_reason`,
 `missing_operator`, `missing_mission_id`, `invalid_action`), and a mission that
-is not held (`not_held`). `clear` is also refused with `gate_rerun_running`
+is not held (`not_held`). Every argument problem is reported in one refusal:
+`Error` names each one, `Problems` lists each code, and `Reason` is that code
+for one problem or `invalid_arguments` for several. `clear` is also refused with `gate_rerun_running`
 while the mission's definition-of-done gate is re-running on its dock after an
 interrupted run: the re-run records a result and then releases the hold (pass)
 or fails the mission (failure) by itself, and `fail` stays available. `clear`
@@ -258,8 +260,9 @@ it with `armada_handoff_hold`:
 
 The tool refuses any caller other than a global administrator
 (`global_administrator_required`), a missing or unknown argument
-(`missing_reason`, `missing_operator`, `missing_mission_id`, `invalid_action`),
-a mission without this hold (`not_held`), and a hold another choice or the
+(`missing_reason`, `missing_operator`, `missing_mission_id`, `invalid_action`;
+several at once are one `invalid_arguments` refusal that names each in `Error`
+and lists each code in `Problems`), a mission without this hold (`not_held`), and a hold another choice or the
 timeout release is already ending (`handoff_hold_busy`). Each choice writes one
 `typed_decision.labelled` event with `label` `release`, `mail_release` or
 `rescue`, the operator and reason, the decision event id, and its
@@ -800,7 +803,10 @@ all content. A finished, successful Test Engineer or Product Manager stage whose
 report lacks a section its persona template requires is not complete:
 `TruncationReason` is `report_contract_missing` and `MissingReportSections` names
 each missing section. A heading of any level that starts with the section name,
-in any case, counts as the section. A later autonomous rescue stage can also read the failed parent
+in any case, counts as the section. A finished Judge whose verdict is PASS,
+whatever its final status, is held to the rule its PASS verdict check applies: each review section its
+mode requires, then `Acceptance Criteria` when its brief lists criteria, so a
+Judge refused for a missing section names the same section here. A later autonomous rescue stage can also read the failed parent
 named by its marked rescue root, reached through the same-owner, same-voyage
 and same-vessel dependency chain. A legacy rescue title alone does not grant
 this additional read. A mission caller can also read any mission its evidence

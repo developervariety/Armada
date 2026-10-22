@@ -185,6 +185,39 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("A Judge report reads the same missing sections its verdict check refuses, whatever its final status", () =>
+            {
+                const string brief = "## Acceptance Criteria\n- The report names the consumer.\n";
+                const string withoutWalk = "## Completeness\n1. The report names the consumer.\n## Correctness\nSound.\n## Evidence\nStrong.\n"
+                    + "## Residual Risks\nNone.\n## Verdict\nPASS\n[ARMADA:VERDICT] PASS";
+                Mission refused = BuildMission(withoutWalk, MissionStatusEnum.Failed);
+                refused.Persona = "Judge";
+                refused.Mode = MissionModeEnum.Research;
+                refused.Description = brief;
+                MissionOutputArtifactPage refusedPage = MissionOutputArtifact.Build(refused);
+                AssertFalse(refusedPage.Complete, "a Judge report without the walk its brief asks for is not complete");
+                AssertEqual("report_contract_missing", refusedPage.TruncationReason);
+                AssertEqual(1, refusedPage.MissingReportSections.Count, "only the walk is missing: " + string.Join(", ", refusedPage.MissingReportSections));
+                AssertEqual(JudgeAcceptanceWalk.SectionName, refusedPage.MissingReportSections[0]);
+                AssertEqual("Judge PASS verdict missing required review sections: " + JudgeAcceptanceWalk.SectionName,
+                    JudgeAcceptanceWalk.ValidatePass(withoutWalk, brief), "the verdict check refuses the same report for the same section");
+
+                Mission walked = BuildMission(withoutWalk.Replace("## Verdict", "## Acceptance Criteria\n- The report names the consumer. -- MET. report.md:4 names it.\n## Verdict"), MissionStatusEnum.Complete);
+                walked.Persona = "Judge";
+                walked.Mode = MissionModeEnum.Research;
+                walked.Description = brief;
+                MissionOutputArtifactPage walkedPage = MissionOutputArtifact.Build(walked);
+                AssertTrue(walkedPage.Complete, "a Judge report with every section is complete");
+                AssertEqual(0, walkedPage.MissingReportSections.Count);
+
+                Mission revision = BuildMission("Two findings need a fix.\n[ARMADA:VERDICT] NEEDS_REVISION", MissionStatusEnum.Failed);
+                revision.Persona = "Judge";
+                revision.Mode = MissionModeEnum.Research;
+                revision.Description = brief;
+                AssertTrue(MissionOutputArtifact.Build(revision).Complete, "a NEEDS_REVISION review is not checked for sections, as in the verdict check");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Invalid page requests fail explicitly", () =>
             {
                 Mission mission = BuildMission("short", MissionStatusEnum.Complete);

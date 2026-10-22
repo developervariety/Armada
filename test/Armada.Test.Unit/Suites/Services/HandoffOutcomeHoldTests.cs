@@ -241,6 +241,29 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A confident partial whose only unmet criterion is pipeline-level hands off with no hold and no Mail", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(PartialResult(0.95, pipelineLevelUnmet: true));
+                    HoldScenario scenario = await CreateScenarioAsync(testDb.Driver, true, PartialResult(0.95), client: client).ConfigureAwait(false);
+
+                    await scenario.Missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+
+                    Mission worker = await ReadAsync(testDb.Driver, scenario.Worker.Id).ConfigureAwait(false);
+                    Mission judge = await ReadAsync(testDb.Driver, scenario.Judge.Id).ConfigureAwait(false);
+                    AssertFalse(worker.HeldForOperatorReview, "a criterion only a later stage can meet does not hold this stage");
+                    AssertEqual(_WorkerBranch, judge.BranchName, "the next stage is handed the branch");
+                    AssertFalse((judge.Description ?? String.Empty).Contains("handoff-outcome check", StringComparison.Ordinal), "no unmet-criteria Mail is sent");
+                    AssertEqual(0, await CountEventsAsync(testDb.Driver, worker.Id, "mission.handoff_hold_engaged").ConfigureAwait(false), "no hold engaged");
+
+                    string state = FakeTypedDecisionClient.StateText(client.LastRequest);
+                    AssertContains("stage 1 of 2", state, "the decision is told the stage position: " + state);
+                    AssertContains("\"later_stages\":[\"Judge\"]", state, "the decision is told the stages still to run: " + state);
+                    AssertTrue(client.LastRequest!.Questions.ContainsKey("scope_2"), "each criterion is asked whether only a later stage can meet it");
+                }
+            });
+
             await RunTest("A confident partial on a test, lint or record stage Mails the next stage and never holds it", async () =>
             {
                 foreach (string persona in new[] { "Test Engineer", "TestEngineer", "Linter", "Recorder" })
@@ -289,6 +312,13 @@ namespace Armada.Test.Unit.Suites.Services
                         new { action = "land", missionId = scenario.Worker.Id, reason = "go", @operator = "operator-a" })).ConfigureAwait(false));
                     AssertContains("invalid_action", invalidJson, "only release, mail_release and rescue are accepted");
 
+                    string bareJson = JsonSerializer.Serialize(await McpTestCaller.Wrap(handler!)(JsonSerializer.SerializeToElement(
+                        new { action = "release" })).ConfigureAwait(false));
+                    AssertContains("invalid_arguments", bareJson, "several missing arguments are one refusal: " + bareJson);
+                    foreach (string named in new[] { "missionId is required", "operator is required", "reason is required", "missing_mission_id", "missing_operator", "missing_reason" })
+                        AssertContains(named, bareJson, "the one refusal names every missing argument: " + named);
+                    AssertTrue((await ReadAsync(testDb.Driver, scenario.Worker.Id).ConfigureAwait(false)).HeldForOperatorReview, "a refused call leaves the hold");
+
                     string releasedJson = JsonSerializer.Serialize(await McpTestCaller.Wrap(handler!)(JsonSerializer.SerializeToElement(
                         new { action = "mail_release", missionId = scenario.Worker.Id, reason = "tell the reviewer", @operator = "operator-a" })).ConfigureAwait(false));
                     AssertFalse(releasedJson.Contains("\"Error\"", StringComparison.Ordinal), "the operator choice succeeds: " + releasedJson);
@@ -327,21 +357,24 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         /// <summary>
-        /// A gated <c>partial</c> reading: criterion 1 reads met and criterion 2 reads unmet.
+        /// A gated <c>partial</c> reading: criterion 1 reads met and criterion 2 reads unmet. With
+        /// <paramref name="pipelineLevelUnmet"/>, criterion 2 also reads as one only a later stage can meet.
         /// </summary>
-        private static TypedDecisionResult PartialResult(double confidence)
+        private static TypedDecisionResult PartialResult(double confidence, bool pipelineLevelUnmet = false)
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
                 ["outcome"] = new TypedAnswer { Type = "choice", Choice = "partial", Confidence = confidence },
                 ["next_stage_useful"] = new TypedAnswer { Type = "noul", Noul = 0.6, Confidence = 0.6 },
                 ["gap_1"] = new TypedAnswer { Type = "noul", Noul = 0.9, Confidence = 0.9 },
-                ["gap_2"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 }
+                ["gap_2"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 },
+                ["scope_1"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 },
+                ["scope_2"] = new TypedAnswer { Type = "noul", Noul = pipelineLevelUnmet ? 0.9 : 0.1, Confidence = pipelineLevelUnmet ? 0.9 : 0.1 }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
 
-        private static async Task<HoldScenario> CreateScenarioAsync(SqliteDatabaseDriver db, bool holdEnabled, TypedDecisionResult result, string finishedPersona = "Worker")
+        private static async Task<HoldScenario> CreateScenarioAsync(SqliteDatabaseDriver db, bool holdEnabled, TypedDecisionResult result, string finishedPersona = "Worker", FakeTypedDecisionClient? client = null)
         {
             ArmadaSettings settings = CreateSettings(holdEnabled);
             LoggingModule logging = Quiet();
@@ -353,7 +386,7 @@ namespace Armada.Test.Unit.Suites.Services
                 resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             missions.UtcNowProvider = () => _HoldStart;
             missions.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
-                new FakeTypedDecisionClient(result), new TypedDecisionRecorder(db, logging), settings.TypedDecisions, logging);
+                client ?? new FakeTypedDecisionClient(result), new TypedDecisionRecorder(db, logging), settings.TypedDecisions, logging);
 
             Vessel vessel = new Vessel("handoffhold-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/handoffhold.git");
             vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");

@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Test.Common;
 
@@ -31,6 +32,51 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("A Judge that writes exactly the headings its brief names passes the section and walk checks", () =>
+            {
+                // Every Judge brief variant, report-only and implementation, against the same rule.
+                System.Collections.Generic.Dictionary<string, string> briefs = new System.Collections.Generic.Dictionary<string, string>
+                {
+                    ["report-only role"] = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Research, 0),
+                    ["revised-report role"] = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Research, 2),
+                    ["implementation role"] = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Implementation, 0),
+                    ["report-only output contract"] = MissionPromptBuilder.BuildReportOnlyJudgeOutputContract(MissionModeEnum.Research, null)
+                };
+
+                foreach (System.Collections.Generic.KeyValuePair<string, string> entry in briefs)
+                {
+                    bool reportOnly = !entry.Key.StartsWith("implementation", System.StringComparison.Ordinal);
+                    System.Collections.Generic.List<string> named = new System.Collections.Generic.List<string>();
+                    foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(entry.Value, @"`## ([^`]+)`"))
+                    {
+                        if (!named.Contains(match.Groups[1].Value)) named.Add(match.Groups[1].Value);
+                    }
+
+                    System.Text.StringBuilder review = new System.Text.StringBuilder();
+                    foreach (string heading in named)
+                    {
+                        review.Append("## ").Append(heading).Append('\n');
+                        if (heading == JudgeAcceptanceWalk.SectionName)
+                        {
+                            review.Append("- Gate stays green -- MET. src/Gate.cs:10 returns green.\n");
+                            review.Append("- CHANGELOG names the behaviour -- MET. CHANGELOG.md:12 names it.\n");
+                        }
+                        else
+                        {
+                            review.Append("Reviewed in full against the brief.\n");
+                        }
+                    }
+
+                    string text = review.ToString();
+                    foreach (string section in Armada.Core.JudgeReviewSections.Required(reportOnly))
+                        AssertTrue(named.Contains(section), entry.Key + " names the required section " + section);
+                    AssertNull(JudgeAcceptanceWalk.ValidatePass(text, entry.Value + "\n\n" + BriefTwo),
+                        entry.Key + " names every section the PASS check requires: " + string.Join(", ", named));
+                }
+
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("ExtractCriteria reads bullets under the brief heading", () =>
             {
                 System.Collections.Generic.List<string> items = JudgeAcceptanceWalk.ExtractCriteria(BriefTwo);

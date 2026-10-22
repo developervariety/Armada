@@ -449,6 +449,26 @@ upstream integrations and excludes changes already present at that baseline.
   naming the job, its reason and its objective, beside the `job.failed` or
   `job.lost` event.
 
+- The `handoff_outcome` decision judges a finished stage on its own share of
+  the work. Its state names the stage's position and the stages still to run,
+  and each acceptance criterion gets a `scope_<n>` Noul asking whether only the
+  pipeline as a whole or a later stage can meet it. Such a criterion is not
+  Mailed or held as the stage's gap, and a `partial` whose every unmet criterion
+  is pipeline-level hands off with no hold. A criterion such as "all pipeline
+  stages run in order" no longer holds an early stage.
+
+- `armada_handoff_hold` and `armada_review_hold` report every missing or invalid
+  argument in one refusal. `Error` names each one, `Problems` lists each code,
+  and `Reason` is the single code or `invalid_arguments`.
+
+- Every Judge brief names the `## Acceptance Criteria` walk and its line form
+  when the brief lists criteria. The report-only, revised-report and
+  implementation role texts and the report-only output contract listed only the
+  review sections, so a report-only Judge that followed its brief was refused
+  for the walk it was never asked for. `armada_mission_output` holds a finished
+  PASS Judge to the same section rule as its verdict check, whatever its status,
+  so `MissingReportSections` names the section a refused PASS lacked.
+
 - The Git Anchors block no longer calls a present file absent when the text
   names it with the repository's own directory in front: the path is anchored
   at the file it names. A path with a declared sibling's directory in front, or

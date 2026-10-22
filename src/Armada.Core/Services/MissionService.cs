@@ -6836,7 +6836,7 @@ namespace Armada.Core.Services
                 }
             }
             else if (HandoffOutcomeAdapter != null
-                && await ApplyHandoffOutcomeDecisionAsync(completedMission, dependentMissions, token).ConfigureAwait(false))
+                && await ApplyHandoffOutcomeDecisionAsync(completedMission, dependentMissions, voyageMissions, token).ConfigureAwait(false))
             {
                 return false;
             }
@@ -6904,9 +6904,10 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="completedMission">The finished stage.</param>
         /// <param name="dependentMissions">The pending dependents about to receive the handoff.</param>
+        /// <param name="voyageMissions">Every mission of the voyage, for the finished stage's pipeline position.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>True when the voyage was halted or the handoff is held and the caller must skip the normal handoff; false otherwise.</returns>
-        private async Task<bool> ApplyHandoffOutcomeDecisionAsync(Mission completedMission, List<Mission> dependentMissions, CancellationToken token)
+        private async Task<bool> ApplyHandoffOutcomeDecisionAsync(Mission completedMission, List<Mission> dependentMissions, List<Mission> voyageMissions, CancellationToken token)
         {
             if (HandoffOutcomeAdapter == null) return false;
 
@@ -6918,6 +6919,7 @@ namespace Armada.Core.Services
             try
             {
                 bool markerPresent = ProgressParser.HasSignal(completedMission.AgentOutput, "result", "verdict");
+                DescribeStagePosition(completedMission, voyageMissions, out int stagePosition, out List<string> laterStages);
 
                 HandoffOutcomeDecisionInput input = new HandoffOutcomeDecisionInput
                 {
@@ -6926,7 +6928,10 @@ namespace Armada.Core.Services
                     DiffStat = SummarizeDiffStat(completedMission.DiffSnapshot),
                     AcceptanceCriteria = await ReadObjectiveAcceptanceCriteriaAsync(completedMission, token).ConfigureAwait(false),
                     Persona = completedMission.Persona ?? String.Empty,
-                    MarkerPresent = markerPresent
+                    MarkerPresent = markerPresent,
+                    StagePosition = stagePosition,
+                    StageCount = stagePosition + laterStages.Count,
+                    LaterStages = laterStages
                 };
 
                 verdict = await HandoffOutcomeAdapter.DecideAsync(input, HandoffOutcomeVerdict.Proceed(), token).ConfigureAwait(false);
@@ -6954,6 +6959,52 @@ namespace Armada.Core.Services
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// The finished stage's place in its pipeline: its 1-based position along the dependency chain
+        /// from the root stage, and the personas of the stages that still follow it (the earliest-created
+        /// dependent at each step). A stage outside a chain is position 1 with no later stages.
+        /// </summary>
+        /// <param name="completedMission">The finished stage.</param>
+        /// <param name="voyageMissions">Every mission of the voyage.</param>
+        /// <param name="position">The 1-based position.</param>
+        /// <param name="laterStages">The later stages' personas, in order.</param>
+        internal static void DescribeStagePosition(Mission completedMission, List<Mission> voyageMissions, out int position, out List<string> laterStages)
+        {
+            position = 1;
+            laterStages = new List<string>();
+            if (completedMission == null) return;
+
+            Dictionary<string, Mission> byId = new Dictionary<string, Mission>(StringComparer.Ordinal);
+            foreach (Mission m in voyageMissions ?? new List<Mission>())
+            {
+                if (m != null && !String.IsNullOrEmpty(m.Id)) byId[m.Id] = m;
+            }
+
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal) { completedMission.Id };
+            Mission current = completedMission;
+            while (!String.IsNullOrEmpty(current.DependsOnMissionId)
+                && byId.TryGetValue(current.DependsOnMissionId!, out Mission? parent)
+                && parent != null && visited.Add(parent.Id))
+            {
+                position++;
+                current = parent;
+            }
+
+            current = completedMission;
+            while (true)
+            {
+                string currentId = current.Id;
+                Mission? next = byId.Values
+                    .Where(m => String.Equals(m.DependsOnMissionId, currentId, StringComparison.Ordinal) && !visited.Contains(m.Id))
+                    .OrderBy(m => m.CreatedUtc)
+                    .FirstOrDefault();
+                if (next == null) break;
+                visited.Add(next.Id);
+                laterStages.Add(String.IsNullOrWhiteSpace(next.Persona) ? "Worker" : next.Persona!);
+                current = next;
+            }
         }
 
         /// <summary>
@@ -8088,6 +8139,7 @@ namespace Armada.Core.Services
                             "Judge against the current mission description only, not sibling missions in the same voyage. " +
                             "Verify that every claim is backed by exact evidence and that cited paths resolve. " +
                             "Your response must include " + JudgeReviewSections.Headings(true) + " sections. " +
+                            AcceptanceCriteriaWalkInstruction + " " +
                             "End with a standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
                     }
 
@@ -8167,6 +8219,7 @@ namespace Armada.Core.Services
                             "against the current mission description only, not sibling missions in the same voyage. " +
                             "Verify that every claim is backed by exact evidence and that cited paths resolve. " +
                             "Your response must include " + JudgeReviewSections.Headings(true) + " sections. " +
+                            AcceptanceCriteriaWalkInstruction + " " +
                             "End with a standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
                     }
 
@@ -8175,7 +8228,7 @@ namespace Armada.Core.Services
                         "test adequacy, and failure-mode safety. Examine the diff below against the current mission " +
                         "description only, not sibling missions in the same voyage. Assume there may be at least " +
                         "one hidden bug. Your response must include " + JudgeReviewSections.Headings(false) +
-                        " sections. A PASS is only allowed when tests are adequate, " +
+                        " sections. " + AcceptanceCriteriaWalkInstruction + " A PASS is only allowed when tests are adequate, " +
                         "negative-path coverage for validation, timeout, cancellation, retry, cleanup, and error-handling " +
                         "changes is present or justified, and failure modes were explicitly reviewed. End with a standalone line " +
                         "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
@@ -11987,6 +12040,13 @@ namespace Armada.Core.Services
             "Example: `- The parser rejects a truncated frame. -- MET. src/Parser/FrameParser.cs:88 returns Truncated; " +
             "command: `dotnet test --filter FrameParserTests` gave 0 failed.`";
 
+        /// <summary>
+        /// The acceptance-criteria walk instruction every Judge brief and prompt carries: the heading the
+        /// verdict check requires when the brief lists criteria, and its line form.
+        /// </summary>
+        internal const string AcceptanceCriteriaWalkInstruction =
+            "When the brief lists acceptance criteria, also include `## Acceptance Criteria`. " + AcceptanceCriteriaLineForm;
+
         // Heading of the acceptance-criteria format correction. Deliberately not prefixed with the
         // criteria heading, so the criteria section of the brief never extends into it.
         private const string _AcceptanceFormatCorrectionHeading = "## Judge Format Correction";
@@ -12060,6 +12120,16 @@ namespace Armada.Core.Services
             return false;
         }
 
+        /// <summary>
+        /// Whether a Judge output's verdict is PASS, read by the same rule the Judge-completion seam uses.
+        /// </summary>
+        /// <param name="agentOutput">The Judge output.</param>
+        /// <returns>True for a PASS verdict.</returns>
+        internal static bool IsJudgePass(string? agentOutput)
+        {
+            return ParseJudgeVerdict(agentOutput) == JudgeVerdict.Pass;
+        }
+
         private static JudgeVerdict ParseJudgeVerdict(string? agentOutput)
         {
             if (String.IsNullOrEmpty(agentOutput)) return JudgeVerdict.None;
@@ -12126,11 +12196,8 @@ namespace Armada.Core.Services
 
             // The required set comes from the same source the briefs and prompts render, so a Judge
             // that follows its instructions can never fail this validation for the wrong section set.
-            List<string> missingSections = new List<string>();
-            foreach (string section in required)
-            {
-                if (!ContainsJudgeReviewSection(agentOutput, section)) missingSections.Add(section);
-            }
+            // The walk is checked separately below, so a missing walk keeps its own rule category.
+            List<string> missingSections = JudgeReviewSections.Missing(agentOutput, reportOnly, null);
 
             string substantiveReview = ExtractJudgeNarrative(agentOutput);
 
@@ -12195,32 +12262,6 @@ namespace Armada.Core.Services
                 Narrative = narrative ?? String.Empty;
                 RequiredSections = requiredSections ?? new List<string>();
             }
-        }
-
-        private static bool ContainsJudgeReviewSection(string agentOutput, string sectionName)
-        {
-            if (String.IsNullOrWhiteSpace(agentOutput) || String.IsNullOrWhiteSpace(sectionName)) return false;
-
-            // A judge writes these headers by hand, so they arrive wrapped in whatever markdown the
-            // model chose: `## Tests`, `**## Tests**`, `- __Tests__:`. Strip the decoration first and
-            // match on the heading TEXT, because a review is rejected for what it fails to say and
-            // never for how it was formatted. Emphasis can sit outside the heading markers as well as
-            // inside them, which a pattern anchored on a leading `#` run cannot see. This is the same
-            // normalization the verdict line already gets in ExtractJudgeNarrative.
-            string pattern =
-                @"^(?:\d+[\.\)]\s*)?"
-                + System.Text.RegularExpressions.Regex.Escape(sectionName)
-                + @"(?:$|[\s:\-\u2013\u2014(].*$)";
-
-            foreach (string rawLine in agentOutput.Replace("\r\n", "\n").Split('\n'))
-            {
-                string normalized = rawLine.Trim().Trim('*', '_', '`', '#', '>', '-', ' ', ':').Trim();
-                if (String.IsNullOrEmpty(normalized)) continue;
-                if (System.Text.RegularExpressions.Regex.IsMatch(
-                        normalized, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase)) return true;
-            }
-
-            return false;
         }
 
         private static string ExtractJudgeNarrative(string agentOutput)

@@ -68,14 +68,10 @@ namespace Armada.Server.Mcp.Tools
                         ? JsonSerializer.Deserialize<HandoffHoldArgs>(args.Value, _JsonOptions) ?? new HandoffHoldArgs()
                         : new HandoffHoldArgs();
 
-                    if (!HandoffOutcomeHold.TryParseChoice(request.Action, out HandoffOutcomeHoldChoiceEnum choice))
-                        return (object)new { Error = "action must be release, mail_release or rescue.", Reason = "invalid_action" };
-                    if (String.IsNullOrWhiteSpace(request.MissionId))
-                        return (object)new { Error = "missionId is required.", Reason = "missing_mission_id" };
-                    if (String.IsNullOrWhiteSpace(request.Operator))
-                        return (object)new { Error = "operator is required.", Reason = "missing_operator" };
-                    if (String.IsNullOrWhiteSpace(request.Reason))
-                        return (object)new { Error = "reason is required.", Reason = "missing_reason" };
+                    bool actionValid = HandoffOutcomeHold.TryParseChoice(request.Action, out HandoffOutcomeHoldChoiceEnum choice);
+                    object? refusal = McpHoldArgumentCheck.Check(
+                        actionValid, "action must be release, mail_release or rescue", request.MissionId, request.Operator, request.Reason);
+                    if (refusal != null) return refusal;
 
                     try
                     {

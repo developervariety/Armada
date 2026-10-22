@@ -2,12 +2,17 @@ namespace Armada.Core
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.RegularExpressions;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// The review sections a Judge must emit, by mission mode. Every brief, prompt and output
     /// contract that names them reads this one source, and so does the verdict validator, so a Judge
-    /// can never be told to write one set while its PASS is judged against another.
+    /// can never be told to write one set while its PASS is judged against another. When the brief
+    /// lists acceptance criteria the Judge also writes the <c>## Acceptance Criteria</c> walk
+    /// (<see cref="JudgeAcceptanceWalk"/>); <see cref="Missing"/> reports both, for the verdict check
+    /// and for the mission output artifact alike.
     /// </summary>
     public static class JudgeReviewSections
     {
@@ -71,6 +76,52 @@ namespace Armada.Core
                 result += headings[i];
             }
             return result;
+        }
+
+        /// <summary>
+        /// Whether a Judge report holds a section. A Judge writes its headings by hand, so they arrive
+        /// wrapped in whatever markdown the model chose (<c>## Tests</c>, <c>**## Tests**</c>,
+        /// <c>- __Tests__:</c>); the decoration is stripped and the heading TEXT is matched, because a
+        /// review is rejected for what it fails to say, never for how it was formatted.
+        /// </summary>
+        /// <param name="report">The Judge report.</param>
+        /// <param name="section">The section name.</param>
+        /// <returns>True when a line names the section.</returns>
+        public static bool Contains(string? report, string section)
+        {
+            if (String.IsNullOrWhiteSpace(report) || String.IsNullOrWhiteSpace(section)) return false;
+
+            string pattern = @"^(?:\d+[\.\)]\s*)?" + Regex.Escape(section) + @"(?:$|[\s:\-\u2013\u2014(].*$)";
+            foreach (string rawLine in report.Replace("\r\n", "\n").Split('\n'))
+            {
+                string normalized = rawLine.Trim().Trim('*', '_', '`', '#', '>', '-', ' ', ':').Trim();
+                if (String.IsNullOrEmpty(normalized)) continue;
+                if (Regex.IsMatch(normalized, pattern, RegexOptions.IgnoreCase)) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// The sections a Judge report lacks: each required review section for the mode, then the
+        /// acceptance-criteria walk when the brief lists criteria. The verdict check refuses a PASS for
+        /// exactly these, and the mission output artifact reports exactly these.
+        /// </summary>
+        /// <param name="report">The Judge report.</param>
+        /// <param name="reportOnly">True for a read-only (Audit or Research) mission.</param>
+        /// <param name="brief">The mission description the Judge was given; null skips the walk.</param>
+        /// <returns>The missing section names in brief order; empty when none is missing.</returns>
+        public static List<string> Missing(string? report, bool reportOnly, string? brief)
+        {
+            List<string> missing = new List<string>();
+            foreach (string section in Required(reportOnly))
+            {
+                if (!Contains(report, section)) missing.Add(section);
+            }
+
+            if (brief != null && JudgeAcceptanceWalk.LacksWalkSection(report, brief))
+                missing.Add(JudgeAcceptanceWalk.SectionName);
+            return missing;
         }
 
         /// <summary>

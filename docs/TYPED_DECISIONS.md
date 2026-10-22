@@ -629,6 +629,18 @@ Two decision points recover captain time at the pipeline level (both ship
   Judge and every Research or Audit stage, is told to check them and report each
   one still unmet as a finding, not to do the prior stage's work.
 
+  **Stage position.** The state carries `stage`: the finished stage's
+  `position` (`stage <n> of <m>` along the dependency chain), `final_stage`, and
+  the personas in `later_stages`. Each acceptance criterion gets a `gap_<n>` Noul
+  (this stage's output meets it) and, while later stages remain, a `scope_<n>`
+  Noul (only the pipeline as a whole or a later stage can meet it: stage order,
+  the final Checks, landing, the Judge's review). A criterion is unmet only when
+  its gap reads low and its scope does not read pipeline-level, so such a
+  criterion is never Mailed or held as this stage's gap. A `partial` whose every
+  unmet criterion is pipeline-level proposes no action: its gate confidence is
+  zero, the handoff proceeds, and the event label is
+  `outcome=partial_pipeline_level_only`.
+
   **The handoff hold.** With `typedDecisions.handoffOutcomeHold.enabled` set
   (default `false`), a gated `partial` at or above `0.90` on a delivery stage (a
   `Worker`, or a stage with no persona) holds the next stage instead of Mailing

@@ -242,6 +242,40 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
             }).ConfigureAwait(false);
 
+            await RunTest("Partial_PipelineLevelCriterionIsNotThisStagesGap", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionResult gapped = OutcomeResult("partial", 0.95, 0.80, (1, 0.10), (2, 0.10));
+                Dictionary<string, TypedAnswer> map = new Dictionary<string, TypedAnswer>(gapped.Answers, StringComparer.Ordinal)
+                {
+                    ["scope_1"] = new TypedAnswer { Type = "noul", Noul = 0.10, Confidence = 0.10 },
+                    ["scope_2"] = new TypedAnswer { Type = "noul", Noul = 0.90, Confidence = 0.90 }
+                };
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(new TypedDecisionResult { Available = true, Answers = map, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 });
+                TypedHandoffOutcomeAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+                HandoffOutcomeDecisionInput input = BuildInput();
+                input = new HandoffOutcomeDecisionInput
+                {
+                    Mission = input.Mission,
+                    OutputTail = input.OutputTail,
+                    DiffStat = input.DiffStat,
+                    AcceptanceCriteria = input.AcceptanceCriteria,
+                    Persona = input.Persona,
+                    MarkerPresent = input.MarkerPresent,
+                    StagePosition = 2,
+                    StageCount = 4,
+                    LaterStages = new List<string> { "Linter", "Judge" }
+                };
+
+                HandoffOutcomeVerdict result = await adapter.DecideAsync(input, HandoffOutcomeVerdict.Proceed(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(HandoffOutcomeAction.MailPartial, result.Action, "a stage-owned unmet criterion still Mails the next stage");
+                AssertEqual(1, result.UnmetCriterionIndices.Count, "only the stage-owned criterion is unmet");
+                AssertEqual(1, result.UnmetCriterionIndices[0], "the pipeline-level criterion is left for the later stages");
+                AssertEqual(6, client.LastRequest!.Questions.Count, "outcome, next_stage_useful, and a gap and a scope Noul per criterion while later stages remain");
+                AssertContains("stage 2 of 4", FakeTypedDecisionClient.StateText(client.LastRequest), "the state names the stage position");
+            }).ConfigureAwait(false);
+
             await RunTest("AsksOnlyAboutListedCriteria_NoEmptySlots", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

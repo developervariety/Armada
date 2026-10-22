@@ -159,9 +159,9 @@ namespace Armada.Core.Services
             List<string> expected = Deduplicate(ExtractCriteria(brief));
             if (expected.Count == 0) return null;
 
-            string? block = ExtractSection(agentOutput, SectionName);
-            if (String.IsNullOrWhiteSpace(block))
+            if (LacksWalkSection(agentOutput, brief))
                 return "Judge PASS verdict missing required review sections: " + SectionName;
+            string block = ExtractSection(agentOutput, SectionName)!;
             HashSet<int> covered = new HashSet<int>();
             foreach (string raw in block.Replace("\r\n", "\n").Split('\n'))
             {
@@ -189,6 +189,19 @@ namespace Armada.Core.Services
             return covered.Count == expected.Count
                 ? null
                 : "Judge PASS does not list every acceptance criterion from the brief";
+        }
+
+        /// <summary>
+        /// Whether a Judge report lacks the walk the brief asks for: the brief lists criteria and the
+        /// report has no non-empty <c>## Acceptance Criteria</c> section.
+        /// </summary>
+        /// <param name="agentOutput">The Judge report.</param>
+        /// <param name="brief">The mission description the Judge was given.</param>
+        /// <returns>True when the walk is required and absent.</returns>
+        public static bool LacksWalkSection(string? agentOutput, string? brief)
+        {
+            if (ExtractCriteria(brief).Count == 0) return false;
+            return String.IsNullOrWhiteSpace(ExtractSection(agentOutput, SectionName));
         }
 
         private static string NormalizeClaim(string value)
