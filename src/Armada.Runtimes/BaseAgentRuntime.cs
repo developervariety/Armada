@@ -179,6 +179,7 @@ namespace Armada.Runtimes
                 startInfo.ArgumentList.Add(arg);
             }
 
+            string? inheritedTempDirectory = startInfo.Environment.TryGetValue("TMPDIR", out string? inheritedTemp) ? inheritedTemp : null;
             PrepareCaptainEnvironment(startInfo, environment, isolationPlan, captain, model);
             string? launchTempDirectory = null;
 
@@ -242,7 +243,7 @@ namespace Armada.Runtimes
             try
             {
                 token.ThrowIfCancellationRequested();
-                launchTempDirectory = ApplyLaunchTempDirectory(startInfo);
+                launchTempDirectory = ApplyLaunchTempDirectory(startInfo, inheritedTempDirectory);
                 DateTime launchUtc = DateTime.UtcNow;
                 processStarted = process.Start();
                 if (!processStarted)
@@ -702,13 +703,17 @@ namespace Armada.Runtimes
         /// Give the launch its own temporary directory, removed when the agent exits. Agent CLIs and the
         /// builds and tests they run write to the temporary directory and leave files behind: the OpenCode
         /// CLI unpacks a native library of several megabytes there on every run and never deletes it. A
-        /// caller that sets TMPDIR keeps its own directory, and that directory is never removed.
+        /// caller that sets TMPDIR keeps its own directory, and that directory is never removed. A TMPDIR the
+        /// admiral itself inherited is not the launch's choice: the launch directory is made inside it.
         /// </summary>
         /// <param name="startInfo">Launch start info.</param>
+        /// <param name="inheritedTempDirectory">TMPDIR the launch inherited before its own variables applied.</param>
         /// <returns>The directory this launch owns, or null when the caller supplied one.</returns>
-        private string? ApplyLaunchTempDirectory(ProcessStartInfo startInfo)
+        private string? ApplyLaunchTempDirectory(ProcessStartInfo startInfo, string? inheritedTempDirectory)
         {
-            if (startInfo.Environment.TryGetValue("TMPDIR", out string? supplied) && !String.IsNullOrEmpty(supplied)) return null;
+            if (startInfo.Environment.TryGetValue("TMPDIR", out string? supplied)
+                && !String.IsNullOrEmpty(supplied)
+                && !String.Equals(supplied, inheritedTempDirectory, StringComparison.Ordinal)) return null;
 
             string directory = Path.Combine(Path.GetTempPath(), "armada-launch-" + Guid.NewGuid().ToString("N"));
             try

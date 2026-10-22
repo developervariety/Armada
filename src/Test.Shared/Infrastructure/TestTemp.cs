@@ -24,6 +24,11 @@ namespace Test.Shared.Infrastructure
     ///    long-lived artifacts a run reuses (the SQLite template, the shared bare repo, the current e2e
     ///    server directory) without waiting for the next run's sweep.
     ///
+    /// Every path this class reserves is under the process temp directory, which
+    /// <see cref="TestDataDirectory.Redirect"/> points at the run's own root, so the root's removal on exit
+    /// covers anything the exit hook misses. A path that cannot be deleted is counted and named on
+    /// standard error by <see cref="TestDataDirectory.TryDelete"/>.
+    ///
     /// The two mechanisms are complementary: tracking handles the current run's own artifacts promptly,
     /// and the age-gated sweep is the safety net for anything a previous run failed to release.
     /// </summary>
@@ -120,16 +125,8 @@ namespace Test.Shared.Infrastructure
         {
             if (String.IsNullOrEmpty(path)) return;
 
-            try
-            {
-                if (Directory.Exists(path)) Directory.Delete(path, true);
-                else if (File.Exists(path)) File.Delete(path);
-            }
-            catch
-            {
-                // Best effort: a lingering handle or permission issue must not fail a run.
-            }
-
+            // A lingering handle or permission issue must not fail a run; the path is counted and named.
+            TestDataDirectory.TryDelete(path!);
             _Tracked.TryRemove(path!, out byte _);
         }
 
@@ -167,42 +164,28 @@ namespace Test.Shared.Infrastructure
 
         private static void Sweep()
         {
-            string root;
-            try
-            {
-                root = Path.GetTempPath();
-            }
-            catch
-            {
-                return;
-            }
+            // The process temp directory is the run's own root after the redirect, so leftovers from
+            // earlier runs are in the system temp directory the redirect started from.
+            string root = TestDataDirectory.SystemTempRoot ?? Path.GetTempPath();
 
             string[] entries;
             try
             {
                 entries = Directory.GetFileSystemEntries(root, Prefix + "*");
             }
-            catch
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
+                Console.Error.WriteLine("TEST-TEMP: could not list " + root + ": " + ex.Message);
                 return;
             }
 
             DateTime cutoffUtc = DateTime.UtcNow - _StaleAfter;
             foreach (string entry in entries)
             {
-                try
-                {
-                    // Age-gate on last-write time so a test run executing concurrently in another
-                    // process -- whose artifacts are necessarily fresh -- is never disturbed.
-                    if (File.GetLastWriteTimeUtc(entry) > cutoffUtc) continue;
-
-                    if (Directory.Exists(entry)) Directory.Delete(entry, true);
-                    else File.Delete(entry);
-                }
-                catch
-                {
-                    // Best effort: skip anything still locked or already gone.
-                }
+                // Age-gate on last-write time so a test run executing concurrently in another
+                // process -- whose artifacts are necessarily fresh -- is never disturbed.
+                if (File.GetLastWriteTimeUtc(entry) > cutoffUtc) continue;
+                TestDataDirectory.TryDelete(entry);
             }
         }
 

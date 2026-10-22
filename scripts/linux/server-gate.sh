@@ -17,7 +17,7 @@
 #                    to run while tracked files have uncommitted changes.
 #   --ssh-host       ssh alias of the gate host. Default: $ARMADA_GATE_SSH_HOST.
 #   --scratch-dir    Absolute path of the scratch directory on the host. Default: $ARMADA_GATE_SCRATCH_DIR.
-#                    Created when absent. Holds repo.git, worktree/, logs/ and a lock file.
+#                    Created when absent. Holds repo.git, worktree/, logs/, tmp/ and a lock file.
 #   --shards         Unit shard count passed to run-tests.sh. Default: run-tests.sh's own default.
 #   --host-lock      Host-wide lock directory on the host. Every gate on the host takes it, so only one gate
 #                    builds and tests at a time. Default: $ARMADA_GATE_HOST_LOCK, else /tmp/armada-gate-host.lock.
@@ -149,6 +149,17 @@ mkdir -p "$logs"
 # off, the build and test commands run with the lock descriptor closed, and build servers are shut down.
 export MSBUILDDISABLENODEREUSE=1
 export DOTNET_CLI_USE_MSBUILD_SERVER=0
+# The compiler server holds several GB between builds; each gate compiles in its own process instead.
+export UseSharedCompilation=false
+
+# The host /tmp can be memory-backed, and the builds write a great deal of temporary data there. Build temp
+# files go to a folder in the scratch directory on disk, which the exit trap removes. The test runners keep
+# the fast system temp directory for their test databases: each runner makes its own root there, puts every
+# temp path of the run and its children under it, and removes it on exit (TestDataDirectory).
+export ARMADA_TEST_TEMP_ROOT="${TMPDIR:-/tmp}"
+gate_tmp="$scratch/tmp"
+mkdir -p "$gate_tmp"
+export TMPDIR="$gate_tmp" TMP="$gate_tmp" TEMP="$gate_tmp"
 
 # Prefer the SDK the Microsoft install script puts in ~/.dotnet over a distribution package. A distribution
 # runtime built against the system libunwind can fail to unwind the stack at a managed throw and abort with
@@ -233,6 +244,9 @@ run_gate() {
 lock_taken=0
 release_host_lock() {
   dotnet build-server shutdown < /dev/null > /dev/null 2>&1 9>&- || true
+  if [ "${gate_tmp_owned:-0}" = "1" ]; then
+    rm -rf "$gate_tmp" 2>/dev/null || echo "WARNING: could not remove gate temp directory $gate_tmp"
+  fi
   if [ "$lock_taken" = "1" ]; then
     # Release only a lock this gate still owns. When the owner file names another holder, or is gone,
     # the lock is left in place and reported, so this gate never removes a lock another gate holds.
@@ -307,6 +321,10 @@ if command -v flock >/dev/null 2>&1; then
     exit 1
   fi
 fi
+
+# Emptied only once this gate holds the scratch directory, so a refused second gate never touches it.
+find "$gate_tmp" -mindepth 1 -delete 2>/dev/null || echo "WARNING: could not empty gate temp directory $gate_tmp"
+gate_tmp_owned=1
 
 run_gate
 exit $?

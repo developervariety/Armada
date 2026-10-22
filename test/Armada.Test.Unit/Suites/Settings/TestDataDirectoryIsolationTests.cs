@@ -94,6 +94,50 @@ namespace Armada.Test.Unit.Suites.Settings
                 AssertEqual(TestDataDirectory.Root, current, "override points at the temp root");
             }).ConfigureAwait(false);
 
+            // Every temp path a test or a child process makes is under the run root, so removing the root on
+            // exit leaves nothing behind in the shared temp directory.
+            await RunTest("The process temp directory is under the run root", () =>
+            {
+                AssertNotNull(TestDataDirectory.Root, "TestDataDirectory.Root");
+                AssertStartsWith(TestDataDirectory.Root!, Path.GetTempPath(), "Path.GetTempPath()");
+                AssertStartsWith(TestDataDirectory.Root!, Environment.GetEnvironmentVariable("TMPDIR") ?? String.Empty, "TMPDIR for child processes");
+            }).ConfigureAwait(false);
+
+            // A killed run leaves its root behind. The next run removes a marked root whose process is gone and
+            // that is past the age limit, and keeps a live run's root and any folder without the marker.
+            await RunTest("Stale run roots are removed only when marked, old, and ownerless", () =>
+            {
+                string systemTemp = Path.Combine(Path.GetTempPath(), "sweep-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(systemTemp);
+                string MakeRoot(string name, string? pid, DateTime writtenUtc)
+                {
+                    string root = Path.Combine(systemTemp, TestDataDirectory.RootPrefix + name);
+                    Directory.CreateDirectory(Path.Combine(root, "tmp"));
+                    File.WriteAllText(Path.Combine(root, "tmp", "leftover.bin"), "x");
+                    if (pid != null)
+                    {
+                        string marker = Path.Combine(root, TestDataDirectory.MarkerFileName);
+                        File.WriteAllText(marker, pid);
+                        File.SetLastWriteTimeUtc(marker, writtenUtc);
+                    }
+                    return root;
+                }
+
+                DateTime old = DateTime.UtcNow.AddHours(-3);
+                string dead = MakeRoot("dead", "2147483646", old);
+                string live = MakeRoot("live", Environment.ProcessId.ToString(), old);
+                string fresh = MakeRoot("fresh", "2147483646", DateTime.UtcNow);
+                string unmarked = MakeRoot("unmarked", null, old);
+
+                TestDataDirectory.SweepStaleRoots(systemTemp);
+
+                AssertFalse(Directory.Exists(dead), "an old marked root whose process is gone is removed");
+                AssertTrue(Directory.Exists(live), "a root whose process is alive is kept");
+                AssertTrue(Directory.Exists(fresh), "a root inside the age limit is kept");
+                AssertTrue(Directory.Exists(unmarked), "a folder without the marker is never removed");
+                Directory.Delete(systemTemp, true);
+            }).ConfigureAwait(false);
+
             // ARMADA_DATA_DIR is accepted as an alias. ARMADA_DATA_DIRECTORY wins when both are set, so the
             // test redirect still isolates a run whose shell also exports the alias.
             await RunTest("ARMADA_DATA_DIR relocates the default data directory, and ARMADA_DATA_DIRECTORY wins over it", () =>

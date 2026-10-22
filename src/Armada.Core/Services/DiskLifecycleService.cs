@@ -102,7 +102,14 @@ namespace Armada.Core.Services
             "armada_init_",
             "armada-iso-",
             "armada-backup-",
-            "armada-restore-"
+            "armada-restore-",
+            "armada-test-home-",
+            "armada_coverage_",
+            "armada-tool-profile-",
+            "armada-preview-",
+            "armada-staleness-",
+            "selfdeploy-provider-",
+            "MSBuildTemp"
         };
 
         #endregion

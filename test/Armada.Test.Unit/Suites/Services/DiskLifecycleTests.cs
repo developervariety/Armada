@@ -709,6 +709,12 @@ namespace Armada.Test.Unit.Suites.Services
                     File.WriteAllText(oldTestDb, "sqlite");
                     File.SetLastWriteTimeUtc(oldTestDb, DateTime.UtcNow.AddDays(-3));
 
+                    string oldTestHome = Path.Combine(tempDir, "armada-test-home-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(oldTestHome);
+                    File.SetLastWriteTimeUtc(oldTestHome, DateTime.UtcNow.AddDays(-3));
+                    string freshBuildTemp = Path.Combine(tempDir, "MSBuildTemp" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(freshBuildTemp);
+
                     string integrationDir = Path.Combine(layout.Settings.DocksDirectory, "_integration", "msn_leftover");
                     Directory.CreateDirectory(integrationDir);
                     File.SetLastWriteTimeUtc(integrationDir, DateTime.UtcNow.AddDays(-3));
@@ -721,6 +727,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertFalse(Directory.Exists(oldCheckDir), "Expired temp checkout dir must be reclaimed.");
                     AssertFalse(File.Exists(oldTestDb), "Expired test-db sidecar must be reclaimed.");
+                    AssertFalse(Directory.Exists(oldTestHome), "An expired test-run home left by a killed test run must be reclaimed.");
+                    AssertTrue(Directory.Exists(freshBuildTemp), "A build temp folder inside retention must be kept.");
+                    Directory.Delete(freshBuildTemp, true);
                     AssertFalse(Directory.Exists(integrationDir), "Leftover integration worktree must be reclaimed.");
 
                     DiskLifecycleCategory tempCategory = report.Categories.First(c => c.Category == "tempArtifacts");

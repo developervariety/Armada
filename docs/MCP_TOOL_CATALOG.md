@@ -752,6 +752,15 @@ counted nor followed. A symlinked dock, integration or merge-queue worktree entr
 is recorded `skipped` with the reason `symlink or outside allowed roots`, and the
 bytes of its target are never counted reclaimable.
 
+Temp artifacts are entries in the admiral's temp directory whose names start
+with an Armada prefix (`armada-chk-`, `armada_test_`, `armada-code-index-`,
+`armada-model-validation-`, `armada_init_`, `armada-iso-`, `armada-backup-`,
+`armada-restore-`) or with a prefix that test runs and builds leave
+(`armada-test-home-`, `armada_coverage_`, `armada-tool-profile-`,
+`armada-preview-`, `armada-staleness-`, `selfdeploy-provider-`, `MSBuildTemp`).
+An entry is reclaimable only past `diskLifecycle.tempArtifactRetentionHours`,
+and the checkout of a check run that has not finished is kept.
+
 Operator evidence is the `operator-evidence` folder under the log directory,
 where operator proof runs keep receipts, logs and full clones. A folder's age is
 the newest write of any file inside it. After

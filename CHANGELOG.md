@@ -529,6 +529,19 @@ upstream integrations and excludes changes already present at that baseline.
   Judge is challenged, and a rescue is not dispatched when the objective already
   runs a voyage created after the failure; the incident and an
   `autonomous_recovery.rescue_superseded` event say why.
+- Test runs no longer fill the shared temp directory. `TestDataDirectory.Redirect`
+  points `TMPDIR`, `TMP` and `TEMP` at the run's own root, which is removed
+  when the process exits, and the next run removes a killed run's marked root
+  once its process is gone. Temp deletes that fail are counted and named on
+  standard error instead of being ignored. `ARMADA_TEST_TEMP_ROOT` names
+  the directory for the run roots. `server-gate.sh` sends its build temp files
+  to `<scratch-dir>/tmp` on disk, keeps the test roots in the host temp
+  directory, and compiles without the shared compiler server. A captain launch
+  makes its own temporary directory also when the admiral inherited `TMPDIR`;
+  only a `TMPDIR` the launch sets itself is kept as is. The disk lifecycle temp sweep also reclaims expired
+  `armada-test-home-`, `armada_coverage_`, `armada-tool-profile-`,
+  `armada-preview-`, `armada-staleness-`, `selfdeploy-provider-` and
+  `MSBuildTemp` entries.
 
 - `armada_dispatch` refuses a full fleet or sibling lane at submission with
   `fleet_capacity_reached` or `sibling_lane_capacity_reached` and accepts no
