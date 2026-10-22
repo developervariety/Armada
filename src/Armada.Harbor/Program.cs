@@ -24,6 +24,11 @@ namespace Armada.Harbor
         public static HarborPathImportResult? PathImport { get; private set; } = null;
 
         /// <summary>
+        /// True once the desktop UI has finished starting. A UI failure before that falls back to a headless link.
+        /// </summary>
+        public static bool UiStarted { get; set; } = false;
+
+        /// <summary>
         /// Application entry point. --install-startup and --uninstall-startup register or remove the per-user login
         /// item and exit without starting the UI.
         /// </summary>
@@ -51,7 +56,20 @@ namespace Armada.Harbor
                 PathImport = new HarborPathImportResult { Error = ex.Message };
             }
 
-            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            if (Array.Exists(args, a => String.Equals(a, HarborHeadlessRunner.HeadlessFlag, StringComparison.Ordinal)))
+                return HarborHeadlessRunner.Run("started with " + HarborHeadlessRunner.HeadlessFlag);
+
+            try
+            {
+                BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            }
+            catch (Exception ex) when (!UiStarted)
+            {
+                // The desktop UI could not start (a sleeping display fails the render timer). Keep this computer
+                // linked to the Admiral without a window rather than exiting and leaving its work unserved.
+                return HarborHeadlessRunner.Run("the desktop UI could not start (" + ex.GetType().Name + ": " + ex.Message + ")");
+            }
+
             return 0;
         }
 

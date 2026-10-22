@@ -66,6 +66,12 @@ with a Developer ID and notarized, Gatekeeper blocks the first open; see "Signin
 [BUILDING_INSTALLERS.md](../BUILDING_INSTALLERS.md). `--install-startup`, `--uninstall-startup`, and `--dry-run` are
 described in [OPERATIONS.md](OPERATIONS.md#harbor---install-startup---uninstall-startup).
 
+If the desktop UI cannot start, Harbor keeps the link without it. On a Mac whose display is asleep, Avalonia fails to
+start its render timer (`Native error code is: -6661`); Harbor then runs headless, with no window or menu bar icon, and
+logs `running headless: the desktop UI could not start` in `harbor.log`. Work keeps flowing to the computer; quit and
+start Harbor again once the display is awake to get the window back. `--headless` starts this mode on purpose, for a
+machine that only runs jobs. A headless Harbor stops on SIGTERM or Ctrl-C.
+
 On first run the app writes a settings file to `~/.armada-harbor/settings.json` (on Windows,
 `%USERPROFILE%\.armada-harbor\settings.json`), generating a Harbor id and defaulting the name to the machine
 name. Change these settings in the app (**Settings > General**, see

@@ -80,16 +80,13 @@ namespace Armada.Harbor
         private CancellationTokenSource? _RunCts;
         private HarborLinkStateEnum _LinkState = HarborLinkStateEnum.Idle;
         private string? _McpUrl = null;
-        private HarborLinkClient? _Client = null;
         // The job runner and what Harbor knows about its jobs live as long as the window, not one link session or one
         // Connect: a job keeps running through a link drop or a Disconnect, keeps its place in Running now, is listed in
         // the next session's heartbeats, and reports its remaining output and its exit when the link is back.
         private readonly HarborJobState _JobState = new HarborJobState();
         private readonly HarborLinkStatistics _LinkStatistics = new HarborLinkStatistics();
-        private readonly HarborRuntimeDetector _RuntimeDetector = new HarborRuntimeDetector();
-        private LocalHostCommandExecutor? _Executor = null;
-        private Armada.Runtimes.LocalHarborJobRunner? _JobRunner = null;
-        private HarborDockManager? _DockManager = null;
+        // The link loop itself; shared with a headless start, which runs the same host without this window.
+        private readonly HarborLinkHost _Host;
         private string? _LastRuntimeSummary = null;
         private readonly DispatcherTimer _JobsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         private IDisposable? _StatusDotBinding = null;
@@ -115,6 +112,12 @@ namespace Armada.Harbor
             InitializeComponent();
 
             _Logging = CreateLogging();
+            _Host = new HarborLinkHost(_Settings, _Logging, _JobState, _LinkStatistics, _LogClassifier);
+            _Host.OnLinkState = SetLinkState;
+            _Host.OnDetail = SetDetail;
+            _Host.OnMcp = SetMcp;
+            _Host.OnLog = AppendLog;
+            _Host.OnRuntimesDetected = ShowRuntimes;
             _ActivityLog.ShowDetails = _Settings.ShowActivityDetails;
             _LoadingShowDetails = true;
             ShowDetailsBox.IsChecked = _Settings.ShowActivityDetails;
@@ -391,141 +394,9 @@ namespace Armada.Harbor
             LogBox.CaretIndex = text.LastIndexOf('\n') + 1;
         }
 
-        private async Task RunLoopAsync(CancellationToken token)
+        private Task RunLoopAsync(CancellationToken token)
         {
-            // Created once and kept across Connect and Disconnect (see _JobState).
-            if (_JobRunner == null || _Executor == null || _DockManager == null)
-            {
-                _Executor = new LocalHostCommandExecutor();
-                _JobRunner = new Armada.Runtimes.LocalHarborJobRunner(_Logging);
-                // Each job's output is also kept on this computer, so its log can be read here (Status > Logs) even when
-                // the Admiral is on another machine.
-                _JobRunner.JobLogs = new HarborLogPaths(HarborAppSettings.LogDirectory());
-                // Reads the live settings on every request, so repository edits apply without reconnecting.
-                _DockManager = new HarborDockManager(() => _Settings.BuildDockSettings(), _Logging, _Executor);
-                // The Workspace's Open in Terminal opens a terminal on this desktop in a vessel's checkout.
-                _DockManager.TerminalLauncher = (string folder) => Armada.Core.Hosting.DesktopShellLauncher.OpenTerminal(folder, "This Harbor");
-            }
-
-            LocalHostCommandExecutor executor = _Executor;
-            Armada.Runtimes.LocalHarborJobRunner jobRunner = _JobRunner;
-            HarborDockManager dockManager = _DockManager;
-
-            while (!token.IsCancellationRequested)
-            {
-                // Checked on every session, so a CLI installed while Harbor runs is offered after the next reconnect.
-                List<HarborCapability> capabilities = BuildCapabilities();
-                using (WebSocketHarborTransport transport = new WebSocketHarborTransport(new Uri(_Settings.ServerLinkUrl), BuildHeaders()))
-                {
-                    HarborLinkClient client = new HarborLinkClient(
-                        _Settings.HarborId,
-                        _Settings.Name,
-                        capabilities,
-                        _Settings.MaxConcurrentJobs,
-                        executor,
-                        _Logging,
-                        _Settings.HeartbeatIntervalMs,
-                        AppendLog,
-                        jobRunner,
-                        dockManager);
-                    // One set of link counters across sessions, so heartbeats report this process's reconnects.
-                    client.StorageCollector = async storageToken =>
-                    {
-                        HarborDockSettings storageDocks = _Settings.BuildDockSettings();
-                        List<StorageLocation> roots = new List<StorageLocation>
-                        {
-                            new StorageLocation { Category = "Logs/harbor-jobs", Path = Path.Combine(HarborAppSettings.LogDirectory(), "jobs") },
-                            new StorageLocation { Category = "Logs/harbor", Path = HarborAppSettings.LogDirectory() },
-                            new StorageLocation { Category = "Docks", Path = storageDocks.DocksDirectory },
-                            new StorageLocation { Category = "Repositories", Path = storageDocks.ReposDirectory }
-                        };
-                        foreach (HarborRepositoryMapping mapping in storageDocks.Repositories)
-                            roots.Add(new StorageLocation { Category = "Repositories", Path = mapping.Path, EntityId = mapping.Vessel });
-                        return await new StorageFileCollector().CollectAsync(roots, new StorageSettings(), storageToken).ConfigureAwait(false);
-                    };
-                    client.LinkStatistics = _LinkStatistics;
-                    client.LogClassifier = _LogClassifier;
-                    client.JobState = _JobState;
-                    _Client = client;
-
-                    try
-                    {
-                        SetLinkState(HarborLinkStateEnum.Connecting);
-                        SetDetail("Reaching the Admiral at " + _Settings.ServerLinkUrl + "...");
-                        await client.RunSessionAsync(transport, token, () =>
-                        {
-                            SetLinkState(HarborLinkStateEnum.Connected);
-                            SetDetail("Ready. Work the Admiral sends to this computer runs here.");
-                            SetMcp(client.McpBaseUrl);
-                        }).ConfigureAwait(false);
-
-                        // A session ended by Disconnect or Reconnect must not report over the state they set.
-                        if (token.IsCancellationRequested) break;
-                        SetLinkState(HarborLinkStateEnum.Disconnected);
-                        SetDetail("The connection to the Admiral closed. Trying again in 3 seconds.");
-                        AppendInfo("Link closed; retrying in 3s", HarborLogCategoryEnum.Link, HarborLogOutcomeEnum.Failed);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        if (token.IsCancellationRequested) break;
-                        SetLinkState(HarborLinkStateEnum.Error);
-                        SetDetail(DescribeConnectError(ex));
-                        AppendInfo("Connect failed: " + ex.Message, HarborLogCategoryEnum.Link, HarborLogOutcomeEnum.Failed);
-                    }
-
-                    SetMcp(client.McpBaseUrl);
-                }
-
-                _Client = null;
-                if (token.IsCancellationRequested) break;
-                try
-                {
-                    await Task.Delay(3000, token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-            }
-        }
-
-        private string DescribeConnectError(Exception ex)
-        {
-            if (ex is WebSocketException || ex.InnerException is WebSocketException)
-            {
-                return "Could not connect to the Admiral at " + _Settings.ServerLinkUrl + ": " + Sentence(ex.Message)
-                    + " Check that the Admiral is running, and the Admiral address and access key in Settings. Trying again in 3 seconds.";
-            }
-
-            return "Could not connect to the Admiral: " + Sentence(ex.Message) + " Trying again in 3 seconds.";
-        }
-
-        private List<HarborCapability> BuildCapabilities()
-        {
-            List<HarborCapability> capabilities = new List<HarborCapability>();
-            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (string name in _Settings.Capabilities)
-            {
-                if (!string.IsNullOrWhiteSpace(name) && seen.Add(name))
-                    capabilities.Add(new HarborCapability { Name = name, Available = true });
-            }
-
-            // Advertise the agent runtimes this host can launch so the Admiral's router can match a captain's requested
-            // runtime: a runtime is available only when its CLI resolves on PATH (the login shell's PATH, imported at
-            // startup), so the Admiral does not route a captain here only for its launch to fail.
-            List<HarborCapability> runtimes = _RuntimeDetector.Detect();
-            foreach (HarborCapability runtime in runtimes)
-            {
-                if (seen.Add(runtime.Name)) capabilities.Add(runtime);
-            }
-
-            ShowRuntimes(runtimes);
-            return capabilities;
+            return _Host.RunAsync(token);
         }
 
         private void ShowRuntimes(List<HarborCapability> runtimes)
@@ -568,18 +439,6 @@ namespace Armada.Harbor
                 AppendInfo("Could not read the login shell's PATH: " + import.Error, HarborLogCategoryEnum.General, HarborLogOutcomeEnum.Failed);
         }
 
-        private Dictionary<string, string>? BuildHeaders()
-        {
-            Dictionary<string, string> headers = new Dictionary<string, string>();
-            if (!string.IsNullOrWhiteSpace(_Settings.AccessKey)) headers["x-access-key"] = _Settings.AccessKey;
-            if (!string.IsNullOrWhiteSpace(_Settings.Secret)) headers["x-secret-key"] = _Settings.Secret;
-            // Informational only: the Admiral takes the owning user from the AccessKey credential and ignores
-            // x-user-guid; x-tenant-guid applies to a credential-less loopback link or a global-admin credential.
-            if (!string.IsNullOrWhiteSpace(_Settings.UserId)) headers["x-user-guid"] = _Settings.UserId;
-            if (!string.IsNullOrWhiteSpace(_Settings.TenantId)) headers["x-tenant-guid"] = _Settings.TenantId;
-            return headers.Count > 0 ? headers : null;
-        }
-
         private void AppendInfo(string message)
         {
             AppendInfo(message, HarborLogCategoryEnum.General, HarborLogOutcomeEnum.None);
@@ -600,7 +459,11 @@ namespace Armada.Harbor
             });
         }
 
-        private static LoggingModule CreateLogging()
+        /// <summary>
+        /// Create Harbor's log: daily files under the Harbor log directory, or no file log when that folder is unusable.
+        /// </summary>
+        /// <returns>The logging module.</returns>
+        internal static LoggingModule CreateLogging()
         {
             // Harbor's log: the link client, the job runner, and the activity log, in daily files under
             // ~/.armada-harbor/logs (harbor.log.yyyyMMdd), like the Admiral's admiral.log.
@@ -675,14 +538,6 @@ namespace Armada.Harbor
                 _McpUrl = mcp;
                 RaiseStateChanged();
             });
-        }
-
-        private static string Sentence(string message)
-        {
-            string trimmed = (message ?? String.Empty).Trim();
-            if (trimmed.Length == 0) return "unknown error.";
-            char last = trimmed[trimmed.Length - 1];
-            return last == '.' || last == '!' || last == '?' ? trimmed : trimmed + ".";
         }
 
         private static string DescribeServer(string url)

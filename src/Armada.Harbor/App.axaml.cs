@@ -87,6 +87,7 @@ namespace Armada.Harbor
         /// </summary>
         public override void OnFrameworkInitializationCompleted()
         {
+            Program.UiStarted = true;
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 _Desktop = desktop;
