@@ -53,12 +53,14 @@ namespace Test.Shared.Suites.Database
                     mission.FailureKind = MissionFailureKindEnum.Compile;
                     mission.FailureReason = "Definition-of-Done gate failed (Compile): exit 1";
                     mission.WaitForVoyageWorkers = true;
+                    mission.IsRescue = true;
                     await db.Missions.CreateAsync(mission);
 
                     Mission? read = await db.Missions.ReadAsync(mission.Id);
                     AssertNotNull(read);
                     AssertEqual(MissionFailureKindEnum.Compile, read!.FailureKind, "failure kind persists on create");
                     AssertTrue(read.WaitForVoyageWorkers, "wait flag persists on create");
+                    AssertTrue(read.IsRescue, "rescue flag persists on create");
 
                     MissionSummary? summary = await db.Missions.ReadSummaryAsync(mission.Id);
                     AssertNotNull(summary);
@@ -82,6 +84,7 @@ namespace Test.Shared.Suites.Database
                     Mission? plainRead = await db.Missions.ReadAsync(plain.Id);
                     AssertNull(plainRead!.FailureKind, "a new mission has no failure kind");
                     AssertFalse(plainRead.WaitForVoyageWorkers, "a new mission does not wait for voyage workers");
+                    AssertFalse(plainRead.IsRescue, "a new mission is not a rescue");
                 }
             }));
 

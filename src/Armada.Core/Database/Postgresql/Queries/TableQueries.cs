@@ -1772,7 +1772,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(88, "Add output_repair_attempts to missions for bounded output-contract repair turns",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS output_repair_attempts INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(89, "Add noop_redispatch_attempts to missions so the no-op budget is counted separately",
-                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS noop_redispatch_attempts INTEGER NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS noop_redispatch_attempts INTEGER NOT NULL DEFAULT 0;"),
+                new SchemaMigration(90, "Add is_rescue to missions so a rescue is never rescued again, even after its incident is purged",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS is_rescue BOOLEAN NOT NULL DEFAULT FALSE;")
 
 
             };

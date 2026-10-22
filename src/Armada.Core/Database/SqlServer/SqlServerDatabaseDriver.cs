@@ -622,6 +622,7 @@ namespace Armada.Core.Database.SqlServer
             try { mission.RedispatchAttempts = Convert.ToInt32(reader["redispatch_attempts"]); } catch { }
             try { mission.OutputRepairAttempts = Convert.ToInt32(reader["output_repair_attempts"]); } catch { }
             try { mission.NoOpRedispatchAttempts = Convert.ToInt32(reader["noop_redispatch_attempts"]); } catch { }
+            try { mission.IsRescue = reader["is_rescue"] != DBNull.Value && Convert.ToBoolean(reader["is_rescue"]); } catch { }
             try
             {
                 string? tierStr = NullableString(reader["tier"]);

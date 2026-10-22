@@ -208,6 +208,7 @@ namespace Armada.Server
             bool landingSucceeded = false;
             bool landingAttempted = false;
             string? landingFailureReason = null;
+            MissionFailureKindEnum landingFailureKind = MissionFailureKindEnum.LandingConflict;
 
             try
             {
@@ -449,6 +450,15 @@ namespace Armada.Server
                         _Logging.Warn(_Header + "error merging locally for mission " + mission.Id + ": " + ex.ToString() + " -- branch " + dock.BranchName + " is still available in the bare repo");
                         landingSucceeded = false;
                         landingFailureReason = pushBlocker ?? ("Error merging locally: " + ex.Message);
+
+                        // A dirty checkout or unpushed target commits are the operator's to resolve; a rescue mission cannot
+                        // fix them, so record them as an environment failure rather than a landing conflict.
+                        if (ex is GitDirtyCheckoutException || pushBlocker != null)
+                        {
+                            landingFailureKind = MissionFailureKindEnum.Infra;
+                            if (ex is GitDirtyCheckoutException)
+                                landingFailureReason += ". Commit or stash those changes, then retry landing; the branch " + dock.BranchName + " is kept.";
+                        }
                     }
                     } // end hasChanges else
                 }
@@ -538,7 +548,7 @@ namespace Armada.Server
                 {
                     mission.Status = MissionStatusEnum.LandingFailed;
                     mission.FailureReason = landingFailureReason;
-                    mission.FailureKind = MissionFailureKindEnum.LandingConflict;
+                    mission.FailureKind = landingFailureKind;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " landing failed, status set to LandingFailed");

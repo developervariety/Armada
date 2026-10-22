@@ -164,6 +164,49 @@ namespace Test.Shared.Suites.Services
                 AssertContains("exhausted", incident.RecoveryNotes ?? String.Empty, "the incident notes explain the exhausted budget");
             }));
 
+            cases.Add(CaseAsync("orphaned_rescue_is_not_rescued_again", "A failed rescue whose incident is gone opens no new incident, so rescues never spawn rescues", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.MaxMissionRecoveryAttempts = 2;
+                MissionRecoveryCoordinator coordinator = new MissionRecoveryCoordinator(CreateLogging(), testDb.Driver, settings);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+
+                // Found live: purging the original mission removed its incident, and each of its two failed rescues then
+                // looked like a new failure and got a rescue of its own.
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                for (int i = 0; i < 2; i++)
+                {
+                    Mission orphan = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.LandingConflict, "Error merging locally").ConfigureAwait(false);
+                    // Purging the original cleared ParentMissionId (ON DELETE SET NULL); only the rescue flag remains.
+                    orphan.Title = "[Rescue] Do the thing";
+                    orphan.IsRescue = true;
+                    await testDb.Driver.Missions.UpdateAsync(orphan).ConfigureAwait(false);
+                }
+
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+                AssertEqual(0, (await ReadRecoveryIncidentsAsync(incidents).ConfigureAwait(false)).Count, "a rescue's failure belongs to its own incident");
+                List<Mission> all = await testDb.Driver.Missions.EnumerateAsync().ConfigureAwait(false);
+                AssertFalse(all.Any(m => m.Title.StartsWith("[Rescue] [Rescue]", StringComparison.Ordinal)), "no rescue of a rescue");
+            }));
+
+            cases.Add(CaseAsync("environment_landing_failure_is_not_rescued", "A landing refused by a dirty checkout or unpushed target commits is Infra and is not rescued", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.MaxMissionRecoveryAttempts = 2;
+                MissionRecoveryCoordinator coordinator = new MissionRecoveryCoordinator(CreateLogging(), testDb.Driver, settings);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission mission = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.Infra, "Error merging locally: Git checkout /repo contains tracked modifications").ConfigureAwait(false);
+                mission.Status = MissionStatusEnum.LandingFailed;
+                await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+                AssertEqual(0, (await ReadRecoveryIncidentsAsync(incidents).ConfigureAwait(false)).Count, "a rescue cannot clean the operator's checkout");
+            }));
+
             cases.Add(CaseAsync("repeated_passes_do_not_duplicate_incident", "Repeated passes never duplicate an incident", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

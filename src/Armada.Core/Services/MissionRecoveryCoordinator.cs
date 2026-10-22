@@ -226,6 +226,11 @@ namespace Armada.Core.Services
             // review, planning or recording stage has no code for a Worker to fix, and a pipeline stage has its own rework
             // and repair inside its voyage, which a rescue landed beside it would bypass (including its Judge).
             if (!String.IsNullOrEmpty(mission.Persona) && !PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Worker)) return false;
+
+            // A rescue's failure belongs to the incident that dispatched it, which retries within its budget. If that
+            // incident is gone (purging the original mission removes it and clears ParentMissionId), rescuing the rescue
+            // would restart the chain without a cap.
+            if (mission.IsRescue || !String.IsNullOrEmpty(mission.ParentMissionId)) return false;
             if (!String.IsNullOrEmpty(mission.DependsOnMissionId)) return false;
             if (String.IsNullOrEmpty(mission.VoyageId)) return true;
 
@@ -243,6 +248,7 @@ namespace Armada.Core.Services
             rescue.UserId = original.UserId;
             rescue.VesselId = original.VesselId;
             rescue.ParentMissionId = original.Id;
+            rescue.IsRescue = true;
             rescue.Persona = PersonaCatalog.Worker;
             rescue.Mode = MissionModeEnum.Implementation;
             rescue.Tier = original.Tier;

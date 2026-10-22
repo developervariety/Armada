@@ -1728,7 +1728,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(88, "Add output_repair_attempts to missions for bounded output-contract repair turns",
                     @"IF COL_LENGTH('missions','output_repair_attempts') IS NULL ALTER TABLE missions ADD output_repair_attempts INT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(89, "Add noop_redispatch_attempts to missions so the no-op budget is counted separately",
-                    @"IF COL_LENGTH('missions','noop_redispatch_attempts') IS NULL ALTER TABLE missions ADD noop_redispatch_attempts INT NOT NULL DEFAULT 0;")
+                    @"IF COL_LENGTH('missions','noop_redispatch_attempts') IS NULL ALTER TABLE missions ADD noop_redispatch_attempts INT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(90, "Add is_rescue to missions so a rescue is never rescued again, even after its incident is purged",
+                    @"IF COL_LENGTH('missions','is_rescue') IS NULL ALTER TABLE missions ADD is_rescue BIT NOT NULL CONSTRAINT DF_missions_is_rescue DEFAULT 0;")
 
 
             };

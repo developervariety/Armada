@@ -123,6 +123,13 @@ namespace Armada.Core.Models
         public int NoOpRedispatchAttempts { get; set; } = 0;
 
         /// <summary>
+        /// True for a mission that autonomous recovery dispatched to rescue a failed one. A rescue's failure is handled by
+        /// the incident that dispatched it and never opens a rescue of its own, even after that incident or the original
+        /// mission is purged.
+        /// </summary>
+        public bool IsRescue { get; set; } = false;
+
+        /// <summary>
         /// Optional required capability tier. Dispatch routes the mission to an idle captain at or above
         /// this tier (preferring the lowest eligible tier). Null means Standard.
         /// </summary>
