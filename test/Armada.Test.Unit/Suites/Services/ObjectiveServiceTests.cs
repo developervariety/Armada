@@ -480,6 +480,94 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Write tools resolve an abbreviated record id to the full id and store the full id", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                McpObjectiveTools.Register((name, _, _, handler) => handlers[name] = McpTestCaller.Wrap(handler), testDb.Driver, objectives);
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                McpCoordinationTools.Register((name, _, _, handler) => handlers[name] = McpTestCaller.Wrap(handler), testDb.Driver, new Armada.Server.CoordinationService(logging, testDb.Driver));
+                AuthContext auth = McpTestCaller.Operator;
+                string tenant = Armada.Core.Constants.DefaultTenantId;
+                string user = Armada.Core.Constants.DefaultUserId;
+
+                // Every linked record gets its own creation-time part, so each abbreviation names one record.
+                long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                Objective parent = await testDb.Driver.Objectives.CreateAsync(new Objective { Id = TestRecordIds.At("obj", now, "parentRecord"), Title = "parent", TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective { Id = TestRecordIds.At("obj", now + 1, "blockerRecord"), Title = "blocker", TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                Objective target = await testDb.Driver.Objectives.CreateAsync(new Objective { Id = TestRecordIds.At("obj", now + 2, "updateTarget"), Title = "update target", TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("linked voyage") { Id = TestRecordIds.At("vyg", now, "linkedVoyage"), TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("linked mission") { Id = TestRecordIds.At("msn", now, "linkedMission"), TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                CheckRun check = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = tenant,
+                    UserId = user,
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Status = CheckRunStatusEnum.Passed
+                }).ConfigureAwait(false);
+                Incident incident = await new IncidentService(testDb.Driver).CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "linked incident",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Low
+                }).ConfigureAwait(false);
+                // Two visible objectives created in the same millisecond share one abbreviation.
+                await testDb.Driver.Objectives.CreateAsync(new Objective { Id = TestRecordIds.At("obj", now + 3, "firstTwin"), Title = "twin a", TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective { Id = TestRecordIds.At("obj", now + 3, "secondTwin"), Title = "twin b", TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                string twins = TestRecordIds.At("obj", now + 3, "x").Substring(0, 12);
+                string absent = TestRecordIds.At("msn", now + 9, "x").Substring(0, 12);
+
+                List<AbbreviatedLinkCase> objectiveCases = new List<AbbreviatedLinkCase>
+                {
+                    new AbbreviatedLinkCase("parentObjectiveId", false, parent.Id, record => ((Objective)record).ParentObjectiveId),
+                    new AbbreviatedLinkCase("blockedByObjectiveIds", true, blocker.Id, record => ((Objective)record).BlockedByObjectiveIds.SingleOrDefault()),
+                    new AbbreviatedLinkCase("voyageIds", true, voyage.Id, record => ((Objective)record).VoyageIds.SingleOrDefault()),
+                    new AbbreviatedLinkCase("missionIds", true, mission.Id, record => ((Objective)record).MissionIds.SingleOrDefault()),
+                    new AbbreviatedLinkCase("checkRunIds", true, check.Id, record => ((Objective)record).CheckRunIds.SingleOrDefault()),
+                    new AbbreviatedLinkCase("incidentIds", true, incident.Id, record => ((Objective)record).IncidentIds.SingleOrDefault())
+                };
+                foreach (AbbreviatedLinkCase linkCase in objectiveCases)
+                {
+                    string shortId = TestRecordIds.Abbreviate(linkCase.FullId);
+                    object created = await handlers["create_objective"](linkCase.Args(shortId, "title", "created with " + linkCase.Field)).ConfigureAwait(false);
+                    AssertTrue(created is Objective, "create_objective resolves " + linkCase.Field + "; actual result: " + JsonSerializer.Serialize(created));
+                    Objective stored = (await testDb.Driver.Objectives.ReadAsync(((Objective)created).Id).ConfigureAwait(false))!;
+                    AssertEqual(linkCase.FullId, linkCase.Stored(stored), "create_objective stores the full " + linkCase.Field);
+
+                    object updated = await handlers["update_objective"](linkCase.Args(shortId, "objectiveId", TestRecordIds.Abbreviate(target.Id))).ConfigureAwait(false);
+                    AssertTrue(updated is Objective, "update_objective resolves its target and " + linkCase.Field + "; actual result: " + JsonSerializer.Serialize(updated));
+                    Objective storedTarget = (await testDb.Driver.Objectives.ReadAsync(target.Id).ConfigureAwait(false))!;
+                    AssertEqual(linkCase.FullId, linkCase.Stored(storedTarget), "update_objective stores the full " + linkCase.Field);
+                }
+
+                string ambiguous = JsonSerializer.Serialize(await handlers["create_objective"](new AbbreviatedLinkCase("parentObjectiveId", false, "", _ => null).Args(twins, "title", "ambiguous parent")).ConfigureAwait(false));
+                AssertContains("ambiguous_id", ambiguous, "two visible matches refuse the write by name");
+                string missing = JsonSerializer.Serialize(await handlers["create_objective"](new AbbreviatedLinkCase("missionIds", true, "", _ => null).Args(absent, "title", "absent mission")).ConfigureAwait(false));
+                AssertContains("Mission not found or not accessible: " + absent, missing, "an abbreviation with no visible match reads as absent");
+
+                List<AbbreviatedLinkCase> noteCases = new List<AbbreviatedLinkCase>
+                {
+                    new AbbreviatedLinkCase("objectiveId", false, parent.Id, record => null),
+                    new AbbreviatedLinkCase("voyageId", false, voyage.Id, record => ((CoordinationMessage)record).VoyageId),
+                    new AbbreviatedLinkCase("missionId", false, mission.Id, record => ((CoordinationMessage)record).MissionId),
+                    new AbbreviatedLinkCase("incidentId", false, incident.Id, record => ((CoordinationMessage)record).IncidentId)
+                };
+                foreach (AbbreviatedLinkCase noteCase in noteCases)
+                {
+                    object posted = await handlers["armada_coordination_post"](noteCase.Args(TestRecordIds.Abbreviate(noteCase.FullId), "content", "note naming " + noteCase.Field, "authorName", "unit-test")).ConfigureAwait(false);
+                    AssertTrue(posted is CoordinationMessage, "coordination_post resolves " + noteCase.Field + "; actual result: " + JsonSerializer.Serialize(posted));
+                    CoordinationMessage note = (await testDb.Driver.CoordinationMessages.ReadAsync(((CoordinationMessage)posted).Id).ConfigureAwait(false))!;
+                    if (noteCase.Field != "objectiveId")
+                        AssertEqual(noteCase.FullId, noteCase.Stored(note), "coordination_post stores the full " + noteCase.Field);
+                }
+                string missingNote = JsonSerializer.Serialize(await handlers["armada_coordination_post"](new AbbreviatedLinkCase("missionId", false, "", _ => null).Args(absent, "content", "absent", "authorName", "unit-test")).ConfigureAwait(false));
+                AssertContains("\"Reason\":\"not_found\"", missingNote, "coordination_post refuses an abbreviation with no visible match instead of storing it");
+                string ambiguousNote = JsonSerializer.Serialize(await handlers["armada_coordination_post"](new AbbreviatedLinkCase("objectiveId", false, "", _ => null).Args(twins, "content", "ambiguous", "authorName", "unit-test")).ConfigureAwait(false));
+                AssertContains("\"Reason\":\"ambiguous_id\"", ambiguousNote, "coordination_post names an ambiguous abbreviation");
+            }).ConfigureAwait(false);
+
             await RunTest("MCP create_backlog_item creates records and returns structured enum errors", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2199,6 +2287,35 @@ namespace Armada.Test.Unit.Suites.Services
             catch (InvalidOperationException ex)
             {
                 return ex.Message;
+            }
+        }
+
+        /// <summary>One id-taking write field, the full id it should store, and how to read the stored value back.</summary>
+        private sealed class AbbreviatedLinkCase
+        {
+            public string Field { get; }
+
+            public bool IsList { get; }
+
+            public string FullId { get; }
+
+            public Func<object, string?> Stored { get; }
+
+            public AbbreviatedLinkCase(string field, bool isList, string fullId, Func<object, string?> stored)
+            {
+                Field = field;
+                IsList = isList;
+                FullId = fullId;
+                Stored = stored;
+            }
+
+            /// <summary>Tool arguments carrying the id in this field plus the given name and value pairs.</summary>
+            public JsonElement Args(string id, params string[] namesAndValues)
+            {
+                Dictionary<string, object> args = new Dictionary<string, object>();
+                for (int index = 0; index + 1 < namesAndValues.Length; index += 2) args[namesAndValues[index]] = namesAndValues[index + 1];
+                args[Field] = IsList ? new List<string> { id } : (object)id;
+                return JsonSerializer.SerializeToElement(args);
             }
         }
 

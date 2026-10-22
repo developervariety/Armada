@@ -9,6 +9,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Writes accept abbreviated record ids and store the full id. `create_objective`
+  and `update_objective` resolve the objective being updated, `parentObjectiveId`
+  and every linked-id list; `armada_coordination_post` resolves its objective,
+  voyage, mission and incident ids, and `armada_coordination_claim` an objective
+  subject. One visible match resolves; none reads as not found and stores
+  nothing; two return `ambiguous_id`. Check-run and incident ids resolve as well
+  as mission, voyage and objective ids.
 - The objective scheduler names a vessel whose every auto-dispatch candidate it
   skipped on dispatch preflight: one `objective_scheduler.vessel_preflight_blocked`
   event and one board note list the objectives and their blocking codes, posted

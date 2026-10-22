@@ -19,7 +19,7 @@ namespace Armada.Server.Mcp
         public string Error { get; set; } = "";
 
         /// <summary>Reason when an abbreviated id names more than one record the caller can see.</summary>
-        public const string Ambiguous = McpAbbreviatedIdResolver.AmbiguousReason;
+        public const string Ambiguous = Armada.Core.Authorization.AbbreviatedIdResolver.AmbiguousReason;
 
         /// <summary><see cref="NotFound"/>, <see cref="OutOfScope"/> or <see cref="Ambiguous"/>.</summary>
         public string Reason { get; set; } = NotFound;

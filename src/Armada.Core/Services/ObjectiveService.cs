@@ -10,6 +10,7 @@ namespace Armada.Core.Services
     using System.Threading;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -818,6 +819,7 @@ namespace Armada.Core.Services
             if (request == null) throw new ArgumentNullException(nameof(request));
             await EnsureBackfilledAsync(token).ConfigureAwait(false);
 
+            id = await ResolveLinkIdAsync(id, async candidate => await ReadObjectiveExistsAsync(auth, candidate, token).ConfigureAwait(false), "Objective").ConfigureAwait(false);
             Objective objective = await ReadAsync(auth, id, token).ConfigureAwait(false)
                 ?? throw new ObjectiveNotFoundException();
 
@@ -1796,11 +1798,8 @@ namespace Armada.Core.Services
         /// </param>
         private async Task ValidateLinksAsync(AuthContext auth, Objective objective, CancellationToken token, bool tolerateDanglingIncidents = false)
         {
-            if (!String.IsNullOrWhiteSpace(objective.ParentObjectiveId)
-                && !await ReadObjectiveExistsAsync(auth, objective.ParentObjectiveId, token).ConfigureAwait(false))
-            {
-                throw new InvalidOperationException("Parent objective not found or not accessible: " + objective.ParentObjectiveId);
-            }
+            if (!String.IsNullOrWhiteSpace(objective.ParentObjectiveId))
+                await ValidateParentAsync(auth, objective, token).ConfigureAwait(false);
 
             await ValidateIdsAsync(objective.BlockedByObjectiveIds, async id => await ReadObjectiveExistsAsync(auth, id, token).ConfigureAwait(false), "Blocking objective").ConfigureAwait(false);
             await ValidateIdsAsync(objective.FleetIds, async id => await ReadFleetAsync(auth, id, token).ConfigureAwait(false), "Fleet").ConfigureAwait(false);
@@ -1843,12 +1842,8 @@ namespace Armada.Core.Services
             ObjectiveUpsertRequest request,
             CancellationToken token)
         {
-            if (request.ParentObjectiveId != null
-                && !String.IsNullOrWhiteSpace(objective.ParentObjectiveId)
-                && !await ReadObjectiveExistsAsync(auth, objective.ParentObjectiveId, token).ConfigureAwait(false))
-            {
-                throw new InvalidOperationException("Parent objective not found or not accessible: " + objective.ParentObjectiveId);
-            }
+            if (request.ParentObjectiveId != null && !String.IsNullOrWhiteSpace(objective.ParentObjectiveId))
+                await ValidateParentAsync(auth, objective, token).ConfigureAwait(false);
 
             if (request.BlockedByObjectiveIds != null)
                 await ValidateIdsAsync(objective.BlockedByObjectiveIds, async id => await ReadObjectiveExistsAsync(auth, id, token).ConfigureAwait(false), "Blocking objective").ConfigureAwait(false);
@@ -1906,17 +1901,44 @@ namespace Armada.Core.Services
                 + ".");
         }
 
+        // Each id resolves through the shared abbreviated-id resolver against the same scoped read that
+        // validates it, and the full id replaces the one given, so a link is always stored in full.
         private async Task ValidateIdsAsync(
-            IEnumerable<string> ids,
+            List<string> ids,
             Func<string, Task<bool>> exists,
             string label)
         {
-            foreach (string id in ids)
+            for (int index = 0; index < ids.Count; index++)
             {
+                string id = await ResolveLinkIdAsync(ids[index], exists, label).ConfigureAwait(false);
                 bool present = await exists(id).ConfigureAwait(false);
                 if (!present)
                     throw new InvalidOperationException(label + " not found or not accessible: " + id);
+                ids[index] = id;
             }
+
+            List<string> distinct = ids.Distinct(StringComparer.Ordinal).ToList();
+            if (distinct.Count != ids.Count)
+            {
+                ids.Clear();
+                ids.AddRange(distinct);
+            }
+        }
+
+        private async Task ValidateParentAsync(AuthContext auth, Objective objective, CancellationToken token)
+        {
+            Func<string, Task<bool>> exists = async id => await ReadObjectiveExistsAsync(auth, id, token).ConfigureAwait(false);
+            string parentId = await ResolveLinkIdAsync(objective.ParentObjectiveId!, exists, "Parent objective").ConfigureAwait(false);
+            if (!await exists(parentId).ConfigureAwait(false))
+                throw new InvalidOperationException("Parent objective not found or not accessible: " + parentId);
+            objective.ParentObjectiveId = parentId;
+        }
+
+        private async Task<string> ResolveLinkIdAsync(string id, Func<string, Task<bool>> exists, string label)
+        {
+            AbbreviatedIdResolution resolved = await AbbreviatedIdResolver.ResolveAsync(_Database, id, exists).ConfigureAwait(false);
+            if (resolved.Ambiguous) throw new InvalidOperationException(AbbreviatedIdResolver.DescribeAmbiguous(label, id));
+            return resolved.Id;
         }
 
         /// <summary>

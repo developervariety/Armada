@@ -1215,7 +1215,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Voyage earlier = await testDb.Driver.Voyages.CreateAsync(new Voyage("earlier rescue voyage") { TenantId = tenant, UserId = user }).ConfigureAwait(false);
                     Mission cited = await testDb.Driver.Missions.CreateAsync(new Mission("earlier rescue worker")
                     {
-                        Id = IdAt("msn", now, "citedWorker"),
+                        Id = TestRecordIds.At("msn", now, "citedWorker"),
                         TenantId = tenant,
                         UserId = user,
                         VoyageId = earlier.Id,
@@ -1226,7 +1226,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // never a candidate, so the caller's abbreviation still resolves to its own record.
                     Mission otherOwnerTwin = await testDb.Driver.Missions.CreateAsync(new Mission("other owner twin")
                     {
-                        Id = IdAt("msn", now, "otherOwnerTwin"),
+                        Id = TestRecordIds.At("msn", now, "otherOwnerTwin"),
                         TenantId = tenant,
                         UserId = otherUser.Id,
                         AgentOutput = "other owner report",
@@ -1234,7 +1234,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                     Mission otherOwnerOnly = await testDb.Driver.Missions.CreateAsync(new Mission("other owner mission")
                     {
-                        Id = IdAt("msn", now + 1, "otherOwnerOnly"),
+                        Id = TestRecordIds.At("msn", now + 1, "otherOwnerOnly"),
                         TenantId = tenant,
                         UserId = otherUser.Id,
                         AgentOutput = "hidden report",
@@ -1242,7 +1242,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                     Mission twinA = await testDb.Driver.Missions.CreateAsync(new Mission("same-owner twin a")
                     {
-                        Id = IdAt("msn", now + 2, "firstTwin"),
+                        Id = TestRecordIds.At("msn", now + 2, "firstTwin"),
                         TenantId = tenant,
                         UserId = user,
                         AgentOutput = "twin a",
@@ -1250,7 +1250,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                     await testDb.Driver.Missions.CreateAsync(new Mission("same-owner twin b")
                     {
-                        Id = IdAt("msn", now + 2, "secondTwin"),
+                        Id = TestRecordIds.At("msn", now + 2, "secondTwin"),
                         TenantId = tenant,
                         UserId = user,
                         AgentOutput = "twin b",
@@ -1259,7 +1259,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("follow-up worker")
                     {
-                        Id = IdAt("msn", now + 3, "followUpWorker"),
+                        Id = TestRecordIds.At("msn", now + 3, "followUpWorker"),
                         TenantId = tenant,
                         UserId = user,
                         Persona = Armada.Core.PersonaCatalog.Worker
@@ -1890,19 +1890,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }, database);
                 return handlers;
             }
-        }
-
-        /// <summary>A record id whose creation-time part encodes the given Unix milliseconds.</summary>
-        private static string IdAt(string prefix, long unixMilliseconds, string tail)
-        {
-            const string digits = "0123456789abcdefghijklmnopqrstuvwxyz";
-            char[] timePart = new char[8];
-            for (int i = 7; i >= 0; i--)
-            {
-                timePart[i] = digits[(int)(unixMilliseconds % 36)];
-                unixMilliseconds /= 36;
-            }
-            return prefix + "_" + new string(timePart) + "_" + tail;
         }
 
         /// <summary>One mission read by a mission caller and whether its scope allows it.</summary>

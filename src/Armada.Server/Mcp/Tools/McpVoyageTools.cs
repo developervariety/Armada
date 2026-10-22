@@ -417,7 +417,7 @@ namespace Armada.Server.Mcp.Tools
             }
             else
             {
-                McpAbbreviatedIdResolution resolvedId = await McpAbbreviatedIdResolver.ResolveVoyageAsync(database, caller, voyageId).ConfigureAwait(false);
+                AbbreviatedIdResolution resolvedId = await AbbreviatedIdResolver.ResolveForCallerAsync(database, caller, voyageId).ConfigureAwait(false);
                 voyage = resolvedId.Ambiguous
                     ? null
                     : await CallerScopedRead.ReadVoyageAsync(database, caller, resolvedId.Id).ConfigureAwait(false);

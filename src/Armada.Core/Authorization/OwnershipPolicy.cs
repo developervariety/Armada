@@ -138,6 +138,20 @@ namespace Armada.Core.Authorization
         }
 
         /// <summary>
+        /// True when a stored record has the caller's tenant and user. A record or caller without a tenant or
+        /// user counts as the default one.
+        /// </summary>
+        /// <param name="caller">Authenticated caller.</param>
+        /// <param name="tenantId">Stored tenant, possibly empty.</param>
+        /// <param name="userId">Stored user, possibly empty.</param>
+        /// <returns>True when the caller owns the record.</returns>
+        public static bool SameOwner(AuthContext caller, string? tenantId, string? userId)
+        {
+            return SameTenant(tenantId, TenantOf(caller))
+                && String.Equals(UserOfRecord(userId), UserOf(caller), StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Tenant a stored record belongs to. A record without a tenant belongs to the default tenant,
         /// exactly as a caller without a tenant acts in it, so records written before tenancy keep working.
         /// </summary>

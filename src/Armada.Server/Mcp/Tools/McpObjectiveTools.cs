@@ -5,6 +5,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Linq;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -131,7 +132,7 @@ namespace Armada.Server.Mcp.Tools
                         : request.ObjectiveId.Trim();
                     if (objectiveId == null)
                         return (object)new { Error = "objectiveId is required: pass an objective id (obj_ prefix). A captain may omit it only when an objective authorizes its mission." };
-                    McpAbbreviatedIdResolution resolvedId = await McpAbbreviatedIdResolver.ResolveObjectiveAsync(database, auth, objectiveId).ConfigureAwait(false);
+                    AbbreviatedIdResolution resolvedId = await AbbreviatedIdResolver.ResolveForCallerAsync(database, auth, objectiveId).ConfigureAwait(false);
                     if (resolvedId.Ambiguous)
                         return (object)McpScopeDenial.CreateAmbiguous("Objective not found");
                     objectiveId = resolvedId.Id;
