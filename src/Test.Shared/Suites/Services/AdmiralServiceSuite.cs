@@ -408,6 +408,7 @@ namespace Test.Shared.Suites.Services
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     settings.MaxRecoveryAttempts = 2;
+                    settings.TransientOutageGraceMinutes = 0;
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
                     LoggingModule logging = CreateLogging();
                     IDockService dockService = new DockService(logging, db, settings, git);
@@ -468,6 +469,72 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(MissionStatusEnum.Failed, failed!.Status, "fails once MaxRecoveryAttempts is used up");
                     AssertEqual(2, relaunches);
                     AssertContains("rejected the request", failed.FailureReason ?? "");
+                    AssertEqual(MissionFailureKindEnum.Infra, failed.FailureKind, "an endpoint outage is the environment, not a crash to rescue");
+                    try { Directory.Delete(dock.WorktreePath, true); } catch { }
+                }
+            }));
+
+            cases.Add(CaseAsync("transient_outage_is_ridden_out_past_max_recovery", "Within TransientOutageGraceMinutes a repeating endpoint 5xx keeps resuming past MaxRecoveryAttempts, recording the failure once", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxRecoveryAttempts = 1;
+                    settings.TransientOutageGraceMinutes = 10;
+                    settings.TransientResumeDelaySeconds = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    LoggingModule logging = CreateLogging();
+                    IDockService dockService = new DockService(logging, db, settings, git);
+                    CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
+                    int relaunches = 0;
+                    captainService.OnLaunchAgent = (_, _, _) => { relaunches++; return Task.FromResult(7000 + relaunches); };
+                    IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                    AdmiralService service = new AdmiralService(logging, db, settings, captainService, missionService, new VoyageService(logging, db), dockService);
+
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("resume-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Voyage voyage = new Voyage("Resume Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_resume_dock_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(dock.WorktreePath);
+                    dock.Active = true;
+                    dock = await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Worker on a local model", "Do the work.");
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vessel.Id;
+                    mission.Persona = "Worker";
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = 4242;
+                    mission.DockId = dock.Id;
+                    await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("mux", AgentRuntimeEnum.Mux);
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    captain.ProcessId = 4242;
+                    await db.Captains.CreateAsync(captain);
+
+                    RuntimeProviderError endpoint500 = new RuntimeProviderError { HttpStatusCode = 500, ErrorType = "llm_error", Message = "error parsing tool call", Reason = "the model endpoint rejected the request" };
+                    await service.HandleProcessExitAsync(4242, RuntimeFailureClassifier.Decide(1, endpoint500), captain.Id, mission.Id).ConfigureAwait(false);
+
+                    int? processId = 4242;
+                    for (int i = 0; i < 3; i++)
+                    {
+                        if (i > 0) await service.HandleProcessExitAsync(processId!.Value, RuntimeFailureClassifier.Decide(1, endpoint500), captain.Id, mission.Id).ConfigureAwait(false);
+                        Mission? current = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.InProgress, current!.Status, "still resuming on failure " + (i + 1) + " of an outage inside the grace window");
+                        processId = current.ProcessId;
+                    }
+                    AssertEqual(3, relaunches, "resumed past MaxRecoveryAttempts of 1");
+                    Mission? after = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    int notes = (after!.Description ?? "").Split("stopped" + "\n", StringSplitOptions.None).Length - 1;
+                    AssertEqual(1, notes, "a repeating failure is recorded once, not once per resume");
                     try { Directory.Delete(dock.WorktreePath, true); } catch { }
                 }
             }));
@@ -557,6 +624,7 @@ namespace Test.Shared.Suites.Services
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     settings.MaxRecoveryAttempts = 1;
+                    settings.TransientOutageGraceMinutes = 0;
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 
@@ -591,6 +659,7 @@ namespace Test.Shared.Suites.Services
                     StubGitService git = new StubGitService();
                     ArmadaSettings settings = CreateSettings();
                     settings.MaxRecoveryAttempts = 1;
+                    settings.TransientOutageGraceMinutes = 0;
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
                     AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 

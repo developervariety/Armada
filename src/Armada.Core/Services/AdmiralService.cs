@@ -116,6 +116,9 @@ namespace Armada.Core.Services
         private ArmadaSettings _Settings;
         private ISystemResourceProbe _ResourceProbe = new SystemResourceProbe();
         private long _MemoryPressureDeferrals = 0;
+        // When each mission's current run of transient failures began, for TransientOutageGraceMinutes.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _TransientOutageStarts =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<long>> _CaptainCrashTimes =
             new System.Collections.Concurrent.ConcurrentDictionary<string, List<long>>();
         private TimeProvider _Time = TimeProvider.System;
@@ -959,6 +962,7 @@ namespace Armada.Core.Services
                 }
 
                 // Clean exit — delegate to the normal completion flow
+                _TransientOutageStarts.TryRemove(missionId, out DateTime _);
                 _Logging.Info(_Header + "agent process " + processId + " exited cleanly for mission " + missionId + " — handling completion");
                 await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
             }
@@ -990,9 +994,13 @@ namespace Armada.Core.Services
                 // A model endpoint hiccup (Transient) or a run that ran out of iterations or budget (TaskFailure) is not
                 // the end of the mission: relaunch the captain in the same dock, where its edits so far still are, with
                 // a note about the earlier attempt, up to MaxRecoveryAttempts times.
+                // Transient failures past MaxRecoveryAttempts keep resuming while the outage is younger than
+                // TransientOutageGraceMinutes, so a proxy or model-server restart does not fail work in progress.
+                bool withinOutageGrace = exitInfo.FailureKind == RuntimeFailureKindEnum.Transient && mission != null && WithinTransientOutageGrace(mission.Id);
+                if (exitInfo.FailureKind != RuntimeFailureKindEnum.Transient) _TransientOutageStarts.TryRemove(missionId, out DateTime _);
                 if ((exitInfo.FailureKind == RuntimeFailureKindEnum.Transient || exitInfo.FailureKind == RuntimeFailureKindEnum.TaskFailure)
                     && mission != null
-                    && captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts
+                    && (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts || withinOutageGrace)
                     && await TryResumeInPlaceAsync(captain, mission, failureReason, token,
                         exitInfo.FailureKind == RuntimeFailureKindEnum.Transient ? TransientResumeDelay(captain.RecoveryAttempts) : TimeSpan.Zero).ConfigureAwait(false))
                 {
@@ -2074,6 +2082,16 @@ namespace Armada.Core.Services
         /// Pending for a fresh assignment, and the voyage is left running. Bounded by the caller against
         /// <see cref="ArmadaSettings.MaxNoOpRedispatchAttempts"/>.
         /// </summary>
+        private bool WithinTransientOutageGrace(string missionId)
+        {
+            int graceMinutes = _Settings.TransientOutageGraceMinutes;
+            if (graceMinutes <= 0) return false;
+            DateTime started = _TransientOutageStarts.GetOrAdd(missionId, _ => DateTime.UtcNow);
+            if (DateTime.UtcNow - started < TimeSpan.FromMinutes(graceMinutes)) return true;
+            _TransientOutageStarts.TryRemove(missionId, out DateTime _);
+            return false;
+        }
+
         private TimeSpan TransientResumeDelay(int recoveryAttempts)
         {
             int baseSeconds = _Settings.TransientResumeDelaySeconds;
@@ -2114,7 +2132,9 @@ namespace Armada.Core.Services
                 + "\nYour work so far is still in the working tree. Run git status and git diff to see it, keep what is right, and continue the mission from there. Do not start over."
                 + " Every line in git diff was written by you during this mission: you may change or remove it, even where the instructions say not to change existing lines (that means lines that were there before the mission started)."
                 + " Write files with plain content only, never with the line numbers that read_file shows.";
-            mission.Description = (mission.Description ?? String.Empty) + note;
+            // An outage ridden out over many resumes repeats one failure; record it once instead of once per attempt.
+            if (!(mission.Description ?? String.Empty).Contains(failureReason.Trim(), StringComparison.Ordinal))
+                mission.Description = (mission.Description ?? String.Empty) + note;
             mission.ProcessId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -2263,7 +2283,10 @@ namespace Armada.Core.Services
                 MissionStatusEnum observedStatus = mission.Status;
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = failureReason;
-                mission.FailureKind = missionFailureKind ?? (runtimeFailureKind == RuntimeFailureKindEnum.TaskFailure ? MissionFailureKindEnum.InvalidOutput : MissionFailureKindEnum.Crash);
+                // A transient endpoint failure that outlasted its resumes and the outage grace is the environment, not the
+                // captain: Infra, which is left to a person instead of an autonomous rescue against the same endpoint.
+                mission.FailureKind = missionFailureKind ?? (runtimeFailureKind == RuntimeFailureKindEnum.TaskFailure ? MissionFailureKindEnum.InvalidOutput
+                    : runtimeFailureKind == RuntimeFailureKindEnum.Transient ? MissionFailureKindEnum.Infra : MissionFailureKindEnum.Crash);
                 mission.ProcessId = null;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;

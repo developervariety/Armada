@@ -30,7 +30,7 @@ administrator).
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 199 | 12 |
+| Settings keys | 200 | 12 |
 
 ## REST API
 
@@ -969,6 +969,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `telemetry.prometheusPort` | int | `9464` |  |
 | `telemetry.serviceName` | string | `"armada"` |  |
 | `terminalBell` | bool | `true` |  |
+| `transientOutageGraceMinutes` | int | `10` |  |
 | `transientResumeDelaySeconds` | int | `5` |  |
 | `verifyAllStageRuntimes` | bool | `true` |  |
 | `webSocketEnabled` | bool | `true` |  |

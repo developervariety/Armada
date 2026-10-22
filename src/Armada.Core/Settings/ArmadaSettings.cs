@@ -330,6 +330,23 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// How long, in minutes, a run of transient model or endpoint failures (5xx, overload, connection loss) is ridden
+        /// out before the mission fails. Within it a captain keeps resuming in place with the capped backoff even after
+        /// MaxRecoveryAttempts, so a proxy or model-server restart does not fail work in progress. 0 limits transient
+        /// failures to MaxRecoveryAttempts. Must be in range [0, 120].
+        /// </summary>
+        public int TransientOutageGraceMinutes
+        {
+            get => _TransientOutageGraceMinutes;
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 120) value = 120;
+                _TransientOutageGraceMinutes = value;
+            }
+        }
+
+        /// <summary>
         /// Maximum number of automatic recovery attempts for a stalled captain before its mission
         /// is failed.
         /// </summary>
@@ -876,6 +893,7 @@ namespace Armada.Core.Settings
         private int _MaxOutputRepairAttempts = 1;
         private int _MaxMissionRecoveryAttempts = 2;
         private int _TransientResumeDelaySeconds = 5;
+        private int _TransientOutageGraceMinutes = 10;
         private int _MinIdleCaptains = 0;
         private int _MaxCaptains = 0;
         private int _MaxConcurrentMissions = Constants.DefaultMaxConcurrentMissions;

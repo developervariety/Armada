@@ -19001,6 +19001,12 @@
       "experimental": false
     },
     {
+      "key": "transientOutageGraceMinutes",
+      "type": "int",
+      "default": "10",
+      "experimental": false
+    },
+    {
       "key": "transientResumeDelaySeconds",
       "type": "int",
       "default": "5",
