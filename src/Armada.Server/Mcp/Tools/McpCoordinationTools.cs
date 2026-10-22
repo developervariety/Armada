@@ -52,7 +52,7 @@ namespace Armada.Server.Mcp.Tools
                         missionId = new { type = "string", description = "Optional related mission ID (msn_ prefix)." },
                         vesselId = new { type = "string", description = "Optional related vessel ID (vsl_ prefix)." },
                         incidentId = new { type = "string", description = "Optional related incident ID (inc_ prefix)." },
-                        toParticipantKey = new { type = "string", description = "Optional participant key to address this note to - marks it as work or an answer directed at one session while staying visible to all. A value that is no participant key but is the name exactly one participant key posts or heartbeats under is delivered to that key, and the result's AddressNotice says so; address notes to the key." }
+                        toParticipantKey = new { type = "string", description = "Optional participant key to address this note to - marks it as work or an answer directed at one session while staying visible to all. A value that is no participant key but is a name a participant key posted or heartbeated under in the last 24 hours is delivered to that key; a name several keys use is delivered to each of them. The result's AddressNotice names every key the note reaches; address notes to the key." }
                     },
                     required = new[] { "content", "authorName" }
                 },

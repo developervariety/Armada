@@ -37,6 +37,11 @@ namespace Armada.Server
         private const int _MaximumTrackedParticipantKeys = 1024;
         private readonly object _ParticipantNameLock = new object();
         private readonly Dictionary<string, ParticipantNameHistory> _ParticipantNames = new Dictionary<string, ParticipantNameHistory>(StringComparer.Ordinal);
+        private static readonly TimeSpan _AddressNameRetention = TimeSpan.FromHours(24);
+        private const int _AddressBookSeedPageSize = 500;
+        private readonly Dictionary<string, Dictionary<string, DateTime>> _AddressNames = new Dictionary<string, Dictionary<string, DateTime>>(StringComparer.Ordinal);
+        private readonly SemaphoreSlim _AddressBookSeedLock = new SemaphoreSlim(1, 1);
+        private bool _AddressBookSeeded = false;
 
         /// <summary>
         /// Event type written once per participant key per presence window when the key is in use
@@ -219,9 +224,9 @@ namespace Armada.Server
 
             BroadcastMessageCreated(room.Key, message);
 
-            if (!String.IsNullOrWhiteSpace(toParticipantKey))
+            foreach (string deliveredKey in address.DeliveredKeys)
             {
-                await EmitWakeForAddressedNoteAsync(toParticipantKey!, authorName, content, token).ConfigureAwait(false);
+                await EmitWakeForAddressedNoteAsync(deliveredKey, authorName, content, token).ConfigureAwait(false);
             }
 
             return message;
@@ -356,8 +361,34 @@ namespace Armada.Server
             CoordinationRoom? room = await EnsureRoomAsync(roomKey, DefaultRoomKey == roomKey ? DefaultRoomName : null, DefaultRoomKey == roomKey ? DefaultRoomDescription : null, token).ConfigureAwait(false);
             if (!String.IsNullOrWhiteSpace(visibleToParticipantKey))
             {
-                return await _Database.CoordinationMessages.EnumerateVisibleToAsync(
-                    room.Id, visibleToParticipantKey, afterUtc, limit, token).ConfigureAwait(false);
+                List<string> names = await NamesDeliveredToAsync(visibleToParticipantKey!, token).ConfigureAwait(false);
+                if (names.Count == 0)
+                {
+                    return await _Database.CoordinationMessages.EnumerateVisibleToAsync(
+                        room.Id, visibleToParticipantKey, afterUtc, limit, token).ConfigureAwait(false);
+                }
+
+                // A note stored under a name this key posts under is the key's mail too. Each
+                // per-address read returns the same window of its own subset, so their union holds
+                // the window of the whole set.
+                int window = Math.Clamp(limit, 1, 1000);
+                Dictionary<string, CoordinationMessage> byId = new Dictionary<string, CoordinationMessage>(StringComparer.Ordinal);
+                List<string> addresses = new List<string> { visibleToParticipantKey! };
+                addresses.AddRange(names);
+                foreach (string address in addresses)
+                {
+                    List<CoordinationMessage> part = await _Database.CoordinationMessages.EnumerateVisibleToAsync(
+                        room.Id, address, afterUtc, window, token).ConfigureAwait(false);
+                    foreach (CoordinationMessage message in part) byId[message.Id] = message;
+                }
+
+                List<CoordinationMessage> merged = byId.Values
+                    .OrderBy(m => m.CreatedUtc)
+                    .ThenBy(m => m.Id, StringComparer.Ordinal)
+                    .ToList();
+                if (merged.Count > window)
+                    merged = afterUtc.HasValue ? merged.Take(window).ToList() : merged.Skip(merged.Count - window).ToList();
+                return merged;
             }
 
             return await _Database.CoordinationMessages.EnumerateByRoomAsync(room.Id, afterUtc, limit, token).ConfigureAwait(false);
@@ -411,11 +442,13 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Resolve the addressee of a note. A key that a participant uses (a presence row in any room
-        /// or a post or heartbeat since the admiral started) is used as is. A value that is no such
-        /// key but that exactly one participant key uses as its name resolves to that key, so the
-        /// note and its wake reach the session that reads and acknowledges as that key. A name
-        /// several keys use, or a value nobody uses, stays as given.
+        /// Resolve the addressee of a note against the address book: every participant key with the
+        /// names it posted or heartbeated under within the address window, from stored notes, presence
+        /// rows and this process's own posts and heartbeats. A key in the book is used as is. A value
+        /// that is no key but that one key uses as a name resolves to that key, so the note and its
+        /// wake reach the session that reads and acknowledges as that key. A name several keys use is
+        /// stored as given and delivered to each of them: each key's filtered read returns it and each
+        /// key gets a wake. A value nobody uses stays as given.
         /// </summary>
         /// <param name="toParticipantKey">Addressee the sender gave; null or blank for a broadcast note.</param>
         /// <param name="token">Cancellation token.</param>
@@ -427,49 +460,48 @@ namespace Armada.Server
             string requested = toParticipantKey.Trim();
             resolution.RequestedKey = requested;
             resolution.ResolvedKey = requested;
+            resolution.DeliveredKeys.Add(requested);
 
-            Dictionary<string, HashSet<string>> namesByKey = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-            DateTime retainFrom = _TimeProvider.GetUtcNow().UtcDateTime - _ParticipantNameRetention;
-            lock (_ParticipantNameLock)
-            {
-                foreach (KeyValuePair<string, ParticipantNameHistory> entry in _ParticipantNames)
-                {
-                    HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (KeyValuePair<string, DateTime> name in entry.Value.LastSeenByName)
-                        if (name.Value >= retainFrom) names.Add(name.Key);
-                    namesByKey[entry.Key] = names;
-                }
-            }
-
-            List<CoordinationPresenceEntry> presence = await EnumeratePresenceAcrossRoomsAsync((int)_ParticipantNameRetention.TotalMinutes, token).ConfigureAwait(false);
-            foreach (CoordinationPresenceEntry entry in presence)
-            {
-                HashSet<string>? names;
-                if (!namesByKey.TryGetValue(entry.ParticipantKey, out names))
-                {
-                    names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    namesByKey[entry.ParticipantKey] = names;
-                }
-                if (!String.IsNullOrWhiteSpace(entry.DisplayName)) names.Add(entry.DisplayName.Trim());
-            }
-
+            Dictionary<string, HashSet<string>> namesByKey = await BuildAddressBookAsync(token).ConfigureAwait(false);
             if (namesByKey.ContainsKey(requested)) return resolution;
 
             List<string> matches = namesByKey.Where(e => e.Value.Contains(requested)).Select(e => e.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
             if (matches.Count == 1)
             {
                 resolution.ResolvedKey = matches[0];
+                resolution.DeliveredKeys = matches;
                 resolution.Notice = "'" + requested + "' is not a participant key; it is the name participant key '" + matches[0]
                     + "' posts or heartbeats under, so the note and its wake go to '" + matches[0]
                     + "'. Address notes to the participant key.";
             }
             else if (matches.Count > 1)
             {
-                resolution.Notice = "'" + requested + "' is not a participant key, and several participant keys use it as a name ("
-                    + String.Join(", ", matches) + "). The note stays addressed to '" + requested
-                    + "' and reaches no session until one reads that key. Address the note to one of those keys.";
+                resolution.DeliveredKeys = matches;
+                resolution.Notice = "'" + requested + "' is not a participant key, and several participant keys post or heartbeat under that name ("
+                    + String.Join(", ", matches) + "). The note is delivered to each of them: each key's read returns it and each key gets a wake."
+                    + " Address the note to one participant key to reach one session.";
             }
             return resolution;
+        }
+
+        /// <summary>
+        /// Names a participant key posted or heartbeated under within the address window that are not
+        /// themselves participant keys. A note stored under one of them is delivered to the key.
+        /// </summary>
+        /// <param name="participantKey">Participant key.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The names, ordinal order; empty when the key uses no other name.</returns>
+        public async Task<List<string>> NamesDeliveredToAsync(string participantKey, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(participantKey)) return new List<string>();
+            string key = participantKey.Trim();
+            Dictionary<string, HashSet<string>> namesByKey = await BuildAddressBookAsync(token).ConfigureAwait(false);
+            HashSet<string>? names;
+            if (!namesByKey.TryGetValue(key, out names)) return new List<string>();
+            return names
+                .Where(n => !namesByKey.ContainsKey(n) && !String.Equals(n, key, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => n, StringComparer.Ordinal)
+                .ToList();
         }
 
         /// <summary>
@@ -923,6 +955,7 @@ namespace Armada.Server
                     history.SwitchUtcs.Add(now);
                 history.LastName = name;
                 history.LastSeenByName[name] = now;
+                RecordAddressNameLocked(participantKey, name, now);
 
                 CoordinationSharedParticipantKey? shared = DescribeShared(participantKey, history, now, _SharedKeyWarningWindow);
                 if (shared == null) return null;
@@ -930,6 +963,115 @@ namespace Armada.Server
                 history.WarnedUtc = now;
                 return shared;
             }
+        }
+
+        /// <summary>
+        /// Remember that a participant key used a name at the given time. Caller holds the
+        /// participant-name lock.
+        /// </summary>
+        private void RecordAddressNameLocked(string participantKey, string name, DateTime seenUtc)
+        {
+            Dictionary<string, DateTime>? names;
+            if (!_AddressNames.TryGetValue(participantKey, out names))
+            {
+                if (_AddressNames.Count >= _MaximumTrackedParticipantKeys)
+                {
+                    DateTime retainFrom = _TimeProvider.GetUtcNow().UtcDateTime - _AddressNameRetention;
+                    foreach (string stale in _AddressNames
+                        .Where(e => e.Value.Count == 0 || e.Value.Values.Max() < retainFrom)
+                        .Select(e => e.Key).ToList())
+                    {
+                        _AddressNames.Remove(stale);
+                    }
+                }
+                names = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+                _AddressNames[participantKey] = names;
+            }
+
+            DateTime previous;
+            if (!names.TryGetValue(name, out previous) || seenUtc > previous) names[name] = seenUtc;
+        }
+
+        /// <summary>
+        /// Load the names participant keys posted under within the address window from stored notes,
+        /// once per process, so a restart does not forget which key a session's name belongs to.
+        /// </summary>
+        private async Task EnsureAddressBookSeededAsync(CancellationToken token)
+        {
+            if (Volatile.Read(ref _AddressBookSeeded)) return;
+            await _AddressBookSeedLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                if (_AddressBookSeeded) return;
+                DateTime from = _TimeProvider.GetUtcNow().UtcDateTime - _AddressNameRetention;
+                List<CoordinationRoom> rooms = await _Database.CoordinationRooms.EnumerateAsync(token).ConfigureAwait(false);
+                foreach (CoordinationRoom room in rooms)
+                {
+                    DateTime after = from;
+                    while (true)
+                    {
+                        List<CoordinationMessage> page = await _Database.CoordinationMessages
+                            .EnumerateByRoomAsync(room.Id, after, _AddressBookSeedPageSize, token).ConfigureAwait(false);
+                        lock (_ParticipantNameLock)
+                        {
+                            foreach (CoordinationMessage message in page)
+                            {
+                                if (String.IsNullOrWhiteSpace(message.AuthorId) || String.IsNullOrWhiteSpace(message.AuthorName)) continue;
+                                RecordAddressNameLocked(message.AuthorId!.Trim(), message.AuthorName.Trim(), message.CreatedUtc);
+                            }
+                        }
+                        if (page.Count < _AddressBookSeedPageSize) break;
+                        DateTime last = page[page.Count - 1].CreatedUtc;
+                        if (last <= after) break;
+                        after = last;
+                    }
+                }
+                Volatile.Write(ref _AddressBookSeeded, true);
+            }
+            catch (NotSupportedException ex)
+            {
+                _Logging.Debug(_Header + "address book seed unsupported on this backend: " + ex.Message);
+                Volatile.Write(ref _AddressBookSeeded, true);
+            }
+            finally
+            {
+                _AddressBookSeedLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Every participant key with the names it posted or heartbeated under within the address
+        /// window: stored notes, presence rows in every room, and this process's posts and heartbeats.
+        /// </summary>
+        private async Task<Dictionary<string, HashSet<string>>> BuildAddressBookAsync(CancellationToken token)
+        {
+            await EnsureAddressBookSeededAsync(token).ConfigureAwait(false);
+
+            Dictionary<string, HashSet<string>> namesByKey = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            DateTime retainFrom = _TimeProvider.GetUtcNow().UtcDateTime - _AddressNameRetention;
+            lock (_ParticipantNameLock)
+            {
+                foreach (KeyValuePair<string, Dictionary<string, DateTime>> entry in _AddressNames)
+                {
+                    HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (KeyValuePair<string, DateTime> name in entry.Value)
+                        if (name.Value >= retainFrom) names.Add(name.Key);
+                    if (names.Count > 0) namesByKey[entry.Key] = names;
+                }
+            }
+
+            List<CoordinationPresenceEntry> presence = await EnumeratePresenceAcrossRoomsAsync((int)_AddressNameRetention.TotalMinutes, token).ConfigureAwait(false);
+            foreach (CoordinationPresenceEntry entry in presence)
+            {
+                HashSet<string>? names;
+                if (!namesByKey.TryGetValue(entry.ParticipantKey, out names))
+                {
+                    names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    namesByKey[entry.ParticipantKey] = names;
+                }
+                if (!String.IsNullOrWhiteSpace(entry.DisplayName)) names.Add(entry.DisplayName.Trim());
+            }
+            return namesByKey;
         }
 
         private void PruneParticipantNames(DateTime now)

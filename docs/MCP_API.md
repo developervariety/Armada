@@ -230,11 +230,18 @@ unique for one session with `ARMADA_PARTICIPANT_KEY_UNIQUE=1`. That lets several
 sessions run on one bridge configuration, each with its own key and mailbox,
 while each still names only the key it was configured with.
 
-A note's `toParticipantKey` names a participant key. When the value is no
-participant key but is the name exactly one participant key posts or
-heartbeats under, the note and its wake go to that key, and the post result
-carries `AddressNotice` naming the key. A name several keys use, or a value
-nobody uses, stays as given; the first gets an `AddressNotice` too.
+A note's `toParticipantKey` names a participant key. A value that is no
+participant key but is a name a participant key posted or heartbeated under in
+the last 24 hours is delivered to that key. The address book behind this reads
+the stored notes of that window, every presence row, and the admiral's own posts
+and heartbeats, so a session that only reads the board for hours, or an admiral
+restart, does not lose the mapping. One key that uses the name receives the
+note under its key. Several keys that use the name each receive it: the note is
+stored under the name, each key's filtered `armada_coordination_read` returns
+it, and each key gets its own wake. The post result's `AddressNotice` names
+every key the note reaches. A filtered read also returns a note already stored
+under a name the key used in the window, unless that name is itself a
+participant key. A value nobody uses stays as given.
 
 A participant key belongs to one session. When a key posts or heartbeats under
 two or more names within the presence window and switches back and forth (one

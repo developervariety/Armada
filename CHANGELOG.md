@@ -517,6 +517,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A coordination note addressed to the name a session posts under reaches that
+  session after it has only read the board for over an hour, and after an
+  admiral restart. The address book holds every name a participant key posted
+  or heartbeated under in the last 24 hours, from stored notes, presence rows
+  and the admiral's own posts and heartbeats. A name several keys use is
+  delivered to each of them: each key's filtered `armada_coordination_read`
+  returns the note, each key gets its own wake, and `AddressNotice` names every
+  key. A filtered read also returns a note already stored under a name the key
+  used in that window.
 - `ActiveDispatchedCount` in `armada_objective_scheduler_status` describes the
   latest sweep tick, including a sweep that is disabled or paused. It counts each
   Open or InProgress voyage that holds a mission on a vessel once, by the same
@@ -1602,10 +1611,10 @@ upstream integrations and excludes changes already present at that baseline.
   unannotated helper methods from its bounded candidate list.
 
 - A coordination note addressed to a session's name reaches the session. A
-  `toParticipantKey` that is no participant key but is the name exactly one
-  participant key posts or heartbeats under is stored and woken under that key,
-  so the read filter, the wake and `armada_mark_signal_read` agree, and the post
-  result carries `AddressNotice`. `armada_coordination_read` and
+  `toParticipantKey` that is no participant key but is a name a participant key
+  posts or heartbeats under is delivered and woken under that key, so the read
+  filter, the wake and `armada_mark_signal_read` agree, and the post result
+  carries `AddressNotice`. `armada_coordination_read` and
   `armada_coordination_heartbeat` refuse a `participantKey` that differs from
   the session's participant header instead of reading the header key silently.
 

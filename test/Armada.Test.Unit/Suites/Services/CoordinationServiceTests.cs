@@ -179,13 +179,72 @@ namespace Armada.Test.Unit.Suites.Services
 
                     CoordinationMessage ambiguous = await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
                         "peer", "peer", "which twin", toParticipantKey: "twin-name").ConfigureAwait(false);
-                    AssertEqual("twin-name", ambiguous.ToParticipantKey, "a name several keys use is not guessed");
+                    AssertEqual("twin-name", ambiguous.ToParticipantKey, "a name several keys use is stored as given");
                     AssertContains("several participant keys", ambiguous.AddressNotice ?? String.Empty);
+                    AssertContains("twin-a, twin-b", ambiguous.AddressNotice ?? String.Empty, "the sender is told every key the note reaches");
+                    foreach (string twin in new[] { "twin-a", "twin-b" })
+                    {
+                        List<CoordinationMessage> twinVisible = await service.ReadMessagesAsync(
+                            CoordinationService.DefaultRoomKey, visibleToParticipantKey: twin).ConfigureAwait(false);
+                        AssertTrue(twinVisible.Any(m => m.Id == ambiguous.Id), twin + " reads a note addressed to a name it shares");
+                        AssertEqual(1, (await service.EnumerateUnreadWakesAsync(twin).ConfigureAwait(false)).Count, twin + " gets its own wake");
+                    }
 
                     CoordinationMessage unknown = await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
                         "peer", "peer", "for a session not yet seen", toParticipantKey: "offline-key").ConfigureAwait(false);
                     AssertEqual("offline-key", unknown.ToParticipantKey, "a value nobody uses stays as given");
                     AssertNull(unknown.AddressNotice);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A note addressed to a session's name reaches its key after an hour of silence and after a restart", async () =>
+            {
+                // A session posted under its name, then only read the board for over an hour. Its
+                // presence row was pruned and its name aged out, so a note addressed to the name
+                // was stored under the name: the key's read never returned it and the wake waited
+                // on the name.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTimeProvider time = new FakeTimeProvider(DateTimeOffset.UtcNow);
+                    CoordinationService service = CreateService(testDb, time);
+                    CoordinationRoom room = await service.EnsureRoomAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "session-key", "session-name", "landing the fix").ConfigureAwait(false);
+
+                    time.Advance(TimeSpan.FromHours(2));
+                    await testDb.Driver.CoordinationParticipants.PruneAsync(room.Id, DateTime.UtcNow.AddMinutes(1)).ConfigureAwait(false);
+
+                    CoordinationMessage note = await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "peer-key", "peer-name", "issue for the next deploy", toParticipantKey: "session-name").ConfigureAwait(false);
+                    AssertEqual("session-key", note.ToParticipantKey, "the name still resolves to the key that posted under it");
+                    List<CoordinationMessage> visible = await service.ReadMessagesAsync(
+                        CoordinationService.DefaultRoomKey, visibleToParticipantKey: "session-key").ConfigureAwait(false);
+                    AssertTrue(visible.Any(m => m.Id == note.Id), "the key's filtered read returns the note");
+                    AssertEqual(1, (await service.EnumerateUnreadWakesAsync("session-key").ConfigureAwait(false)).Count, "the wake is raised for the key");
+
+                    CoordinationMessage storedUnderName = await testDb.Driver.CoordinationMessages.CreateAsync(new CoordinationMessage
+                    {
+                        CoordinationRoomId = room.Id,
+                        AuthorType = CoordinationAuthorTypeEnum.Operator,
+                        AuthorId = "peer-key",
+                        AuthorName = "peer-name",
+                        Content = "stored under the name",
+                        ToParticipantKey = "session-name"
+                    }).ConfigureAwait(false);
+
+                    CoordinationService restarted = CreateService(testDb, time);
+                    await testDb.Driver.CoordinationParticipants.PruneAsync(room.Id, DateTime.UtcNow.AddMinutes(1)).ConfigureAwait(false);
+                    CoordinationMessage afterRestart = await restarted.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "peer-key", "peer-name", "second issue", toParticipantKey: "session-name").ConfigureAwait(false);
+                    AssertEqual("session-key", afterRestart.ToParticipantKey, "stored notes keep the name's key across a restart");
+                    List<CoordinationMessage> restartedVisible = await restarted.ReadMessagesAsync(
+                        CoordinationService.DefaultRoomKey, visibleToParticipantKey: "session-key").ConfigureAwait(false);
+                    AssertTrue(restartedVisible.Any(m => m.Id == afterRestart.Id), "the key reads the note posted after the restart");
+                    AssertTrue(restartedVisible.Any(m => m.Id == storedUnderName.Id), "a note already stored under the name is the key's mail too");
+                    AssertEqual(2, (await restarted.EnumerateUnreadWakesAsync("session-key").ConfigureAwait(false)).Count, "each resolved note wakes the key");
+                    List<CoordinationMessage> peerVisible = await restarted.ReadMessagesAsync(
+                        CoordinationService.DefaultRoomKey, visibleToParticipantKey: "other-key").ConfigureAwait(false);
+                    AssertFalse(peerVisible.Any(m => m.Id == storedUnderName.Id), "another key does not read mail addressed to the name");
                 }
             }).ConfigureAwait(false);
 

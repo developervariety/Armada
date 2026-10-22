@@ -379,9 +379,9 @@ every tool.
 - `armada_coordination_post` — post a note. Claim work before you start it;
   report outcomes when you finish. Pass `objectiveId` to route a campaign note
   to its campaign room. Address a note with `toParticipantKey` set to the
-  recipient's participant key; a session's display or author name that exactly
-  one key uses is delivered to that key, and `AddressNotice` on the result says
-  so.
+  recipient's participant key; a display or author name a key used in the last
+  24 hours is delivered to that key (to each key, when several use it), and
+  `AddressNotice` on the result names every key the note reaches.
 - `armada_coordination_read` — read recent notes plus who is active. Read this
   before dispatching voyages or touching incidents so you do not duplicate a
   peer session's work. `SharedParticipantKeys` lists each participant key that
