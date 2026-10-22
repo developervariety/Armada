@@ -272,6 +272,25 @@ namespace Armada.Core.Services
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Read the payload of a <see cref="DispatchedEvent"/>. An empty or unreadable payload reads as a record
+        /// that names no Challenger.
+        /// </summary>
+        /// <param name="payload">Event payload.</param>
+        /// <returns>The dispatch record.</returns>
+        public static JudgeChallengeDispatchRecord ReadDispatchRecord(string? payload)
+        {
+            if (String.IsNullOrWhiteSpace(payload)) return new JudgeChallengeDispatchRecord();
+            try
+            {
+                return JsonSerializer.Deserialize<JudgeChallengeDispatchRecord>(payload) ?? new JudgeChallengeDispatchRecord();
+            }
+            catch (JsonException)
+            {
+                return new JudgeChallengeDispatchRecord();
+            }
+        }
+
         #endregion
 
         #region Private-Methods

@@ -1134,6 +1134,94 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(requeued.Id, "Objective fixture should have an id.");
             }).ConfigureAwait(false);
 
+            await RunTest("A requeued row whose failed Judge still has a Challenger ruling waits as recovery_pending, then dispatches once the ruling is in", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("challenge-requeue-vessel", "https://github.com/test/challenge-requeue.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Voyage whose Judge failed")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VesselId = vessel.Id,
+                    VoyageId = failedVoyage.Id,
+                    Persona = PersonaCatalog.Judge,
+                    Title = "Judge",
+                    Status = MissionStatusEnum.Failed,
+                    FailureReason = JudgeChallenge.NeedsRevisionReason,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-2)
+                }).ConfigureAwait(false);
+                Mission challenger = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VesselId = vessel.Id,
+                    Persona = PersonaCatalog.Challenger,
+                    Title = "Challenge: Judge",
+                    Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                await testDb.Driver.Events.CreateAsync(new ArmadaEvent(JudgeChallenge.DispatchedEvent, "Challenger dispatched.")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    EntityType = "mission",
+                    EntityId = judge.Id,
+                    MissionId = judge.Id,
+                    Payload = System.Text.Json.JsonSerializer.Serialize(new JudgeChallengeDispatchRecord
+                    {
+                        ChallengerMissionId = challenger.Id,
+                        JudgeCompletedUtc = judge.CompletedUtc,
+                        FindingCount = 2
+                    })
+                }).ConfigureAwait(false);
+
+                Objective requeued = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Requeued while its Judge is challenged",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { failedVoyage.Id },
+                    MissionIds = new List<string> { judge.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                await CreateScheduler(testDb.Driver, admiral, settings).SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "The row waits while autonomous recovery owns its failed Judge.");
+                List<ArmadaEvent> pending = await testDb.Driver.Events.EnumerateByTypeAsync("objective_scheduler.skipped_recovery_pending", 10).ConfigureAwait(false);
+                AssertEqual(1, pending.Count, "The wait is a named skip.");
+                AssertContains(challenger.Id, pending[0].Message, "The skip names the Challenger.");
+                AssertContains(judge.Id, pending[0].Message, "The skip names the failed Judge.");
+                AssertEqual(requeued.Id, pending[0].EntityId, "The skip is recorded on the objective.");
+
+                challenger.Status = MissionStatusEnum.Complete;
+                challenger.CompletedUtc = DateTime.UtcNow;
+                await testDb.Driver.Missions.UpdateAsync(challenger).ConfigureAwait(false);
+                await CreateScheduler(testDb.Driver, admiral, settings).SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "Once the Challenger has ruled, the requeued row dispatches.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_EligibleObjectiveWithTwoVessels_RecordsObjectiveSkippedReason", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

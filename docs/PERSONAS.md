@@ -156,6 +156,18 @@ by hand. No rescue is created while the Challenger runs, and the passes that onl
 wait write nothing. The rescue that follows the ruling records on the same
 incident.
 
+One rule, `ObjectiveService.FindActiveWorkAsync`, says what work already owns an
+objective, and both the objective scheduler and the rescue path read it, so the
+two never start the same work side by side. While a Challenger rules, a
+requeued objective whose failed Judge it rules on is skipped by the scheduler
+as `recovery_pending` (event `objective_scheduler.skipped_recovery_pending`,
+naming the Challenger and the Judge). When the ruling arrives and the objective
+already runs a voyage created after the failure (not the failure's own voyage
+or its rescues), no rescue is dispatched: the failure is recorded as handled,
+the incident notes `superseded_by_active_voyage`, and an
+`autonomous_recovery.rescue_superseded` event names the voyage that carries the
+work.
+
 A Challenger never lands. Its branch starts at the commit the Judge blocked, so
 every landing entry point (completion, review approve, hold release, retry
 landing, merge queue enqueue and the landing drain) consults one rule,

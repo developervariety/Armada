@@ -1277,13 +1277,29 @@ namespace Armada.Server
 
             if (objective.VoyageIds.Count > 0)
             {
-                if (await HasActiveLinkedVoyageAsync(objective, token).ConfigureAwait(false))
+                ObjectiveActiveWork? activeWork = await FindActiveWorkAsync(objective, token).ConfigureAwait(false);
+                if (activeWork?.Kind == ObjectiveActiveWorkKindEnum.ActiveVoyage)
                 {
                     _Logging.Debug(_Header + "objective " + objective.Id + " skipped: active linked voyage exists.");
                     await EmitObjectiveEventAsync("objective_scheduler.skipped_active_voyage",
                         "Autonomous scheduler skipped objective " + objective.Id + ": an active linked voyage already exists.",
                         objective, null, token).ConfigureAwait(false);
                     throw new ObjectiveSkippedException("active_voyage");
+                }
+
+                // Autonomous recovery owns a failed Judge while its Challenger rules, and dispatches the
+                // rescue when the ruling arrives. A requeued row dispatched now would run the same work
+                // beside that rescue, so it waits until the recovery has dispatched or settled.
+                if (activeWork?.Kind == ObjectiveActiveWorkKindEnum.JudgeChallengePending)
+                {
+                    _Logging.Info(_Header + "objective " + objective.Id + " skipped: Challenger " + activeWork.EntityId
+                        + " is still ruling on failed Judge " + activeWork.FailedMissionId + ".");
+                    await EmitObjectiveEventAsync("objective_scheduler.skipped_recovery_pending",
+                        "Autonomous scheduler skipped objective " + objective.Id + ": Challenger " + activeWork.EntityId
+                        + " is still ruling on failed Judge " + activeWork.FailedMissionId
+                        + ", and autonomous recovery dispatches the rescue when it rules.",
+                        objective, null, token).ConfigureAwait(false);
+                    throw new ObjectiveSkippedException("recovery_pending");
                 }
 
                 // Every linked voyage has ended. Linking a voyage promotes the objective to
@@ -1526,11 +1542,14 @@ namespace Armada.Server
                 || status == MergeStatusEnum.Cancelled;
         }
 
-        private async Task<bool> HasActiveLinkedVoyageAsync(Objective objective, CancellationToken token)
+        private Task<ObjectiveActiveWork?> FindActiveWorkAsync(Objective objective, CancellationToken token)
         {
-            // One definition of "already dispatched" for the scheduler's early-out and for the
-            // atomic link admission guard both paths use: delegate to the shared objective check.
-            return await _Objectives.FindActiveLinkedVoyageIdAsync(objective, token).ConfigureAwait(false) != null;
+            // One definition of work that already owns an objective, shared with the link admission
+            // guard and with autonomous recovery's rescue path: delegate to the objective service.
+            return _Objectives.FindActiveWorkAsync(objective, new ObjectiveActiveWorkQuery
+            {
+                JudgeChallengeTimeout = TimeSpan.FromMinutes(_Settings.AutonomousRecovery.JudgeChallenge.TimeoutMinutes)
+            }, token);
         }
 
         private async Task EmitSystemEventAsync(string eventType, string message, CancellationToken token)

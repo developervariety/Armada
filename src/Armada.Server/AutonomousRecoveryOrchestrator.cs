@@ -1179,6 +1179,12 @@ namespace Armada.Server
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 await LinkIncidentToOwningObjectivesAsync(auth, latest, incident, token).ConfigureAwait(false);
 
+                if (decision.DispatchRescue && !latest.IsReadOnlyMode && owningObjective != null
+                    && await SupersedeRescueByActiveVoyageAsync(auth, latest, incident, owningObjective, token).ConfigureAwait(false))
+                {
+                    return true;
+                }
+
                 if (challenge.Result != null)
                 {
                     incident = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
@@ -3744,26 +3750,57 @@ namespace Armada.Server
             }
         }
 
+        // A rescue repeats the objective's work, so it never starts beside a newer voyage of the same
+        // objective, such as one the scheduler dispatched after an operator requeued the row. The
+        // newer voyage carries the work; the failure is recorded as handled so later ticks stay quiet.
+        private async Task<bool> SupersedeRescueByActiveVoyageAsync(
+            AuthContext auth,
+            Mission failed,
+            Incident incident,
+            Objective owningObjective,
+            CancellationToken token)
+        {
+            ObjectiveActiveWorkQuery query = new ObjectiveActiveWorkQuery
+            {
+                CreatedAfterUtc = failed.CompletedUtc ?? failed.LastUpdateUtc
+            };
+            if (!String.IsNullOrWhiteSpace(failed.VoyageId)) query.ExcludeVoyageIds.Add(failed.VoyageId);
+            foreach (MissionSummary rescue in await EnumerateRescueMissionSummariesAsync(failed, token).ConfigureAwait(false))
+            {
+                if (!String.IsNullOrWhiteSpace(rescue.VoyageId)) query.ExcludeVoyageIds.Add(rescue.VoyageId);
+            }
+
+            ObjectiveService objectives = new ObjectiveService(_Database, _Logging);
+            ObjectiveActiveWork? newer = await objectives.FindActiveWorkAsync(owningObjective, query, token).ConfigureAwait(false);
+            if (newer == null) return false;
+
+            string reason = "superseded_by_active_voyage: objective " + owningObjective.Id + " already runs voyage "
+                + newer.EntityId + ", dispatched after this failure, so no rescue was dispatched.";
+            await MarkPolicyBlockedAsync(failed, token).ConfigureAwait(false);
+            await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+            {
+                RecoveryNotes = AppendNote(incident.RecoveryNotes, "Autonomous rescue skipped: " + reason)
+            }, token).ConfigureAwait(false);
+            await EmitEventAsync("autonomous_recovery.rescue_superseded",
+                "Autonomous recovery did not dispatch a rescue for mission " + failed.Id + ": " + reason,
+                failed, incident.Id, token).ConfigureAwait(false);
+            return true;
+        }
+
         private async Task<bool> IsJudgeChallengePendingAsync(Mission failed, CancellationToken token)
         {
             JudgeChallengeSettings settings = _Settings.AutonomousRecovery.JudgeChallenge;
             if (!JudgeChallenge.IsChallengeableFailure(failed) || !settings.AppliesTo(failed.VesselId)) return false;
 
-            ArmadaEvent? dispatched = await ReadJudgeChallengeDispatchAsync(failed, token).ConfigureAwait(false);
-            if (dispatched == null) return false;
-            JudgeChallengeDispatchRecord record = ReadDispatchRecord(dispatched);
-            if (String.IsNullOrWhiteSpace(record.ChallengerMissionId)) return false;
-            Mission? challenger = await ReadMissionAsync(failed.TenantId, record.ChallengerMissionId, token).ConfigureAwait(false);
-            if (challenger == null || IsChallengerTerminal(challenger.Status)) return false;
-            return DateTime.UtcNow - dispatched.CreatedUtc < TimeSpan.FromMinutes(settings.TimeoutMinutes);
+            string? challengerId = await JudgeChallengePending
+                .FindPendingChallengerIdAsync(_Database, failed, TimeSpan.FromMinutes(settings.TimeoutMinutes), token)
+                .ConfigureAwait(false);
+            return challengerId != null;
         }
 
         private static bool IsChallengerTerminal(MissionStatusEnum status)
         {
-            return status == MissionStatusEnum.Complete
-                || status == MissionStatusEnum.Failed
-                || status == MissionStatusEnum.LandingFailed
-                || status == MissionStatusEnum.Cancelled;
+            return JudgeChallengePending.IsChallengerTerminal(status);
         }
 
         private async Task<JudgeChallengeOutcome> DispatchJudgeChallengerAsync(
@@ -3854,37 +3891,14 @@ namespace Armada.Server
             }
         }
 
-        private async Task<ArmadaEvent?> ReadJudgeChallengeDispatchAsync(Mission failed, CancellationToken token)
+        private Task<ArmadaEvent?> ReadJudgeChallengeDispatchAsync(Mission failed, CancellationToken token)
         {
-            List<ArmadaEvent> events = await _Database.Events.EnumerateByMissionAsync(failed.Id, 200, token).ConfigureAwait(false);
-            return events
-                .Where(evt => String.Equals(evt.EventType, JudgeChallenge.DispatchedEvent, StringComparison.Ordinal))
-                .Where(evt => BelongsToFailure(ReadDispatchRecord(evt), failed))
-                .OrderByDescending(evt => evt.CreatedUtc)
-                .FirstOrDefault();
-        }
-
-        // A challenge belongs to the failure it was dispatched for. A Judge restarted and failed again is a
-        // new failure with a new completion time, and gets its own challenge.
-        private static bool BelongsToFailure(JudgeChallengeDispatchRecord record, Mission failed)
-        {
-            if (!record.JudgeCompletedUtc.HasValue || !failed.CompletedUtc.HasValue)
-                return record.JudgeCompletedUtc.HasValue == failed.CompletedUtc.HasValue;
-            return Math.Abs((record.JudgeCompletedUtc.Value - failed.CompletedUtc.Value).TotalSeconds) < 1.0;
+            return JudgeChallengePending.ReadDispatchAsync(_Database, failed, token);
         }
 
         private static JudgeChallengeDispatchRecord ReadDispatchRecord(ArmadaEvent evt)
         {
-            if (String.IsNullOrWhiteSpace(evt.Payload)) return new JudgeChallengeDispatchRecord();
-            try
-            {
-                return System.Text.Json.JsonSerializer.Deserialize<JudgeChallengeDispatchRecord>(evt.Payload)
-                    ?? new JudgeChallengeDispatchRecord();
-            }
-            catch (System.Text.Json.JsonException)
-            {
-                return new JudgeChallengeDispatchRecord();
-            }
+            return JudgeChallenge.ReadDispatchRecord(evt.Payload);
         }
 
         private async Task<bool> HasFailedCheckOnReviewedWorkAsync(Mission failed, string reviewedCommit, CancellationToken token)

@@ -1302,13 +1302,57 @@ namespace Armada.Core.Services
         /// </summary>
         public async Task<string?> FindActiveLinkedVoyageIdAsync(Objective objective, CancellationToken token = default)
         {
+            ObjectiveActiveWork? work = await FindActiveWorkAsync(objective, new ObjectiveActiveWorkQuery(), token).ConfigureAwait(false);
+            return work?.EntityId;
+        }
+
+        /// <summary>
+        /// Return the work that already owns the objective, or null when nothing does. The one rule the
+        /// objective scheduler and autonomous recovery both read before they start work on an objective:
+        /// an active linked voyage owns it, and, when the query asks, so does a Challenger still ruling on
+        /// a failed Judge of the objective, whose rescue follows the ruling.
+        /// </summary>
+        /// <param name="objective">Objective.</param>
+        /// <param name="query">What counts as owning work.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The owning work, or null.</returns>
+        public async Task<ObjectiveActiveWork?> FindActiveWorkAsync(
+            Objective objective,
+            ObjectiveActiveWorkQuery query,
+            CancellationToken token = default)
+        {
             if (objective == null || objective.VoyageIds == null) return null;
+            if (query == null) throw new ArgumentNullException(nameof(query));
 
             foreach (string voyageId in objective.VoyageIds)
             {
+                if (query.ExcludeVoyageIds.Contains(voyageId, StringComparer.OrdinalIgnoreCase)) continue;
                 Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
-                if (voyage != null && IsActiveVoyageStatus(voyage.Status))
-                    return voyage.Id;
+                if (voyage == null || !IsActiveVoyageStatus(voyage.Status)) continue;
+                if (query.CreatedAfterUtc.HasValue && voyage.CreatedUtc <= query.CreatedAfterUtc.Value) continue;
+                return new ObjectiveActiveWork { Kind = ObjectiveActiveWorkKindEnum.ActiveVoyage, EntityId = voyage.Id };
+            }
+
+            if (!query.JudgeChallengeTimeout.HasValue || objective.MissionIds == null) return null;
+
+            foreach (string missionId in objective.MissionIds)
+            {
+                Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+                if (mission == null || mission.Status != MissionStatusEnum.Failed) continue;
+                if (!JudgeChallenge.IsChallengeableFailure(mission)) continue;
+
+                string? challengerId = await JudgeChallengePending
+                    .FindPendingChallengerIdAsync(_Database, mission, query.JudgeChallengeTimeout.Value, token)
+                    .ConfigureAwait(false);
+                if (challengerId != null)
+                {
+                    return new ObjectiveActiveWork
+                    {
+                        Kind = ObjectiveActiveWorkKindEnum.JudgeChallengePending,
+                        EntityId = challengerId,
+                        FailedMissionId = mission.Id
+                    };
+                }
             }
 
             return null;

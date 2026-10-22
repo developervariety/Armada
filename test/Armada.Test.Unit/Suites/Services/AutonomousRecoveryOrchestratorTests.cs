@@ -4852,6 +4852,52 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, board.Posts.Count, "Only the dispatch tick posts to the board.");
             }).ConfigureAwait(false);
 
+            await RunTest("Challenge round: a ruling that arrives after the objective was dispatched again starts no rescue beside the newer voyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ChallengeFixture fixture = await CreateChallengeFixtureAsync(testDb, "ten_challenge_superseded").ConfigureAwait(false);
+
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                Mission challenger = fixture.Admiral.DispatchedMissions[0];
+
+                // While the Challenger rules, an operator requeues the objective and the scheduler
+                // dispatches it as a new voyage.
+                Voyage newer = await testDb.Driver.Voyages.CreateAsync(new Voyage("Requeued full pipeline")
+                {
+                    TenantId = fixture.Failed.TenantId,
+                    UserId = fixture.Failed.UserId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = fixture.Failed.TenantId,
+                    UserId = fixture.Failed.UserId,
+                    Title = "Requeued while its Judge is challenged",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { fixture.Failed.VesselId! },
+                    MissionIds = new List<string> { fixture.Failed.Id },
+                    VoyageIds = new List<string> { newer.Id }
+                }).ConfigureAwait(false);
+
+                await CompleteChallengerAsync(testDb, challenger, fixture.OtherModelCaptainId, "{\"findings\":["
+                    + ChallengeRuling(1, "UPHOLD", 0.9) + "," + ChallengeRuling(2, "UPHOLD", 0.9) + "," + ChallengeRuling(3, "UPHOLD", 0.9) + "]}").ConfigureAwait(false);
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, "No rescue starts beside the newer voyage of the same objective.");
+                List<ArmadaEvent> superseded = await testDb.Driver.Events.EnumerateByTypeAsync("autonomous_recovery.rescue_superseded", 10).ConfigureAwait(false);
+                AssertEqual(1, superseded.Count, "The skipped rescue is recorded as one named event.");
+                AssertContains(newer.Id, superseded[0].Message, "The event names the voyage that carries the work.");
+                List<Incident> active = await ActiveIncidentsAsync(testDb, fixture.Failed).ConfigureAwait(false);
+                AssertTrue(active.Any(item => (item.RecoveryNotes ?? "").Contains("superseded_by_active_voyage", StringComparison.Ordinal)
+                    && (item.RecoveryNotes ?? "").Contains(objective.Id, StringComparison.Ordinal)),
+                    "The incident says why no rescue followed the ruling.");
+
+                await fixture.Orchestrator.HandleMissionOutcomeAsync(fixture.Failed, false).ConfigureAwait(false);
+                AssertEqual(1, fixture.Admiral.DispatchedMissions.Count, "A later tick dispatches nothing.");
+                AssertEqual(1, (await testDb.Driver.Events.EnumerateByTypeAsync("autonomous_recovery.rescue_superseded", 10).ConfigureAwait(false)).Count,
+                    "A later tick records nothing more.");
+            }).ConfigureAwait(false);
+
             await RunTest("Challenge round: a block whose every finding is refuted dispatches no rescue and waits for an operator", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
