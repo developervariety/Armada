@@ -559,10 +559,10 @@ namespace Armada.Server
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
             _DataExpiry = new DataExpiryService(_Logging, _Database, _Settings.DataRetentionDays, _Settings.ProductionFactRetentionDays, _Settings.RequestHistoryRetentionDays)
             {
-                ArchiveSettingsProvider = () => _Settings.Archive,
                 StagingDirectory = Path.Combine(_Settings.DataDirectory, "archive-staging")
             };
-            _TraceRecorder = new TraceRecorder(_Database, _Logging) { ArchiveSettingsProvider = () => _Settings.Archive };
+            _TraceRecorder = new TraceRecorder(_Database, _Logging);
+            HistoryArchiveWiring.Connect(_DataExpiry, _TraceRecorder, () => _Settings.Archive, settings => new S3ArchiveSink(settings));
             _DiskLifecycle = new DiskLifecycleService(_Database, _Settings, _Logging);
             _ArchiveExpiry = new ArchiveExpiryService(_Logging, () => _Settings.Archive);
 

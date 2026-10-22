@@ -1229,8 +1229,14 @@ While the archive is enabled and configured and the recorder has a sink, a
 record whose described record has ended, or that the expiry observer writes,
 is also uploaded to `trace/<yyyy>/<MM>/<id>.json`. The verified upload is kept
 on the record as an archive pointer, and unchanged content is not uploaded
-again. When a linked record is in neither the table nor the database,
-`armada_trace` lists its archived key in `archivedKeys`.
+again. When a record is in neither the table nor the database,
+`armada_trace` reads its archived copy, returns it in `records` and lists its
+key in `archivedKeys`; a requested full id found only in the archive returns
+`source` `archive`. While the archive is off, nothing is uploaded or read, and
+the recorder logs once that the archive is off. The server connects data expiry
+and the recorder to the same archive, so data expiry writes the trace record of
+each expiring voyage, mission, merge entry, check run and deployment row before
+it deletes the row.
 
 `armada_trace` takes a full id (`msn_`, `vyg_`, `obj_`, `chk_`, `inc_`, `mrg_`,
 `dpl_`) or a short id: a prefix of a full id of at least four characters after

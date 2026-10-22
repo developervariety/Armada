@@ -42,6 +42,15 @@ namespace Armada.Core.Services.Interfaces
         Task<List<ArchiveObjectInfo>> ListAsync(string prefix, CancellationToken token = default);
 
         /// <summary>
+        /// Read one object's content.
+        /// </summary>
+        /// <param name="key">Object key.</param>
+        /// <param name="maxBytes">Largest content accepted; a larger object throws.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The content, or null when the key does not exist. Any other failure throws.</returns>
+        Task<byte[]?> GetBytesAsync(string key, long maxBytes, CancellationToken token = default);
+
+        /// <summary>
         /// Delete one object. Deleting a key that does not exist succeeds.
         /// </summary>
         /// <param name="key">Object key.</param>

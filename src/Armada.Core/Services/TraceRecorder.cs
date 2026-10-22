@@ -11,6 +11,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Json;
     using Armada.Core.Models;
     using Armada.Core.Services.Archive;
     using Armada.Core.Services.Interfaces;
@@ -68,6 +69,8 @@ namespace Armada.Core.Services
         private readonly string _Header = "[TraceRecorder] ";
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
+        private int _ArchiveOffLogged = 0;
+        private const long _MaxArchivedRecordBytes = 4 * 1024 * 1024;
         private readonly IncidentService _Incidents;
         private const int _EventPageSize = 1000;
         private const int _EntityEventLimit = 1000;
@@ -361,14 +364,18 @@ namespace Armada.Core.Services
                         if (first) chain.Source = "live";
                     }
                 }
+                bool requested = first;
                 first = false;
 
                 if (document == null)
                 {
                     chain.MissingIds.Add(current);
                     string? archivedKey = await FindArchivedKeyAsync(current, token).ConfigureAwait(false);
-                    if (archivedKey != null) chain.ArchivedKeys.Add(archivedKey);
-                    continue;
+                    if (archivedKey == null) continue;
+                    chain.ArchivedKeys.Add(archivedKey);
+                    document = await ReadArchivedAsync(archivedKey, token).ConfigureAwait(false);
+                    if (document == null) continue;
+                    if (requested) chain.Source = "archive";
                 }
                 chain.Records.Add(document);
 
@@ -392,8 +399,36 @@ namespace Armada.Core.Services
         private ArchiveSettings? ActiveArchive()
         {
             ArchiveSettings? archive = ArchiveSettingsProvider?.Invoke();
-            if (archive == null || !archive.Enabled || !archive.IsConfigured || ArchiveSinkFactory == null) return null;
+            if (archive == null || !archive.Enabled || !archive.IsConfigured || ArchiveSinkFactory == null)
+            {
+                // Logged once each time the archive goes off, never once per record.
+                if (Interlocked.Exchange(ref _ArchiveOffLogged, 1) == 0)
+                    _Logging.Info(_Header + "the archive is off; trace records stay in the local table only");
+                return null;
+            }
+            Interlocked.Exchange(ref _ArchiveOffLogged, 0);
             return archive;
+        }
+
+        private async Task<TraceDocument?> ReadArchivedAsync(string key, CancellationToken token)
+        {
+            ArchiveSettings? archive = ActiveArchive();
+            if (archive == null) return null;
+            try
+            {
+                byte[]? content = await ArchiveSinkFactory!(archive).GetBytesAsync(key, _MaxArchivedRecordBytes, token).ConfigureAwait(false);
+                if (content == null) return null;
+                return JsonSerializer.Deserialize<TraceDocument>(content, JsonDefaults.Insensitive);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "trace archive read failed for " + key + ": " + ex.Message);
+                return null;
+            }
         }
 
         private async Task UploadAsync(TraceDocument document, CancellationToken token)
@@ -491,7 +526,15 @@ namespace Armada.Core.Services
             }
 
             if (matches.Count == 1) return matches[0];
-            if (matches.Count > 1) chain.Candidates = matches.Take(10).ToList();
+            if (matches.Count > 1)
+            {
+                chain.Candidates = matches.Take(10).ToList();
+                return null;
+            }
+
+            // A full id whose record and source row are both gone still resolves when the archive holds it.
+            if (TryResolveKind(requested, out TraceEntityKindEnum _) && await FindArchivedKeyAsync(requested, token).ConfigureAwait(false) != null)
+                return requested;
             return null;
         }
 

@@ -47,6 +47,8 @@ Every key starts with `archive.keyPrefix`.
   (`ArchivePutResult.Verified`). A failure carries a `FailureCode` such as
   `upload_failed`, `size_mismatch`, `sha256_mismatch` or `credentials_missing`.
   A caller frees its local copy only on a verified result.
+- `IArchiveSink.GetBytesAsync` reads one object's content, returns null for a
+  missing key and refuses an object above the caller's size limit.
 - `IDataExpiryObserver` receives each database row that data expiry is about to
   delete, before the delete runs. An observer that throws stops the run, so
   every row not yet deleted is kept.
@@ -93,6 +95,16 @@ named, and no row of that statement or any later statement is deleted. In
 `Keep` mode data expiry deletes nothing. The server sets the archive and
 staging folder on its data-expiry service; the data-retention values
 themselves are read at startup.
+
+## Trace records and the archive
+
+The server connects data expiry and the trace recorder to the same archive
+settings and sink. Data expiry passes every expiring row to the trace expiry
+observer, which writes the trace record of an expiring voyage, mission, merge
+entry, check run or deployment before the row is deleted. The recorder uploads
+ended records to `trace/` and keeps the verified key on the record. When a
+record and its source row are both gone, `armada_trace` reads the record back
+from the archive with `IArchiveSink.GetBytesAsync`.
 
 ## Deny list
 

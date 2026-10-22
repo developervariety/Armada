@@ -226,7 +226,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    RecordingArchiveSink sink = new RecordingArchiveSink();
+                    FakeArchiveSink sink = new FakeArchiveSink();
                     ArchiveSettings archive = new ArchiveSettings { Enabled = true, Endpoint = "https://archive.example", Bucket = "bucket", CredentialsFile = "/nonexistent/credentials", KeyPrefix = "armada" };
                     TraceRecorder recorder = new TraceRecorder(db, QuietLogging())
                     {
@@ -250,7 +250,7 @@ namespace Armada.Test.Unit.Suites.Services
                     TraceRecord? stored = await db.TraceRecords.ReadAsync(work.Mission.Id).ConfigureAwait(false);
                     TraceArchivePointer pointer = stored!.Document.Archive.Single();
                     AssertEqual(expectedKey, pointer.Key);
-                    AssertEqual(sink.Sha256[0], pointer.Sha256, "the pointer holds the verified hash");
+                    AssertEqual(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(sink.Objects[expectedKey])).ToLowerInvariant(), pointer.Sha256, "the pointer holds the verified hash");
 
                     await db.MergeEntries.DeleteAsync(work.Merge.Id).ConfigureAwait(false);
                     await db.Missions.DeleteAsync(work.Mission.Id).ConfigureAwait(false);
@@ -258,6 +258,53 @@ namespace Armada.Test.Unit.Suites.Services
                     TraceChain chain = await recorder.TraceAsync(work.Voyage.Id).ConfigureAwait(false);
                     AssertTrue(chain.MissingIds.Contains(work.Mission.Id), "the mission is gone from the table and the database");
                     AssertTrue(chain.ArchivedKeys.Contains(expectedKey), "the trace names the archived copy of the missing record");
+                }
+            });
+
+            await RunTest("Expiry of a mission row through the archive wiring leaves a trace record that points to the archive and reads back after the row is gone", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    LoggingModule logging = QuietLogging();
+                    string staging = Path.Combine(Path.GetTempPath(), "armada_trace_expiry_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        Mission mission = await db.Missions.CreateAsync(new Mission("expiring work", "")
+                        {
+                            Status = MissionStatusEnum.Complete,
+                            BranchName = "armada/expiring-work",
+                            FailureReason = "kept in the trace"
+                        }).ConfigureAwait(false);
+                        mission.CompletedUtc = DateTime.UtcNow.AddDays(-40);
+                        await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                        FakeArchiveSink sink = new FakeArchiveSink();
+                        ArchiveSettings archive = new ArchiveSettings { Enabled = true, Endpoint = "https://archive.example", Bucket = "bucket", CredentialsFile = "/nonexistent/credentials", KeyPrefix = "armada" };
+                        DataExpiryService expiry = new DataExpiryService(logging, db, 30, 0) { StagingDirectory = staging };
+                        TraceRecorder recorder = new TraceRecorder(db, logging);
+                        HistoryArchiveWiring.Connect(expiry, recorder, () => archive, _ => sink);
+
+                        DataExpiryResult result = await expiry.PurgeExpiredDataAsync().ConfigureAwait(false);
+
+                        AssertEqual(1, result.Deleted("missions"), "the expired mission row is deleted: " + result);
+                        AssertNull(await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false), "the mission row is gone");
+                        TraceRecord? trace = await db.TraceRecords.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(trace, "the expiring mission left a trace record");
+                        AssertEqual("kept in the trace", trace!.Document.FailureReason, "the trace record holds the row's last state");
+                        TraceArchivePointer pointer = trace.Document.Archive.Single();
+                        AssertTrue(pointer.Key.StartsWith("armada/trace/", StringComparison.Ordinal) && sink.Objects.ContainsKey(pointer.Key), "the trace record points to its archived copy: " + pointer.Key);
+                        AssertTrue(sink.Objects.Keys.Any(k => k.StartsWith("armada/raw/db/missions/", StringComparison.Ordinal)), "the mission row itself is exported to the archive");
+
+                        await db.TraceRecords.DeleteAsync(new[] { mission.Id }).ConfigureAwait(false);
+                        TraceChain chain = await recorder.TraceAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual("archive", chain.Source, "a record gone from the table and the database is read from the archive");
+                        AssertEqual("kept in the trace", chain.Records.Single(r => r.Id == mission.Id).FailureReason, "the trace returns the archived record's content, not only its key");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(staging)) Directory.Delete(staging, true);
+                    }
                 }
             });
         }
@@ -342,36 +389,6 @@ namespace Armada.Test.Unit.Suites.Services
                 Check = check,
                 Deployment = deployment
             };
-        }
-
-        private sealed class RecordingArchiveSink : IArchiveSink
-        {
-            public List<string> Puts { get; } = new List<string>();
-            public List<string> Sha256 { get; } = new List<string>();
-
-            public Task<ArchivePutResult> PutFileAsync(string key, string localPath, string sha256, CancellationToken token = default)
-            {
-                throw new NotSupportedException("trace records are uploaded from memory");
-            }
-
-            public Task<ArchivePutResult> PutBytesAsync(string key, byte[] content, string contentType, CancellationToken token = default)
-            {
-                string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content)).ToLowerInvariant();
-                Puts.Add(key);
-                Sha256.Add(hash);
-                return Task.FromResult(new ArchivePutResult { Key = key, Verified = true, Bytes = content.Length, Sha256 = hash });
-            }
-
-            public Task<List<ArchiveObjectInfo>> ListAsync(string prefix, CancellationToken token = default)
-            {
-                List<ArchiveObjectInfo> objects = Puts.Where(key => key.StartsWith(prefix, StringComparison.Ordinal)).Distinct().Select(key => new ArchiveObjectInfo { Key = key }).ToList();
-                return Task.FromResult(objects);
-            }
-
-            public Task<string?> DeleteAsync(string key, CancellationToken token = default)
-            {
-                return Task.FromResult<string?>(null);
-            }
         }
 
         private sealed class LandedWork

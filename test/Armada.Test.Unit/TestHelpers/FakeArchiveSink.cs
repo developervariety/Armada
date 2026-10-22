@@ -23,6 +23,9 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>Last-modified time of each stored object.</summary>
         public Dictionary<string, DateTime> LastModified { get; } = new Dictionary<string, DateTime>(StringComparer.Ordinal);
 
+        /// <summary>Keys uploaded and stored, in order, one entry per upload.</summary>
+        public List<string> Puts { get; } = new List<string>();
+
         /// <summary>Keys deleted, in order.</summary>
         public List<string> Deleted { get; } = new List<string>();
 
@@ -54,6 +57,14 @@ namespace Armada.Test.Unit.TestHelpers
         }
 
         /// <inheritdoc />
+        public Task<byte[]?> GetBytesAsync(string key, long maxBytes, CancellationToken token = default)
+        {
+            if (!Objects.TryGetValue(key, out byte[]? content)) return Task.FromResult<byte[]?>(null);
+            if (content.LongLength > maxBytes) throw new InvalidOperationException("object " + key + " is above the read limit");
+            return Task.FromResult<byte[]?>(content);
+        }
+
+        /// <inheritdoc />
         public Task<string?> DeleteAsync(string key, CancellationToken token = default)
         {
             Objects.Remove(key);
@@ -75,6 +86,7 @@ namespace Armada.Test.Unit.TestHelpers
                 return ArchivePutResult.Failed(key, "sha256_mismatch", "the stored object does not match the local file");
             Objects[key] = content;
             LastModified[key] = DateTime.UtcNow;
+            Puts.Add(key);
             string stored = Hash(content);
             if (!String.Equals(stored, sha256, StringComparison.Ordinal))
                 return ArchivePutResult.Failed(key, "sha256_mismatch", "the stored object does not match the local file");

@@ -20,7 +20,7 @@ namespace Armada.Core.Models
         /// <summary>Full ids a short id matched when it matched more than one.</summary>
         public List<string> Candidates { get; set; } = new List<string>();
 
-        /// <summary>Where the requested record was found: <c>table</c>, <c>live</c> (built from the source row and stored) or <c>none</c>.</summary>
+        /// <summary>Where the requested record was found: <c>table</c>, <c>live</c> (built from the source row and stored), <c>archive</c> (read from the archive bucket) or <c>none</c>.</summary>
         public string Source { get; set; } = "none";
 
         /// <summary>Records in the chain, the requested record first.</summary>
@@ -29,7 +29,7 @@ namespace Armada.Core.Models
         /// <summary>Linked ids with no trace record and no source row.</summary>
         public List<string> MissingIds { get; set; } = new List<string>();
 
-        /// <summary>Archive keys of missing linked records whose trace record is in the archive bucket.</summary>
+        /// <summary>Archive keys of missing records whose trace record is in the archive bucket. The content of each is in <see cref="Records"/> when it could be read.</summary>
         public List<string> ArchivedKeys { get; set; } = new List<string>();
 
         /// <summary>True when the chain reached its bound before it ran out of links.</summary>

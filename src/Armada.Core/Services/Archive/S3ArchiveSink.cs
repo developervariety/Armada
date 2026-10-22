@@ -146,6 +146,30 @@ namespace Armada.Core.Services.Archive
         }
 
         /// <inheritdoc />
+        public async Task<byte[]?> GetBytesAsync(string key, long maxBytes, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(key)) throw new ArgumentNullException(nameof(key));
+            Credentials credentials = ReadCredentials();
+            using (HttpRequestMessage request = BuildRequest(HttpMethod.Get, key, null, credentials, _EmptySha256, null))
+            using (HttpResponseMessage response = await _Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false))
+            {
+                if (response.StatusCode == HttpStatusCode.NotFound) return null;
+                if (!response.IsSuccessStatusCode)
+                {
+                    string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                    throw new InvalidOperationException("archive read of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + ErrorCode(body));
+                }
+                long? length = response.Content.Headers.ContentLength;
+                if (length.HasValue && length.Value > maxBytes)
+                    throw new InvalidOperationException("archive object '" + key + "' is " + length.Value + " bytes, above the " + maxBytes + " byte read limit");
+                byte[] content = await response.Content.ReadAsByteArrayAsync(token).ConfigureAwait(false);
+                if (content.LongLength > maxBytes)
+                    throw new InvalidOperationException("archive object '" + key + "' is above the " + maxBytes + " byte read limit");
+                return content;
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<string?> DeleteAsync(string key, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(key)) throw new ArgumentNullException(nameof(key));

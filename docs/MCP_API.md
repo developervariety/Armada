@@ -1346,8 +1346,9 @@ Both tools refuse any caller other than a global administrator with
 | `maxRecords` | integer | no | Most records returned; defaults to `60`, clamped to 1-200. |
 | `includeMessages` | boolean | no | Return the final message of every record; defaults to `false`, which keeps it on the requested record only. |
 
-Returns `requestedId`, `resolvedId`, `source` (`table`, `live` or `none`),
-`records` (the requested record first, then linked records breadth first),
+Returns `requestedId`, `resolvedId`, `source` (`table`, `live`, `archive` or
+`none`), `records` (the requested record first, then linked records breadth
+first, including records read back from the archive),
 `missingIds` (linked ids with no trace record and no source row),
 `archivedKeys` (archive keys of missing records whose trace record is in the
 bucket) and `truncated`. Each record has `id`, `kind`, `title`, `status`, the timestamps,

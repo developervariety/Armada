@@ -15,6 +15,13 @@ upstream integrations and excludes changes already present at that baseline.
   again only when that set changes.
 - A preflight Q9 model flag quotes the brief lines that state a proof or expected
   value, and the lines declared unchanged on purpose apart from them.
+- Trace records and the history archive share one archive. Data expiry writes
+  the trace record of each expiring voyage, mission, merge entry, check run and
+  deployment before it deletes the row, the recorder uploads ended records to
+  `trace/`, and `armada_trace` returns the archived content of a record whose
+  table row and source row are both gone (`source` `archive`).
+  `IArchiveSink.GetBytesAsync` reads an archived object. With the archive off
+  nothing is uploaded and the recorder logs that once.
 - History archive. Disk lifecycle frees history (mission logs, diffs,
   instruction snapshots, dock metadata and stage records, final messages, whole
   operator-evidence folders and configured captain session roots) only after
