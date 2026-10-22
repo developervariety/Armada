@@ -484,11 +484,17 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 ObjectiveService objectives = new ObjectiveService(testDb.Driver);
-                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
-                McpObjectiveTools.Register((name, _, _, handler) => handlers[name] = McpTestCaller.Wrap(handler), testDb.Driver, objectives);
                 LoggingModule logging = new LoggingModule();
                 logging.Settings.EnableConsole = false;
-                McpCoordinationTools.Register((name, _, _, handler) => handlers[name] = McpTestCaller.Wrap(handler), testDb.Driver, new Armada.Server.CoordinationService(logging, testDb.Driver));
+                // The registrar is the production wiring, so every handler runs behind the MCP argument seam.
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                Armada.Server.Mcp.McpToolRegistrar.RegisterAll(
+                    (name, _, _, handler) => handlers[name] = McpTestCaller.Wrap(handler),
+                    testDb.Driver,
+                    RecordingAdmiral.Create().Service,
+                    objectiveService: objectives,
+                    incidentService: new IncidentService(testDb.Driver),
+                    coordinationService: new Armada.Server.CoordinationService(logging, testDb.Driver));
                 AuthContext auth = McpTestCaller.Operator;
                 string tenant = Armada.Core.Constants.DefaultTenantId;
                 string user = Armada.Core.Constants.DefaultUserId;
@@ -545,7 +551,26 @@ namespace Armada.Test.Unit.Suites.Services
                 string ambiguous = JsonSerializer.Serialize(await handlers["create_objective"](new AbbreviatedLinkCase("parentObjectiveId", false, "", _ => null).Args(twins, "title", "ambiguous parent")).ConfigureAwait(false));
                 AssertContains("ambiguous_id", ambiguous, "two visible matches refuse the write by name");
                 string missing = JsonSerializer.Serialize(await handlers["create_objective"](new AbbreviatedLinkCase("missionIds", true, "", _ => null).Args(absent, "title", "absent mission")).ConfigureAwait(false));
-                AssertContains("Mission not found or not accessible: " + absent, missing, "an abbreviation with no visible match reads as absent");
+                AssertContains("\"Reason\":\"not_found\"", missing, "an abbreviation with no visible match reads as absent");
+
+                // The objective service resolves for its other callers (REST) against the same scoped read.
+                RecordWriteResult<Objective> direct = await objectives.CreateRecordAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "created through the service",
+                    ParentObjectiveId = TestRecordIds.Abbreviate(parent.Id),
+                    MissionIds = new List<string> { TestRecordIds.Abbreviate(mission.Id) }
+                }).ConfigureAwait(false);
+                AssertTrue(direct.Succeeded, "the service resolves abbreviated links: " + direct.Message);
+                Objective directStored = (await testDb.Driver.Objectives.ReadAsync(direct.Record!.Id).ConfigureAwait(false))!;
+                AssertEqual(parent.Id, directStored.ParentObjectiveId, "the service stores the full parent id");
+                AssertEqual(mission.Id, directStored.MissionIds.SingleOrDefault(), "the service stores the full mission id");
+                RecordWriteResult<Objective> directMissing = await objectives.CreateRecordAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "absent link through the service",
+                    MissionIds = new List<string> { absent }
+                }).ConfigureAwait(false);
+                AssertFalse(directMissing.Succeeded, "the service refuses an abbreviation with no visible match");
+                AssertContains("Mission not found or not accessible: " + absent, directMissing.Message ?? String.Empty, "the service names the absent link");
 
                 List<AbbreviatedLinkCase> noteCases = new List<AbbreviatedLinkCase>
                 {
@@ -566,6 +591,36 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"Reason\":\"not_found\"", missingNote, "coordination_post refuses an abbreviation with no visible match instead of storing it");
                 string ambiguousNote = JsonSerializer.Serialize(await handlers["armada_coordination_post"](new AbbreviatedLinkCase("objectiveId", false, "", _ => null).Args(twins, "content", "ambiguous", "authorName", "unit-test")).ConfigureAwait(false));
                 AssertContains("\"Reason\":\"ambiguous_id\"", ambiguousNote, "coordination_post names an ambiguous abbreviation");
+
+                // The other write tools resolve through the same seam; a delete keeps requiring the full id.
+                Mission child = await testDb.Driver.Missions.CreateAsync(new Mission("child mission") { Id = TestRecordIds.At("msn", now + 4, "childMission"), TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                Signal signal = await testDb.Driver.Signals.CreateAsync(new Signal(SignalTypeEnum.Nudge, "wake") { Id = TestRecordIds.At("sig", now, "wakeSignal"), TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                List<AbbreviatedWriteCase> writeCases = new List<AbbreviatedWriteCase>
+                {
+                    new AbbreviatedWriteCase("armada_update_mission", "missionId + parentMissionId",
+                        JsonSerializer.SerializeToElement(new { missionId = TestRecordIds.Abbreviate(child.Id), parentMissionId = TestRecordIds.Abbreviate(mission.Id) }),
+                        async () => (await testDb.Driver.Missions.ReadAsync(child.Id).ConfigureAwait(false))!.ParentMissionId == mission.Id),
+                    new AbbreviatedWriteCase("armada_update_mission", "dependsOnMissionId",
+                        JsonSerializer.SerializeToElement(new { missionId = child.Id, dependsOnMissionId = TestRecordIds.Abbreviate(mission.Id) }),
+                        async () => (await testDb.Driver.Missions.ReadAsync(child.Id).ConfigureAwait(false))!.DependsOnMissionId == mission.Id),
+                    new AbbreviatedWriteCase("armada_mark_signal_read", "signalId",
+                        JsonSerializer.SerializeToElement(new { signalId = TestRecordIds.Abbreviate(signal.Id) }),
+                        async () => (await testDb.Driver.Signals.ReadAsync(signal.Id).ConfigureAwait(false))!.Read),
+                    new AbbreviatedWriteCase("armada_close_incident", "incidentId",
+                        JsonSerializer.SerializeToElement(new { incidentId = TestRecordIds.Abbreviate(incident.Id), rootCause = "a fixture root cause" }),
+                        async () => (await new IncidentService(testDb.Driver).ReadAsync(auth, incident.Id).ConfigureAwait(false))!.Status == IncidentStatusEnum.Closed)
+                };
+                foreach (AbbreviatedWriteCase writeCase in writeCases)
+                {
+                    object result = await handlers[writeCase.Tool](writeCase.Args).ConfigureAwait(false);
+                    AssertTrue(await writeCase.Stored().ConfigureAwait(false),
+                        writeCase.Tool + " resolves and stores the full " + writeCase.Field + "; actual result: " + JsonSerializer.Serialize(result));
+                }
+
+                string deleteRefusal = JsonSerializer.Serialize(await handlers["armada_delete_incident"](JsonSerializer.SerializeToElement(new { incidentId = TestRecordIds.Abbreviate(incident.Id) })).ConfigureAwait(false));
+                AssertContains(Armada.Server.Mcp.McpAbbreviatedIdArguments.FullIdRequiredCode, deleteRefusal, "a delete refuses an abbreviated id");
+                AssertContains("Use the full id", deleteRefusal, "the refusal tells the caller to pass the full id");
+                AssertNotNull(await new IncidentService(testDb.Driver).ReadAsync(auth, incident.Id).ConfigureAwait(false), "the refused delete removes nothing");
             }).ConfigureAwait(false);
 
             await RunTest("MCP create_backlog_item creates records and returns structured enum errors", async () =>
@@ -2316,6 +2371,26 @@ namespace Armada.Test.Unit.Suites.Services
                 for (int index = 0; index + 1 < namesAndValues.Length; index += 2) args[namesAndValues[index]] = namesAndValues[index + 1];
                 args[Field] = IsList ? new List<string> { id } : (object)id;
                 return JsonSerializer.SerializeToElement(args);
+            }
+        }
+
+        /// <summary>One write tool call carrying abbreviated ids, and a check that the full ids were stored.</summary>
+        private sealed class AbbreviatedWriteCase
+        {
+            public string Tool { get; }
+
+            public string Field { get; }
+
+            public JsonElement Args { get; }
+
+            public Func<Task<bool>> Stored { get; }
+
+            public AbbreviatedWriteCase(string tool, string field, JsonElement args, Func<Task<bool>> stored)
+            {
+                Tool = tool;
+                Field = field;
+                Args = args;
+                Stored = stored;
             }
         }
 

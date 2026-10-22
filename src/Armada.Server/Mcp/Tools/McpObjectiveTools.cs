@@ -132,10 +132,6 @@ namespace Armada.Server.Mcp.Tools
                         : request.ObjectiveId.Trim();
                     if (objectiveId == null)
                         return (object)new { Error = "objectiveId is required: pass an objective id (obj_ prefix). A captain may omit it only when an objective authorizes its mission." };
-                    AbbreviatedIdResolution resolvedId = await AbbreviatedIdResolver.ResolveForCallerAsync(database, auth, objectiveId).ConfigureAwait(false);
-                    if (resolvedId.Ambiguous)
-                        return (object)McpScopeDenial.CreateAmbiguous("Objective not found");
-                    objectiveId = resolvedId.Id;
                     Objective? objective = !String.IsNullOrEmpty(auth.MissionId)
                         ? await McpMissionEvidenceScope.ReadObjectiveAsync(database, auth, objectiveId).ConfigureAwait(false)
                         : await objectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);

@@ -417,10 +417,7 @@ namespace Armada.Server.Mcp.Tools
             }
             else
             {
-                AbbreviatedIdResolution resolvedId = await AbbreviatedIdResolver.ResolveForCallerAsync(database, caller, voyageId).ConfigureAwait(false);
-                voyage = resolvedId.Ambiguous
-                    ? null
-                    : await CallerScopedRead.ReadVoyageAsync(database, caller, resolvedId.Id).ConfigureAwait(false);
+                voyage = await CallerScopedRead.ReadVoyageAsync(database, caller, voyageId).ConfigureAwait(false);
                 if (caller.IsAdmin)
                 {
                     tenantId = null;

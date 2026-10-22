@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Every MCP tool accepts abbreviated record ids in its id arguments (`id`,
+  `...Id`, `...Ids`) and stores the full id: incident, check-run, mission,
+  voyage, merge-queue, signal, captain, vessel, fleet, dock, release and
+  deployment tools as well as objective and coordination tools. No visible match
+  returns `not_found`; two return `ambiguous_id`. Delete and purge tools keep
+  requiring full ids and refuse an abbreviation with `full_id_required`.
 - Writes accept abbreviated record ids and store the full id. `create_objective`
   and `update_objective` resolve the objective being updated, `parentObjectiveId`
   and every linked-id list; `armada_coordination_post` resolves its objective,

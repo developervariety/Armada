@@ -1871,22 +1871,23 @@ namespace Armada.Test.Unit.Suites.Services
             public static EvidenceHandlers Register(DatabaseDriver database)
             {
                 EvidenceHandlers handlers = new EvidenceHandlers();
+                // Handlers go through the MCP argument seam, as the registrar wires every tool in production.
                 McpMissionTools.Register((name, _, _, handler) =>
                 {
-                    if (name == "armada_mission_output") handlers.ReadOutput = handler;
-                    if (name == "armada_mission_status") handlers.ReadStatus = handler;
+                    if (name == "armada_mission_output") handlers.ReadOutput = McpAbbreviatedIdArguments.Wrap(name, handler, database);
+                    if (name == "armada_mission_status") handlers.ReadStatus = McpAbbreviatedIdArguments.Wrap(name, handler, database);
                 }, database, new RecordingAdmiralDouble(), null, null);
                 McpObjectiveTools.Register((name, _, _, handler) =>
                 {
-                    if (name == "get_objective") handlers.ReadObjective = handler;
+                    if (name == "get_objective") handlers.ReadObjective = McpAbbreviatedIdArguments.Wrap(name, handler, database);
                 }, database, new ObjectiveService(database));
                 McpVoyageTools.Register((name, _, _, handler) =>
                 {
-                    if (name == "armada_voyage_status") handlers.VoyageStatus = handler;
+                    if (name == "armada_voyage_status") handlers.VoyageStatus = McpAbbreviatedIdArguments.Wrap(name, handler, database);
                 }, database, new RecordingAdmiralDouble(), null);
                 McpEnumerateTools.Register((name, _, _, handler) =>
                 {
-                    if (name == "armada_enumerate") handlers.Enumerate = handler;
+                    if (name == "armada_enumerate") handlers.Enumerate = McpAbbreviatedIdArguments.Wrap(name, handler, database);
                 }, database);
                 return handlers;
             }

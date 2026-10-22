@@ -5,7 +5,6 @@ namespace Armada.Server.Mcp.Tools
     using System.Linq;
     using System.Text.Json;
     using System.Threading.Tasks;
-    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Services;
@@ -64,13 +63,6 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = "content is required and must not be empty" };
                     if (String.IsNullOrWhiteSpace(request.AuthorName))
                         return (object)new { Error = "authorName is required and must not be empty" };
-
-                    McpScopeDenial? idDenial =
-                        await ResolveIdArgumentAsync(database, request.ObjectiveId, "Objective not found", id => request.ObjectiveId = id).ConfigureAwait(false)
-                        ?? await ResolveIdArgumentAsync(database, request.VoyageId, "Voyage not found", id => request.VoyageId = id).ConfigureAwait(false)
-                        ?? await ResolveIdArgumentAsync(database, request.MissionId, "Mission not found", id => request.MissionId = id).ConfigureAwait(false)
-                        ?? await ResolveIdArgumentAsync(database, request.IncidentId, "Incident not found", id => request.IncidentId = id).ConfigureAwait(false);
-                    if (idDenial != null) return (object)idDenial;
 
                     string roomKey = await coordination.ResolveRoomKeyAsync(request.RoomKey, request.ObjectiveId).ConfigureAwait(false);
                     string? authenticatedParticipant = ArmadaMcpHttpServer.CurrentParticipantKey;
@@ -266,10 +258,6 @@ namespace Armada.Server.Mcp.Tools
                             CoordinationClaimSubjectEnum subjectType;
                             if (!Enum.TryParse(request.SubjectType!, true, out subjectType))
                                 return (object)new { Error = "subjectType must be vessel or objective" };
-                            McpScopeDenial? subjectDenial = await ResolveIdArgumentAsync(
-                                database, request.SubjectId, "Objective not found", id => request.SubjectId = id).ConfigureAwait(false);
-                            if (subjectDenial != null) return (object)subjectDenial;
-
                             CoordinationClaim claim = await coordination.ClaimAsync(
                                 participantKey!, request.DisplayName!, subjectType, request.SubjectId!,
                                 request.Note, request.TtlHours ?? 4, request.RoomKey).ConfigureAwait(false);
@@ -692,22 +680,6 @@ namespace Armada.Server.Mcp.Tools
             public string? Action { get; set; } = null;
             public string? Reason { get; set; } = null;
             public string? SetBy { get; set; } = null;
-        }
-
-        // A caller-supplied abbreviated id resolves through the shared resolver and is stored in full. An
-        // abbreviation that matches no visible record is refused the same way as an absent record, never stored.
-        private static async Task<McpScopeDenial?> ResolveIdArgumentAsync(
-            DatabaseDriver database,
-            string? id,
-            string notFound,
-            Action<string> store)
-        {
-            if (!AbbreviatedIdResolver.IsAbbreviated(id)) return null;
-            AbbreviatedIdResolution resolved = await AbbreviatedIdResolver.ResolveForCallerAsync(database, McpCallerContext.Require(), id).ConfigureAwait(false);
-            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous(notFound);
-            if (!resolved.Resolved) return McpScopeDenial.Create(notFound, false);
-            store(resolved.Id);
-            return null;
         }
 
         private sealed class CoordinationPostArgs

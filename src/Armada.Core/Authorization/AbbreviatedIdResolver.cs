@@ -7,6 +7,7 @@ namespace Armada.Core.Authorization
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
 
@@ -14,7 +15,8 @@ namespace Armada.Core.Authorization
     /// The one resolver for abbreviated record ids. An abbreviation is the prefix and creation-time part of a
     /// full id (<c>msn_</c> plus eight base-36 characters); the time part is the record's creation time in
     /// milliseconds, so candidates are read by creation time and matched by prefix. Missions, voyages,
-    /// objectives, check runs and incidents resolve. A candidate the caller cannot see is never counted, so
+    /// objectives, check runs, incidents, merge entries, signals, captains, vessels, fleets, docks, releases
+    /// and deployments resolve. A candidate the caller cannot see is never counted, so
     /// an abbreviation reveals nothing the full id would not: no visible match leaves the id as given, which
     /// then reads as absent, and two visible matches make it ambiguous. Every read and write that accepts a
     /// record id resolves it here before its normal scope check, and a write stores the full id.
@@ -39,7 +41,7 @@ namespace Armada.Core.Authorization
         private static readonly TimeSpan _CreationWindow = TimeSpan.FromSeconds(5);
 
         private static readonly Regex _Abbreviated = new Regex(
-            @"^(?:msn|vyg|obj|chk|inc)_[0-9a-z]{8}$",
+            @"^(?:msn|vyg|obj|chk|inc|mrg|sig|cpt|vsl|flt|dck|rel|dpl)_[0-9a-z]{8}$",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         #endregion
@@ -180,6 +182,32 @@ namespace Armada.Core.Authorization
                     ids = (await database.CheckRuns.EnumerateAsync(new CheckRunQuery { FromUtc = after, ToUtc = before, PageSize = _MaxCandidates }, token).ConfigureAwait(false))
                         .Objects.Select(run => run.Id);
                     break;
+                case "mrg_":
+                    ids = (await database.MergeEntries.EnumerateAsync(Window(after, before), token).ConfigureAwait(false)).Objects.Select(entry => entry.Id);
+                    break;
+                case "sig_":
+                    ids = (await database.Signals.EnumerateAsync(Window(after, before), token).ConfigureAwait(false)).Objects.Select(signal => signal.Id);
+                    break;
+                case "cpt_":
+                    ids = (await database.Captains.EnumerateAsync(Window(after, before), token).ConfigureAwait(false)).Objects.Select(captain => captain.Id);
+                    break;
+                case "vsl_":
+                    ids = (await database.Vessels.EnumerateAsync(Window(after, before), token).ConfigureAwait(false)).Objects.Select(vessel => vessel.Id);
+                    break;
+                case "flt_":
+                    ids = (await database.Fleets.EnumerateAsync(Window(after, before), token).ConfigureAwait(false)).Objects.Select(fleet => fleet.Id);
+                    break;
+                case "dck_":
+                    ids = (await database.Docks.EnumerateAsync(Window(after, before), token).ConfigureAwait(false)).Objects.Select(dock => dock.Id);
+                    break;
+                case "rel_":
+                    ids = (await database.Releases.EnumerateAsync(new ReleaseQuery { FromUtc = after, ToUtc = before, PageSize = _MaxCandidates }, token).ConfigureAwait(false))
+                        .Objects.Select(release => release.Id);
+                    break;
+                case "dpl_":
+                    ids = (await database.Deployments.EnumerateAsync(new DeploymentQuery { FromUtc = after, ToUtc = before, PageSize = _MaxCandidates }, token).ConfigureAwait(false))
+                        .Objects.Select(deployment => deployment.Id);
+                    break;
                 default:
                     // An incident is a series of snapshot events; its first snapshot is written when it is created.
                     EnumerationQuery snapshots = Window(after, before);
@@ -230,9 +258,69 @@ namespace Armada.Core.Authorization
                         return run != null && OwnershipPolicy.SameOwner(caller, run.TenantId, run.UserId);
                     }
                     return await CallerScopedRead.ReadCheckRunAsync(database, caller, id, token).ConfigureAwait(false) != null;
+                case "mrg_":
+                    MergeEntry? entry = await database.MergeEntries.ReadAsync(id, token).ConfigureAwait(false);
+                    return entry != null && InScope(caller, missionCaller, entry.TenantId, entry.UserId);
+                case "sig_":
+                    Signal? signal = await database.Signals.ReadAsync(id, token).ConfigureAwait(false);
+                    return signal != null && InScope(caller, missionCaller, signal.TenantId, signal.UserId);
+                case "cpt_":
+                    if (missionCaller)
+                    {
+                        Captain? captain = await database.Captains.ReadAsync(id, token).ConfigureAwait(false);
+                        return captain != null && OwnershipPolicy.SameOwner(caller, captain.TenantId, captain.UserId);
+                    }
+                    return await CallerScopedRead.ReadCaptainAsync(database, caller, id, token).ConfigureAwait(false) != null;
+                case "vsl_":
+                    if (missionCaller)
+                    {
+                        Vessel? vessel = await database.Vessels.ReadAsync(id, token).ConfigureAwait(false);
+                        return vessel != null && OwnershipPolicy.SameOwner(caller, vessel.TenantId, vessel.UserId);
+                    }
+                    return await CallerScopedRead.ReadVesselAsync(database, caller, id, token).ConfigureAwait(false) != null;
+                case "flt_":
+                    if (missionCaller)
+                    {
+                        Fleet? fleet = await database.Fleets.ReadAsync(id, token).ConfigureAwait(false);
+                        return fleet != null && OwnershipPolicy.SameOwner(caller, fleet.TenantId, fleet.UserId);
+                    }
+                    return await CallerScopedRead.ReadFleetAsync(database, caller, id, token).ConfigureAwait(false) != null;
+                case "dck_":
+                    if (missionCaller)
+                    {
+                        Dock? dock = await database.Docks.ReadAsync(id, token).ConfigureAwait(false);
+                        return dock != null && OwnershipPolicy.SameOwner(caller, dock.TenantId, dock.UserId);
+                    }
+                    return await CallerScopedRead.ReadDockAsync(database, caller, id, token).ConfigureAwait(false) != null;
+                case "rel_":
+                    Release? release = await CallerScopedRead.ReadReleaseAsync(database, caller, id, token).ConfigureAwait(false);
+                    return release != null && (!missionCaller || OwnershipPolicy.SameOwner(caller, release.TenantId, release.UserId));
+                case "dpl_":
+                    Deployment? deployment = await CallerScopedRead.ReadDeploymentAsync(database, caller, id, token).ConfigureAwait(false);
+                    return deployment != null && (!missionCaller || OwnershipPolicy.SameOwner(caller, deployment.TenantId, deployment.UserId));
                 default:
                     Incident? incident = await new IncidentService(database).ReadAsync(caller, id, token).ConfigureAwait(false);
                     return incident != null && (!missionCaller || OwnershipPolicy.SameOwner(caller, incident.TenantId, incident.UserId));
+            }
+        }
+
+        // A record type without its own scoped read follows the shared caller scope: a mission caller sees its
+        // owner's records, a global administrator every record, a tenant administrator its tenant's records,
+        // and any other caller the records it owns.
+        private static bool InScope(AuthContext caller, bool missionCaller, string? tenantId, string? userId)
+        {
+            if (missionCaller) return OwnershipPolicy.SameOwner(caller, tenantId, userId);
+            CallerRecordScope scope = CallerScopedRead.ResolveScope(caller);
+            switch (scope.Kind)
+            {
+                case CallerRecordScopeKindEnum.Global:
+                    return true;
+                case CallerRecordScopeKindEnum.Tenant:
+                    return OwnershipPolicy.SameTenant(tenantId, scope.TenantId);
+                case CallerRecordScopeKindEnum.User:
+                    return OwnershipPolicy.SameOwner(caller, tenantId, userId);
+                default:
+                    return false;
             }
         }
 

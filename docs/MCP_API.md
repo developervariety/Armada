@@ -810,18 +810,17 @@ record; pass the full id. An objective that cites an abbreviated id links the on
 record it resolves to, the same as the full id, and an ambiguous citation links
 nothing.
 
-Writes resolve abbreviated ids the same way, against the scoped read that
-validates the field, and store the full id. On `create_objective` and
-`update_objective` this covers the objective id being updated,
-`parentObjectiveId`, and every linked-id list (`blockedByObjectiveIds`,
-`voyageIds`, `missionIds`, `checkRunIds`, `incidentIds` and the others). An
-abbreviation with no visible match fails as `<Field> not found or not
-accessible`, and an ambiguous one fails with text that starts `ambiguous_id`.
-`armada_coordination_post` resolves `objectiveId`, `voyageId`, `missionId` and
-`incidentId`, and `armada_coordination_claim` resolves an objective
-`subjectId`; an abbreviation with no visible match returns `Reason`
-`not_found` and stores nothing. Mission, voyage, objective, check-run and
-incident ids resolve.
+Every MCP tool resolves abbreviated ids the same way before it runs. Each
+argument named `id` or ending in `Id` or `Ids`, at any depth, whose value is an
+abbreviation is replaced by the full id, so a write stores the full id. No
+visible match returns `Reason` `not_found`, two return `ambiguous_id`, and the
+tool does not run. Mission, voyage, objective, check-run, incident, merge-entry,
+signal, captain, vessel, fleet, dock, release and deployment ids resolve; any
+other id is passed as given. Delete and purge tools take full ids only: an
+abbreviation there returns `Code` `full_id_required` with text that says to use
+the full id, and nothing is deleted. Objective writes made through REST resolve
+the objective being updated, `parentObjectiveId` and every linked-id list in the
+objective service, against the scoped read that validates each field.
 
 `armada_mission_output` returns digest-backed pages of persisted output. A mission
 caller can read its own output, missions in the same voyage, and its direct

@@ -115,6 +115,8 @@ namespace Armada.Server.Mcp
             CaptainAdministrationService? captainAdministration = null,
             MissionOperations? missionOperations = null)
         {
+            // Every tool's abbreviated id arguments resolve at this one seam before the tool runs.
+            register = McpAbbreviatedIdArguments.Wrap(register, database);
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             missionOperations = missionOperations ?? new MissionOperations(
                 database,
