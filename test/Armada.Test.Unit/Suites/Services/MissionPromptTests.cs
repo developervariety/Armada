@@ -484,6 +484,175 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Objective scope and staged reports name the assigned runtime's instruction file", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("retarget-scope-voyage"));
+                        Objective objective = new Objective();
+                        objective.Title = "Carry a plan across runtimes";
+                        objective.Description = "Follow the reads list in CODEX.md before editing.";
+                        objective.AcceptanceCriteria = new List<string> { "The plan named in MUX.md is applied." };
+                        objective.VoyageIds = new List<string> { voyage.Id };
+                        await testDb.Driver.Objectives.CreateAsync(objective);
+
+                        string report = "Worker report: read CODEX.md, then apply the plan.";
+                        Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Worker on another runtime")
+                        {
+                            Persona = "Worker",
+                            AgentOutput = report,
+                            Status = MissionStatusEnum.Complete
+                        });
+
+                        Vessel vessel = new Vessel("RetargetScopeVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("cursor-captain");
+                        captain.Runtime = AgentRuntimeEnum.Cursor;
+                        Mission judge = new Mission();
+                        judge.Title = "Review the plan";
+                        judge.Persona = "Judge";
+                        judge.VoyageId = voyage.Id;
+                        judge.Description = "Prior stage output: mission-output:" + worker.Id + "\n";
+
+                        await service.GenerateClaudeMdAsync(tempDir, judge, vessel, captain);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CURSOR.md"));
+
+                        AssertContains("Follow the reads list in CURSOR.md before editing.", brief, "objective scope names this runtime's instruction file");
+                        AssertContains("The plan named in CURSOR.md is applied.", brief, "acceptance criteria name this runtime's instruction file");
+                        AssertFalse(brief.Contains("reads list in CODEX.md"), "objective scope must not name a file this dock does not hold");
+
+                        string staged = await File.ReadAllTextAsync(Path.Combine(tempDir, "_briefing", "handoff", worker.Id + ".md"));
+                        AssertEqual(report, staged, "a staged report keeps its exact bytes, so its digest still matches");
+                        AssertContains("## Instruction File Names in Staged Reports", brief, "the brief names the replacement for a staged report");
+                        AssertContains("`CODEX.md`, which this dock does not hold. Read each as `CURSOR.md`", brief, "the section names the foreign file and the replacement");
+                        AssertContains("- `_briefing/handoff/" + worker.Id + ".md`", brief, "the section lists the staged report that names it");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A Git Anchors block copied into the description is dropped from the brief", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("CopiedAnchorsVessel", "https://github.com/test/repo");
+                        Mission mission = new Mission();
+                        mission.Title = "Continue the plan";
+                        mission.Persona = "Worker";
+                        mission.Description =
+                            "Apply the plan below.\n\n" +
+                            "## Git Anchors\n" +
+                            "Resolved by the admiral at dispatch.\n\n" +
+                            "- Your work starts at (this checkout's HEAD): `0ldbase1`\n" +
+                            "\n### Recent history of the paths this mission names\n" +
+                            "- `src/StaleAnchorPath.cs` does not exist on this checkout. It is new work, not an edit.\n\n" +
+                            "### Agent Output (from Architect stage)\n" +
+                            "Keep-this-handoff-line\n\n" +
+                            "## Plan\n" +
+                            "Keep-this-plan-line\n";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+
+                        AssertFalse(brief.Contains("0ldbase1"), "a copied anchor block's start commit must not reach the brief");
+                        AssertFalse(brief.Contains("StaleAnchorPath"), "a copied anchor block's path history must not reach the brief");
+                        AssertContains("Apply the plan below.", brief, "text before the copied block is kept");
+                        AssertContains("### Agent Output (from Architect stage)\nKeep-this-handoff-line", brief, "a sub-heading the anchors section does not render ends the copied block");
+                        AssertContains("## Plan\nKeep-this-plan-line", brief, "the next section is kept");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
+            await RunTest("A stage whose start lacks its predecessor's commit records an event and one brief line", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.HeadCommitHashResult = new string('a', 40);
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+
+                    try
+                    {
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("StartGapVessel", "https://github.com/test/repo"));
+                        string predecessorCommit = new string('b', 40);
+                        Mission predecessor = await testDb.Driver.Missions.CreateAsync(new Mission("Predecessor stage")
+                        {
+                            Persona = "Worker",
+                            VesselId = vessel.Id,
+                            CommitHash = predecessorCommit,
+                            Status = MissionStatusEnum.WorkProduced
+                        });
+                        Mission stage = await testDb.Driver.Missions.CreateAsync(new Mission("Later stage")
+                        {
+                            Persona = "Worker",
+                            VesselId = vessel.Id,
+                            DependsOnMissionId = predecessor.Id,
+                            Description = "Continue from the predecessor."
+                        });
+
+                        git.IsAncestorResult = false;
+                        await service.GenerateClaudeMdAsync(tempDir, stage, vessel);
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                        AssertContains("This checkout starts at `" + new string('a', 40) + "`, which does not contain `" + predecessorCommit + "`", brief,
+                            "the brief names the start commit and the predecessor commit it lacks");
+                        List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.start_behind_predecessor", 10);
+                        AssertEqual(1, events.Count, "one start_behind_predecessor event is recorded");
+                        AssertEqual(stage.Id, events[0].MissionId, "the event names the stage");
+                        AssertContains(predecessorCommit, events[0].Payload ?? "", "the event payload names the predecessor commit");
+
+                        git.IsAncestorResult = true;
+                        string containedDir = Path.Combine(tempDir, "contained");
+                        Directory.CreateDirectory(containedDir);
+                        await service.GenerateClaudeMdAsync(containedDir, stage, vessel);
+                        string containedBrief = await File.ReadAllTextAsync(Path.Combine(containedDir, "CLAUDE.md"));
+                        AssertFalse(containedBrief.Contains("which does not contain"), "a start that contains the predecessor commit adds no line");
+
+                        git.IsAncestorResult = null;
+                        string unknownDir = Path.Combine(tempDir, "unknown");
+                        Directory.CreateDirectory(unknownDir);
+                        await service.GenerateClaudeMdAsync(unknownDir, stage, vessel);
+                        string unknownBrief = await File.ReadAllTextAsync(Path.Combine(unknownDir, "CLAUDE.md"));
+                        AssertFalse(unknownBrief.Contains("which does not contain"), "an ancestry probe that cannot answer is not a gap");
+                        AssertEqual(1, (await testDb.Driver.Events.EnumerateByTypeAsync("mission.start_behind_predecessor", 10)).Count,
+                            "no event is recorded when the start contains the commit or the probe cannot answer");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("A brief points every read of an unstaged _briefing file at the inline text and lists the other absent paths", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

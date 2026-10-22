@@ -81,12 +81,8 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(text) || String.IsNullOrEmpty(instructionsFileName)) return text;
 
             string result = text;
-            foreach (string foreign in _ArmadaOnlyInstructionFileNames)
+            foreach (string foreign in FindForeignInstructionFileNames(text, instructionsFileName, worktreePath))
             {
-                if (String.Equals(foreign, instructionsFileName, StringComparison.Ordinal)) continue;
-                if (result.IndexOf(foreign, StringComparison.Ordinal) < 0) continue;
-                if (!String.IsNullOrEmpty(worktreePath) && File.Exists(Path.Combine(worktreePath, foreign))) continue;
-
                 result = Regex.Replace(
                     result,
                     @"(?<![\w./-])" + Regex.Escape(foreign) + @"(?![\w-])",

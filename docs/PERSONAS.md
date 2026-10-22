@@ -320,6 +320,23 @@ A brief also matches the dock it lands in and the tools the captain has:
   filename, because a handoff written on one runtime otherwise names a file
   another runtime's dock never holds. A filename the checkout itself holds is
   repository content and is kept.
+- Objective Scope names the assigned runtime's instruction file the same way.
+  A staged earlier-stage report under `_briefing/handoff/` keeps its exact
+  bytes, so `## Instruction File Names in Staged Reports` names each foreign
+  instruction file such a report mentions, the file to read instead, and the
+  reports that mention it.
+- A `## Git Anchors` block copied into the description from an earlier brief
+  or report is dropped. The brief carries only the anchors resolved for this
+  dock.
+- When the dock's start commit does not contain the commit the same-vessel
+  predecessor stage recorded, the brief adds one line that names both commits
+  and a `mission.start_behind_predecessor` event records them. The stage still
+  runs; an ancestry probe that cannot answer adds nothing.
+- The dock's git exclude lists `_briefing/`, `.armada/instructions/`,
+  `.armada/playbooks/`, the seeded MCP and OpenCode files and the boundary
+  files from provisioning on. Docks are linked worktrees, so the entries go in
+  the shared repository's `info/exclude`, the only exclude file a worktree
+  reads.
 - `## Named Files Not Staged` lists each `_briefing/` path the description
   names that is not in the dock. Staged inputs are written before the brief,
   so a listed path is absent when the captain starts.

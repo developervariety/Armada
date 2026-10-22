@@ -90,6 +90,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ProvisionAsync excludes Armada-staged dock files from the worktree's untracked files", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+
+                    GitService git = new GitService(logging);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-dockexclude-" + Guid.NewGuid().ToString("N"));
+                    string sourceDir = Path.Combine(rootDir, "source");
+
+                    try
+                    {
+                        GitServiceTests.SeedTemplateRepository(sourceDir);
+
+                        Vessel vessel = new Vessel("exclude-vessel", sourceDir);
+                        vessel.DefaultBranch = "release/e2e";
+                        vessel.WorkingDirectory = Path.Combine(rootDir, "target");
+                        vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("exclude-captain")).ConfigureAwait(false);
+
+                        Dock? dock = await service.ProvisionAsync(vessel, captain, "armada/exclude-captain/msn_exclude", "msn_exclude").ConfigureAwait(false);
+                        AssertNotNull(dock, "Dock should be provisioned");
+                        string worktree = dock!.WorktreePath!;
+                        AssertTrue(File.Exists(Path.Combine(worktree, ".git")), "the dock is a linked worktree whose .git is a file");
+
+                        string[] staged = new[]
+                        {
+                            "_briefing/mission/01-description.md",
+                            "_briefing/handoff/msn_prior.md",
+                            ".armada/instructions/CLAUDE.md",
+                            ".armada/playbooks/01_PLAYBOOK.md"
+                        };
+                        foreach (string relative in staged)
+                        {
+                            string full = Path.Combine(worktree, relative.Replace('/', Path.DirectorySeparatorChar));
+                            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                            await File.WriteAllTextAsync(full, "staged\n").ConfigureAwait(false);
+                        }
+                        await File.WriteAllTextAsync(Path.Combine(worktree, "notes.txt"), "captain file\n").ConfigureAwait(false);
+
+                        string status = await RunGitAsync(worktree, "status", "--porcelain", "--untracked-files=all").ConfigureAwait(false);
+                        AssertContains("notes.txt", status, "an ordinary untracked file is still listed");
+                        foreach (string relative in staged)
+                            AssertFalse(status.Contains(relative, StringComparison.Ordinal), relative + " must not be listed as untracked (status: " + status + ")");
+                        AssertFalse(status.Contains("opencode.json", StringComparison.Ordinal), "the seeded OpenCode config must not be listed as untracked");
+                        AssertFalse(status.Contains(".armada/boundary", StringComparison.Ordinal), "the boundary files must not be listed as untracked");
+                    }
+                    finally
+                    {
+                        try { if (Directory.Exists(rootDir)) Directory.Delete(rootDir, true); } catch { }
+                        try { if (Directory.Exists(settings.DocksDirectory)) Directory.Delete(settings.DocksDirectory, true); } catch { }
+                        try { if (Directory.Exists(settings.ReposDirectory)) Directory.Delete(settings.ReposDirectory, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("PrepareBranchFromRefAsync refuses a hexadecimal commit absent from the dock repository and preserves the full verified object ID", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

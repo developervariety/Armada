@@ -531,6 +531,23 @@ upstream integrations and excludes changes already present at that baseline.
   code, the reading adds a `preflight_q9_model` Warning that quotes that
   sentence, not an `objective_preflight_model_flag` Error. A brief that states
   the same value on both sides, or a preview with a failed fact, still blocks.
+- Dock git excludes take effect. A dock is a linked worktree, and git reads only
+  the shared repository's `info/exclude`, so Armada writes its dock entries
+  there. Provisioning excludes `_briefing/`, `.armada/instructions/` and
+  `.armada/playbooks/` with the MCP, OpenCode and boundary files, before any of
+  them is written, so a repository tool that lists or hashes untracked files
+  does not read Armada's staged files.
+- A brief names the assigned runtime's instruction file in every section built
+  from objective or earlier-stage text. Objective Scope uses the same rewrite as
+  the mission description. A staged earlier-stage report keeps its exact bytes,
+  and `## Instruction File Names in Staged Reports` names the foreign file it
+  mentions and the file to read instead.
+- A `## Git Anchors` block copied into a mission description from an earlier
+  brief is dropped before the brief adds this dock's own anchors.
+- A stage whose checkout does not contain the commit its same-vessel
+  predecessor recorded records a `mission.start_behind_predecessor` event, and
+  its brief adds one line that names both commits. The stage is not held or
+  skipped, and an ancestry probe that cannot answer reports nothing.
 - Dispatch preflight question 1 passes a citation whose line range lies inside
   the body of the declaration it names, such as `` `Size` (`Book.cs:20-22`) ``
   for lines inside `Size`. A range that crosses into the next declaration, or

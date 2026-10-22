@@ -3676,6 +3676,15 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // A stage whose checkout lacks the commit its predecessor recorded still runs; the brief names both
+            // commits so the captain does not assume the predecessor's work is present.
+            string startBehindPredecessor = await ReportStartBehindPredecessorAsync(worktreePath, mission, captain, token).ConfigureAwait(false);
+            if (!String.IsNullOrEmpty(startBehindPredecessor))
+            {
+                content += ledger.Track("mission.start_behind_predecessor", startBehindPredecessor);
+                content += "\n";
+            }
+
             // Mission preamble and metadata -- resolve persona prompt first, then inject into metadata template
             // A read-only mission takes the mode-aware output contract instead of the persona template.
             // The producing templates carry implementation language of their own -- commit your scoped
@@ -3700,12 +3709,16 @@ namespace Armada.Core.Services
             //
             // A handoff written on another runtime can name that runtime's instruction file, which this dock
             // never receives, so the copy the captain reads names this runtime's file instead.
+            //
+            // A Git Anchors block copied from an earlier stage's brief describes another checkout, and the brief
+            // adds this dock's own block, so the copy is dropped.
             string? briefDescription = RewriteBriefPaths(
-                RetargetInstructionFileNames(mission.Description, instructionsFileName, worktreePath),
+                RetargetInstructionFileNames(StripInheritedGitAnchorsBlocks(mission.Description), instructionsFileName, worktreePath),
                 _Settings.BriefPathRewrites);
             // A handoff embeds a bounded preview of a long earlier-stage report; the complete report is written
             // beside it, so the downstream stage reads every finding from its own checkout.
-            await WriteBriefFilesAsync(worktreePath, HandoffOutputFolder, await BuildHandoffOutputFilesAsync(mission, token).ConfigureAwait(false), token).ConfigureAwait(false);
+            List<ContextBriefFile> handoffOutputFiles = await BuildHandoffOutputFilesAsync(mission, token).ConfigureAwait(false);
+            await WriteBriefFilesAsync(worktreePath, HandoffOutputFolder, handoffOutputFiles, token).ConfigureAwait(false);
             // A description cut at the handoff names the dock file of its complete text; that text is staged
             // with the same path rewrites, so the cut never removes anything the captain can read.
             List<ContextBriefFile> fullHandoffFiles = await BuildFullHandoffFilesAsync(
@@ -3764,6 +3777,15 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // A staged earlier-stage report keeps its exact bytes, so a foreign instruction filename in it is
+            // named here with this runtime's file rather than rewritten.
+            string stagedInstructionNames = BuildStagedInstructionFileNamesSection(handoffOutputFiles, instructionsFileName, worktreePath);
+            if (!String.IsNullOrEmpty(stagedInstructionNames))
+            {
+                content += ledger.Track("mission.staged_instruction_file_names", stagedInstructionNames);
+                content += "\n";
+            }
+
             string siblingCheckouts = await BuildSiblingCheckoutsSectionAsync(worktreePath, mission, vessel, captain, token).ConfigureAwait(false);
             if (!String.IsNullOrEmpty(siblingCheckouts))
             {
@@ -3775,8 +3797,10 @@ namespace Armada.Core.Services
             // scope, acceptance criteria, and non-goals are the definition of done. Previously a linked
             // objective never reached the captain as distinct context -- the mission description alone
             // had to stand in for it -- and the Judge had no acceptance criteria to review against.
+            // Objective text is written on whatever runtime planned it, so it names this runtime's
+            // instruction file the same way the description does.
             string objectiveScope = RewriteBriefPaths(
-                await BuildObjectiveScopeSectionAsync(mission, token).ConfigureAwait(false),
+                RetargetInstructionFileNames(await BuildObjectiveScopeSectionAsync(mission, token).ConfigureAwait(false), instructionsFileName, worktreePath),
                 _Settings.BriefPathRewrites) ?? String.Empty;
             if (!String.IsNullOrEmpty(objectiveScope))
             {
@@ -3977,12 +4001,12 @@ namespace Armada.Core.Services
             // instruction files in the first place.
             try
             {
-                string? excludePath = ResolveGitInfoExcludePath(worktreePath);
+                string? excludePath = GitInfoExclude.ResolvePath(worktreePath);
                 if (!String.IsNullOrEmpty(excludePath))
                 {
-                    await EnsureGitExcludeEntryAsync(excludePath, instructionsRelativePath.Replace("\\", "/"), token).ConfigureAwait(false);
-                    await EnsureGitExcludeEntryAsync(excludePath, ".armada/instructions/", token).ConfigureAwait(false);
-                    await EnsureGitExcludeEntryAsync(excludePath, "_briefing/", token).ConfigureAwait(false);
+                    await GitInfoExclude.EnsureEntryAsync(excludePath, instructionsRelativePath.Replace("\\", "/"), token).ConfigureAwait(false);
+                    await GitInfoExclude.EnsureEntryAsync(excludePath, ".armada/instructions/", token).ConfigureAwait(false);
+                    await GitInfoExclude.EnsureEntryAsync(excludePath, "_briefing/", token).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
@@ -5782,32 +5806,13 @@ namespace Armada.Core.Services
             string absolutePath = Path.Combine(absoluteDir, fileName);
             await File.WriteAllTextAsync(absolutePath, snapshot.Content, token).ConfigureAwait(false);
 
-            string? excludePath = ResolveGitInfoExcludePath(worktreePath);
+            string? excludePath = GitInfoExclude.ResolvePath(worktreePath);
             if (!String.IsNullOrEmpty(excludePath))
             {
-                await EnsureGitExcludeEntryAsync(excludePath, ".armada/playbooks/", token).ConfigureAwait(false);
+                await GitInfoExclude.EnsureEntryAsync(excludePath, ".armada/playbooks/", token).ConfigureAwait(false);
             }
 
             return (absolutePath, Path.Combine(relativeDir, fileName));
-        }
-
-        private async Task EnsureGitExcludeEntryAsync(string excludePath, string entry, CancellationToken token)
-        {
-            if (String.IsNullOrEmpty(excludePath)) return;
-            if (String.IsNullOrEmpty(entry)) return;
-
-            Directory.CreateDirectory(Path.GetDirectoryName(excludePath)!);
-            string excludeContent = File.Exists(excludePath)
-                ? await File.ReadAllTextAsync(excludePath, token).ConfigureAwait(false)
-                : "";
-            bool hasEntry = excludeContent
-                .Split('\n')
-                .Select(l => l.Trim())
-                .Any(l => String.Equals(l, entry, StringComparison.Ordinal));
-            if (hasEntry) return;
-
-            string suffix = excludeContent.Length > 0 && !excludeContent.EndsWith("\n", StringComparison.Ordinal) ? "\n" : "";
-            await File.AppendAllTextAsync(excludePath, suffix + entry + "\n", token).ConfigureAwait(false);
         }
 
         private static string BuildMaterializedPlaybookFileName(int selectionOrder, string? originalFileName)
@@ -13826,37 +13831,6 @@ namespace Armada.Core.Services
             }
 
             return existing.TrimEnd() + "\n\n---\n\n" + feedbackSection;
-        }
-
-        private static string? ResolveGitInfoExcludePath(string worktreePath)
-        {
-            if (String.IsNullOrEmpty(worktreePath)) return null;
-
-            string gitPath = Path.Combine(worktreePath, ".git");
-            if (Directory.Exists(gitPath))
-            {
-                return Path.Combine(gitPath, "info", "exclude");
-            }
-
-            if (!File.Exists(gitPath))
-            {
-                return null;
-            }
-
-            string gitPointer = File.ReadAllText(gitPath).Trim();
-            const string prefix = "gitdir:";
-            if (!gitPointer.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
-
-            string gitDir = gitPointer.Substring(prefix.Length).Trim();
-            if (!Path.IsPathRooted(gitDir))
-            {
-                gitDir = Path.GetFullPath(Path.Combine(worktreePath, gitDir));
-            }
-
-            return Path.Combine(gitDir, "info", "exclude");
         }
 
         #endregion

@@ -2022,18 +2022,24 @@ namespace Armada.Core.Services
                     await File.WriteAllTextAsync(openCodePath, openCodeConfig, token).ConfigureAwait(false);
                 }
 
-                string? excludePath = ResolveGitInfoExcludePath(worktreePath);
+                string? excludePath = GitInfoExclude.ResolvePath(worktreePath);
                 if (!String.IsNullOrWhiteSpace(excludePath))
                 {
                     if (_Settings.SeedDockRuntimeMcpConfig)
                     {
-                        await EnsureGitExcludeEntryAsync(excludePath, ".mcp.json", token).ConfigureAwait(false);
-                        await EnsureGitExcludeEntryAsync(excludePath, ".cursor/mcp.json", token).ConfigureAwait(false);
-                        await EnsureGitExcludeEntryAsync(excludePath, ".codex/config.toml", token).ConfigureAwait(false);
-                        await EnsureGitExcludeEntryAsync(excludePath, ".gemini/settings.json", token).ConfigureAwait(false);
+                        await GitInfoExclude.EnsureEntryAsync(excludePath, ".mcp.json", token).ConfigureAwait(false);
+                        await GitInfoExclude.EnsureEntryAsync(excludePath, ".cursor/mcp.json", token).ConfigureAwait(false);
+                        await GitInfoExclude.EnsureEntryAsync(excludePath, ".codex/config.toml", token).ConfigureAwait(false);
+                        await GitInfoExclude.EnsureEntryAsync(excludePath, ".gemini/settings.json", token).ConfigureAwait(false);
                     }
 
-                    await EnsureGitExcludeEntryAsync(excludePath, "opencode.json", token).ConfigureAwait(false);
+                    await GitInfoExclude.EnsureEntryAsync(excludePath, "opencode.json", token).ConfigureAwait(false);
+
+                    // Armada stages briefing files, instructions and playbooks into the dock before the captain
+                    // starts. Excluding them here, before any of them is written, keeps a repository tool that
+                    // lists or hashes untracked files from reading them as repository content.
+                    foreach (string stagedPath in GitInfoExclude.ArmadaStagedDockPaths)
+                        await GitInfoExclude.EnsureEntryAsync(excludePath, stagedPath, token).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
@@ -2076,51 +2082,6 @@ namespace Armada.Core.Services
             }
 
             return roots;
-        }
-
-        private static string? ResolveGitInfoExcludePath(string worktreePath)
-        {
-            string dotGitPath = Path.Combine(worktreePath, ".git");
-            if (Directory.Exists(dotGitPath))
-            {
-                return Path.Combine(dotGitPath, "info", "exclude");
-            }
-
-            if (!File.Exists(dotGitPath)) return null;
-
-            string content = File.ReadAllText(dotGitPath).Trim();
-            const string prefix = "gitdir:";
-            if (!content.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
-
-            string gitDir = content.Substring(prefix.Length).Trim();
-            if (!Path.IsPathRooted(gitDir))
-            {
-                gitDir = Path.GetFullPath(Path.Combine(worktreePath, gitDir));
-            }
-
-            return Path.Combine(gitDir, "info", "exclude");
-        }
-
-        private static async Task EnsureGitExcludeEntryAsync(string excludePath, string entry, CancellationToken token)
-        {
-            if (String.IsNullOrWhiteSpace(excludePath) || String.IsNullOrWhiteSpace(entry)) return;
-
-            string? dir = Path.GetDirectoryName(excludePath);
-            if (!String.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
-
-            string existing = File.Exists(excludePath)
-                ? await File.ReadAllTextAsync(excludePath, token).ConfigureAwait(false)
-                : "";
-
-            string normalizedEntry = entry.Trim().Replace("\\", "/");
-            bool alreadyPresent = existing
-                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                .Any(line => String.Equals(line.Trim(), normalizedEntry, StringComparison.OrdinalIgnoreCase));
-
-            if (alreadyPresent) return;
-
-            string prefix = existing.Length > 0 && !existing.EndsWith("\n", StringComparison.Ordinal) ? "\n" : "";
-            await File.AppendAllTextAsync(excludePath, prefix + normalizedEntry + "\n", token).ConfigureAwait(false);
         }
 
         // Shared awk entropy gate for the CORE_RULE_5_base64_chunk hook pattern. grep cannot
@@ -2617,9 +2578,9 @@ namespace Armada.Core.Services
                 string configPath = Path.Combine(armadaDir, "boundary.json");
                 await File.WriteAllTextAsync(configPath, json, new System.Text.UTF8Encoding(false), token).ConfigureAwait(false);
 
-                string? excludePath = ResolveGitInfoExcludePath(worktreePath);
+                string? excludePath = GitInfoExclude.ResolvePath(worktreePath);
                 if (!String.IsNullOrWhiteSpace(excludePath))
-                    await EnsureGitExcludeEntryAsync(excludePath, ".armada/boundary.json", token).ConfigureAwait(false);
+                    await GitInfoExclude.EnsureEntryAsync(excludePath, ".armada/boundary.json", token).ConfigureAwait(false);
 
                 // Write raw-pattern sibling file: hook reads this instead of JSON-parsing boundary.json,
                 // so grep receives un-escaped metacharacters (\s, \w, \b, embedded ") verbatim.
@@ -2627,7 +2588,7 @@ namespace Armada.Core.Services
                 string patternsContent = BoundaryPatternsFileContent(config.SecretPatterns, config.PrivateIdentifiers);
                 await File.WriteAllTextAsync(patternsPath, patternsContent, new System.Text.UTF8Encoding(false), token).ConfigureAwait(false);
                 if (!String.IsNullOrWhiteSpace(excludePath))
-                    await EnsureGitExcludeEntryAsync(excludePath, ".armada/boundary.patterns", token).ConfigureAwait(false);
+                    await GitInfoExclude.EnsureEntryAsync(excludePath, ".armada/boundary.patterns", token).ConfigureAwait(false);
 
                 _Logging.Debug(_Header + "wrote boundary config to " + configPath);
             }
