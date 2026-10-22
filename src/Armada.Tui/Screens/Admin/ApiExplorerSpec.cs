@@ -331,8 +331,8 @@ namespace Armada.Tui.Screens.Admin
             Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.Ordinal);
             result["curl"] = "curl -X " + method + " \"" + request.Url + "\"" + (curlHeaders.Length > 0 ? " \\\n  " + curlHeaders : "") + curlBody;
             result["fetch"] = "const response = await fetch(" + Js(request.Url) + ", {\n  method: " + Js(method) + fetchHeaders + fetchBody + "\n});\n\nconst data = await response.text();";
-            result["csharp"] = "using System.Net.Http;\nusing System.Text;\n\nusing var client = new HttpClient();\nusing var request = new HttpRequestMessage(HttpMethod." + httpMethod + ", " + Js(request.Url) + ");\n"
-                + csharpHeaders + (csharpBody.Length > 0 ? "\n" + csharpBody : "") + "\nusing var response = await client.SendAsync(request);\nvar body = await response.Content.ReadAsStringAsync();";
+            result["csharp"] = "using System.Net.Http;\nusing System.Text;\n\nusing HttpClient client = new HttpClient();\nusing HttpRequestMessage request = new HttpRequestMessage(HttpMethod." + httpMethod + ", " + Js(request.Url) + ");\n"
+                + csharpHeaders + (csharpBody.Length > 0 ? "\n" + csharpBody : "") + "\nusing HttpResponseMessage response = await client.SendAsync(request);\nstring body = await response.Content.ReadAsStringAsync();";
             return result;
         }
 

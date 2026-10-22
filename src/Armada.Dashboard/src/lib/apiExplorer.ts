@@ -200,7 +200,7 @@ export function generateCodeSnippets(request: ExplorerRequestPreview): Record<Co
   return {
     curl: `curl -X ${request.method.toUpperCase()} "${request.url}"${curlHeaders ? ` \\\n  ${curlHeaders}` : ''}${curlBody}`,
     fetch: `const response = await fetch(${JSON.stringify(request.url)}, {\n  method: ${JSON.stringify(request.method.toUpperCase())}${fetchHeaders}${fetchBody}\n});\n\nconst data = await response.text();`,
-    csharp: `using System.Net.Http;\nusing System.Text;\n\nusing var client = new HttpClient();\nusing var request = new HttpRequestMessage(HttpMethod.${request.method.charAt(0).toUpperCase() + request.method.slice(1).toLowerCase()}, ${JSON.stringify(request.url)});\n${csharpHeaders}${csharpBody ? `\n${csharpBody}` : ''}\nusing var response = await client.SendAsync(request);\nvar body = await response.Content.ReadAsStringAsync();`,
+    csharp: `using System.Net.Http;\nusing System.Text;\n\nusing HttpClient client = new HttpClient();\nusing HttpRequestMessage request = new HttpRequestMessage(HttpMethod.${request.method.charAt(0).toUpperCase() + request.method.slice(1).toLowerCase()}, ${JSON.stringify(request.url)});\n${csharpHeaders}${csharpBody ? `\n${csharpBody}` : ''}\nusing HttpResponseMessage response = await client.SendAsync(request);\nstring body = await response.Content.ReadAsStringAsync();`,
   };
 }
 

@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using System.Collections.Generic;
     using System.Text.RegularExpressions;
 
     /// <summary>
@@ -11,13 +12,13 @@ namespace Armada.Core.Services
     {
         #region Private-Members
 
-        private static readonly (Regex Pattern, string Replacement)[] _Redactions = new (Regex, string)[]
+        private static readonly KeyValuePair<Regex, string>[] _Redactions = new KeyValuePair<Regex, string>[]
         {
-            (new Regex(@"(?i)\bBearer\s+[A-Za-z0-9._\-]{8,}", RegexOptions.Compiled), "Bearer [REDACTED]"),
-            (new Regex(@"\bsk-[A-Za-z0-9]{16,}", RegexOptions.Compiled), "sk-[REDACTED]"),
-            (new Regex(@"\bgh[pousr]_[A-Za-z0-9]{20,}", RegexOptions.Compiled), "gh_[REDACTED]"),
-            (new Regex(@"\bAKIA[0-9A-Z]{16}\b", RegexOptions.Compiled), "AKIA[REDACTED]"),
-            (new Regex(@"(?i)(api[_\-]?key|apikey|secret|token|password)(\s*[=:]\s*)([""']?)[^\s""']{6,}", RegexOptions.Compiled), "$1$2$3[REDACTED]"),
+            new KeyValuePair<Regex, string>(new Regex(@"(?i)\bBearer\s+[A-Za-z0-9._\-]{8,}", RegexOptions.Compiled), "Bearer [REDACTED]"),
+            new KeyValuePair<Regex, string>(new Regex(@"\bsk-[A-Za-z0-9]{16,}", RegexOptions.Compiled), "sk-[REDACTED]"),
+            new KeyValuePair<Regex, string>(new Regex(@"\bgh[pousr]_[A-Za-z0-9]{20,}", RegexOptions.Compiled), "gh_[REDACTED]"),
+            new KeyValuePair<Regex, string>(new Regex(@"\bAKIA[0-9A-Z]{16}\b", RegexOptions.Compiled), "AKIA[REDACTED]"),
+            new KeyValuePair<Regex, string>(new Regex(@"(?i)(api[_\-]?key|apikey|secret|token|password)(\s*[=:]\s*)([""']?)[^\s""']{6,}", RegexOptions.Compiled), "$1$2$3[REDACTED]"),
         };
 
         #endregion
@@ -36,9 +37,9 @@ namespace Armada.Core.Services
             if (string.IsNullOrEmpty(text)) return text;
 
             string current = text;
-            foreach ((Regex pattern, string replacement) in _Redactions)
+            foreach (KeyValuePair<Regex, string> redaction in _Redactions)
             {
-                string next = pattern.Replace(current, replacement);
+                string next = redaction.Key.Replace(current, redaction.Value);
                 if (next != current) redacted = true;
                 current = next;
             }

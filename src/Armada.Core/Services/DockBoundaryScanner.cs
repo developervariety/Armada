@@ -16,14 +16,14 @@ namespace Armada.Core.Services
         #region Private-Members
 
         // Built-in secret patterns. Kept intentionally high-signal to avoid noisy false positives.
-        private static readonly (string RuleId, Regex Pattern)[] _SecretPatterns = new (string, Regex)[]
+        private static readonly KeyValuePair<string, Regex>[] _SecretPatterns = new KeyValuePair<string, Regex>[]
         {
-            ("aws-access-key-id", new Regex(@"\bAKIA[0-9A-Z]{16}\b", RegexOptions.Compiled)),
-            ("github-token", new Regex(@"\bgh[pousr]_[A-Za-z0-9]{36,}\b", RegexOptions.Compiled)),
-            ("slack-token", new Regex(@"\bxox[baprs]-[A-Za-z0-9-]{10,}\b", RegexOptions.Compiled)),
-            ("google-api-key", new Regex(@"\bAIza[0-9A-Za-z_\-]{35}\b", RegexOptions.Compiled)),
-            ("private-key-block", new Regex(@"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----", RegexOptions.Compiled)),
-            ("generic-secret-assignment", new Regex(
+            new KeyValuePair<string, Regex>("aws-access-key-id", new Regex(@"\bAKIA[0-9A-Z]{16}\b", RegexOptions.Compiled)),
+            new KeyValuePair<string, Regex>("github-token", new Regex(@"\bgh[pousr]_[A-Za-z0-9]{36,}\b", RegexOptions.Compiled)),
+            new KeyValuePair<string, Regex>("slack-token", new Regex(@"\bxox[baprs]-[A-Za-z0-9-]{10,}\b", RegexOptions.Compiled)),
+            new KeyValuePair<string, Regex>("google-api-key", new Regex(@"\bAIza[0-9A-Za-z_\-]{35}\b", RegexOptions.Compiled)),
+            new KeyValuePair<string, Regex>("private-key-block", new Regex(@"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----", RegexOptions.Compiled)),
+            new KeyValuePair<string, Regex>("generic-secret-assignment", new Regex(
                 @"(?i)\b(?:api[_-]?key|secret|password|passwd|token|access[_-]?key)\b\s*[:=]\s*[""']?[A-Za-z0-9/\+_\-]{16,}[""']?",
                 RegexOptions.Compiled)),
         };
@@ -98,11 +98,11 @@ namespace Armada.Core.Services
 
                         if (scanSecrets)
                         {
-                            foreach ((string ruleId, Regex pattern) in _SecretPatterns)
+                            foreach (KeyValuePair<string, Regex> secret in _SecretPatterns)
                             {
-                                if (pattern.IsMatch(added))
+                                if (secret.Value.IsMatch(added))
                                 {
-                                    findings.Add(new BoundaryFinding("secret", ruleId, currentFile, addedLine.NewLineNumber));
+                                    findings.Add(new BoundaryFinding("secret", secret.Key, currentFile, addedLine.NewLineNumber));
                                     break; // one secret finding per line is enough; do not echo the value
                                 }
                             }

@@ -60,17 +60,13 @@ namespace Armada.Runtimes.Mcp
 
             string[] words = query.Split(new[] { ' ', '_', '-' }, StringSplitOptions.RemoveEmptyEntries);
             bool exact = _Catalog.Any(t => String.Equals(t.Name, query, StringComparison.OrdinalIgnoreCase));
-            var matches = _Catalog.Select(t => new
-                {
-                    Tool = t,
-                    Score = String.Equals(t.Name, query, StringComparison.OrdinalIgnoreCase) ? Int32.MaxValue
-                        : words.Sum(w => t.Name.Contains(w, StringComparison.OrdinalIgnoreCase) ? 3
-                            : (t.Description ?? String.Empty).Contains(w, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
-                })
-                .Where(t => query == "*" || (exact ? t.Score == Int32.MaxValue : t.Score > 0))
-                .OrderByDescending(t => t.Score).ThenBy(t => t.Tool.Name, StringComparer.Ordinal)
+            Dictionary<PolyPrompt.Models.ToolDefinition, int> scores = new Dictionary<PolyPrompt.Models.ToolDefinition, int>();
+            foreach (PolyPrompt.Models.ToolDefinition candidate in _Catalog) scores[candidate] = Score(candidate, query, words);
+            List<PolyPrompt.Models.ToolDefinition> matches = _Catalog
+                .Where(t => query == "*" || (exact ? scores[t] == Int32.MaxValue : scores[t] > 0))
+                .OrderByDescending(t => scores[t]).ThenBy(t => t.Name, StringComparer.Ordinal)
                 .ToList();
-            var page = matches.Skip(offset).Take(PageSize).Select(t => t.Tool).ToList();
+            List<PolyPrompt.Models.ToolDefinition> page = matches.Skip(offset).Take(PageSize).ToList();
             foreach (PolyPrompt.Models.ToolDefinition tool in page)
                 if (_Loaded.Add(tool.Name)) _Exposed.Add(tool);
 
@@ -87,6 +83,13 @@ namespace Armada.Runtimes.Mcp
                         : "These tool schemas are now loaded. Call the required tool in your next turn."
                 })
             };
+        }
+
+        private static int Score(PolyPrompt.Models.ToolDefinition tool, string query, string[] words)
+        {
+            if (String.Equals(tool.Name, query, StringComparison.OrdinalIgnoreCase)) return Int32.MaxValue;
+            return words.Sum(w => tool.Name.Contains(w, StringComparison.OrdinalIgnoreCase) ? 3
+                : (tool.Description ?? String.Empty).Contains(w, StringComparison.OrdinalIgnoreCase) ? 1 : 0);
         }
 
         private static ToolResult Invalid(string callId)

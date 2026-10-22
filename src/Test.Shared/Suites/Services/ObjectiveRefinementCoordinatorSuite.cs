@@ -163,7 +163,7 @@ namespace Test.Shared.Suites.Services
                 ObjectiveRefinementMessage assistant = await fixture.CreateMessageAsync(session, "Assistant", 2,
                     "Refined backlog summary.\n\n### Acceptance Criteria\n- Persist normalized objective fields\n\n### Non-Goals\n- No schema rollback\n\n### Rollout Constraints\n- Validate with SQLite first").ConfigureAwait(false);
 
-                (ObjectiveRefinementSummaryResponse Summary, Objective Objective) applied = await fixture.Coordinator.ApplyAsync(
+                ObjectiveRefinementApplyOutcome applied = await fixture.Coordinator.ApplyAsync(
                     AuthContext.Authenticated(tenantUser.TenantId, tenantUser.UserId, false, true, "UnitTest"),
                     objective,
                     session,

@@ -917,7 +917,7 @@ namespace Test.Shared.Suites.Services
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
                         AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, out StubAdmiralService admiral);
-                        var seed = await SeedHarborMissionAsync(testDb.Driver, settings, captured).ConfigureAwait(false);
+                        HarborMissionSeed seed = await SeedHarborMissionAsync(testDb.Driver, settings, captured).ConfigureAwait(false);
                         List<Armada.Core.Harbor.HarborMessage> sent = new List<Armada.Core.Harbor.HarborMessage>();
                         HarborConnectionManager manager = new HarborConnectionManager(new HarborService(testDb.Driver, CreateLogging()), CreateLogging(), null);
                         handler.SetHarborConnections(manager);
@@ -955,7 +955,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, out StubAdmiralService admiral);
-                    var seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                    HarborMissionSeed seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
                     if (captured)
                     {
                         seed.Mission.ProcessId = null;
@@ -986,7 +986,7 @@ namespace Test.Shared.Suites.Services
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
                         AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
-                        var seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                        HarborMissionSeed seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
                         if (captured == "cancelled") seed.Mission.Status = MissionStatusEnum.Cancelled;
                         if (captured == "wrong-process") seed.Mission.ProcessId++;
                         if (captured == "wrong-captain") seed.Job.CaptainId = "different-captain";
@@ -1007,7 +1007,7 @@ namespace Test.Shared.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 AgentLifecycleHandler handler = CreateHandler(db.Driver, out ArmadaSettings settings, out StubAdmiralService admiral);
-                var seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                HarborMissionSeed seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
                 seed.Job.StopRequested = true;
                 await db.Driver.HarborJobs.UpdateAsync(seed.Job).ConfigureAwait(false);
                 HarborConnectionManager manager = new HarborConnectionManager(new HarborService(db.Driver, CreateLogging()), CreateLogging(), null);
@@ -1034,7 +1034,7 @@ namespace Test.Shared.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 AgentLifecycleHandler handler = CreateRoutedValidationHandler(db.Driver, out ArmadaSettings settings, out _);
-                var seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                HarborMissionSeed seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
                 bool refused = false;
                 try { await handler.HandleStopAgentAsync(seed.Captain).ConfigureAwait(false); }
                 catch (InvalidOperationException ex) { refused = ex.Message.Contains("Local PID fallback is prohibited"); }
@@ -1050,7 +1050,7 @@ namespace Test.Shared.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 AgentLifecycleHandler handler = CreateHandler(db.Driver, out ArmadaSettings settings, out StubAdmiralService admiral);
-                var seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                HarborMissionSeed seed = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
                 seed.Job.StopRequested = true;
                 await db.Driver.HarborJobs.UpdateAsync(seed.Job).ConfigureAwait(false);
                 HarborConnectionManager manager = new HarborConnectionManager(new HarborService(db.Driver, CreateLogging()), CreateLogging(), null);
@@ -1066,8 +1066,8 @@ namespace Test.Shared.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 AgentLifecycleHandler handler = CreateHandler(db.Driver, out ArmadaSettings settings);
-                var a = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint, "_a").ConfigureAwait(false);
-                var b = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint, "_b").ConfigureAwait(false);
+                HarborMissionSeed a = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint, "_a").ConfigureAwait(false);
+                HarborMissionSeed b = await SeedHarborMissionAsync(db.Driver, settings, AgentRuntimeEnum.ApiEndpoint, "_b").ConfigureAwait(false);
                 HarborConnectionManager manager = new HarborConnectionManager(new HarborService(db.Driver, CreateLogging()), CreateLogging(), null);
                 handler.SetHarborConnections(manager);
                 AssertEqual(2, await handler.RestoreHarborMissionsAsync().ConfigureAwait(false));
@@ -1099,7 +1099,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, out StubAdmiralService admiral);
-                    var seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                    HarborMissionSeed seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
                     HarborConnectionManager manager = new HarborConnectionManager(new HarborService(testDb.Driver, CreateLogging()), CreateLogging(), null) { VanishedJobGrace = TimeSpan.Zero };
                     handler.SetHarborConnections(manager);
                     await handler.RestoreHarborMissionsAsync().ConfigureAwait(false);
@@ -1118,7 +1118,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
-                    var seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                    HarborMissionSeed seed = await SeedHarborMissionAsync(testDb.Driver, settings, AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
                     HarborConnectionManager manager = new HarborConnectionManager(new HarborService(testDb.Driver, CreateLogging()), CreateLogging(), null);
                     handler.SetHarborConnections(manager);
                     await handler.RestoreHarborMissionsAsync().ConfigureAwait(false);
@@ -1142,7 +1142,7 @@ namespace Test.Shared.Suites.Services
 
         #region Private-Methods
 
-        private static async Task<(Captain Captain, Mission Mission, Dock Dock, HarborJobRecord Job)> SeedHarborMissionAsync(DatabaseDriver database, ArmadaSettings settings, AgentRuntimeEnum runtime, string suffix = "")
+        private static async Task<HarborMissionSeed> SeedHarborMissionAsync(DatabaseDriver database, ArmadaSettings settings, AgentRuntimeEnum runtime, string suffix = "")
         {
             Vessel vessel = await database.Vessels.CreateAsync(new Vessel("Restart vessel" + suffix, "https://github.com/test/restart.git")).ConfigureAwait(false);
             Dock dock = new Dock(vessel.Id) { HarborId = "hbr_restart" + suffix, WorktreePath = Path.Combine(settings.LogDirectory, "dock" + suffix), BranchName = "armada/original" };
@@ -1156,7 +1156,7 @@ namespace Test.Shared.Suites.Services
             captain.CurrentMissionId = mission.Id;
             await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
             HarborJobRecord job = await database.HarborJobs.CreateAsync(new HarborJobRecord { JobId = "existing-job" + suffix, HarborId = dock.HarborId!, CaptainId = captain.Id, MissionId = mission.Id, Runtime = runtime.ToString(), Kind = Armada.Core.Harbor.HarborJobKindEnum.Mission, StartedUtc = mission.StartedUtc }).ConfigureAwait(false);
-            return (captain, mission, dock, job);
+            return new HarborMissionSeed(captain, mission, dock, job);
         }
 
         private static AgentLifecycleHandler CreateRoutedValidationHandler(DatabaseDriver database, out ArmadaSettings settings, out HarborConnectionManager manager)
@@ -1570,6 +1570,22 @@ namespace Test.Shared.Suites.Services
         /// records its arguments and simulates success, invalid-model, and hang behaviors. Nothing outside the temp
         /// directory is touched: no PATH change and no file under the user profile.
         /// </summary>
+        private sealed class HarborMissionSeed
+        {
+            public Captain Captain { get; }
+            public Mission Mission { get; }
+            public Dock Dock { get; }
+            public HarborJobRecord Job { get; }
+
+            public HarborMissionSeed(Captain captain, Mission mission, Dock dock, HarborJobRecord job)
+            {
+                Captain = captain;
+                Mission = mission;
+                Dock = dock;
+                Job = job;
+            }
+        }
+
         private sealed class CursorShimScope : IDisposable
         {
             public string ArgsFile { get; }

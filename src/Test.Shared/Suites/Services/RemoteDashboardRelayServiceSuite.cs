@@ -366,11 +366,11 @@ namespace Test.Shared.Suites.Services
 
         private sealed class RelayEventCollector
         {
-            private readonly ConcurrentQueue<(string Method, object? Payload)> _Events = new ConcurrentQueue<(string Method, object? Payload)>();
+            private readonly ConcurrentQueue<KeyValuePair<string, object?>> _Events = new ConcurrentQueue<KeyValuePair<string, object?>>();
 
             public Task RecordAsync(string method, object? payload, CancellationToken token)
             {
-                _Events.Enqueue((method, payload));
+                _Events.Enqueue(new KeyValuePair<string, object?>(method, payload));
                 return Task.CompletedTask;
             }
 
@@ -379,14 +379,14 @@ namespace Test.Shared.Suites.Services
                 MonotonicDeadline deadlineUtc = MonotonicDeadline.After(TimeSpan.FromMilliseconds(timeoutMs));
                 while (!deadlineUtc.Passed)
                 {
-                    foreach ((string Method, object? Payload) entry in _Events)
+                    foreach (KeyValuePair<string, object?> entry in _Events)
                     {
-                        if (!String.Equals(entry.Method, method, StringComparison.OrdinalIgnoreCase))
+                        if (!String.Equals(entry.Key, method, StringComparison.OrdinalIgnoreCase))
                         {
                             continue;
                         }
 
-                        if (entry.Payload is T typed && predicate(typed))
+                        if (entry.Value is T typed && predicate(typed))
                         {
                             return typed;
                         }

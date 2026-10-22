@@ -400,7 +400,7 @@ namespace Armada.Server
         /// Apply a refinement summary back to the objective, then (unless <see cref="ObjectiveRefinementApplyRequest.EndSession"/>
         /// is false) end the session and release its captain.
         /// </summary>
-        public async Task<(ObjectiveRefinementSummaryResponse Summary, Objective Objective)> ApplyAsync(
+        public async Task<ObjectiveRefinementApplyOutcome> ApplyAsync(
             AuthContext auth,
             Objective objective,
             ObjectiveRefinementSession session,
@@ -473,7 +473,7 @@ namespace Armada.Server
                 }
             }
 
-            return (summary, updated);
+            return new ObjectiveRefinementApplyOutcome(summary, updated);
         }
 
         /// <summary>

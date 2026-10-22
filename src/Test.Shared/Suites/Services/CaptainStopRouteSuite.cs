@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Net;
+    using System.Net.Http;
     using System.Reflection;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -31,7 +32,7 @@ namespace Test.Shared.Suites.Services
                     {
                         using SecurityTestServer fx = await SecurityTestServer.PrepareAsync("127.0.0.1", null).ConfigureAwait(false);
                         await fx.StartAsync().ConfigureAwait(false);
-                        using var client = fx.CreateRestClient(true);
+                        using HttpClient client = fx.CreateRestClient(true);
                         int localCreations = 0;
                         fx.Server.RuntimeFactory.Override(AgentRuntimeEnum.ClaudeCode, () =>
                         {
@@ -46,7 +47,7 @@ namespace Test.Shared.Suites.Services
                         captain.CurrentMissionId = mission.Id;
                         await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
                         IAdmiralService admiral = (IAdmiralService)typeof(Armada.Server.ArmadaServer).GetField("_Admiral", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(fx.Server)!;
-                        var originalStop = admiral.OnStopAgent;
+                        Func<Captain, Task>? originalStop = admiral.OnStopAgent;
                         int logicalStops = 0;
                         admiral.OnStopAgent = held =>
                         {
@@ -57,7 +58,7 @@ namespace Test.Shared.Suites.Services
                         };
                         try
                         {
-                            using var response = await client.PostAsync(bulk ? "/api/v1/captains/stop-all" : "/api/v1/captains/" + captain.Id + "/stop", null, ct).ConfigureAwait(false);
+                            using HttpResponseMessage response = await client.PostAsync(bulk ? "/api/v1/captains/stop-all" : "/api/v1/captains/" + captain.Id + "/stop", null, ct).ConfigureAwait(false);
                             Captain after = (await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
                             Mission active = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
                             AssertEqual(0, localCreations, "The HTTP route must not perform a preliminary local stop.");
@@ -92,29 +93,29 @@ namespace Test.Shared.Suites.Services
                 {
                     using SecurityTestServer fx = await SecurityTestServer.PrepareAsync("127.0.0.1", null).ConfigureAwait(false);
                     await fx.StartAsync().ConfigureAwait(false);
-                    using var admin = fx.CreateRestClient(true);
+                    using HttpClient admin = fx.CreateRestClient(true);
                     // Installed before any synthetic PID is stored, including setup/shutdown failure paths.
                     fx.Server.RuntimeFactory.Override(AgentRuntimeEnum.ClaudeCode, () => throw new InvalidOperationException("Synthetic PID fixture forbids local process operations."));
                     async Task<TenantMetadata> Tenant(string name)
                     {
-                        using var response = await admin.PostAsync("/api/v1/tenants", JsonHelper.ToJsonContent(new { Name = name }), ct).ConfigureAwait(false);
+                        using HttpResponseMessage response = await admin.PostAsync("/api/v1/tenants", JsonHelper.ToJsonContent(new { Name = name }), ct).ConfigureAwait(false);
                         return await JsonHelper.DeserializeAsync<TenantMetadata>(response).ConfigureAwait(false);
                     }
                     TenantMetadata ownTenant = await Tenant("stop-own").ConfigureAwait(false);
                     TenantMetadata otherTenant = await Tenant("stop-other").ConfigureAwait(false);
-                    using var userResponse = await admin.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(new
+                    using HttpResponseMessage userResponse = await admin.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(new
                     {
                         TenantId = ownTenant.Id, Email = "tenant-stop@example.test", PasswordSha256 = UserMaster.ComputePasswordHash("fixture-only"), IsTenantAdmin = true
                     }), ct).ConfigureAwait(false);
                     UserMaster user = await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false);
-                    using var credentialResponse = await admin.PostAsync("/api/v1/credentials", JsonHelper.ToJsonContent(new { TenantId = ownTenant.Id, UserId = user.Id, Name = "fixture" }), ct).ConfigureAwait(false);
+                    using HttpResponseMessage credentialResponse = await admin.PostAsync("/api/v1/credentials", JsonHelper.ToJsonContent(new { TenantId = ownTenant.Id, UserId = user.Id, Name = "fixture" }), ct).ConfigureAwait(false);
                     Credential credential = await JsonHelper.DeserializeAsync<Credential>(credentialResponse).ConfigureAwait(false);
-                    using var otherUserResponse = await admin.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(new
+                    using HttpResponseMessage otherUserResponse = await admin.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(new
                     {
                         TenantId = otherTenant.Id, Email = "other-tenant-stop@example.test", PasswordSha256 = UserMaster.ComputePasswordHash("fixture-only")
                     }), ct).ConfigureAwait(false);
                     UserMaster otherUser = await JsonHelper.DeserializeAsync<UserMaster>(otherUserResponse).ConfigureAwait(false);
-                    using var tenantClient = fx.CreateRestClient(false);
+                    using HttpClient tenantClient = fx.CreateRestClient(false);
                     tenantClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", credential.BearerToken);
                     LoggingModule quiet = new LoggingModule(); quiet.Settings.EnableConsole = false;
                     using DatabaseDriver db = DatabaseDriverFactory.Create(fx.Settings.Database, quiet);
@@ -132,12 +133,12 @@ namespace Test.Shared.Suites.Services
                         TenantId = otherTenant.Id, UserId = otherUser.Id, CaptainId = other.Id, ObjectiveId = foreignObjective.Id, VesselId = foreignVessel.Id, Status = ObjectiveRefinementSessionStatusEnum.Active
                     }).ConfigureAwait(false);
                     IAdmiralService admiral = (IAdmiralService)typeof(Armada.Server.ArmadaServer).GetField("_Admiral", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(fx.Server)!;
-                    var originalStop = admiral.OnStopAgent;
+                    Func<Captain, Task>? originalStop = admiral.OnStopAgent;
                     List<string> stopped = new List<string>();
                     admiral.OnStopAgent = held => { stopped.Add(held.Id); return Task.CompletedTask; };
                     try
                     {
-                        using var response = await tenantClient.PostAsync("/api/v1/captains/stop-all", null, ct).ConfigureAwait(false);
+                        using HttpResponseMessage response = await tenantClient.PostAsync("/api/v1/captains/stop-all", null, ct).ConfigureAwait(false);
                         AssertEqual(HttpStatusCode.OK, response.StatusCode);
                         AssertEqual(CaptainStateEnum.Idle, (await db.Captains.ReadAsync(own.Id).ConfigureAwait(false))!.State);
                         AssertEqual(CaptainStateEnum.Working, (await db.Captains.ReadAsync(other.Id).ConfigureAwait(false))!.State, "Foreign captain must be untouched.");

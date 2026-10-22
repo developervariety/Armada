@@ -446,7 +446,7 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
                     }
 
-                    (ObjectiveRefinementSummaryResponse Summary, Objective Objective) result = await _refinementSessions
+                    ObjectiveRefinementApplyOutcome result = await _refinementSessions
                         .ApplyAsync(ctx, objective, session, request, _objectives)
                         .ConfigureAwait(false);
 

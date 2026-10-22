@@ -596,13 +596,13 @@ namespace Armada.Server.Mcp.Tools
                             ?? throw new KeyNotFoundException("Objective refinement session not found.");
                         Objective objective = await objectiveService.ReadAsync(auth, session.ObjectiveId).ConfigureAwait(false)
                             ?? throw new KeyNotFoundException("Backlog item not found.");
-                        (ObjectiveRefinementSummaryResponse summary, Objective updated) = await objectiveRefinementCoordinator
+                        ObjectiveRefinementApplyOutcome applied = await objectiveRefinementCoordinator
                             .ApplyAsync(auth, objective, session, request.ToApplyRequest(), objectiveService)
                             .ConfigureAwait(false);
                         return (object)new ObjectiveRefinementApplyResponse
                         {
-                            Summary = summary,
-                            Objective = updated,
+                            Summary = applied.Summary,
+                            Objective = applied.Objective,
                             Session = await database.ObjectiveRefinementSessions.ReadAsync(session.Id).ConfigureAwait(false)
                         };
                     });

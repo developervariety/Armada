@@ -20,13 +20,13 @@ namespace Armada.Core.Services
         #region Private-Members
 
         // Anchored model-family patterns -> tier. Routine version bumps auto-register without config edits.
-        private static readonly (Regex Pattern, CaptainTierEnum Tier)[] _ModelFamilies = new (Regex, CaptainTierEnum)[]
+        private static readonly KeyValuePair<Regex, CaptainTierEnum>[] _ModelFamilies = new KeyValuePair<Regex, CaptainTierEnum>[]
         {
-            (new Regex(@"opus|gpt-?5(\.\d+)?($|[^-])|o3|o4|gemini-\d*.*pro", RegexOptions.IgnoreCase | RegexOptions.Compiled), CaptainTierEnum.Premium),
+            new KeyValuePair<Regex, CaptainTierEnum>(new Regex(@"opus|gpt-?5(\.\d+)?($|[^-])|o3|o4|gemini-\d*.*pro", RegexOptions.IgnoreCase | RegexOptions.Compiled), CaptainTierEnum.Premium),
             // \bmini avoids matching "geMINI"; the others are distinctive enough to leave unanchored.
-            (new Regex(@"haiku|\bmini|nano|flash|gpt-?oss|small|-lite", RegexOptions.IgnoreCase | RegexOptions.Compiled), CaptainTierEnum.Economy),
+            new KeyValuePair<Regex, CaptainTierEnum>(new Regex(@"haiku|\bmini|nano|flash|gpt-?oss|small|-lite", RegexOptions.IgnoreCase | RegexOptions.Compiled), CaptainTierEnum.Economy),
             // OpenCode / OpenAI-compatible open model families default to Standard unless matched as economy above.
-            (new Regex(@"sonnet|gpt-?4|gemini-\d*.*(?!pro)|glm|qwen|kimi|deepseek|\bllama|mistral|codestral|devstral|command-?r", RegexOptions.IgnoreCase | RegexOptions.Compiled), CaptainTierEnum.Standard),
+            new KeyValuePair<Regex, CaptainTierEnum>(new Regex(@"sonnet|gpt-?4|gemini-\d*.*(?!pro)|glm|qwen|kimi|deepseek|\bllama|mistral|codestral|devstral|command-?r", RegexOptions.IgnoreCase | RegexOptions.Compiled), CaptainTierEnum.Standard),
         };
 
         #endregion
@@ -54,8 +54,8 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(model)) return CaptainTierEnum.Standard;
             // Economy and Premium patterns are checked before the broad Standard fallback.
-            if (_ModelFamilies[1].Pattern.IsMatch(model)) return CaptainTierEnum.Economy;
-            if (_ModelFamilies[0].Pattern.IsMatch(model)) return CaptainTierEnum.Premium;
+            if (_ModelFamilies[1].Key.IsMatch(model)) return CaptainTierEnum.Economy;
+            if (_ModelFamilies[0].Key.IsMatch(model)) return CaptainTierEnum.Premium;
             return CaptainTierEnum.Standard;
         }
 

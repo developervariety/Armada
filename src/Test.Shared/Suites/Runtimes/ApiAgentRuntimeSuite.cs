@@ -342,12 +342,12 @@ namespace Test.Shared.Suites.Runtimes
             {
                 foreach (bool remoteError in new[] { false, true })
                 {
-                    var run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"REMOTE_31\"}"), CatalogCall("remote_31", "{\"target\":\"fixture\"}") }, remoteError: remoteError).ConfigureAwait(false);
+                    CatalogRun run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"REMOTE_31\"}"), CatalogCall("remote_31", "{\"target\":\"fixture\"}") }, remoteError: remoteError).ConfigureAwait(false);
                     AssertTrue(run.Client.ToolHistory[0].Contains("armada_discover_mcp_tools"));
                     AssertFalse(run.Client.ToolHistory[0].Contains("remote_31"));
                     AssertEqual(1, run.Client.ToolHistory[1].Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
                     AssertTrue(run.Client.ToolHistory[1].Contains("remote_31"));
-                    var rpc = run.Stub.Requests.Where(r => r.Method == "tools/call").ToList();
+                    List<ToolClientStubRequest> rpc = run.Stub.Requests.Where(r => r.Method == "tools/call").ToList();
                     AssertEqual(1, rpc.Count, "Discovery itself must not invoke a remote tool.");
                     AssertEqual("remote_31", rpc[0].Params!.Name);
                     AssertContains("fixture", rpc[0].Params!.Arguments!);
@@ -357,7 +357,7 @@ namespace Test.Shared.Suites.Runtimes
 
             cases.Add(CaseAsync("large_mcp_catalog_pages_without_duplicate_schemas", "Discovery browsing is bounded, repeatable, and does not duplicate or execute tools", TestTags.Positive, async () =>
             {
-                var run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\",\"offset\":4}") }).ConfigureAwait(false);
+                CatalogRun run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\",\"offset\":4}") }).ConfigureAwait(false);
                 AssertEqual(4, run.Client.ToolHistory[1].Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
                 AssertEqual(4, run.Client.ToolHistory[2].Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
                 AssertEqual(8, run.Client.ToolHistory[3].Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
@@ -369,8 +369,8 @@ namespace Test.Shared.Suites.Runtimes
             cases.Add(CaseAsync("large_mcp_catalog_invalid_discovery_arguments", "Malformed discovery queries fail as tool results without executing remote actions", TestTags.Negative, async () =>
             {
                 string[] inputs = { "[]", "{}", "{\"query\":null}", "{\"query\":\" \"}", "{\"query\":\"*\",\"offset\":\"4\"}", "{\"query\":\"*\",\"offset\":null}", "{\"query\":\"*\",\"offset\":-1}", "{\"query\":\"*\",\"offset\":2147483648}", "{\"query\":\"" + new string('x', 257) + "\"}" };
-                var run = await RunCatalogAsync(50, inputs.Select(input => CatalogCall("armada_discover_mcp_tools", input)).ToArray()).ConfigureAwait(false);
-                var completed = run.Events.Where(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed).ToList();
+                CatalogRun run = await RunCatalogAsync(50, inputs.Select(input => CatalogCall("armada_discover_mcp_tools", input)).ToArray()).ConfigureAwait(false);
+                List<ApiRuntimeToolEvent> completed = run.Events.Where(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed).ToList();
                 AssertEqual(inputs.Length, completed.Count);
                 AssertTrue(completed.All(e => e.Ok == false && e.Result!.Contains("invalid_arguments", StringComparison.Ordinal)));
                 AssertTrue(run.Client.ToolHistory.All(ts => !ts.Any(n => n.StartsWith("remote_", StringComparison.Ordinal))));
@@ -379,15 +379,15 @@ namespace Test.Shared.Suites.Runtimes
 
             cases.Add(CaseAsync("large_mcp_catalog_empty_matches_and_past_end", "Unmatched and past-end discovery preserve the catalog and give bounded empty results", TestTags.Negative, async () =>
             {
-                var run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"no-such-capability\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\",\"offset\":2147483647}") }).ConfigureAwait(false);
+                CatalogRun run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"no-such-capability\"}"), CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\",\"offset\":2147483647}") }).ConfigureAwait(false);
                 AssertTrue(run.Events.Where(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed).All(e => e.Ok == true && e.Result!.Contains("\"tools\":[]", StringComparison.Ordinal)));
                 AssertTrue(run.Client.ToolHistory.All(ts => !ts.Any(n => n.StartsWith("remote_", StringComparison.Ordinal))));
             }));
 
             cases.Add(CaseAsync("mcp_catalog_explicit_allowlist_stays_eager", "Explicit policy keeps eager schemas and rejects forged discovery and excluded remote calls", TestTags.Negative, async () =>
             {
-                var policy = new InferenceOptions { AllowedTools = new List<string> { "read_file", "remote_31" } };
-                var run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("remote_32", "{}"), CatalogCall("remote_31", "{}") }, policy).ConfigureAwait(false);
+                InferenceOptions policy = new InferenceOptions { AllowedTools = new List<string> { "read_file", "remote_31" } };
+                CatalogRun run = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{\"query\":\"*\"}"), CatalogCall("remote_32", "{}"), CatalogCall("remote_31", "{}") }, policy).ConfigureAwait(false);
                 AssertEqual(2, run.Client.ToolHistory[0].Count);
                 AssertTrue(run.Client.ToolHistory[0].Contains("remote_31"));
                 AssertFalse(run.Client.ToolNames.Contains("armada_discover_mcp_tools"));
@@ -397,20 +397,20 @@ namespace Test.Shared.Suites.Runtimes
 
             cases.Add(CaseAsync("mcp_catalog_threshold_and_reserved_collision", "Small catalogs and a real remote discovery-name collision retain eager behavior", TestTags.Positive, async () =>
             {
-                var small = await RunCatalogAsync(32, Array.Empty<ToolCall>()).ConfigureAwait(false);
+                CatalogRun small = await RunCatalogAsync(32, Array.Empty<ToolCall>()).ConfigureAwait(false);
                 AssertFalse(small.Client.ToolNames.Contains("armada_discover_mcp_tools"));
                 AssertEqual(32, small.Client.ToolNames.Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
-                var large = await RunCatalogAsync(33, Array.Empty<ToolCall>()).ConfigureAwait(false);
+                CatalogRun large = await RunCatalogAsync(33, Array.Empty<ToolCall>()).ConfigureAwait(false);
                 AssertTrue(large.Client.ToolNames.Contains("armada_discover_mcp_tools"));
                 AssertEqual(0, large.Client.ToolNames.Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
-                var collision = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{}") }, reservedCollision: true).ConfigureAwait(false);
+                CatalogRun collision = await RunCatalogAsync(50, new[] { CatalogCall("armada_discover_mcp_tools", "{}") }, reservedCollision: true).ConfigureAwait(false);
                 AssertEqual(50, collision.Client.ToolNames.Count(n => n.StartsWith("remote_", StringComparison.Ordinal)));
                 AssertEqual(1, collision.Stub.Requests.Count(r => r.Method == "tools/call" && r.Params!.Name == "armada_discover_mcp_tools"));
             }));
 
             cases.Add(CaseAsync("deferred_mcp_named_directly_remains_callable", "Schema deferral does not revoke a permitted tool named directly by a mission", TestTags.Positive, async () =>
             {
-                var run = await RunCatalogAsync(50, new[] { CatalogCall("remote_31", "{}") }).ConfigureAwait(false);
+                CatalogRun run = await RunCatalogAsync(50, new[] { CatalogCall("remote_31", "{}") }).ConfigureAwait(false);
                 AssertFalse(run.Client.ToolNames.Contains("remote_31"));
                 AssertEqual(1, run.Stub.Requests.Count(r => r.Method == "tools/call" && r.Params!.Name == "remote_31"));
                 AssertTrue(run.Events.Single(e => e.Phase == ApiRuntimeToolPhaseEnum.Completed).Ok == true);
@@ -955,13 +955,13 @@ namespace Test.Shared.Suites.Runtimes
 
         private static ToolCall CatalogCall(string name, string arguments) => new ToolCall { Id = Guid.NewGuid().ToString("N"), Name = name, ArgumentsJson = arguments };
 
-        private static async Task<(ScriptedClient Client, ToolClientStubHandler Stub, List<ApiRuntimeToolEvent> Events)> RunCatalogAsync(
+        private static async Task<CatalogRun> RunCatalogAsync(
             int count, ToolCall[] calls, InferenceOptions? policy = null, bool reservedCollision = false, bool remoteError = false)
         {
             string dir = NewTempDir();
             try
             {
-                var names = Enumerable.Range(0, count).Select(i => "remote_" + i.ToString("00")).ToList();
+                List<string> names = Enumerable.Range(0, count).Select(i => "remote_" + i.ToString("00")).ToList();
                 // Remote tools cannot shadow built-ins, even when the catalog is deferred.
                 names.Add("read_file");
                 if (reservedCollision) names.Add("armada_discover_mcp_tools");
@@ -983,7 +983,7 @@ namespace Test.Shared.Suites.Runtimes
                 await runtime.StartAsync(dir, "exercise catalog", new Dictionary<string, string> { ["ARMADA_MCP_URL"] = "http://stub.invalid/mcp" }).ConfigureAwait(false);
                 AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "catalog loop must finish");
                 AssertEqual(0, exitCode);
-                return (client, stub, events);
+                return new CatalogRun(client, stub, events);
             }
             finally { Cleanup(dir); }
         }
@@ -1122,6 +1122,20 @@ namespace Test.Shared.Suites.Runtimes
             protected override Task<ToolChatStreamingResponse> ToolChatStreamingCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<GenerationResponse> GenerateCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<GenerationStreamingResponse> GenerateStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
+        }
+
+        private sealed class CatalogRun
+        {
+            public ScriptedClient Client { get; }
+            public ToolClientStubHandler Stub { get; }
+            public List<ApiRuntimeToolEvent> Events { get; }
+
+            public CatalogRun(ScriptedClient client, ToolClientStubHandler stub, List<ApiRuntimeToolEvent> events)
+            {
+                Client = client;
+                Stub = stub;
+                Events = events;
+            }
         }
 
         private sealed class StreamRunResult
