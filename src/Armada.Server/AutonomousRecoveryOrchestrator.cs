@@ -522,6 +522,14 @@ namespace Armada.Server
                     continue;
                 }
 
+                // A retried landing resets its mission to WorkProduced while it lands that work, so the drain would
+                // enqueue the same work a second time. The retry decides the voyage when it finishes.
+                if (summaries.Any(item => LandingRetryRuns.IsRunning(item.Id)))
+                {
+                    _Logging.Debug(_Header + "landing-drain skipped voyage " + voyage.Id + ": a landing retry of one of its missions is running");
+                    continue;
+                }
+
                 processed++;
 
                 // Isolate each voyage: a single failing voyage (e.g. a vessel with an

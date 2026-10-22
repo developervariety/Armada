@@ -10138,6 +10138,10 @@ namespace Armada.Core.Services
             {
                 _Logging.Info(_Header + "voyage " + voyageId + " kept open: another mission's completion is still being handled and will decide it");
             }
+            else if (result.Verdict.Reason == VoyageCompletionRule.ReasonLandingRetryInFlight)
+            {
+                _Logging.Info(_Header + "voyage " + voyageId + " kept open: a landing retry of one of its missions is running and will decide it");
+            }
         }
 
         /// <summary>Outcome of evaluating the independent Checks behind a Judge PASS.</summary>

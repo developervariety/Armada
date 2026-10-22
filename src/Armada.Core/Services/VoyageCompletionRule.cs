@@ -17,7 +17,7 @@ namespace Armada.Core.Services
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The rule runs four steps, in order:
+    /// The rule runs five steps, in order:
     /// </para>
     /// <list type="number">
     /// <item><description>
@@ -36,6 +36,13 @@ namespace Armada.Core.Services
     /// definition-of-done gate and its handoff are applied, so a reader that sees every mission done in
     /// that window would end the voyage on a verdict nobody has read yet. The caller names which
     /// missions are mid-handling; the handler applies this rule itself when it finishes.
+    /// </description></item>
+    /// <item><description>
+    /// Landing-retry guard. A voyage with a mission whose landing retry is running is kept
+    /// (<see cref="LandingRetryRuns"/>). The retry resets the mission to WorkProduced, which counts as
+    /// done, so without this guard the voyage would read Complete before the retried work is on the
+    /// target branch. The retry applies this rule itself when it finishes: a landed retry completes the
+    /// voyage and a failed one leaves its mission LandingFailed, so the voyage ends Failed.
     /// </description></item>
     /// <item><description>
     /// Mission-state evaluation. A voyage with no missions is kept. A voyage with any mission that is
@@ -73,6 +80,9 @@ namespace Armada.Core.Services
 
         /// <summary>Kept: a mission's completion is still being handled, so its verdict is not applied yet.</summary>
         public const string ReasonCompletionInFlight = "completion_in_flight";
+
+        /// <summary>Kept: a landing retry of one of the voyage's missions is still running, so its work is not landed yet.</summary>
+        public const string ReasonLandingRetryInFlight = "landing_retry_in_flight";
 
         /// <summary>Kept: at least one mission is still active.</summary>
         public const string ReasonMissionActive = "mission_active";
@@ -188,6 +198,9 @@ namespace Armada.Core.Services
 
             if (isMissionCompletionInFlight != null && missions.Any(m => isMissionCompletionInFlight(m.Id)))
                 return VoyageCompletionVerdict.Keep(ReasonCompletionInFlight);
+
+            if (missions.Any(m => LandingRetryRuns.IsRunning(m.Id)))
+                return VoyageCompletionVerdict.Keep(ReasonLandingRetryInFlight);
 
             VoyageCompletionVerdict verdict = await EvaluateMissionsAndChecksAsync(database, voyage.TenantId, voyage.Id, missions, token).ConfigureAwait(false);
             if (voyage.Status != VoyageStatusEnum.Failed) return verdict;

@@ -37,7 +37,7 @@ namespace Armada.Core.Services
         /// <summary>The voyage ended inside the grace period.</summary>
         public const string ReasonGrace = "voyage_terminal_grace";
 
-        /// <summary>A merge entry for the mission is still moving through the landing pipeline.</summary>
+        /// <summary>A merge entry for the mission is still moving through the landing pipeline, or a landing retry of it runs.</summary>
         public const string ReasonLandingInFlight = "landing_in_flight";
 
         /// <summary>Ancestry against the default branch could not be established.</summary>
@@ -223,7 +223,7 @@ namespace Armada.Core.Services
         /// <param name="voyageEndedUtc">When the voyage ended (its completion time, or last update when unrecorded).</param>
         /// <param name="nowUtc">Evaluation time.</param>
         /// <param name="grace">Minimum time since the voyage ended.</param>
-        /// <param name="landingInFlight">True when a merge entry for the mission is still in progress.</param>
+        /// <param name="landingInFlight">True when a merge entry for the mission is still in progress, or a landing retry of the mission runs.</param>
         /// <param name="noLandingRequested">True when the voyage or vessel landing mode is None.</param>
         /// <param name="readOnlyMode">True when the mission is an Audit or Research mission, whose deliverable is a report.</param>
         /// <param name="landing">Landing probe result; ignored until the earlier guards pass.</param>

@@ -58,6 +58,8 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "could not record voyage.completed for voyage " + voyage.Id + ": " + result.EventException.Message);
                 if (result.Verdict.Reason == VoyageCompletionRule.ReasonCompletionInFlight)
                     _Logging.Debug(_Header + "voyage " + voyage.Id + " kept open: a mission's completion is still being handled");
+                if (result.Verdict.Reason == VoyageCompletionRule.ReasonLandingRetryInFlight)
+                    _Logging.Debug(_Header + "voyage " + voyage.Id + " kept open: a landing retry of one of its missions is running");
                 if (!result.Written) continue;
 
                 _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + result.Voyage!.Status + " (" + result.Verdict.Reason + ")");

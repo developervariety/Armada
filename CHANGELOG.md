@@ -615,6 +615,16 @@ upstream integrations and excludes changes already present at that baseline.
   Judge, the Judge's voyage and the reviewed Worker's report, and the objectives
   the voyage links. The brief's `Judge mission:` line alone grants nothing, and
   every record still needs the caller's tenant and owner.
+- A voyage stays in progress while a retried landing of one of its missions
+  runs. The retry resets the mission to `WorkProduced`, which counts as done, so
+  a completion sweep during the retry read the voyage `Complete` before the work
+  was on the target branch, and the terminal-voyage reconciler then cancelled
+  the mission whose work was still landing. The completion rule keeps the
+  voyage (`landing_retry_in_flight`), the reconciler treats the retry as a
+  landing in flight, and the landing-drain sweep skips the voyage instead of
+  enqueueing the same work again. When the retry ends, it applies the
+  completion rule itself: a landed retry completes the voyage and a failed one
+  leaves it `Failed`.
 - Judge findings exclude items the Judge reports as agreeing with the
   source. A list under a lead-in such as "Spot checks that agree with source:" is
   context, the same as a list under a passing or reviewed lead-in, so neither the

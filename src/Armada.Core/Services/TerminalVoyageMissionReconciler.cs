@@ -107,7 +107,10 @@ namespace Armada.Core.Services
                 List<MergeEntry> entries = mergeEntries
                     .Where(entry => String.Equals(entry.MissionId, summary.Id, StringComparison.Ordinal))
                     .ToList();
-                bool landingInFlight = entries.Any(entry => TerminalVoyageMissionRule.IsLandingInFlight(entry.Status));
+                // A running landing retry is a landing in flight too: it holds the mission in WorkProduced while it
+                // lands the work, so reconciling it now would cancel or fail work that is about to land.
+                bool landingInFlight = entries.Any(entry => TerminalVoyageMissionRule.IsLandingInFlight(entry.Status))
+                    || LandingRetryRuns.IsRunning(summary.Id);
 
                 Vessel? vessel = String.IsNullOrWhiteSpace(summary.VesselId)
                     ? null

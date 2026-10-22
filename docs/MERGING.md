@@ -194,6 +194,13 @@ These are observed behaviors that the entry status alone does not make obvious.
 - **A landing retry does not need the mission's dock.** A failed landing's
   dock is reclaimed. `retry_landing` reads the change from a temporary
   detached worktree at the mission branch tip and removes it afterwards.
+- **A voyage is not Complete while a retried landing of its work runs.** The
+  retry holds its mission in `WorkProduced` while it lands, and every completion
+  writer keeps the voyage open for that time (reason `landing_retry_in_flight`).
+  The terminal-voyage reconciler and the landing-drain sweep leave the mission
+  alone too. When the retry ends it decides the voyage: a landed retry completes
+  it, and a failed retry returns the mission to `LandingFailed` and the voyage
+  ends `Failed`.
 - **`retry_check_run` / `run_check` build the bare repo's target ref, not
   the working checkout.** After a direct push to `origin`, sync the bare
   repo (`git fetch origin` then `git update-ref refs/heads/<target>

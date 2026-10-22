@@ -1,6 +1,5 @@
 namespace Armada.Core.Services
 {
-    using System.Collections.Concurrent;
     using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
@@ -43,7 +42,6 @@ namespace Armada.Core.Services
         private IGitService _Git;
         private IncidentService _Incidents;
         private IntegrationCandidateValidator? _IntegrationValidator;
-        private readonly ConcurrentDictionary<string, byte> _RetriesInFlight = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
         #endregion
 
@@ -147,7 +145,7 @@ namespace Armada.Core.Services
         public bool IsRetryInFlight(string missionId)
         {
             if (String.IsNullOrEmpty(missionId)) return false;
-            return _RetriesInFlight.ContainsKey(missionId);
+            return LandingRetryRuns.IsRunning(missionId);
         }
 
         /// <inheritdoc />
@@ -157,54 +155,64 @@ namespace Armada.Core.Services
 
             // One retry per mission at a time. A retry resets the mission to WorkProduced before it lands, so a
             // second retry started while the first runs passes every status check and lands the same work again.
-            if (!_RetriesInFlight.TryAdd(missionId, 0))
+            if (!LandingRetryRuns.TryStart(missionId))
             {
                 _Logging.Warn(_Header + "mission " + missionId + " already has a landing retry in flight -- refusing a second one");
                 return false;
             }
 
+            RetryOutcome outcome;
             try
             {
-                return await RetryLandingOnceAsync(missionId, tenantId, token).ConfigureAwait(false);
+                outcome = await RetryLandingOnceAsync(missionId, tenantId, token).ConfigureAwait(false);
             }
             finally
             {
-                _RetriesInFlight.TryRemove(missionId, out byte _);
+                LandingRetryRuns.End(missionId);
             }
+
+            // Voyage completion keeps a voyage while one of its missions has a retry running, so the voyage is
+            // decided here, after the retry has left the registry, by the one completion rule. A retry that lands
+            // completes the voyage (a Failed one too, which the periodic sweeps revisit only for a bounded window);
+            // a retry that fails leaves the mission LandingFailed and the voyage Failed.
+            if (outcome.Attempted)
+                await ApplyVoyageCompletionAsync(outcome.VoyageId, missionId, token).ConfigureAwait(false);
+            return outcome.Landed;
         }
 
         #endregion
 
         #region Private-Methods
 
-        private async Task<bool> RetryLandingOnceAsync(string missionId, string? tenantId, CancellationToken token)
+        private async Task<RetryOutcome> RetryLandingOnceAsync(string missionId, string? tenantId, CancellationToken token)
         {
+            RetryOutcome outcome = new RetryOutcome();
             Mission? mission = !String.IsNullOrEmpty(tenantId)
                 ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
                 : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             if (mission == null)
             {
                 _Logging.Warn(_Header + "mission " + missionId + " not found");
-                return false;
+                return outcome;
             }
 
             string? noLanding = MissionLandingEligibility.RefusalReason(mission);
             if (noLanding != null)
             {
                 _Logging.Warn(_Header + "mission " + missionId + " cannot be landed: " + noLanding);
-                return false;
+                return outcome;
             }
 
             if (mission.Status != MissionStatusEnum.LandingFailed && mission.Status != MissionStatusEnum.WorkProduced)
             {
                 _Logging.Warn(_Header + "mission " + missionId + " is in status " + mission.Status + ", not LandingFailed or WorkProduced -- cannot retry");
-                return false;
+                return outcome;
             }
 
             if (String.IsNullOrEmpty(mission.VesselId))
             {
                 _Logging.Warn(_Header + "mission " + missionId + " has no vessel -- cannot retry landing");
-                return false;
+                return outcome;
             }
 
             // Use the mission's own TenantId for vessel lookup (more reliable than caller's tenantId)
@@ -218,19 +226,19 @@ namespace Armada.Core.Services
             if (vessel == null)
             {
                 _Logging.Warn(_Header + "vessel " + mission.VesselId + " not found -- cannot retry landing for mission " + missionId);
-                return false;
+                return outcome;
             }
 
             if (String.IsNullOrEmpty(vessel.LocalPath))
             {
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " has no LocalPath -- cannot retry landing for mission " + missionId);
-                return false;
+                return outcome;
             }
 
             if (String.IsNullOrEmpty(mission.BranchName))
             {
                 _Logging.Warn(_Header + "mission " + missionId + " has no branch name -- cannot retry landing");
-                return false;
+                return outcome;
             }
 
             // Emit retry event
@@ -269,7 +277,7 @@ namespace Armada.Core.Services
                 if (!branchExists)
                 {
                     _Logging.Warn(_Header + "branch " + missionBranch + " no longer exists -- cannot retry landing for mission " + missionId);
-                    return false;
+                    return outcome;
                 }
 
                 _Logging.Info(_Header + "retrying landing for mission " + missionId + " branch " + missionBranch);
@@ -278,6 +286,8 @@ namespace Armada.Core.Services
                 mission.Status = MissionStatusEnum.WorkProduced;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                outcome.Attempted = true;
+                outcome.VoyageId = mission.VoyageId;
 
                 // Try to find the dock or create a temporary context for landing
                 Dock? dock = null;
@@ -332,11 +342,8 @@ namespace Armada.Core.Services
                         ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
                         : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
 
-                    // The landing changed the mission's outcome, so its voyage is decided again by the one completion
-                    // rule. The periodic sweeps revisit a Failed voyage only for a bounded window; a retried landing
-                    // can come later, and a Failed voyage whose failed work has now landed must read Complete.
-                    await ApplyVoyageCompletionAsync(mission?.VoyageId, missionId, token).ConfigureAwait(false);
-                    return mission != null && mission.Status == MissionStatusEnum.Complete;
+                    outcome.Landed = mission != null && mission.Status == MissionStatusEnum.Complete;
+                    return outcome;
                 }
                 else
                 {
@@ -345,7 +352,7 @@ namespace Armada.Core.Services
                     mission.Status = MissionStatusEnum.LandingFailed;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                    return false;
+                    return outcome;
                 }
             }
             catch (Exception ex)
@@ -386,7 +393,7 @@ namespace Armada.Core.Services
                         + " and its status could not be restored to LandingFailed; the mission may show a stale status: " + restoreEx.Message);
                 }
 
-                return false;
+                return outcome;
             }
         }
 
@@ -663,6 +670,21 @@ namespace Armada.Core.Services
                 UserId = mission.UserId
             };
             return await _IntegrationValidator.ValidateAsync(vessel, candidate, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// What one landing retry did, for the voyage decision made after it leaves the retry registry.
+        /// </summary>
+        private sealed class RetryOutcome
+        {
+            /// <summary>True once the retry reset the mission to WorkProduced and started its landing.</summary>
+            public bool Attempted { get; set; } = false;
+
+            /// <summary>True when the mission reads Complete after the landing.</summary>
+            public bool Landed { get; set; } = false;
+
+            /// <summary>The mission's voyage, or null.</summary>
+            public string? VoyageId { get; set; } = null;
         }
 
         /// <summary>

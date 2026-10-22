@@ -219,6 +219,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A retry resets its mission to WorkProduced, which counts as done for voyage completion. A sweep that
+            // runs while the retried work is still landing must keep the voyage, or it reads Complete before the
+            // work is on the target branch. The voyage completes only when the retry lands.
+            await RunTest("RetryLandingAsync_VoyageSweepWhileTheRetryRuns_KeepsTheVoyageOpenUntilTheWorkLands", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LandingService service = CreateService(testDb.Driver, CreateSettings(), git);
+                    Mission mission = await CreateRetryVoyageMissionAsync(testDb.Driver, git, "retry-voyage-lands").ConfigureAwait(false);
+                    VoyageService voyages = new VoyageService(CreateLogging(), testDb.Driver);
+
+                    TaskCompletionSource<bool> landingStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    service.OnPerformLanding = async (Mission m, Dock d) =>
+                    {
+                        landingStarted.TrySetResult(true);
+                        await release.Task.ConfigureAwait(false);
+                        m.Status = MissionStatusEnum.Complete;
+                        await testDb.Driver.Missions.UpdateAsync(m).ConfigureAwait(false);
+                    };
+
+                    Task<bool> retry = service.RetryLandingAsync(mission.Id);
+                    try
+                    {
+                        AssertTrue(await Task.WhenAny(landingStarted.Task, Task.Delay(TimeSpan.FromSeconds(20))).ConfigureAwait(false) == landingStarted.Task,
+                            "The retry reaches the landing");
+                        List<Voyage> ended = await voyages.CheckCompletionsAsync().ConfigureAwait(false);
+                        Voyage? during = await testDb.Driver.Voyages.ReadAsync(mission.VoyageId!).ConfigureAwait(false);
+                        AssertEqual(VoyageStatusEnum.InProgress, during!.Status, "The voyage stays in progress while the retried landing runs");
+                        AssertEqual(0, ended.Count, "The sweep ends no voyage while the retried landing runs");
+                    }
+                    finally
+                    {
+                        release.TrySetResult(true);
+                    }
+
+                    AssertTrue(await retry.ConfigureAwait(false), "The retry lands");
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(mission.VoyageId!).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, after!.Status, "The voyage completes when the retried landing lands");
+                }
+            });
+
+            // A retry that fails returns its mission to LandingFailed; the voyage then ends Failed, never Complete.
+            await RunTest("RetryLandingAsync_RetryFails_EndsTheVoyageFailed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LandingService service = CreateService(testDb.Driver, CreateSettings(), git);
+                    Mission mission = await CreateRetryVoyageMissionAsync(testDb.Driver, git, "retry-voyage-fails").ConfigureAwait(false);
+                    service.OnPerformLanding = (Mission m, Dock d) => throw new InvalidOperationException("integration check failed");
+
+                    AssertFalse(await service.RetryLandingAsync(mission.Id).ConfigureAwait(false), "The retry does not land");
+                    Mission? failed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.LandingFailed, failed!.Status, "The mission returns to LandingFailed");
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(mission.VoyageId!).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Failed, after!.Status, "The voyage ends Failed when the retried landing fails");
+                }
+            });
+
             await RunTest("MergeInDedicatedWorktreeAsync_CleanMerge_PushesFromTempWorktreeAndCleansUp", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -904,6 +965,28 @@ namespace Armada.Test.Unit.Suites.Services
                     throw new InvalidOperationException("git failed (exit " + process.ExitCode + "): " + stderr.Trim());
                 return stdout;
             }
+        }
+
+        private static async Task<Mission> CreateRetryVoyageMissionAsync(SqliteDatabaseDriver database, StubGitService git, string name)
+        {
+            string branch = "armada/" + name + "/branch";
+            Vessel vessel = new Vessel(name + "-vessel", "https://github.com/test/" + name + ".git");
+            vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_" + name + "_bare_" + Guid.NewGuid().ToString("N"));
+            vessel.DefaultBranch = "main";
+            vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+            git.ExistingBranches.Add(branch);
+            git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + branch] = "8888888888888888888888888888888888888888";
+
+            Voyage voyage = new Voyage(name + " voyage");
+            voyage.Status = VoyageStatusEnum.InProgress;
+            voyage = await database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+            Mission mission = new Mission(name + " mission", "retry");
+            mission.VesselId = vessel.Id;
+            mission.VoyageId = voyage.Id;
+            mission.BranchName = branch;
+            mission.Status = MissionStatusEnum.LandingFailed;
+            return await database.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
         private static LoggingModule CreateLogging()
