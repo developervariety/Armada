@@ -5184,6 +5184,7 @@ namespace Armada.Core.Services
 
             // The Worker this Judge reviews, and how many rework rounds this chain has had.
             Mission? worker = null;
+            Mission? previousJudge = null;
             int rounds = 0;
             bool escalated = false;
             HashSet<string> workerChain = new HashSet<string>(StringComparer.Ordinal);
@@ -5192,6 +5193,7 @@ namespace Armada.Core.Services
             {
                 cursor = byId.TryGetValue(cursor.DependsOnMissionId!, out Mission? up) ? up : null;
                 if (cursor == null) break;
+                if (worker != null && previousJudge == null && PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Judge)) previousJudge = cursor;
                 if (!PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Worker)) continue;
                 if (worker == null) worker = cursor;
                 workerChain.Add(cursor.Id);
@@ -5211,12 +5213,19 @@ namespace Armada.Core.Services
             string? escalateTo = null;
             Mission? previousWorker = voyageMissions.FirstOrDefault(m => m.Id != worker.Id && PersonaCatalog.Matches(m.Persona, PersonaCatalog.Worker)
                 && workerChain.Contains(m.Id) && !String.IsNullOrEmpty(m.CommitHash) && m.CommitHash == worker.CommitHash);
-            bool stagnant = previousWorker != null && !MissionModeContract.IsReadOnly(worker.Mode);
+            // The same concrete affected case reported again after a rework round means the change did not reach it,
+            // however much else changed: switch to another captain now instead of spending another full round.
+            string? currentCase = JudgeContract.AffectedCaseKey(judge.AgentOutput);
+            bool repeatedCase = previousJudge != null && currentCase != null
+                && String.Equals(currentCase, JudgeContract.AffectedCaseKey(previousJudge.AgentOutput), StringComparison.Ordinal);
+            bool stagnant = (previousWorker != null || repeatedCase) && !MissionModeContract.IsReadOnly(worker.Mode);
             if (rounds == _MaxJudgeReworkRounds || stagnant)
             {
                 string escalationTrigger = rounds == _MaxJudgeReworkRounds
                     ? "Automatic Judge rework budget exhausted for this slice (" + rounds + " of " + _MaxJudgeReworkRounds + " rounds). "
-                    : "The Worker produced the same rejected commit after " + rounds + " rework round(s). ";
+                    : previousWorker != null
+                        ? "The Worker produced the same rejected commit after " + rounds + " rework round(s). "
+                        : "The Judge reported the same affected case (" + currentCase + ") after " + rounds + " rework round(s). ";
                 if (await HasStrictCaptainOverrideAsync(worker, token).ConfigureAwait(false))
                     return Unavailable(escalationTrigger + "Strict captain selection prevents automatic escalation; no captain substitution was made.");
                 Captain? alternative = await CaptainEscalationSelector.SelectAsync(_Database, worker, worker.CaptainId, voyageMissions, token).ConfigureAwait(false);

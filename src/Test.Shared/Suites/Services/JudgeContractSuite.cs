@@ -39,6 +39,19 @@ namespace Test.Shared.Suites.Services
         public TestSuiteDescriptor Build()
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
+            cases.Add(Case("affected_case_key_ignores_line_moves", "The affected-case key ignores line numbers, case and spacing, and is null without a concrete case", TestTags.Positive, () =>
+            {
+                string? first = JudgeContract.AffectedCaseKey("## Affected Case\nFile: src/A.py:17\nStill throws.");
+                string? moved = JudgeContract.AffectedCaseKey("## Affected Case\nFile:   src/a.py:42-44\nStill throws after the edit.");
+                AssertNotNull(first);
+                AssertEqual(first, moved, "the same file at a new line is the same case");
+                AssertEqual("scenario:a null start time with end set returns a negative elapsed",
+                    JudgeContract.AffectedCaseKey("## Affected Case\nScenario: A null start time   with End set returns a negative Elapsed"));
+                AssertNull(JudgeContract.AffectedCaseKey("No affected case section here.\n[ARMADA:VERDICT] NEEDS_REVISION"));
+                AssertNull(JudgeContract.AffectedCaseKey("## Affected Case\nScenario: short"));
+                AssertFalse(String.Equals(first, JudgeContract.AffectedCaseKey("## Affected Case\nFile: src/b.py:17\nDifferent file."), StringComparison.Ordinal));
+            }));
+
 
             cases.Add(Case("well_formed_pass_is_accepted", "A three-lens PASS with real narrative is accepted", TestTags.Positive, () =>
             {

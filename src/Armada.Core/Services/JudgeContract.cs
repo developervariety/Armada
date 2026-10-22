@@ -157,6 +157,41 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// A comparable key for the first concrete affected case a blocking verdict exhibits: its labeled field, lowercased,
+        /// with whitespace collapsed and a trailing line number dropped from a file reference (the same defect moves lines
+        /// as code changes). Two rounds that report the same key name the same unresolved case.
+        /// </summary>
+        /// <param name="output">Judge agent output.</param>
+        /// <returns>The key, or null when no concrete affected case is exhibited.</returns>
+        public static string? AffectedCaseKey(string? output)
+        {
+            if (String.IsNullOrWhiteSpace(output)) return null;
+            string body = ExtractSectionBody(output!, AffectedCaseSection);
+            if (String.IsNullOrWhiteSpace(body)) return null;
+
+            foreach (string line in body.Split('\n'))
+            {
+                Match field = _AffectedCaseFieldLine.Match(line);
+                if (!field.Success) continue;
+                string label = field.Groups["label"].Value.ToLowerInvariant();
+                string value = Regex.Replace(field.Groups["value"].Value.Trim(), @"\s+", " ").ToLowerInvariant();
+                if (String.IsNullOrEmpty(value)) continue;
+                if (String.Equals(label, AffectedCaseFileField, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!_FileReference.IsMatch(value)) continue;
+                    value = Regex.Replace(value, @":\d+(-\d+)?\s*$", String.Empty);
+                }
+                else if (value.Length < MinScenarioChars)
+                {
+                    continue;
+                }
+                return label + ":" + value;
+            }
+
+            return null;
+        }
+
+        /// <summary>
         /// Whether a PASS verdict is substantiated: it must contain all three lenses and enough narrative to
         /// justify approval.
         /// </summary>

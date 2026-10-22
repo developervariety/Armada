@@ -408,6 +408,34 @@ namespace Test.Shared.Suites.Services
                 AssertNotEqual(MissionAssignmentBlockerReasonEnum.WaitingForVoyageWorkers, released!.Reason);
             }));
 
+            cases.Add(CaseAsync("repeated_affected_case_escalates_early", "A rework that changed code but leaves the Judge reporting the same affected case switches captain early; a new case gets an ordinary round", TestTags.Negative, async () =>
+            {
+                foreach (bool sameCase in new[] { true, false })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    Harness h = new Harness(testDb, new DirCreatingGitService());
+                    h.Missions.OnGetMissionOutput = _ => "## Affected Case\nFile: " + (sameCase ? "src/a.py:42" : "src/b.py:3") + "\nThe null input still throws.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("repeated case") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Captain deepseek = await CreateCaptainAsync(testDb, "Deepseek", AgentRuntimeEnum.ApiEndpoint).ConfigureAwait(false);
+                    Mission initial = await testDb.Driver.Missions.CreateAsync(new Mission("Implement", "Implement it") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "commit-one", BranchName = "b" }).ConfigureAwait(false);
+                    Mission firstReview = await testDb.Driver.Missions.CreateAsync(new Mission("Review", "Review it") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = initial.Id,
+                        AgentOutput = "## Affected Case\nFile: src/a.py:17\nThe null input throws.\n[ARMADA:VERDICT] NEEDS_REVISION" }).ConfigureAwait(false);
+                    Mission rework = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Rework 1: Implement", "Implement it") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CaptainId = deepseek.Id, CommitHash = "commit-two", BranchName = "b", DependsOnMissionId = firstReview.Id }).ConfigureAwait(false);
+                    Captain codex = await CreateCaptainAsync(testDb, "Reviewer", AgentRuntimeEnum.Codex, CaptainStateEnum.Working).ConfigureAwait(false);
+                    Mission judge = await CreateRunningMissionAsync(testDb, h, vessel, voyage, codex, "Judge", false).ConfigureAwait(false);
+                    judge.DependsOnMissionId = rework.Id;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    await h.Missions.HandleCompletionAsync(codex, judge.Id).ConfigureAwait(false);
+
+                    List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    Mission? next = all.Find(m => m.DependsOnMissionId == judge.Id && m.Persona == "Worker");
+                    AssertNotNull(next, "a rework round is scheduled");
+                    if (sameCase) AssertContains("(escalated)", next!.Title, "the same affected case after a changed commit escalates now");
+                    else AssertFalse(next!.Title.Contains("(escalated)", StringComparison.Ordinal), "a new affected case gets an ordinary round");
+                }
+            }));
+
             cases.Add(CaseAsync("unchanged_rework_escalates_early", "A rejected rework that preserves the previous worker commit switches captain before exhausting ordinary retries", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
