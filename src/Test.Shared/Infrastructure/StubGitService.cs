@@ -57,6 +57,11 @@ namespace Test.Shared.Infrastructure
         /// Result of every ancestry check (null: a ref did not resolve).
         /// </summary>
         public bool? IsAncestorResult { get; set; } = null;
+
+        /// <summary>
+        /// Worktrees passed to CommitAllAsync (Armada's commit of work a captain left uncommitted).
+        /// </summary>
+        public List<string> CommitAllCalls { get; } = new List<string>();
         public bool ShouldThrowOnPush { get; set; } = false;
         public bool ShouldThrowOnCreatePr { get; set; } = false;
         public bool ShouldThrowOnMergeLocal { get; set; } = false;
@@ -204,6 +209,12 @@ namespace Test.Shared.Infrastructure
 
         public Task<bool?> IsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
             => Task.FromResult<bool?>(IsAncestorResult);
+
+        public Task<bool> CommitAllAsync(string worktreePath, string message, CancellationToken token = default)
+        {
+            lock (CommitAllCalls) CommitAllCalls.Add(worktreePath);
+            return Task.FromResult(true);
+        }
 
         public Task<GitWorkingTreeStatus> GetWorkingTreeStatusAsync(string repoPath, CancellationToken token = default)
             => Task.FromResult(new GitWorkingTreeStatus());

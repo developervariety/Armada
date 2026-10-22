@@ -615,6 +615,38 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            foreach (bool captainCommitted in new bool[] { true, false })
+            {
+                bool committed = captainCommitted;
+                cases.Add(CaseAsync(committed ? "leftover_changes_are_not_committed_after_the_captain_committed" : "leftover_changes_are_committed_for_a_captain_that_never_commits",
+                    committed
+                        ? "A captain that committed its work keeps leftover build output off the branch"
+                        : "A captain that never commits still has its edits committed by Armada",
+                    TestTags.Positive, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    StubGitService git = new StubGitService();
+                    Harness h = new Harness(testDb, git);
+                    h.Missions.OnGetMissionOutput = _ => "Updated README.md and committed it.";
+                    DatabaseDriver db = testDb.Driver;
+
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Captain captain = await db.Captains.CreateAsync(new Captain("leftover") { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("leftover") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission worker = await CreateRunningMissionAsync(testDb, h, vessel, voyage, captain, "Worker", false).ConfigureAwait(false);
+
+                    string metadata = Path.Combine(h.Settings.LogDirectory, "docks");
+                    Directory.CreateDirectory(metadata);
+                    File.WriteAllText(Path.Combine(metadata, worker.DockId + ".start"), "1111111111111111111111111111111111111111\n");
+                    git.HeadCommitResult = committed ? "2222222222222222222222222222222222222222" : "1111111111111111111111111111111111111111";
+
+                    await h.Missions.HandleCompletionAsync(captain, worker.Id).ConfigureAwait(false);
+                    AssertEqual(committed ? 0 : 1, git.CommitAllCalls.Count, committed
+                        ? "nothing beyond the captain's own commits is added"
+                        : "a captain that never committed has its work rescued");
+                }));
+            }
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Handoff and Dispatch Resilience",

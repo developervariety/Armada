@@ -5244,6 +5244,19 @@ namespace Armada.Core.Services
             try
             {
                 if (!await DockDirectoryExistsAsync(harborHost, dock.WorktreePath!, token).ConfigureAwait(false)) return;
+
+                // The rescue is for a captain that never commits. A captain that committed its work this attempt has said
+                // what belongs on the branch; what it left behind is typically build output (regenerated XML docs, lock
+                // files), and committing that breaks the mission's file scope and sends the work back to rework.
+                string? startCommit = TryReadDockStartCommit(dock.Id);
+                string? headCommit = await git.GetHeadCommitHashAsync(dock.WorktreePath!, token).ConfigureAwait(false);
+                if (!String.IsNullOrEmpty(startCommit) && !String.IsNullOrEmpty(headCommit)
+                    && !String.Equals(startCommit, headCommit, StringComparison.OrdinalIgnoreCase))
+                {
+                    _Logging.Info(_Header + "mission " + mission.Id + ": captain " + captain.Id + " committed its work; leaving any uncommitted changes in dock " + dock.Id + " (typically build output) off the branch");
+                    return;
+                }
+
                 string message = "Armada: commit work left uncommitted by " + captain.Name + "\n\n"
                     + mission.Title + "\n\nMission " + mission.Id + (String.IsNullOrEmpty(mission.Persona) ? "" : " (" + mission.Persona + ")")
                     + ". The captain finished without committing these changes, so Armada committed them.";
