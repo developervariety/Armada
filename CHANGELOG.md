@@ -552,6 +552,15 @@ upstream integrations and excludes changes already present at that baseline.
   that no searched checkout tracks, while a declared sibling could not be
   searched, is stated as a possible sibling path, not verified here, never as
   absent or new work.
+- The Git Anchors block checks a cited file name that matches several files
+  against every one of them, the same rule dispatch preflight question 1
+  applies. In a provisioned sibling checkout the candidates include the files
+  in the sibling's extraction artifact directories, not only the tracked files.
+  When the cited lines hold in exactly one file the citation holds; when they
+  hold in several the block names them as ambiguous; when they hold in none the
+  citation is stale and the block lists every candidate. A range is no longer
+  reported past the end of a short same-named file when it holds in the copy
+  the text means.
 - A pipeline handoff past the description budget no longer loses the middle of
   the prior stage's diff, Judge verdict or test list. The complete handoff text
   is kept on the Admiral and staged into the next stage's dock under

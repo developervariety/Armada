@@ -289,7 +289,12 @@ A brief carries only what the mission's mode and persona can use:
   read, a path found nowhere else is stated as a possible sibling path, not
   verified here, never as absent or new work. A bare name found nowhere is
   stated as not found in this checkout or in a provisioned sibling checkout,
-  never as absent.
+  never as absent. A cited name that matches several files is checked against
+  each of them; in a provisioned sibling checkout the files in the sibling's
+  extraction artifact directories are candidates beside the tracked files. The
+  citation holds when the cited lines hold in exactly one file, is listed as
+  ambiguous with those files when they hold in several, and is listed as stale
+  with every candidate when they hold in none.
 - The Runtime Signals verdict lines reach only a Judge, and the Architect
   signal rule reaches only an Architect.
 - The read-only rules forbid editing, committing and pushing. By default they

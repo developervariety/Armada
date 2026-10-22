@@ -3144,6 +3144,42 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock Git anchors check a cited bare name against every same-named sibling file and flag it only when no file holds the lines", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_same_named_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "src/Owner/SpeedWorkflow.cs", LedgerFixture);
+                    // The sibling tracks a 3-line Codec.cs; its extraction artifact tree holds a 173-line Codec.cs.
+                    string sibling = Path.Combine(root, "ExampleSibling");
+                    await CreateFixtureRepositoryAsync(sibling, "lib/Codec.cs", "line 1\nline 2\nline 3\n");
+                    string artifact = Path.Combine(sibling, "output", "extracted", "lib", "Codec.cs");
+                    Directory.CreateDirectory(Path.GetDirectoryName(artifact)!);
+                    StringBuilder longFile = new StringBuilder();
+                    for (int line = 1; line <= 173; line++) longFile.Append("line " + line + "\n");
+                    await File.WriteAllTextAsync(artifact, longFile.ToString());
+                    string siblings = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { RelativePath = "../ExampleSibling", ExtractionArtifactPaths = new List<string> { "output/extracted" } }
+                    });
+
+                    GitAnchors held = await ResolveRealDockAnchorsAsync(worktree, "The port follows Codec.cs:120-130 in the source.", siblings);
+                    AssertNull(held.ResolutionError, "the anchors resolve completely");
+                    AssertEqual(0, held.CitationIssues.Count,
+                        "a range that holds in the 173-line copy is not flagged against the 3-line copy: " + String.Join(" | ", held.CitationIssues));
+
+                    GitAnchors stale = await ResolveRealDockAnchorsAsync(worktree, "The port follows Codec.cs:200-210 in the source.", siblings);
+                    AssertEqual(1, stale.CitationIssues.Count, "a range that holds in no same-named file is flagged");
+                    AssertContains("hold in none of them (`lib/Codec.cs`, `output/extracted/lib/Codec.cs`)", stale.CitationIssues[0],
+                        "the stale citation lists every file it was checked against");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("Dock Git anchors read a path from a sibling checkout's root in that sibling and never call an unsearched path absent", async () =>
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada_sibling_root_path_" + Guid.NewGuid().ToString("N"));

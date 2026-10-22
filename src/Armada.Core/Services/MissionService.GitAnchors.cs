@@ -87,7 +87,8 @@ namespace Armada.Core.Services
         /// matched against the tracked files with the same rules the anchors use. A path that matches
         /// nothing as written is read the other ways text names files before it is called stale: with this
         /// repository's directory in front, with a sibling checkout's directory in front, or as the bare
-        /// name of a file in a provisioned sibling checkout.
+        /// name of a file in a provisioned sibling checkout. A name that several tracked files match is checked
+        /// against each of them, and the citation means the file whose lines hold it.
         /// </summary>
         private async Task<string?> CheckRepositoryCitationAsync(GitAnchors anchors, CitedLineRange range,
             string worktreePath, string revision, Vessel vessel, CancellationToken token)
@@ -99,6 +100,8 @@ namespace Armada.Core.Services
             {
                 if (!file.ExistsOnRevision)
                 {
+                    if (file.MatchingPathCount > 1)
+                        return await CheckAmbiguousAnchorCitationAsync(range, worktreePath, revision, token).ConfigureAwait(false);
                     if (!file.IsExternalSourceTree) return null;
                     string? siblingPath = file.SiblingCheckout.Length > 0
                         ? file.SiblingCheckout + "/" + range.Path
@@ -128,8 +131,14 @@ namespace Armada.Core.Services
                         return await CheckSiblingCitationAsync(range, siblingPath, worktreePath, vessel, token).ConfigureAwait(false);
                 }
                 if (String.IsNullOrEmpty(match.Path) && match.CandidateCount > 1)
-                    return "`" + range.Text + "`: `" + range.Path + "` matches " + match.CandidateCount +
-                        " tracked paths on this checkout; find the one meant before relying on the cited lines.";
+                {
+                    List<string> candidates = await _Git!.ListTrackedPathCandidatesAsync(worktreePath, revision, range.Path, token).ConfigureAwait(false);
+                    if (candidates.Count == 0)
+                        return "`" + range.Text + "`: `" + range.Path + "` matches " + match.CandidateCount +
+                            " tracked paths on this checkout; find the one meant before relying on the cited lines.";
+                    return await CheckCitationCandidatesAsync(range, range.Path, "on this checkout", candidates,
+                        candidate => _Git!.ReadFileLinesOnRevisionAsync(worktreePath, revision, candidate, token)).ConfigureAwait(false);
+                }
                 if (String.IsNullOrEmpty(match.Path) && CitedPathPrefix.IsBareName(range.Path))
                     return "`" + range.Text + "`: `" + range.Path + "` is not tracked on this checkout or in a provisioned sibling checkout, " +
                         "so the citation is stale; find where that code lives now.";
@@ -141,6 +150,148 @@ namespace Armada.Core.Services
 
             IReadOnlyList<string>? lines = await _Git!.ReadFileLinesOnRevisionAsync(worktreePath, revision, trackedPath, token).ConfigureAwait(false);
             return lines == null ? null : CitedLineRangeChecker.Evaluate(range, lines);
+        }
+
+        /// <summary>
+        /// Check a citation of an anchored name that several tracked files match. The anchors section already
+        /// names the ambiguity, so a citation that holds in one or several of the files adds nothing; one that
+        /// holds in none of them is stale and is stated with the files it was checked against.
+        /// </summary>
+        private async Task<string?> CheckAmbiguousAnchorCitationAsync(CitedLineRange range, string worktreePath,
+            string revision, CancellationToken token)
+        {
+            List<string> candidates = await _Git!.ListTrackedPathCandidatesAsync(worktreePath, revision, range.Path, token).ConfigureAwait(false);
+            if (candidates.Count < 2) return null;
+            List<string> holding = await CitedLineRangeChecker.CandidatesHoldingAsync(new List<CitedLineRange> { range }, candidates,
+                candidate => _Git!.ReadFileLinesOnRevisionAsync(worktreePath, revision, candidate, token)).ConfigureAwait(false);
+            return holding.Count > 0 ? null : NoCandidateHoldsIssue(range, range.Path, "on this checkout", candidates);
+        }
+
+        /// <summary>
+        /// Check a citation against every file its name matches. One file is checked as the citation names it.
+        /// Among several, the citation means the file whose lines hold it: exactly one is checked silently,
+        /// several are stated as ambiguous with the files that hold it, and none make the citation stale.
+        /// </summary>
+        private static async Task<string?> CheckCitationCandidatesAsync(CitedLineRange range, string name, string where,
+            List<string> candidates, Func<string, Task<IReadOnlyList<string>?>> readLines)
+        {
+            if (candidates.Count == 0) return null;
+            Dictionary<string, IReadOnlyList<string>?> read = new Dictionary<string, IReadOnlyList<string>?>(StringComparer.Ordinal);
+            Func<string, Task<IReadOnlyList<string>?>> cached = async candidate =>
+            {
+                if (!read.TryGetValue(candidate, out IReadOnlyList<string>? lines))
+                {
+                    lines = await readLines(candidate).ConfigureAwait(false);
+                    read[candidate] = lines;
+                }
+                return lines;
+            };
+
+            if (candidates.Count == 1)
+            {
+                IReadOnlyList<string>? only = await cached(candidates[0]).ConfigureAwait(false);
+                return only == null ? null : CitedLineRangeChecker.Evaluate(range, only);
+            }
+
+            List<string> holding = await CitedLineRangeChecker.CandidatesHoldingAsync(new List<CitedLineRange> { range }, candidates, cached).ConfigureAwait(false);
+            if (holding.Count == 1)
+            {
+                IReadOnlyList<string>? meant = await cached(holding[0]).ConfigureAwait(false);
+                return meant == null ? null : CitedLineRangeChecker.Evaluate(range, meant);
+            }
+            if (holding.Count > 1)
+                return "`" + range.Text + "`: `" + name + "` matches " + candidates.Count + " files " + where +
+                    " and the cited lines hold in more than one (" + ListCandidates(holding) + "); find the one meant before relying on the cited lines.";
+            return NoCandidateHoldsIssue(range, name, where, candidates);
+        }
+
+        /// <summary>
+        /// The issue for a citation whose name matches several files when the cited lines hold in none of them.
+        /// </summary>
+        private static string NoCandidateHoldsIssue(CitedLineRange range, string name, string where, List<string> candidates)
+        {
+            return "`" + range.Text + "`: `" + name + "` matches " + candidates.Count + " files " + where +
+                " and the cited lines hold in none of them (" + ListCandidates(candidates) + "), so the citation is stale; find where that code lives now.";
+        }
+
+        /// <summary>
+        /// The most candidate files one citation issue names.
+        /// </summary>
+        private const int MaxListedCandidates = 6;
+
+        private static string ListCandidates(List<string> candidates)
+        {
+            List<string> listed = candidates.Take(MaxListedCandidates).Select(candidate => "`" + candidate + "`").ToList();
+            if (candidates.Count > MaxListedCandidates) listed.Add("and " + (candidates.Count - MaxListedCandidates) + " more");
+            return String.Join(", ", listed);
+        }
+
+        /// <summary>
+        /// The largest extraction artifact file a citation check reads.
+        /// </summary>
+        private const long MaxArtifactFileBytes = 4L * 1024 * 1024;
+
+        /// <summary>
+        /// The files under a sibling's extraction artifact directories in a provisioned sibling checkout that a
+        /// cited name matches, as paths from the sibling root. Those trees are copied beside the tracked files
+        /// and are untracked, so a name can match a tracked file and an artifact file at once, and the copy the
+        /// text means may be either. A directory outside the sibling root, or one that cannot be read, is skipped.
+        /// </summary>
+        private static List<string> ArtifactFileCandidates(string siblingRoot, SiblingRepo sibling, string name)
+        {
+            List<string> files = new List<string>();
+            string normalizedName = NormalizeCitationPath(name);
+            int slash = normalizedName.LastIndexOf('/');
+            string fileName = slash >= 0 ? normalizedName.Substring(slash + 1) : normalizedName;
+            if (fileName.Length == 0 || fileName.IndexOfAny(new[] { '*', '?' }) >= 0) return files;
+            string root = Path.GetFullPath(siblingRoot);
+            EnumerationOptions options = new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                MatchCasing = MatchCasing.CaseInsensitive,
+                IgnoreInaccessible = true,
+                AttributesToSkip = FileAttributes.ReparsePoint
+            };
+            foreach (string artifact in sibling.ExtractionArtifactPaths ?? new List<string>())
+            {
+                string relative = NormalizeCitationPath(artifact);
+                if (relative.Length == 0 || Path.IsPathRooted(relative)
+                    || Array.Exists(relative.Split('/'), segment => segment.Length == 0 || segment == "." || segment == "..")) continue;
+                string directory = Path.GetFullPath(Path.Combine(root, relative));
+                if (!directory.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !Directory.Exists(directory)) continue;
+                try
+                {
+                    foreach (string file in Directory.EnumerateFiles(directory, fileName, options))
+                        files.Add(Path.GetRelativePath(root, file).Replace('\\', '/'));
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    continue;
+                }
+            }
+            return TrackedPathMatcher.FileCandidates(files, normalizedName);
+        }
+
+        /// <summary>
+        /// Read an extraction artifact file from a provisioned sibling checkout, or null when it is too large or
+        /// cannot be read.
+        /// </summary>
+        private static async Task<IReadOnlyList<string>?> ReadArtifactLinesAsync(string siblingRoot, string relativePath, CancellationToken token)
+        {
+            try
+            {
+                string file = Path.Combine(Path.GetFullPath(siblingRoot), relativePath.Replace('/', Path.DirectorySeparatorChar));
+                FileInfo info = new FileInfo(file);
+                if (!info.Exists || info.Length > MaxArtifactFileBytes) return null;
+                string content = await File.ReadAllTextAsync(file, token).ConfigureAwait(false);
+                List<string> lines = new List<string>(content.Replace("\r\n", "\n").Split('\n'));
+                if (lines.Count > 0 && lines[lines.Count - 1].Length == 0) lines.RemoveAt(lines.Count - 1);
+                return lines;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -158,8 +309,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// The <c>../</c> path of a bare file name in the first provisioned sibling checkout whose HEAD tracks
-        /// it, or null when no provisioned sibling does. An ambiguous name keeps the bare name, so the sibling
-        /// check states the ambiguity. A sibling that cannot be read is skipped: it is a separate checkout,
+        /// it or whose extraction artifact directories hold it, or null when no provisioned sibling does. A name
+        /// that several of those files match keeps the bare name, so the sibling check weighs every file. A sibling that cannot be read is skipped: it is a separate checkout,
         /// and the citation check names an unreadable sibling when it reads one directly.
         /// </summary>
         private async Task<string?> FindBareNameInSiblingAsync(string name, string worktreePath, Vessel vessel, CancellationToken token)
@@ -174,8 +325,12 @@ namespace Armada.Core.Services
                 try
                 {
                     TrackedPathMatch? match = await TryMatchTrackedPathAsync(siblingRoot, "HEAD", name, token).ConfigureAwait(false);
-                    if (match == null || match.CandidateCount == 0) continue;
-                    return declared + "/" + (String.IsNullOrEmpty(match.Path) ? name : match.Path);
+                    int tracked = match?.CandidateCount ?? 0;
+                    List<string> artifacts = ArtifactFileCandidates(siblingRoot, sibling, name);
+                    if (tracked == 0 && artifacts.Count == 0) continue;
+                    if (tracked == 1 && artifacts.Count == 0 && !String.IsNullOrEmpty(match!.Path)) return declared + "/" + match.Path;
+                    if (tracked == 0 && artifacts.Count == 1) return declared + "/" + artifacts[0];
+                    return declared + "/" + name;
                 }
                 catch (OperationCanceledException)
                 {
@@ -298,8 +453,10 @@ namespace Armada.Core.Services
         /// <summary>
         /// Check one citation of a file in a sibling checkout. The vessel's sibling declarations are the
         /// checkouts provisioned beside a dock, and the provisioned HEAD is the tree a captain reads, so a
-        /// cited path is resolved and read there. A citation that names no declared sibling, or a sibling
-        /// that is not provisioned, is stated as unchecked with the reason.
+        /// cited path is resolved and read there, together with the files the sibling's extraction artifact
+        /// directories hold there. A name that several of those files match is checked against each of them,
+        /// and the citation means the file whose lines hold it. A citation that names no declared sibling, or a
+        /// sibling that is not provisioned, is stated as unchecked with the reason.
         /// </summary>
         private async Task<string?> CheckSiblingCitationAsync(CitedLineRange range, string citedPath, string worktreePath,
             Vessel vessel, CancellationToken token)
@@ -332,15 +489,25 @@ namespace Armada.Core.Services
             {
                 TrackedPathMatch? match = await TryMatchTrackedPathAsync(siblingRoot, "HEAD", inner, token).ConfigureAwait(false);
                 if (match == null) return null;
-                if (String.IsNullOrEmpty(match.Path) && match.CandidateCount > 1)
-                    return "`" + range.Text + "`: `" + inner + "` matches " + match.CandidateCount + " tracked paths in the sibling checkout `" +
-                        declaredPath + "`; find the one meant before relying on the cited lines.";
-                if (String.IsNullOrEmpty(match.Path))
+                if (match.IsDirectory) return null;
+                List<string> tracked = !String.IsNullOrEmpty(match.Path) ? new List<string> { match.Path! }
+                    : match.CandidateCount > 1
+                        ? await _Git!.ListTrackedPathCandidatesAsync(siblingRoot, "HEAD", inner, token).ConfigureAwait(false)
+                        : new List<string>();
+                List<string> artifacts = ArtifactFileCandidates(siblingRoot, owner, inner).Where(artifact => !tracked.Contains(artifact)).ToList();
+                if (tracked.Count + artifacts.Count == 0)
+                {
+                    if (match.CandidateCount > 1)
+                        return "`" + range.Text + "`: `" + inner + "` matches " + match.CandidateCount + " tracked paths in the sibling checkout `" +
+                            declaredPath + "`; find the one meant before relying on the cited lines.";
                     return "`" + range.Text + "`: `" + inner + "` is not tracked at the HEAD of the sibling checkout `" + declaredPath +
                         "`, so the citation is stale; find where that code lives now.";
-                if (match.IsDirectory) return null;
-                IReadOnlyList<string>? lines = await _Git!.ReadFileLinesOnRevisionAsync(siblingRoot, "HEAD", match.Path!, token).ConfigureAwait(false);
-                return lines == null ? null : CitedLineRangeChecker.Evaluate(range, lines);
+                }
+                List<string> candidates = tracked.Concat(artifacts).ToList();
+                return await CheckCitationCandidatesAsync(range, inner, "in the sibling checkout `" + declaredPath + "`", candidates,
+                    candidate => artifacts.Contains(candidate)
+                        ? ReadArtifactLinesAsync(siblingRoot, candidate, token)
+                        : _Git!.ReadFileLinesOnRevisionAsync(siblingRoot, "HEAD", candidate, token)).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Globalization;
     using System.Text.RegularExpressions;
+    using System.Threading.Tasks;
     using Armada.Core.Models;
 
     /// <summary>
@@ -177,6 +178,54 @@ namespace Armada.Core.Services
             if (range == null || currentLine < 1) return false;
             int distance = currentLine < range.StartLine ? range.StartLine - currentLine : currentLine - range.EndLine;
             return distance <= DriftToleranceLines;
+        }
+
+        /// <summary>
+        /// Whether a citation holds in a file: its first line is in the file and its symbol, if any, is within
+        /// the cited lines, around them, or moved by no more than <see cref="DriftToleranceLines"/>.
+        /// </summary>
+        /// <param name="range">The citation.</param>
+        /// <param name="lines">The file's lines.</param>
+        /// <returns>True when the citation names this file's code.</returns>
+        public static bool Holds(CitedLineRange range, IReadOnlyList<string> lines)
+        {
+            string? issue = Evaluate(range, lines, out int currentLine);
+            return issue == null || IsSmallDrift(range, currentLine);
+        }
+
+        /// <summary>
+        /// Of the files a cited name matches, the ones whose lines hold every given citation, in candidate
+        /// order. A bare file name that matches several files means the one whose lines hold the citation:
+        /// exactly one holding candidate resolves the name, several leave it ambiguous, and none make the
+        /// citation stale. Every caller that resolves a cited name against several files asks this rule.
+        /// </summary>
+        /// <param name="ranges">The citations of the name.</param>
+        /// <param name="candidates">The files the name matches.</param>
+        /// <param name="readLines">Reads a candidate's lines; null when it cannot be read.</param>
+        /// <returns>The holding candidates; an unreadable candidate never holds.</returns>
+        public static async Task<List<string>> CandidatesHoldingAsync(
+            IReadOnlyList<CitedLineRange> ranges,
+            IEnumerable<string> candidates,
+            Func<string, Task<IReadOnlyList<string>?>> readLines)
+        {
+            if (ranges == null) throw new ArgumentNullException(nameof(ranges));
+            if (candidates == null) throw new ArgumentNullException(nameof(candidates));
+            if (readLines == null) throw new ArgumentNullException(nameof(readLines));
+            List<string> holding = new List<string>();
+            foreach (string candidate in candidates)
+            {
+                IReadOnlyList<string>? lines = await readLines(candidate).ConfigureAwait(false);
+                if (lines == null) continue;
+                bool holds = true;
+                foreach (CitedLineRange range in ranges)
+                {
+                    if (Holds(range, lines)) continue;
+                    holds = false;
+                    break;
+                }
+                if (holds) holding.Add(candidate);
+            }
+            return holding;
         }
 
         #endregion

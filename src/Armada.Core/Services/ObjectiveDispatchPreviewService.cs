@@ -722,13 +722,8 @@ namespace Armada.Core.Services
 
                         // A bare name that matches several files means the one whose lines hold the citations.
                         List<CitedLineRange> cited = ranges.Where(range => range.Path == path).ToList();
-                        List<string> holding = new List<string>();
-                        foreach (string candidate in candidates)
-                        {
-                            IReadOnlyList<string>? candidateLines = await _Git.ReadFileLinesOnRevisionAsync(
-                                repositoryPath, targetRevision, candidate, token).ConfigureAwait(false);
-                            if (candidateLines != null && cited.All(range => Holds(range, candidateLines))) holding.Add(candidate);
-                        }
+                        List<string> holding = await CitedLineRangeChecker.CandidatesHoldingAsync(cited, candidates,
+                            candidate => _Git.ReadFileLinesOnRevisionAsync(repositoryPath, targetRevision, candidate, token)).ConfigureAwait(false);
                         string listed = String.Join(", ", candidates.Select(candidate => "`" + candidate + "`"));
                         if (holding.Count == 1)
                         {
@@ -791,13 +786,6 @@ namespace Armada.Core.Services
                 fact.Detail = String.Join(" ", issues);
             }
             return fact;
-        }
-
-        // A citation holds in a file when its start line is in range and its symbol, if any, is within or around it.
-        private static bool Holds(CitedLineRange range, IReadOnlyList<string> lines)
-        {
-            string? issue = CitedLineRangeChecker.Evaluate(range, lines, out int currentLine);
-            return issue == null || CitedLineRangeChecker.IsSmallDrift(range, currentLine);
         }
 
         // Names each cited string for a path as written (file:line or file:start-end) with why it does not resolve.
