@@ -109,6 +109,7 @@ namespace Armada.Server
                     InferenceOptions? inference = _EndpointResolver?.Invoke(context.Captain.ModelEndpointId)?.InferenceOptions;
                     if (inference?.RequiresPolicySupport == true) request.RequiredCapabilities.Add(HarborProtocol.InferencePolicyCapability);
                     if (inference?.RequiresContextSupport == true) request.RequiredCapabilities.Add(HarborProtocol.InferenceContextCapability);
+                    if (inference?.RequiresStreamingSupport == true) request.RequiredCapabilities.Add(HarborProtocol.InferenceStreamingCapability);
                 }
 
                 _Logging.Debug(_Header + "Harbor routing for " + context.Purpose + " (captain " + context.Captain.Id + "): tenant=" + (context.TenantId ?? "(none)")

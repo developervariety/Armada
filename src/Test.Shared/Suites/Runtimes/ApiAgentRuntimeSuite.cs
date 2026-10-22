@@ -621,6 +621,141 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("streaming_outlasts_request_timeout", "A streamed response that keeps sending finishes even when it takes longer than the request timeout; the timeout is an idle deadline", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<StreamPlan> plans = new Queue<StreamPlan>();
+                    plans.Enqueue(StreamPlan.Text(gapMs: 400, "Working", " on", " it", " now.", " Done."));
+                    StreamingClient? client = null;
+                    StreamRunResult result = await RunStreamingAsync(dir, new InferenceOptions { Streaming = true }, 1000, plans, log => client = new StreamingClient(plans, log)).ConfigureAwait(false);
+                    AssertEqual(0, result.ExitCode, "A response that keeps arriving is never cut by the request timeout");
+                    AssertTrue(result.ElapsedMs > 1500, "The stream took longer than the 1000 ms request timeout (" + result.ElapsedMs + " ms)");
+                    AssertEqual(1, client!.StreamCalls);
+                    AssertEqual(0, client.BlockingCalls, "Streaming never falls back to a blocking call");
+                    AssertEqual("Working on it now. Done.", File.ReadAllText(result.FinalMessagePath).Trim());
+                    AssertTrue(result.Diagnostics.Exists(d => d.Kind == ApiRuntimeDiagnosticKindEnum.Inference && d.Message.Contains("\"streamed\":true")), "The inference diagnostic records a streamed call");
+                }
+                finally { Cleanup(dir); }
+            }));
+
+            cases.Add(CaseAsync("streaming_idle_stall_fails_typed", "A stream that stops sending mid-response fails as llm_timeout after the idle deadline instead of hanging", TestTags.Negative, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<StreamPlan> plans = new Queue<StreamPlan>();
+                    StreamPlan stall = StreamPlan.Text(gapMs: 0, "partial");
+                    stall.HangAfter = true;
+                    plans.Enqueue(stall);
+                    StreamRunResult result = await RunStreamingAsync(dir, new InferenceOptions { Streaming = true }, 1000, plans, log => new StreamingClient(plans, log), retries: 0).ConfigureAwait(false);
+                    AssertEqual(1, result.ExitCode);
+                    AssertEqual("llm_timeout", result.Failure!.ErrorType);
+                    AssertContains("stopped sending in the middle of a response", result.Failure.Reason!);
+                    AssertTrue(result.ElapsedMs < 8000, "The idle deadline ends the stall (" + result.ElapsedMs + " ms)");
+                    AssertEqual(RuntimeFailureKindEnum.Transient, Armada.Core.Services.RuntimeFailureClassifier.Classify(result.ExitCode, result.Failure));
+                }
+                finally { Cleanup(dir); }
+            }));
+
+            cases.Add(CaseAsync("first_response_deadline_covers_cold_load", "The first-response deadline lets a cold model start late, and names the phase when it never starts", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<StreamPlan> plans = new Queue<StreamPlan>();
+                    StreamPlan cold = StreamPlan.Text(gapMs: 0, "loaded and done");
+                    cold.FirstDelayMs = 2000;
+                    plans.Enqueue(cold);
+                    StreamRunResult loaded = await RunStreamingAsync(dir, new InferenceOptions { Streaming = true, FirstResponseTimeoutMs = 5000 }, 1000, plans, log => new StreamingClient(plans, log)).ConfigureAwait(false);
+                    AssertEqual(0, loaded.ExitCode, "A 2 s cold start fits the 5 s first-response deadline despite the 1 s idle deadline");
+
+                    StreamPlan never = StreamPlan.Text(gapMs: 0);
+                    never.FirstDelayMs = Timeout.Infinite;
+                    plans.Enqueue(never);
+                    StreamRunResult silent = await RunStreamingAsync(dir, new InferenceOptions { Streaming = true, FirstResponseTimeoutMs = 2000 }, 1000, plans, log => new StreamingClient(plans, log), retries: 0).ConfigureAwait(false);
+                    AssertEqual(1, silent.ExitCode);
+                    AssertEqual("llm_timeout", silent.Failure!.ErrorType);
+                    AssertContains("did not start responding within 2000 ms", silent.Failure.Reason!);
+                }
+                finally { Cleanup(dir); }
+            }));
+
+            cases.Add(CaseAsync("incomplete_stream_never_runs_tools", "A stream that ends without the provider's completion signal is a retryable failure and its partial tool calls never run", TestTags.Negative, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<StreamPlan> plans = new Queue<StreamPlan>();
+                    StreamPlan cut = new StreamPlan();
+                    cut.Chunks.Add(new ToolChatStreamingChunk { ToolCallDeltas = new List<ToolCallDelta> { new ToolCallDelta { Index = 0, Id = "c1", Type = "function", Name = "write_file", ArgumentsJson = "{\"file_path\":\"cut.txt\",\"content\":\"partial\"}" } } });
+                    plans.Enqueue(cut);
+                    plans.Enqueue(StreamPlan.Text(gapMs: 0, "recovered"));
+                    StreamingClient? client = null;
+                    StreamRunResult result = await RunStreamingAsync(dir, new InferenceOptions { Streaming = true }, 1000, plans, log => client = new StreamingClient(plans, log)).ConfigureAwait(false);
+                    AssertEqual(0, result.ExitCode, "The retry gets a complete response");
+                    AssertEqual(2, client!.StreamCalls, "The cut stream was retried");
+                    AssertFalse(File.Exists(Path.Combine(dir, "cut.txt")), "A tool call from an unfinished stream never executes");
+                    AssertTrue(result.Diagnostics.Exists(d => d.Message.Contains("[retry]") && d.Message.Contains("ended before the model finished")), "The retry names the cut stream");
+                }
+                finally { Cleanup(dir); }
+            }));
+
+            cases.Add(CaseAsync("streamed_tool_calls_execute", "Tool calls assembled from streamed deltas run and the conversation continues", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<StreamPlan> plans = new Queue<StreamPlan>();
+                    StreamPlan call = new StreamPlan();
+                    call.Chunks.Add(new ToolChatStreamingChunk { ToolCallDeltas = new List<ToolCallDelta> { new ToolCallDelta { Index = 0, Id = "c1", Type = "function", Name = "write_file", ArgumentsJson = "{\"file_path\":\"made.txt\",\"content\":\"streamed\"}" } } });
+                    call.Chunks.Add(new ToolChatStreamingChunk { Done = true, FinishReason = "tool_calls" });
+                    plans.Enqueue(call);
+                    plans.Enqueue(StreamPlan.Text(gapMs: 0, "wrote it"));
+                    StreamRunResult result = await RunStreamingAsync(dir, new InferenceOptions { Streaming = true }, 1000, plans, log => new StreamingClient(plans, log)).ConfigureAwait(false);
+                    AssertEqual(0, result.ExitCode);
+                    AssertEqual("streamed", File.ReadAllText(Path.Combine(dir, "made.txt")));
+                }
+                finally { Cleanup(dir); }
+            }));
+
+            cases.Add(CaseAsync("streaming_plain_chat_and_blocking_deadline", "Plain chat streams too, and without streaming the first-response deadline extends the call timeout", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<StreamPlan> plans = new Queue<StreamPlan>();
+                    plans.Enqueue(StreamPlan.Text(gapMs: 400, "plain", " streamed", " answer"));
+                    StreamingClient? client = null;
+                    StreamRunResult plain = await RunStreamingAsync(dir, new InferenceOptions { Streaming = true, ToolsEnabled = false }, 1000, plans, log => client = new StreamingClient(plans, log)).ConfigureAwait(false);
+                    AssertEqual(0, plain.ExitCode, plain.Failure?.Reason ?? "plain stream");
+                    AssertEqual("plain streamed answer", File.ReadAllText(plain.FinalMessagePath).Trim());
+                    AssertEqual(1, client!.StreamCalls);
+
+                    StreamRunResult blocking = await RunStreamingAsync(dir, new InferenceOptions { FirstResponseTimeoutMs = 300000 }, 60000, plans, log => client = new StreamingClient(plans, log)).ConfigureAwait(false);
+                    AssertEqual(0, blocking.ExitCode);
+                    AssertEqual(0, client!.StreamCalls, "Streaming stays off unless enabled");
+                    AssertEqual(300000, client.ObservedTimeoutMs, "The blocking call gets the longer first-response deadline");
+                }
+                finally { Cleanup(dir); }
+            }));
+
+            cases.Add(CaseAsync("streaming_options_validated", "FirstResponseTimeoutMs is range-checked and streaming settings require a capable Harbor", TestTags.Negative, () =>
+            {
+                AssertThrows<ArgumentException>(() => new InferenceOptions { FirstResponseTimeoutMs = 999 }.Validate());
+                AssertThrows<ArgumentException>(() => new InferenceOptions { FirstResponseTimeoutMs = 1800001 }.Validate());
+                new InferenceOptions { Streaming = true, FirstResponseTimeoutMs = 1800000 }.Validate();
+                AssertTrue(new InferenceOptions { Streaming = true }.RequiresStreamingSupport);
+                AssertTrue(new InferenceOptions { FirstResponseTimeoutMs = 5000 }.RequiresStreamingSupport);
+                AssertFalse(new InferenceOptions().RequiresStreamingSupport);
+                AssertFalse(new InferenceOptions().HasNonDefaultSettings);
+                AssertTrue(new InferenceOptions { Streaming = true }.HasNonDefaultSettings);
+                AssertTrue(new InferenceOptions { ContextLength = 8192 }.HasNonDefaultSettings);
+                AssertTrue(new InferenceOptions { MaxConcurrentMissions = 1 }.HasNonDefaultSettings);
+                return Task.CompletedTask;
+            }));
+
             string? simulation = Environment.GetEnvironmentVariable("ARMADA_MODEL_PROVIDER_SIMULATION");
             if (!String.IsNullOrWhiteSpace(simulation))
             {
@@ -878,6 +1013,25 @@ namespace Test.Shared.Suites.Runtimes
             return logging;
         }
 
+        private static async Task<StreamRunResult> RunStreamingAsync(string dir, InferenceOptions options, int timeoutMs, Queue<StreamPlan> plans, Func<LoggingModule, CompletionClientBase> factory, int retries = 2)
+        {
+            ModelEndpoint endpoint = new ModelEndpoint { Name = "stream", Provider = ModelProviderEnum.OpenAICompatible, Kind = ModelEndpointKindEnum.Inference, Model = "m", BaseUrl = "http://localhost:1", TimeoutMs = timeoutMs, InferenceOptions = options };
+            ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => factory(log));
+            runtime.InferenceRetries = retries;
+            runtime.InferenceRetryBaseDelay = TimeSpan.FromMilliseconds(10);
+            StreamRunResult result = new StreamRunResult();
+            result.FinalMessagePath = Path.Combine(dir, "final-" + Guid.NewGuid().ToString("N") + ".txt");
+            using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+            runtime.OnProviderError += (pid, error) => result.Failure = error;
+            runtime.OnDiagnostic += (pid, diag) => { lock (result.Diagnostics) result.Diagnostics.Add(diag); };
+            runtime.OnProcessExited += (pid, code) => { result.ExitCode = code; exited.Set(); };
+            System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+            await runtime.StartAsync(dir, "do it", finalMessageFilePath: result.FinalMessagePath).ConfigureAwait(false);
+            AssertTrue(exited.Wait(TimeSpan.FromSeconds(30)), "The run must finish.");
+            result.ElapsedMs = watch.ElapsedMilliseconds;
+            return result;
+        }
+
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
         {
             return new TestCaseDescriptor(
@@ -966,6 +1120,94 @@ namespace Test.Shared.Suites.Runtimes
             protected override Task<ChatResponse> ChatCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<ChatStreamingResponse> ChatStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<ToolChatStreamingResponse> ToolChatStreamingCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
+            protected override Task<GenerationResponse> GenerateCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
+            protected override Task<GenerationStreamingResponse> GenerateStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
+        }
+
+        private sealed class StreamRunResult
+        {
+            public int? ExitCode { get; set; }
+            public RuntimeProviderError? Failure { get; set; }
+            public List<ApiRuntimeDiagnostic> Diagnostics { get; } = new List<ApiRuntimeDiagnostic>();
+            public string FinalMessagePath { get; set; } = String.Empty;
+            public long ElapsedMs { get; set; }
+        }
+
+        private sealed class StreamPlan
+        {
+            public int FirstDelayMs { get; set; }
+            public int GapMs { get; set; }
+            public bool HangAfter { get; set; }
+            public List<ToolChatStreamingChunk> Chunks { get; } = new List<ToolChatStreamingChunk>();
+
+            public static StreamPlan Text(int gapMs, params string[] parts)
+            {
+                StreamPlan plan = new StreamPlan { GapMs = gapMs };
+                foreach (string part in parts) plan.Chunks.Add(new ToolChatStreamingChunk { Text = part });
+                plan.Chunks.Add(new ToolChatStreamingChunk { Done = true, FinishReason = "stop" });
+                return plan;
+            }
+        }
+
+        private sealed class StreamingClient : CompletionClientBase
+        {
+            public int StreamCalls { get; private set; }
+            public int BlockingCalls { get; private set; }
+            public int ObservedTimeoutMs { get; private set; }
+            private readonly Queue<StreamPlan> _Plans;
+            private readonly CompletionOptions _Defaults = new CompletionOptions { Model = "stream-model" };
+
+            public StreamingClient(Queue<StreamPlan> plans, LoggingModule logging) : base("http://localhost:1", null, logging)
+            {
+                _Plans = plans;
+            }
+
+            public override CompletionOptions Defaults => _Defaults;
+
+            protected override Task<ToolChatStreamingResponse> ToolChatStreamingCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token)
+            {
+                StreamCalls++;
+                StreamPlan plan = _Plans.Count > 0 ? _Plans.Dequeue() : StreamPlan.Text(0, "done");
+                ToolChatStreamingResponse response = new ToolChatStreamingResponse { Success = true, StatusCode = 200 };
+                response.Chunks = WrapToolChatChunksWithTiming(response, ProduceAsync(plan, token), System.Diagnostics.Stopwatch.StartNew(), token, null!);
+                return Task.FromResult(response);
+            }
+
+            protected override Task<ChatStreamingResponse> ChatStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token)
+            {
+                StreamCalls++;
+                StreamPlan plan = _Plans.Count > 0 ? _Plans.Dequeue() : StreamPlan.Text(0, "done");
+                ChatStreamingResponse response = new ChatStreamingResponse { Success = true, StatusCode = 200 };
+                response.Chunks = WrapChunksWithTiming(response, ProduceChatAsync(plan, token), System.Diagnostics.Stopwatch.StartNew(), token, null!);
+                return Task.FromResult(response);
+            }
+
+            protected override Task<ToolChatResponse> ToolChatCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token)
+            {
+                BlockingCalls++;
+                ObservedTimeoutMs = TimeoutMs;
+                return Task.FromResult(new ToolChatResponse { Success = true, Text = "blocking done", FinishReason = "stop", ToolCalls = new List<ToolCall>() });
+            }
+
+            private static async IAsyncEnumerable<ToolChatStreamingChunk> ProduceAsync(StreamPlan plan, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)
+            {
+                if (plan.FirstDelayMs != 0) await Task.Delay(plan.FirstDelayMs, token).ConfigureAwait(false);
+                for (int i = 0; i < plan.Chunks.Count; i++)
+                {
+                    if (i > 0 && plan.GapMs > 0) await Task.Delay(plan.GapMs, token).ConfigureAwait(false);
+                    yield return plan.Chunks[i];
+                }
+                if (plan.HangAfter) await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false);
+            }
+
+            private static async IAsyncEnumerable<ChatStreamingChunk> ProduceChatAsync(StreamPlan plan, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken token = default)
+            {
+                await foreach (ToolChatStreamingChunk chunk in ProduceAsync(plan, token).ConfigureAwait(false))
+                    yield return new ChatStreamingChunk { Text = chunk.Text, Done = chunk.Done, FinishReason = chunk.FinishReason };
+            }
+
+            public override Task<bool> ValidateConnectivityAsync(CancellationToken token = default) => Task.FromResult(true);
+            protected override Task<ChatResponse> ChatCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<GenerationResponse> GenerateCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
             protected override Task<GenerationStreamingResponse> GenerateStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
         }

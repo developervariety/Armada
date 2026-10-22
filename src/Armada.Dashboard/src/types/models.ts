@@ -2778,6 +2778,10 @@ export interface InferenceOptions {
   contextLength?: number | null;
   /** Missions allowed at once against this base URL; null is unlimited. */
   maxConcurrentMissions?: number | null;
+  /** Stream responses; the request timeout becomes an idle deadline. */
+  streaming?: boolean;
+  /** Deadline for the model to start responding (model load, prompt evaluation); null uses the request timeout. */
+  firstResponseTimeoutMs?: number | null;
 }
 
 export interface ModelEndpoint {

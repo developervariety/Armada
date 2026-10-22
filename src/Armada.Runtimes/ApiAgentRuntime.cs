@@ -116,6 +116,8 @@ namespace Armada.Runtimes
         // not collide with an unrelated live process.
         private static int _PidCounter = 2_000_000_000;
         private int _InferenceRetries = 2;
+        // Outer bound on one streamed call; the idle and first-response watchdog is what normally ends a stalled stream.
+        private const int StreamingTotalTimeoutMs = 3600000;
         private static readonly ConcurrentDictionary<int, CancellationTokenSource> _Running = new ConcurrentDictionary<int, CancellationTokenSource>();
 
         private readonly ModelEndpoint? _Endpoint;
@@ -293,6 +295,93 @@ namespace Armada.Runtimes
             }
         }
 
+        private static async Task<ToolChatResponse> StreamToolChatAsync(CompletionClientBase client, ToolChatRequest request, int firstResponseMs, int idleMs, CancellationToken token)
+        {
+            using CancellationTokenSource watchdog = CancellationTokenSource.CreateLinkedTokenSource(token);
+            watchdog.CancelAfter(firstResponseMs);
+            bool received = false;
+            try
+            {
+                ToolChatStreamingResponse stream = await client.ToolChatStreamingAsync(request, watchdog.Token).ConfigureAwait(false);
+                if (!stream.Success) return new ToolChatResponse { Success = false, StatusCode = stream.StatusCode, Error = stream.Error, Model = stream.Model };
+                await foreach (ToolChatStreamingChunk chunk in stream.Chunks.WithCancellation(watchdog.Token).ConfigureAwait(false))
+                {
+                    received = true;
+                    watchdog.CancelAfter(idleMs);
+                }
+
+                // Partial output is never acted on: tools run only after the provider signalled a complete response.
+                if (stream.State != StreamingState.Completed)
+                    return new ToolChatResponse { Success = false, Model = stream.Model, Error = "The response stream ended before the model finished (" + stream.State + "): " + (stream.StreamError ?? "no detail") };
+
+                return new ToolChatResponse
+                {
+                    Success = true,
+                    StatusCode = stream.StatusCode,
+                    Model = stream.Model,
+                    ProviderState = stream.ProviderState,
+                    OverallRuntimeMs = stream.OverallRuntimeMs,
+                    Text = stream.Text,
+                    Reasoning = stream.Reasoning,
+                    ToolCalls = stream.ToolCalls,
+                    ResponseId = stream.ResponseId,
+                    FinishReason = stream.FinishReason,
+                    Usage = stream.Usage
+                };
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                throw new TimeoutException(StreamTimeoutMessage(received, firstResponseMs, idleMs));
+            }
+        }
+
+        private static async Task<ChatResponse> StreamChatAsync(CompletionClientBase client, string prompt, CompletionOptions options, int firstResponseMs, int idleMs, CancellationToken token)
+        {
+            using CancellationTokenSource watchdog = CancellationTokenSource.CreateLinkedTokenSource(token);
+            watchdog.CancelAfter(firstResponseMs);
+            bool received = false;
+            try
+            {
+                ChatStreamingResponse stream = await client.ChatStreamingAsync(prompt, options, watchdog.Token).ConfigureAwait(false);
+                if (!stream.Success) return new ChatResponse { Success = false, StatusCode = stream.StatusCode, Error = stream.Error, Model = stream.Model };
+                System.Text.StringBuilder text = new System.Text.StringBuilder();
+                await foreach (ChatStreamingChunk chunk in stream.Chunks.WithCancellation(watchdog.Token).ConfigureAwait(false))
+                {
+                    received = true;
+                    watchdog.CancelAfter(idleMs);
+                    if (!String.IsNullOrEmpty(chunk.Text)) text.Append(chunk.Text);
+                }
+
+                if (stream.State != StreamingState.Completed)
+                    return new ChatResponse { Success = false, Model = stream.Model, Error = "The response stream ended before the model finished (" + stream.State + "): " + (stream.StreamError ?? "no detail") };
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    StatusCode = stream.StatusCode,
+                    Model = stream.Model,
+                    ProviderState = stream.ProviderState,
+                    OverallRuntimeMs = stream.OverallRuntimeMs,
+                    Text = text.ToString(),
+                    Reasoning = stream.Reasoning,
+                    ResponseId = stream.ResponseId,
+                    FinishReason = stream.FinishReason,
+                    Usage = stream.Usage
+                };
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                throw new TimeoutException(StreamTimeoutMessage(received, firstResponseMs, idleMs));
+            }
+        }
+
+        private static string StreamTimeoutMessage(bool received, int firstResponseMs, int idleMs)
+        {
+            return received
+                ? "The model stopped sending in the middle of a response; nothing arrived for " + idleMs + " ms (the endpoint request timeout)."
+                : "The model did not start responding within " + firstResponseMs + " ms (first-response deadline: model load and prompt evaluation).";
+        }
+
         private static bool IsRetryableInferenceStatus(int? status)
         {
             if (!status.HasValue) return true;
@@ -331,6 +420,12 @@ namespace Armada.Runtimes
                 if (!String.IsNullOrWhiteSpace(model)) client.Model = model;
 
                 InferenceOptions settings = endpoint.InferenceOptions;
+                // Without streaming the client timeout bounds the whole call, so the first-response deadline (cold model
+                // loads, long prompt evaluation) has to extend it. With streaming the watchdog in StreamToolChatAsync and
+                // StreamChatAsync enforces both deadlines and the client timeout is only an outer bound.
+                int firstResponseMs = Math.Max(endpoint.TimeoutMs, settings.FirstResponseTimeoutMs ?? 0);
+                int idleMs = endpoint.TimeoutMs;
+                client.TimeoutMs = settings.Streaming ? StreamingTotalTimeoutMs : firstResponseMs;
                 CompletionOptions completionOptions = new CompletionOptions
                 {
                     Model = String.IsNullOrWhiteSpace(model) ? endpoint.Model : model,
@@ -351,8 +446,8 @@ namespace Armada.Runtimes
                 async Task RunPlainChatAsync()
                 {
                     completionOptions.SystemPrompt = BuildSystemPrompt(workingDirectory);
-                    ChatResponse reply = await WithInferenceRetryAsync(() => client.ChatAsync(prompt, completionOptions, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, token).ConfigureAwait(false);
-                    EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = 1, reply.Success, reply.FinishReason, reply.Usage, textLength = reply.Text?.Length ?? 0, toolCalls = 0 }));
+                    ChatResponse reply = await WithInferenceRetryAsync(() => settings.Streaming ? StreamChatAsync(client, prompt, completionOptions, firstResponseMs, idleMs, token) : client.ChatAsync(prompt, completionOptions, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, token).ConfigureAwait(false);
+                    EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = 1, streamed = settings.Streaming, reply.Success, reply.FinishReason, reply.Usage, textLength = reply.Text?.Length ?? 0, toolCalls = 0 }));
                     if (!reply.Success)
                     {
                         exitCode = 1;
@@ -463,9 +558,9 @@ namespace Armada.Runtimes
                     request.Tools = tools;
                     request.Options = completionOptions;
 
-                    ToolChatResponse response = await WithInferenceRetryAsync(() => client.ToolChatAsync(request, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, token).ConfigureAwait(false);
+                    ToolChatResponse response = await WithInferenceRetryAsync(() => settings.Streaming ? StreamToolChatAsync(client, request, firstResponseMs, idleMs, token) : client.ToolChatAsync(request, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, token).ConfigureAwait(false);
 
-                    EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = iteration + 1, maxIterations, response.Success, response.ResponseId, response.FinishReason, response.Usage, reasoningLength = response.Reasoning?.Length ?? 0, textLength = response.Text?.Length ?? 0, toolCalls = response.ToolCalls?.Count ?? 0 }));
+                    EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = iteration + 1, maxIterations, streamed = settings.Streaming, response.Success, response.ResponseId, response.FinishReason, response.Usage, reasoningLength = response.Reasoning?.Length ?? 0, textLength = response.Text?.Length ?? 0, toolCalls = response.ToolCalls?.Count ?? 0 }));
 
                     if (!response.Success)
                     {
@@ -567,8 +662,10 @@ namespace Armada.Runtimes
             {
                 exitCode = 1;
                 _Logging.Warn(_Header + "loop error for process " + processId + ": " + e.ToString());
-                RaiseProviderError(processId, new RuntimeProviderError { ErrorType = e is OperationCanceledException ? "llm_timeout" : "runtime_error",
-                    Reason = e is OperationCanceledException ? "Inference request exceeded the endpoint request timeout of " + endpoint.TimeoutMs + " ms." : "API captain runtime failed: " + e.Message });
+                RaiseProviderError(processId, new RuntimeProviderError { ErrorType = e is OperationCanceledException || e is TimeoutException ? "llm_timeout" : "runtime_error",
+                    Reason = e is TimeoutException ? e.Message
+                        : e is OperationCanceledException ? "Inference request exceeded the endpoint request timeout of " + endpoint.TimeoutMs + " ms."
+                        : "API captain runtime failed: " + e.Message });
                 EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[error] " + e.Message);
             }
             finally

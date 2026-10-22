@@ -160,6 +160,8 @@ namespace Armada.Tui.Screens.Configuration
             InputField topP = form.Text("Top P", inference.TopP?.ToString(CultureInfo.InvariantCulture), "Provider default (0–1)");
             InputField contextLength = form.Text("Context Window (Ollama num_ctx)", inference.ContextLength?.ToString(CultureInfo.InvariantCulture), "Model default (512–2097152)");
             InputField maxConcurrent = form.Text("Max Concurrent Missions", inference.MaxConcurrentMissions?.ToString(CultureInfo.InvariantCulture), "Unlimited (1–64, per base URL)");
+            CheckField streaming = form.Check("Stream Responses", inference.Streaming);
+            InputField firstResponse = form.Text("First-response Timeout (ms)", inference.FirstResponseTimeoutMs?.ToString(CultureInfo.InvariantCulture), "Request timeout (1000–1800000)");
             SelectField<string> scope = form.Scope(existing != null ? existing.Scope : ScopeRules.ResolveCreateScope(context.Session, null));
             CheckField enabled = form.Check("Enabled", existing?.Enabled ?? true);
             form.MarkClean();
@@ -203,7 +205,9 @@ namespace Armada.Tui.Screens.Configuration
                         Temperature = String.IsNullOrWhiteSpace(temperature.Value) ? null : Double.Parse(temperature.Value, CultureInfo.InvariantCulture),
                         TopP = String.IsNullOrWhiteSpace(topP.Value) ? null : Double.Parse(topP.Value, CultureInfo.InvariantCulture),
                         ContextLength = String.IsNullOrWhiteSpace(contextLength.Value) ? null : Int32.Parse(contextLength.Value, CultureInfo.InvariantCulture),
-                        MaxConcurrentMissions = String.IsNullOrWhiteSpace(maxConcurrent.Value) ? null : Int32.Parse(maxConcurrent.Value, CultureInfo.InvariantCulture)
+                        MaxConcurrentMissions = String.IsNullOrWhiteSpace(maxConcurrent.Value) ? null : Int32.Parse(maxConcurrent.Value, CultureInfo.InvariantCulture),
+                        Streaming = streaming.Value,
+                        FirstResponseTimeoutMs = String.IsNullOrWhiteSpace(firstResponse.Value) ? null : Int32.Parse(firstResponse.Value, CultureInfo.InvariantCulture)
                     };
                     payload.InferenceOptions.Validate();
                 }

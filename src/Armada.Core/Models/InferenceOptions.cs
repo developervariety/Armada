@@ -37,6 +37,18 @@ namespace Armada.Core.Models
         /// of continuing on silently truncated history. Null uses the model default.
         /// </summary>
         public int? ContextLength { get; set; } = null;
+        /// <summary>
+        /// Stream model responses. Each call then fails only when the model sends nothing for the endpoint's request
+        /// timeout (an idle deadline) instead of when the whole response takes longer, so long generations survive an
+        /// idle-based proxy or load balancer deadline. Default false.
+        /// </summary>
+        public bool Streaming { get; set; } = false;
+        /// <summary>
+        /// Optional deadline, from 1000 through 1800000 ms, for the model to start responding: cold model loads and long
+        /// prompt evaluation. Streaming applies it to each call's first chunk; without streaming it extends each call's
+        /// timeout. Null uses the endpoint's request timeout.
+        /// </summary>
+        public int? FirstResponseTimeoutMs { get; set; } = null;
 
         /// <summary>Whether launching on a Harbor requires policy-aware execution support.</summary>
         [System.Text.Json.Serialization.JsonIgnore]
@@ -47,6 +59,14 @@ namespace Armada.Core.Models
         [System.Text.Json.Serialization.JsonIgnore]
         public bool RequiresContextSupport => ContextLength.HasValue;
 
+        /// <summary>Whether launching on a Harbor requires a Harbor that streams and applies the first-response deadline.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool RequiresStreamingSupport => Streaming || FirstResponseTimeoutMs.HasValue;
+
+        /// <summary>Whether any setting differs from the defaults.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool HasNonDefaultSettings => RequiresPolicySupport || RequiresContextSupport || RequiresStreamingSupport || MaxConcurrentMissions.HasValue;
+
         /// <summary>Validate supplied settings without silently changing them.</summary>
         public void Validate()
         {
@@ -56,6 +76,7 @@ namespace Armada.Core.Models
             if (TopP.HasValue && (!Double.IsFinite(TopP.Value) || TopP < 0 || TopP > 1)) throw new ArgumentException("InferenceOptions.TopP must be between 0 and 1.");
             if (MaxConcurrentMissions.HasValue && (MaxConcurrentMissions < 1 || MaxConcurrentMissions > 64)) throw new ArgumentException("InferenceOptions.MaxConcurrentMissions must be between 1 and 64.");
             if (ContextLength.HasValue && (ContextLength < 512 || ContextLength > 2097152)) throw new ArgumentException("InferenceOptions.ContextLength must be between 512 and 2097152.");
+            if (FirstResponseTimeoutMs.HasValue && (FirstResponseTimeoutMs < 1000 || FirstResponseTimeoutMs > 1800000)) throw new ArgumentException("InferenceOptions.FirstResponseTimeoutMs must be between 1000 and 1800000.");
             if (AllowedTools != null && (AllowedTools.Count > 256 || AllowedTools.Any(n => String.IsNullOrWhiteSpace(n) || n.Length > 256 || n != n.Trim()) || AllowedTools.Distinct(StringComparer.Ordinal).Count() != AllowedTools.Count))
                 throw new ArgumentException("InferenceOptions.AllowedTools must contain at most 256 distinct, nonblank exact tool names (maximum 256 characters each).");
         }

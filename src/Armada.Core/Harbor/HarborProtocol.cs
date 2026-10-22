@@ -43,6 +43,13 @@ namespace Armada.Core.Harbor
         public const string InferenceContextCapability = "api-inference-context-v1";
 
         /// <summary>
+        /// Harbor streams API captain responses with an idle deadline and applies the first-response deadline. An older
+        /// Harbor makes blocking calls that an idle-based proxy can cut, so such an endpoint runs only on Harbors that
+        /// advertise this.
+        /// </summary>
+        public const string InferenceStreamingCapability = "api-inference-streaming-v1";
+
+        /// <summary>
         /// Capability a Harbor advertises when it can send a captain's permission prompts to Armada (Approve in Armada):
         /// it honors <see cref="HarborLaunchRequest.CliPermissionPolicy"/>. The detail lists the runtimes it can do this
         /// for, comma separated (for example "ClaudeCode,Mux"; Mux only when the Harbor's mux is 1.5.0 or later). A
