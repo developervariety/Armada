@@ -1311,6 +1311,130 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MissionEvidence_ReviewStageReadsEarlierStagesOfItsOwnVoyageOnly", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string tenant = Armada.Core.Constants.DefaultTenantId;
+                    // Pipeline stages are stored without a user and with no objective, as a dispatched voyage stores them.
+                    Voyage pipeline = await testDb.Driver.Voyages.CreateAsync(new Voyage("worker linter judge voyage") { TenantId = tenant }).ConfigureAwait(false);
+                    Voyage otherPipeline = await testDb.Driver.Voyages.CreateAsync(new Voyage("other voyage of the vessel") { TenantId = tenant }).ConfigureAwait(false);
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("pipeline worker")
+                    {
+                        TenantId = tenant,
+                        VoyageId = pipeline.Id,
+                        Persona = Armada.Core.PersonaCatalog.Worker,
+                        AgentOutput = "worker report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission linter = await testDb.Driver.Missions.CreateAsync(new Mission("pipeline linter")
+                    {
+                        TenantId = tenant,
+                        VoyageId = pipeline.Id,
+                        DependsOnMissionId = worker.Id,
+                        Persona = "Linter",
+                        AgentOutput = "linter report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("pipeline judge")
+                    {
+                        TenantId = tenant,
+                        VoyageId = pipeline.Id,
+                        DependsOnMissionId = linter.Id,
+                        Persona = Armada.Core.PersonaCatalog.Judge
+                    }).ConfigureAwait(false);
+                    Mission otherWorker = await testDb.Driver.Missions.CreateAsync(new Mission("other voyage worker")
+                    {
+                        TenantId = tenant,
+                        VoyageId = otherPipeline.Id,
+                        Persona = Armada.Core.PersonaCatalog.Worker,
+                        AgentOutput = "other voyage report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = judge.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        foreach (Mission earlierStage in new[] { worker, linter })
+                        {
+                            object result = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = earlierStage.Id })).ConfigureAwait(false);
+                            AssertTrue(result is MissionOutputArtifactPage,
+                                "the Judge reads " + earlierStage.Title + " of its own voyage; actual result: " + JsonSerializer.Serialize(result));
+                            AssertEqual(earlierStage.AgentOutput, ((MissionOutputArtifactPage)result).Content);
+                        }
+                        string denied = JsonSerializer.Serialize(await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = otherWorker.Id })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"out_of_scope\"", denied, "a mission of another voyage stays out of scope");
+                        AssertFalse(denied.Contains("other voyage report", StringComparison.Ordinal), "the denial carries no output of the other voyage");
+                    }
+                }
+            });
+
+            await RunTest("MissionEvidence_AnAbbreviatedObjectiveCitationLinksTheCitedObjective", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string tenant = Armada.Core.Constants.DefaultTenantId;
+                    string user = Armada.Core.Constants.DefaultUserId;
+                    long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    // The cited objective sits in another objective tree, so only the citation links it.
+                    Objective citedTree = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Id = TestRecordIds.At("obj", now - 5000, "citedTree"),
+                        Title = "other tree root",
+                        TenantId = tenant,
+                        UserId = user
+                    }).ConfigureAwait(false);
+                    Objective cited = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Id = TestRecordIds.At("obj", now - 4000, "citedInput"),
+                        Title = "missing inputs objective",
+                        TenantId = tenant,
+                        UserId = user,
+                        ParentObjectiveId = citedTree.Id
+                    }).ConfigureAwait(false);
+                    Objective uncited = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Id = TestRecordIds.At("obj", now - 3000, "uncited"),
+                        Title = "uncited objective",
+                        TenantId = tenant,
+                        UserId = user,
+                        ParentObjectiveId = citedTree.Id
+                    }).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("citing voyage") { TenantId = tenant }).ConfigureAwait(false);
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("citing worker")
+                    {
+                        TenantId = tenant,
+                        VoyageId = voyage.Id,
+                        Persona = Armada.Core.PersonaCatalog.Worker
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Id = TestRecordIds.At("obj", now - 2000, "authorizing"),
+                        Title = "authorizing objective",
+                        TenantId = tenant,
+                        UserId = user,
+                        VoyageIds = new List<string> { voyage.Id },
+                        Description = "The missing inputs are tracked by " + TestRecordIds.Abbreviate(cited.Id) + "; consult it for the exact list."
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = worker.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        foreach (string id in new[] { cited.Id, TestRecordIds.Abbreviate(cited.Id) })
+                        {
+                            object result = await tools.ReadObjective!(JsonSerializer.SerializeToElement(new { objectiveId = id })).ConfigureAwait(false);
+                            AssertTrue(result is Objective, "the objective cited by its abbreviation reads by " + id + "; actual result: " + JsonSerializer.Serialize(result));
+                        }
+                        string denied = JsonSerializer.Serialize(await tools.ReadObjective!(JsonSerializer.SerializeToElement(new { objectiveId = uncited.Id })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"out_of_scope\"", denied, "an uncited objective of the same tree stays out of scope");
+                    }
+                }
+            });
+
             await RunTest("MissionEvidence_CallerReadsAncestorLinkedChildAndCitedRecordsOnly", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
