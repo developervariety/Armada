@@ -429,6 +429,15 @@ namespace Armada.Core.Services
                     // build+test suites run on one host at once than its slot count allows. See HostWideCommandLock.
                     using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
                     {
+                        if (isolatedCheckout != null)
+                        {
+                            string waitedPath = isolatedCheckout.Path;
+                            isolatedCheckout = await RecreateRemovedCheckoutAsync(vessel, run, isolatedCheckout, token).ConfigureAwait(false);
+                            if (isolatedCheckout == null)
+                                return await CompleteExistingRunAsFailureAsync(run, DescribeRemovedCheckout(waitedPath), token).ConfigureAwait(false);
+                            executionDirectory = isolatedCheckout.Path;
+                        }
+
                         RunningClaim claim = await TryMarkRunningAsync(run, token).ConfigureAwait(false);
                         if (claim.Run == null) throw new InvalidOperationException("The check run no longer exists.");
                         if (!claim.Started)
@@ -1182,6 +1191,15 @@ namespace Armada.Core.Services
 
                 using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
                 {
+                    if (isolatedCheckout != null)
+                    {
+                        string waitedPath = isolatedCheckout.Path;
+                        isolatedCheckout = await RecreateRemovedCheckoutAsync(vessel, run, isolatedCheckout, token).ConfigureAwait(false);
+                        if (isolatedCheckout == null)
+                            return await CompleteExistingRunAsFailureAsync(run, DescribeRemovedCheckout(waitedPath), token).ConfigureAwait(false);
+                        executionDirectory = isolatedCheckout.Path;
+                    }
+
                     RunningClaim claim = await TryMarkRunningAsync(run, token).ConfigureAwait(false);
                     if (claim.Run == null) throw new InvalidOperationException("The check run no longer exists.");
                     if (!claim.Started)
@@ -2049,6 +2067,28 @@ namespace Armada.Core.Services
         /// Remove an isolated checkout and, for a worktree-backed checkout, its git worktree
         /// registration so the shared repository does not accumulate stale entries.
         /// </summary>
+        /// <summary>
+        /// Return the checkout a check runs in once it holds the host command slot. The checkout is made
+        /// before the wait for the slot, and that wait can last as long as the suites ahead of it, so it is
+        /// checked again here: a checkout that is gone is made once more at the same source.
+        /// </summary>
+        /// <returns>The checkout to run in, or null when it was gone and could not be made again.</returns>
+        private async Task<IsolatedCheckout?> RecreateRemovedCheckoutAsync(Vessel vessel, CheckRun run, IsolatedCheckout checkout, CancellationToken token)
+        {
+            if (Directory.Exists(checkout.Path)) return checkout;
+
+            _Logging.Warn(_Header + "isolated checkout " + checkout.Path + " for check " + run.Id
+                + " was removed while the check waited for the host command slot; creating it again");
+            await CleanupIsolatedCheckoutAsync(checkout, CancellationToken.None).ConfigureAwait(false);
+            return await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+        }
+
+        private static string DescribeRemovedCheckout(string path)
+        {
+            return "The isolated checkout " + path + " was removed while the check waited for the host command slot, "
+                + "and it could not be created again. The check did not run.";
+        }
+
         private async Task CleanupIsolatedCheckoutAsync(IsolatedCheckout? checkout, CancellationToken token)
         {
             if (checkout == null)

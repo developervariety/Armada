@@ -95,6 +95,12 @@ at startup and on every settings reload. An unknown reading never holds a
 command. The held request keeps its place in line. When no slot is held and it
 has been held for memory for 15 minutes, it runs anyway and is recorded as
 granted under the floor.
+`DefinitionOfDone.HostSlotWaitReportMinutes` (default 5, clamped to 1-60) is
+how often the automatic Check runner records a wait that lasts: the slot held
+for memory, every slot busy with requests waiting, or every runner place taken.
+`DefinitionOfDone.HostSlotWaitBoardNoteMinutes` (default 10, clamped to 0-1440,
+0 posts nothing) is how long a wait lasts before one board note names the slot
+holders, the waiting requests in order and the memory reading.
 
 ## Handoff requires a recorded result
 

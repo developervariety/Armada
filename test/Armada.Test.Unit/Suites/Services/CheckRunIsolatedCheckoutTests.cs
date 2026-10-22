@@ -5,6 +5,8 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Diagnostics;
     using System.IO;
     using System.Text;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -810,6 +812,89 @@ namespace Armada.Test.Unit.Suites.Services
                 finally
                 {
                     SafeDeleteDirectory(parent);
+                    SafeDeleteDirectory(sourceRepo);
+                }
+            }).ConfigureAwait(false);
+
+            // The checkout is made before the wait for the host command slot, so a long wait leaves time for
+            // something else to remove it. Once the slot is granted the check makes the checkout again and
+            // runs; it never runs its command in a directory that is gone.
+            await RunTest("Build check makes its isolated checkout again when it was removed while the check waited for the host slot", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_regone", "usr_iso_regone").ConfigureAwait(false);
+
+                string sourceRepo = await CreateSourceRepoAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-regone-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                IDisposable? holder = null;
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_iso_regone", "usr_iso_regone", workingDirectory);
+                    vessel.LocalPath = sourceRepo;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_iso_regone",
+                        UserId = "usr_iso_regone",
+                        Name = "Removed Checkout Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = PrintWorkingDirectoryCommand()
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    holder = await HostWideCommandLock.AcquireAsync("removed_checkout_holder", "holder", CancellationToken.None).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_regone", "usr_iso_regone", false, false, "UnitTest");
+                    Task<CheckRun> running = checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    });
+
+                    // A request waits for the slot only after its checkout exists.
+                    string? waitingId = null;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(60);
+                    while (waitingId == null && DateTime.UtcNow < deadline && !running.IsCompleted)
+                    {
+                        foreach (HostSlotWaiter waiter in HostWideCommandLock.Snapshot().Waiters)
+                        {
+                            if (waiter.Key != null && waiter.Key.StartsWith("chk_", StringComparison.Ordinal)) waitingId = waiter.Key;
+                        }
+
+                        if (waitingId == null) await Task.Delay(50).ConfigureAwait(false);
+                    }
+
+                    AssertNotNull(waitingId, "the check must wait for the host slot held by the test");
+                    string[] checkouts = Directory.GetDirectories(Path.GetTempPath(), CheckRunService.CheckoutDirectoryPrefix + waitingId + "-*");
+                    AssertEqual(1, checkouts.Length, "the waiting check has one isolated checkout");
+                    string removed = checkouts[0];
+                    Directory.Delete(removed, true);
+                    AssertFalse(Directory.Exists(removed), "the checkout is removed while the check waits");
+
+                    holder.Dispose();
+                    holder = null;
+                    CheckRun run = await running.WaitAsync(TimeSpan.FromSeconds(120)).ConfigureAwait(false);
+
+                    string output = run.Output ?? String.Empty;
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status, "the check runs in a new checkout once it holds the slot: " + output);
+                    AssertContains(CheckRunService.CheckoutDirectoryPrefix + run.Id, output, "the command runs in an isolated checkout named for its check");
+                    AssertFalse(output.Contains(removed, StringComparison.Ordinal), "the command must not run in the removed checkout: " + output);
+                    AssertFalse(output.Contains(workingDirectory, StringComparison.Ordinal), "the command must not fall back to the live working directory");
+                }
+                finally
+                {
+                    holder?.Dispose();
+                    SafeDeleteDirectory(workingDirectory);
                     SafeDeleteDirectory(sourceRepo);
                 }
             }).ConfigureAwait(false);

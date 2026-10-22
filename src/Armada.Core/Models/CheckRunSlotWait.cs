@@ -16,7 +16,8 @@ namespace Armada.Core.Models
         /// </summary>
         public const string WaitGuidance =
             "This check has not finished because the host runs a limited number of full build or test suites at once, "
-            + "and starts the next one only while enough memory is free (MemoryWaitReason names a memory wait). "
+            + "and starts the next one only while enough memory is free (MemoryWaitReason names a memory wait, and QueueReason "
+            + "a wait for a place in the automatic check runner). "
             + "The wait is an environment condition: it is not a code defect and not a question for the owner, "
             + "so do not end the stage BLOCKED or return NEEDS_REVISION because of it. The check runs by itself; "
             + "read it again with get_check_run. A Judge PASS given while a Check is unresolved is held until the "
@@ -56,6 +57,13 @@ namespace Armada.Core.Models
         public string? MemoryWaitReason { get; set; } = null;
 
         /// <summary>
+        /// Why a check that has not asked for the slot still waits, such as "waiting for a place in the
+        /// automatic check runner: 4 of 4 places hold started checks, ...", or null when it is not queued or
+        /// a place is free.
+        /// </summary>
+        public string? QueueReason { get; set; } = null;
+
+        /// <summary>
         /// Guidance for a captain or Judge; see <see cref="WaitGuidance"/>.
         /// </summary>
         public string Guidance { get; set; } = WaitGuidance;
@@ -86,12 +94,16 @@ namespace Armada.Core.Models
                 WaitingSinceUtc = run.SlotRequestedUtc
             };
 
+            if (!run.SlotRequestedUtc.HasValue && run.Source == CheckRunSourceEnum.Armada)
+                wait.QueueReason = Armada.Core.Services.AutomaticCheckRunPlaces.DescribeQueueReason();
+
             if (slot != null)
             {
                 HostSlotWaiter? waiter = slot.FindWaiter(run.Id);
                 if (waiter != null)
                 {
                     wait.State = "WaitingForSlot";
+                    wait.QueueReason = null;
                     wait.Position = waiter.Position;
                     wait.WaitingSinceUtc ??= waiter.RequestedUtc;
 

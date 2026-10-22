@@ -91,6 +91,32 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Minutes between the events that report a check still waiting: for free memory, for a busy host
+        /// command slot, or for a place in the automatic check runner. Clamped to [1, 60]. Defaults to 5.
+        /// </summary>
+        /// <remarks>
+        /// A waiting check, gate or merge-queue test has no process, so without these events a waiting
+        /// queue reads like an idle one. The first event is written when the wait starts, one more every
+        /// interval while it lasts, and a last one when it ends.
+        /// </remarks>
+        public int HostSlotWaitReportMinutes
+        {
+            get => _HostSlotWaitReportMinutes;
+            set => _HostSlotWaitReportMinutes = Math.Max(1, Math.Min(60, value));
+        }
+
+        /// <summary>
+        /// Minutes a wait may last before a board note names it: the memory reading, the slot holders, and
+        /// the waiting requests in order. Clamped to [0, 1440]; 0 posts no note. Defaults to 10. One note is
+        /// posted per wait.
+        /// </summary>
+        public int HostSlotWaitBoardNoteMinutes
+        {
+            get => _HostSlotWaitBoardNoteMinutes;
+            set => _HostSlotWaitBoardNoteMinutes = Math.Max(0, Math.Min(1440, value));
+        }
+
+        /// <summary>
         /// Maximum number of trailing output lines included in the failure reason. Clamped to
         /// [10, 500]. Defaults to 50.
         /// </summary>
@@ -224,6 +250,8 @@ namespace Armada.Core.Settings
             CommandTimeoutSeconds = source.CommandTimeoutSeconds;
             HostCommandSlots = source.HostCommandSlots;
             HostCommandMemoryFloorMb = source.HostCommandMemoryFloorMb;
+            HostSlotWaitReportMinutes = source.HostSlotWaitReportMinutes;
+            HostSlotWaitBoardNoteMinutes = source.HostSlotWaitBoardNoteMinutes;
             OutputTailLines = source.OutputTailLines;
             DiagnosticLines = source.DiagnosticLines;
             VerifyDeclaredConsumers = source.VerifyDeclaredConsumers;
@@ -243,6 +271,8 @@ namespace Armada.Core.Settings
         private int _CommandTimeoutSeconds = 600;
         private int _HostCommandSlots = HostWideCommandLock.MinimumSlots;
         private int _HostCommandMemoryFloorMb = HostWideCommandLock.DefaultMemoryFloorMb;
+        private int _HostSlotWaitReportMinutes = 5;
+        private int _HostSlotWaitBoardNoteMinutes = 10;
         private int _OutputTailLines = 50;
         private int _DiagnosticLines = 20;
 

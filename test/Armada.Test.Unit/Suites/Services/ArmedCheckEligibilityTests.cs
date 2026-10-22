@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Enums;
@@ -26,7 +27,12 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Suite name.</summary>
         public override string Name => "Armed Check Eligibility";
 
-        private static AutomaticCheckRunOrchestrator BuildOrchestrator(TestDatabase testDb, DispatchHold? dispatchHold = null)
+        private static AutomaticCheckRunOrchestrator BuildOrchestrator(
+            TestDatabase testDb,
+            DispatchHold? dispatchHold = null,
+            Func<Armada.Core.Settings.DefinitionOfDoneSettings>? gateSettings = null,
+            Func<string, CancellationToken, Task>? postBoardNoteAsync = null,
+            Func<DateTime>? clock = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -36,7 +42,7 @@ namespace Armada.Test.Unit.Suites.Services
             ReleaseService releases = new ReleaseService(testDb.Driver, workflowProfiles, logging);
             IncidentService incidents = new IncidentService(testDb.Driver);
 
-            return new AutomaticCheckRunOrchestrator(testDb.Driver, checkRuns, releases, incidents, logging, dispatchHold);
+            return new AutomaticCheckRunOrchestrator(testDb.Driver, checkRuns, releases, incidents, logging, dispatchHold, gateSettings, postBoardNoteAsync, clock);
         }
 
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb)
@@ -594,6 +600,136 @@ namespace Armada.Test.Unit.Suites.Services
                     memoryHeld.Waiters.Add(new HostSlotWaiter { Position = 1, Key = "chk_waiting", Description = "check" });
                     AssertEqual("0 check(s) running, 0 waiting for the host build slot; 1 other request(s) queued for the slot; next request waiting for free memory: 4,100 MB available, floor 6,144 MB",
                         orchestrator.DescribeInFlight(memoryHeld), "a free slot held back for memory names the memory reason");
+                }
+            });
+
+            await RunTest("A sweep records an event when the host command slot holds its next request for free memory", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    HostWideCommandLock.SetMemoryReader(() => 1000);
+                    HostWideCommandLock.SetMemoryFloorMb(6144);
+                    Task<IDisposable> held = HostWideCommandLock.AcquireAsync("chk_memory_held", "check chk_memory_held (Build) for a vessel", cancel.Token);
+
+                    try
+                    {
+                        AssertTrue(HostWideCommandLock.Snapshot().HeldForMemory, "the request is held for memory before the sweep");
+
+                        await orchestrator.RunSweepAsync().ConfigureAwait(false);
+
+                        List<ArmadaEvent> started = await testDb.Driver.Events.EnumerateByTypeAsync("check.memory_wait_started", 10).ConfigureAwait(false);
+                        AssertEqual(1, started.Count, "a memory hold seen by the sweep is recorded, so the waiting queue does not read as idle");
+                        AssertContains("1,000 MB available, floor 6,144 MB", started[0].Message, "the event names the memory reading and the floor");
+                        AssertContains("chk_memory_held", started[0].Message, "the event names the waiting request");
+                    }
+                    finally
+                    {
+                        cancel.Cancel();
+                        try { (await held.ConfigureAwait(false)).Dispose(); } catch (OperationCanceledException) { }
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                    }
+                }
+            });
+
+            await RunTest("A memory hold is reported at each interval, posts one board note after the note delay, and records its end", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DateTime now = new DateTime(2026, 1, 5, 6, 0, 0, DateTimeKind.Utc);
+                    List<string> notes = new List<string>();
+                    Armada.Core.Settings.DefinitionOfDoneSettings settings = new Armada.Core.Settings.DefinitionOfDoneSettings
+                    {
+                        HostSlotWaitReportMinutes = 5,
+                        HostSlotWaitBoardNoteMinutes = 10
+                    };
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(
+                        testDb,
+                        gateSettings: () => settings,
+                        postBoardNoteAsync: (content, token) => { notes.Add(content); return Task.CompletedTask; },
+                        clock: () => now);
+
+                    DateTime since = now;
+                    HostSlotSnapshot held = new HostSlotSnapshot
+                    {
+                        MemoryFloorMb = 6144,
+                        AvailableMemoryMb = 4100,
+                        HeldForMemory = true,
+                        MemoryHeldSinceUtc = since,
+                        MemoryWaitReason = "waiting for free memory: 4,100 MB available, floor 6,144 MB"
+                    };
+                    held.Waiters.Add(new HostSlotWaiter { Position = 1, Key = "msn_gate", Description = "definition-of-done gate for mission msn_gate" });
+                    held.Waiters.Add(new HostSlotWaiter { Position = 2, Key = "chk_waiting", Description = "check chk_waiting (Build) for a vessel" });
+
+                    async Task<int> CountAsync(string eventType) =>
+                        (await testDb.Driver.Events.EnumerateByTypeAsync(eventType, 50).ConfigureAwait(false)).Count;
+
+                    await orchestrator.ReportWaitsAsync(held, CancellationToken.None).ConfigureAwait(false);
+                    now = since.AddMinutes(2);
+                    await orchestrator.ReportWaitsAsync(held, CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual(1, await CountAsync(AutomaticCheckRunOrchestrator.MemoryWaitStartedEvent).ConfigureAwait(false), "the hold is recorded once when it starts");
+                    AssertEqual(0, await CountAsync(AutomaticCheckRunOrchestrator.MemoryWaitContinuingEvent).ConfigureAwait(false), "no repeat inside the report interval");
+
+                    now = since.AddMinutes(5);
+                    await orchestrator.ReportWaitsAsync(held, CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual(1, await CountAsync(AutomaticCheckRunOrchestrator.MemoryWaitContinuingEvent).ConfigureAwait(false), "the hold is reported again after the interval");
+                    AssertEqual(0, notes.Count, "no board note before the note delay");
+
+                    now = since.AddMinutes(10);
+                    await orchestrator.ReportWaitsAsync(held, CancellationToken.None).ConfigureAwait(false);
+                    now = since.AddMinutes(11);
+                    await orchestrator.ReportWaitsAsync(held, CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual(1, notes.Count, "one board note per hold once it lasts the note delay");
+                    AssertContains("4,100 MB available, floor 6,144 MB", notes[0], "the note names the memory reading");
+                    AssertContains("1. definition-of-done gate for mission msn_gate; 2. check chk_waiting (Build) for a vessel", notes[0], "the note names every waiting request in order");
+                    AssertContains("for 10 min", notes[0], "the note names how long the hold has lasted");
+
+                    now = since.AddMinutes(12);
+                    await orchestrator.ReportWaitsAsync(new HostSlotSnapshot(), CancellationToken.None).ConfigureAwait(false);
+                    List<ArmadaEvent> ended = await testDb.Driver.Events.EnumerateByTypeAsync(AutomaticCheckRunOrchestrator.MemoryWaitEndedEvent, 10).ConfigureAwait(false);
+                    AssertEqual(1, ended.Count, "the end of the hold is recorded");
+                    AssertContains("lasted 12 min", ended[0].Message, "the end names how long the hold lasted");
+                }
+            });
+
+            await RunTest("Every busy host command slot with requests waiting is reported with its holders and the waiting order", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DateTime now = new DateTime(2026, 1, 5, 7, 0, 0, DateTimeKind.Utc);
+                    List<string> notes = new List<string>();
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(
+                        testDb,
+                        postBoardNoteAsync: (content, token) => { notes.Add(content); return Task.CompletedTask; },
+                        clock: () => now);
+
+                    DateTime since = now;
+                    HostSlotSnapshot busy = new HostSlotSnapshot { SlotCount = 1, HolderKey = "msn_gate", HolderDescription = "definition-of-done gate for mission msn_gate", HolderSinceUtc = since.AddMinutes(-3) };
+                    busy.Holders.Add(new HostSlotHolder { Key = "msn_gate", Description = "definition-of-done gate for mission msn_gate", SinceUtc = since.AddMinutes(-3) });
+                    busy.Waiters.Add(new HostSlotWaiter { Position = 1, Key = "chk_first", Description = "check chk_first (Build) for a vessel" });
+                    busy.Waiters.Add(new HostSlotWaiter { Position = 2, Key = "chk_second", Description = "check chk_second (UnitTest) for a vessel" });
+
+                    await orchestrator.ReportWaitsAsync(busy, CancellationToken.None).ConfigureAwait(false);
+                    List<ArmadaEvent> started = await testDb.Driver.Events.EnumerateByTypeAsync(AutomaticCheckRunOrchestrator.SlotBusyStartedEvent, 10).ConfigureAwait(false);
+                    AssertEqual(1, started.Count, "a busy slot with waiters is recorded when it is first seen");
+                    AssertContains("1 slot(s) held by definition-of-done gate for mission msn_gate since 2026-01-05 06:57:00Z", started[0].Message, "the event names the holder and since when it holds the slot");
+                    AssertContains("1. check chk_first (Build) for a vessel; 2. check chk_second (UnitTest) for a vessel", started[0].Message, "the event names every waiting request in order");
+                    AssertEqual(0, (await testDb.Driver.Events.EnumerateByTypeAsync(AutomaticCheckRunOrchestrator.MemoryWaitStartedEvent, 10).ConfigureAwait(false)).Count,
+                        "a busy slot is not reported as a memory hold");
+
+                    now = since.AddMinutes(10);
+                    await orchestrator.ReportWaitsAsync(busy, CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual(1, notes.Count, "a busy slot that lasts the note delay posts one board note");
+                    AssertContains("for 10 min", notes[0], "the note names how long requests have waited");
+
+                    now = since.AddMinutes(11);
+                    HostSlotSnapshot free = new HostSlotSnapshot { SlotCount = 2, HolderKey = "msn_gate", HolderDescription = "definition-of-done gate for mission msn_gate", HolderSinceUtc = since };
+                    free.Holders.Add(new HostSlotHolder { Key = "msn_gate", Description = "definition-of-done gate for mission msn_gate", SinceUtc = since });
+                    await orchestrator.ReportWaitsAsync(free, CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual(1, (await testDb.Driver.Events.EnumerateByTypeAsync(AutomaticCheckRunOrchestrator.SlotBusyEndedEvent, 10).ConfigureAwait(false)).Count,
+                        "a free slot ends the busy wait");
                 }
             });
 

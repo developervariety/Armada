@@ -380,6 +380,20 @@ anyway; its holder entry is marked `GrantedUnderMemoryFloor` and the
 reading, `HeldForMemory` and `MemoryWaitReason`, for example
 `waiting for free memory: 4,100 MB available, floor 6,144 MB`.
 
+A waiting request has no process, so the automatic Check runner reports every
+wait on each heartbeat sweep. It reports three waits: the slot held for free
+memory (`check.memory_wait_*`), every slot held while requests wait
+(`check.slot_busy_*`), and every place of the runner holding a started Check
+while more Checks are pending (`check.runner_full_*`). Each wait records a
+`_started` event when it begins, a `_continuing` event every
+`definitionOfDone.hostSlotWaitReportMinutes` (default 5, clamped to 1-60) while
+it lasts, and an `_ended` event with its length. Each event names the memory
+reading and floor, every slot holder and since when it holds its slot, and every
+waiting request in order. Once a wait has lasted
+`definitionOfDone.hostSlotWaitBoardNoteMinutes` (default 10, clamped to 0-1440,
+0 posts nothing), one system note per wait on the coordination board says the
+same. Both settings apply on reload.
+
 Raising the count above 1 risks false failures. Concurrent full suites contend
 for the same CPU, memory and disk, and on a host without the capacity for them
 the contention shows as failures that look like broken code, most often a burst
@@ -392,7 +406,9 @@ still running, comes back unfinished and keeps running; read it again with
 `get_check_run`. Every unfinished Check view carries `SlotWait`: its state
 (`Queued`, `WaitingForSlot` or `Running`), its place in line, every request that
 holds a slot (in grant order) and since when the earliest holder has held it,
-`MemoryWaitReason` when free memory holds the queue, and guidance that the wait is an environment condition,
+`MemoryWaitReason` when free memory holds the queue, `QueueReason` when the Check
+has not asked for a slot because every place of the automatic Check runner holds
+a started Check, and guidance that the wait is an environment condition,
 not a code defect or an owner question. A Judge PASS given while a Check is
 unresolved is held until the Check passes at the reviewed commit, so a stage
 never needs to fail or block because a Check has not finished. A Judge
@@ -424,7 +440,11 @@ started Check is left intact. A Check that an operator's `run_check` or
 heartbeat: it runs to completion even when its voyage has ended, because an
 operator re-runs a failed voyage's Check to prove a commit before landing it. A source stamp applies only before the Check claims
 the host slot or begins source preparation, so a stale heartbeat cannot retag
-work already in progress. No setting turns this off. Deployment deploy, verify,
+work already in progress. A Build or UnitTest Check makes its isolated
+checkout before it waits for the host slot. The disk lifecycle sweep keeps the
+checkout of every Check that has not finished, and a Check that holds the slot
+and finds its checkout gone makes it again at the same source; when that fails,
+the Check fails with a reason that names the removed checkout. No setting turns this off. Deployment deploy, verify,
 and rollback Checks stay under the deployment action so the deployment record
 remains authoritative.
 

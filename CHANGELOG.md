@@ -397,6 +397,21 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A Check that waits is visible while it waits. The automatic Check runner
+  reports three waits: the host command slot held for free memory
+  (`check.memory_wait_*`), every slot busy while requests wait
+  (`check.slot_busy_*`), and every runner place holding a started Check while
+  more Checks are pending (`check.runner_full_*`). Each wait records a start
+  event, one every `definitionOfDone.hostSlotWaitReportMinutes` (default 5) and
+  an end event, naming the memory reading, the slot holders and the waiting
+  requests in order. A wait that lasts
+  `definitionOfDone.hostSlotWaitBoardNoteMinutes` (default 10; 0 turns it off)
+  posts one board note. A queued Check's `SlotWait.QueueReason` names a full
+  runner.
+- A Build or UnitTest Check whose isolated checkout is gone when it takes the
+  host command slot makes the checkout again at the same source and runs, or
+  fails with a reason that names the removed checkout.
+
 - The objective scheduler and autonomous recovery no longer both start work on
   one objective. One rule says what work already owns an objective: an active
   linked voyage, or a Challenger still ruling on a failed Judge of the

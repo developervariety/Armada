@@ -166,7 +166,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("not a question for the owner", wait.Guidance);
 
                 run.SlotRequestedUtc = null;
-                AssertEqual("Queued", CheckRunSlotWait.Describe(run, new HostSlotSnapshot())!.State, "a check that has not asked for the slot is queued to start");
+                run.Source = Armada.Core.Enums.CheckRunSourceEnum.Armada;
+                try
+                {
+                    AutomaticCheckRunPlaces.Publish(4, 4);
+                    CheckRunSlotWait queued = CheckRunSlotWait.Describe(run, new HostSlotSnapshot())!;
+                    AssertEqual("Queued", queued.State, "a check that has not asked for the slot is queued to start");
+                    AssertEqual("waiting for a place in the automatic check runner: 4 of 4 places hold started checks, and this check starts when one of them finishes",
+                        queued.QueueReason, "a queued check names the full runner it waits behind");
+
+                    AutomaticCheckRunPlaces.Publish(3, 4);
+                    AssertNull(CheckRunSlotWait.Describe(run, new HostSlotSnapshot())!.QueueReason, "a queued check with a free runner place names no queue reason");
+                }
+                finally
+                {
+                    AutomaticCheckRunPlaces.Publish(0, 0);
+                }
+
                 run.Status = Armada.Core.Enums.CheckRunStatusEnum.Running;
                 AssertEqual("Running", CheckRunSlotWait.Describe(run, slot)!.State);
                 run.Status = Armada.Core.Enums.CheckRunStatusEnum.Failed;

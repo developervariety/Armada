@@ -11,6 +11,7 @@ namespace Armada.Server
     using Armada.Core.Json;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -22,6 +23,51 @@ namespace Armada.Server
         /// Event written once per dispatch-hold engagement when the sweep leaves pending checks waiting.
         /// </summary>
         public const string DeferredByDispatchHoldEvent = "check.auto_deferred_dispatch_hold";
+
+        /// <summary>
+        /// Event written when the host command slot starts holding its next request for free memory.
+        /// </summary>
+        public const string MemoryWaitStartedEvent = "check.memory_wait_started";
+
+        /// <summary>
+        /// Event written at each report interval while the host command slot stays held for free memory.
+        /// </summary>
+        public const string MemoryWaitContinuingEvent = "check.memory_wait_continuing";
+
+        /// <summary>
+        /// Event written when the host command slot stops holding its next request for free memory.
+        /// </summary>
+        public const string MemoryWaitEndedEvent = "check.memory_wait_ended";
+
+        /// <summary>
+        /// Event written when every host command slot is held while requests wait for one.
+        /// </summary>
+        public const string SlotBusyStartedEvent = "check.slot_busy_started";
+
+        /// <summary>
+        /// Event written at each report interval while every host command slot stays held with requests waiting.
+        /// </summary>
+        public const string SlotBusyContinuingEvent = "check.slot_busy_continuing";
+
+        /// <summary>
+        /// Event written when a host command slot frees or no request waits any longer.
+        /// </summary>
+        public const string SlotBusyEndedEvent = "check.slot_busy_ended";
+
+        /// <summary>
+        /// Event written when every place of this runner holds a started check while more checks are pending.
+        /// </summary>
+        public const string RunnerFullStartedEvent = "check.runner_full_started";
+
+        /// <summary>
+        /// Event written at each report interval while this runner stays full with checks pending.
+        /// </summary>
+        public const string RunnerFullContinuingEvent = "check.runner_full_continuing";
+
+        /// <summary>
+        /// Event written when this runner has a free place again or no check waits for one.
+        /// </summary>
+        public const string RunnerFullEndedEvent = "check.runner_full_ended";
 
         /// <summary>
         /// Most checks this orchestrator keeps in flight at once. A check in flight has been stamped
@@ -39,7 +85,20 @@ namespace Armada.Server
         private readonly LoggingModule _Logging;
         private readonly StaleCheckSupersessionService _Supersession;
         private readonly DispatchHold? _DispatchHold;
+        private readonly Func<DefinitionOfDoneSettings>? _GateSettings;
+        private readonly Func<string, CancellationToken, Task>? _PostBoardNoteAsync;
+        private readonly Func<DateTime> _Clock;
         private DateTime? _ReportedHoldSetByUtc = null;
+
+        private readonly WaitReport _MemoryWait = new WaitReport(
+            "hold", MemoryWaitStartedEvent, MemoryWaitContinuingEvent, MemoryWaitEndedEvent,
+            "Host command slot no longer held for free memory");
+        private readonly WaitReport _SlotBusyWait = new WaitReport(
+            "wait", SlotBusyStartedEvent, SlotBusyContinuingEvent, SlotBusyEndedEvent,
+            "A host command slot is free or no request waits");
+        private readonly WaitReport _RunnerFullWait = new WaitReport(
+            "wait", RunnerFullStartedEvent, RunnerFullContinuingEvent, RunnerFullEndedEvent,
+            "The automatic check runner has a free place or no check waits for one");
 
         // Guards discovery only (supersession, eligibility, start). Execution runs outside it, so
         // a long check never stops the next sweep from finding and starting a newly armed one.
@@ -53,13 +112,25 @@ namespace Armada.Server
         /// <summary>
         /// Instantiate.
         /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="checkRuns">Check run service.</param>
+        /// <param name="releases">Release service.</param>
+        /// <param name="incidents">Incident service.</param>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="dispatchHold">Fleet-wide dispatch hold, or null.</param>
+        /// <param name="gateSettings">Reads the current gate settings for the memory-wait report intervals, or null for the defaults.</param>
+        /// <param name="postBoardNoteAsync">Posts a system note to the coordination board, or null when no board is available.</param>
+        /// <param name="clock">UTC clock, or null for the system clock.</param>
         public AutomaticCheckRunOrchestrator(
             DatabaseDriver database,
             CheckRunService checkRuns,
             ReleaseService releases,
             IncidentService incidents,
             LoggingModule logging,
-            DispatchHold? dispatchHold = null)
+            DispatchHold? dispatchHold = null,
+            Func<DefinitionOfDoneSettings>? gateSettings = null,
+            Func<string, CancellationToken, Task>? postBoardNoteAsync = null,
+            Func<DateTime>? clock = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _CheckRuns = checkRuns ?? throw new ArgumentNullException(nameof(checkRuns));
@@ -68,6 +139,9 @@ namespace Armada.Server
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Supersession = new StaleCheckSupersessionService(_Database, _Logging);
             _DispatchHold = dispatchHold;
+            _GateSettings = gateSettings;
+            _PostBoardNoteAsync = postBoardNoteAsync;
+            _Clock = clock ?? (() => DateTime.UtcNow);
         }
 
         /// <summary>
@@ -161,10 +235,13 @@ namespace Armada.Server
             {
                 _ReportedHoldSetByUtc = null;
             }
+            HostSlotSnapshot slot = HostWideCommandLock.Snapshot();
+            await ReportWaitsAsync(slot, token).ConfigureAwait(false);
+
             int capacity = MaxConcurrentChecks - _InFlight.Count;
             if (capacity <= 0)
             {
-                _Logging.Debug(_Header + "no check started: " + DescribeInFlight(HostWideCommandLock.Snapshot()));
+                _Logging.Debug(_Header + "no check started: " + DescribeInFlight(slot));
                 return started;
             }
 
@@ -221,6 +298,253 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Report every wait that keeps a started or pending check from running: the host command slot
+        /// held for free memory, every host command slot busy while requests wait, and every place of this
+        /// runner taken while more checks are pending. Each wait records an event when it starts, one at
+        /// each report interval while it lasts and one when it ends, and posts one board note once it has
+        /// lasted the note delay. A waiting check has no process, so without this a queue of checks reads
+        /// like an idle one.
+        /// </summary>
+        /// <param name="slot">A snapshot of the host-wide slot.</param>
+        /// <param name="token">Cancellation token.</param>
+        internal async Task ReportWaitsAsync(HostSlotSnapshot slot, CancellationToken token)
+        {
+            DateTime now = _Clock();
+            DefinitionOfDoneSettings settings = _GateSettings?.Invoke() ?? new DefinitionOfDoneSettings();
+            AutomaticCheckRunPlaces.Publish(_InFlight.Count, MaxConcurrentChecks);
+
+            bool memoryHeld = slot.HeldForMemory && slot.MemoryHeldSinceUtc.HasValue;
+            await StepWaitAsync(_MemoryWait, memoryHeld, slot.MemoryHeldSinceUtc?.ToString("o"), slot.MemoryHeldSinceUtc ?? now,
+                since => Task.FromResult(DescribeMemoryWait(slot, since, now)), slot, settings, now, token).ConfigureAwait(false);
+
+            bool slotBusy = !slot.HeldForMemory && slot.Waiters.Count > 0 && slot.Holders.Count >= Math.Max(1, slot.SlotCount);
+            await StepWaitAsync(_SlotBusyWait, slotBusy, "busy", now,
+                since => Task.FromResult(DescribeSlotBusy(slot, since, now)), slot, settings, now, token).ConfigureAwait(false);
+
+            int waitingForPlace = _InFlight.Count >= MaxConcurrentChecks
+                ? await CountPendingOutsideRunnerAsync(token).ConfigureAwait(false)
+                : 0;
+            await StepWaitAsync(_RunnerFullWait, waitingForPlace > 0, "full", now,
+                since => Task.FromResult(DescribeRunnerFull(slot, waitingForPlace, since, now)), slot, settings, now, token).ConfigureAwait(false);
+        }
+
+        private async Task StepWaitAsync(
+            WaitReport report,
+            bool active,
+            string? identity,
+            DateTime sinceWhenNew,
+            Func<DateTime, Task<string>> describe,
+            HostSlotSnapshot slot,
+            DefinitionOfDoneSettings settings,
+            DateTime now,
+            CancellationToken token)
+        {
+            if (report.SinceUtc.HasValue && (!active || !String.Equals(identity, report.Identity, StringComparison.Ordinal)))
+            {
+                DateTime endedSince = report.SinceUtc.Value;
+                report.SinceUtc = null;
+                report.Identity = null;
+                string ended = report.EndedText + "; the " + report.Noun + " lasted " + WaitMinutes(endedSince, now)
+                    + " min since " + endedSince.ToString("u") + ".";
+                _Logging.Info(_Header + ended);
+                await WriteWaitEventAsync(report.EndedEvent, ended, report, slot, endedSince, token).ConfigureAwait(false);
+            }
+
+            if (!active) return;
+
+            string? description = null;
+            if (!report.SinceUtc.HasValue)
+            {
+                report.SinceUtc = sinceWhenNew;
+                report.Identity = identity;
+                report.ReportedUtc = now;
+                report.NotePosted = false;
+                description = await describe(report.SinceUtc.Value).ConfigureAwait(false);
+                _Logging.Info(_Header + description);
+                await WriteWaitEventAsync(report.StartedEvent, description, report, slot, report.SinceUtc.Value, token).ConfigureAwait(false);
+            }
+            else if (now - report.ReportedUtc >= TimeSpan.FromMinutes(settings.HostSlotWaitReportMinutes))
+            {
+                report.ReportedUtc = now;
+                description = await describe(report.SinceUtc.Value).ConfigureAwait(false);
+                _Logging.Info(_Header + description);
+                await WriteWaitEventAsync(report.ContinuingEvent, description, report, slot, report.SinceUtc.Value, token).ConfigureAwait(false);
+            }
+
+            if (report.NotePosted || settings.HostSlotWaitBoardNoteMinutes <= 0) return;
+            if (now - report.SinceUtc.Value < TimeSpan.FromMinutes(settings.HostSlotWaitBoardNoteMinutes)) return;
+
+            report.NotePosted = true;
+            description ??= await describe(report.SinceUtc.Value).ConfigureAwait(false);
+            if (_PostBoardNoteAsync == null)
+            {
+                _Logging.Warn(_Header + description + " No board is available, so no note was posted.");
+                return;
+            }
+
+            try
+            {
+                await _PostBoardNoteAsync(description, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + report.Noun + " board note failed: " + ex.Message + "; " + description);
+            }
+        }
+
+        /// <summary>
+        /// Count the pending checks this runner has not started, which wait for one of its places and have
+        /// not asked for the host command slot. Counts at most one page.
+        /// </summary>
+        private async Task<int> CountPendingOutsideRunnerAsync(CancellationToken token)
+        {
+            try
+            {
+                EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(new CheckRunQuery
+                {
+                    Status = CheckRunStatusEnum.Pending,
+                    Source = CheckRunSourceEnum.Armada,
+                    PageNumber = 1,
+                    PageSize = 200
+                }, token).ConfigureAwait(false);
+                return page.Objects.Count(run => !_InFlight.ContainsKey(run.Id));
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not count pending checks waiting for a runner place: " + ex.Message);
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Name the memory reading and every request waiting for the host command slot.
+        /// </summary>
+        private static string DescribeMemoryWait(HostSlotSnapshot slot, DateTime since, DateTime now)
+        {
+            return "Host command slot held for free memory for " + WaitMinutes(since, now) + " min since "
+                + since.ToString("u") + ": " + (slot.MemoryWaitReason ?? ("floor " + slot.MemoryFloorMb + " MB")) + ". "
+                + DescribeWaiters(slot);
+        }
+
+        /// <summary>
+        /// Name every holder of the host command slots, since when each holds its slot, and every waiter in order.
+        /// </summary>
+        private static string DescribeSlotBusy(HostSlotSnapshot slot, DateTime since, DateTime now)
+        {
+            List<string> holders = new List<string>();
+            foreach (HostSlotHolder holder in slot.Holders)
+            {
+                holders.Add((holder.Description ?? holder.Key ?? "unnamed holder") + (holder.SinceUtc.HasValue ? " since " + holder.SinceUtc.Value.ToString("u") : ""));
+            }
+
+            return "Every host command slot busy with requests waiting for " + WaitMinutes(since, now) + " min since "
+                + since.ToString("u") + ": " + Math.Max(1, slot.SlotCount) + " slot(s) held by " + String.Join("; ", holders) + ". "
+                + DescribeWaiters(slot);
+        }
+
+        /// <summary>
+        /// Say that every place of this runner holds a started check while more checks are pending.
+        /// </summary>
+        private string DescribeRunnerFull(HostSlotSnapshot slot, int waitingForPlace, DateTime since, DateTime now)
+        {
+            int waitingForSlot = 0;
+            foreach (string id in _InFlight.Keys)
+            {
+                if (slot.FindWaiter(id) != null) waitingForSlot++;
+            }
+
+            return "Automatic check runner full for " + WaitMinutes(since, now) + " min since " + since.ToString("u") + ": "
+                + _InFlight.Count + " of " + MaxConcurrentChecks + " places hold started checks (" + waitingForSlot
+                + " of them wait for the host command slot); " + waitingForPlace
+                + " more pending check(s) wait for a place and have not asked for the slot.";
+        }
+
+        private static string DescribeWaiters(HostSlotSnapshot slot)
+        {
+            if (slot.Waiters.Count == 0) return "No request is waiting.";
+
+            List<string> waiting = new List<string>();
+            foreach (HostSlotWaiter waiter in slot.Waiters.OrderBy(waiter => waiter.Position))
+            {
+                waiting.Add(waiter.Position + ". " + (String.IsNullOrWhiteSpace(waiter.Description) ? (waiter.Key ?? "unnamed request") : waiter.Description));
+            }
+
+            return slot.Waiters.Count + " request(s) waiting: " + String.Join("; ", waiting) + ".";
+        }
+
+        private async Task WriteWaitEventAsync(string eventType, string message, WaitReport report, HostSlotSnapshot slot, DateTime since, CancellationToken token)
+        {
+            ArmadaEvent evt = new ArmadaEvent(eventType, message)
+            {
+                TenantId = Constants.DefaultTenantId,
+                Payload = JsonSerializer.Serialize(new
+                {
+                    Wait = report.Noun,
+                    SinceUtc = since,
+                    slot.SlotCount,
+                    slot.AvailableMemoryMb,
+                    slot.MemoryFloorMb,
+                    HolderKeys = slot.Holders.Select(holder => holder.Key).ToList(),
+                    WaitingKeys = slot.Waiters.OrderBy(waiter => waiter.Position).Select(waiter => waiter.Key).ToList(),
+                    InFlight = _InFlight.Count,
+                    MaxConcurrentChecks
+                }, _JsonOptions)
+            };
+
+            try
+            {
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record " + eventType + ": " + ex.Message);
+            }
+        }
+
+        private static int WaitMinutes(DateTime since, DateTime now)
+        {
+            return Math.Max(0, (int)Math.Floor((now - since).TotalMinutes));
+        }
+
+        /// <summary>
+        /// One kind of wait being reported: its event names, and while it lasts, when it started, when it
+        /// was last reported and whether its board note is posted. Written only inside the sweep gate.
+        /// </summary>
+        private sealed class WaitReport
+        {
+            public WaitReport(string noun, string startedEvent, string continuingEvent, string endedEvent, string endedText)
+            {
+                Noun = noun;
+                StartedEvent = startedEvent;
+                ContinuingEvent = continuingEvent;
+                EndedEvent = endedEvent;
+                EndedText = endedText;
+            }
+
+            public string Noun { get; }
+            public string StartedEvent { get; }
+            public string ContinuingEvent { get; }
+            public string EndedEvent { get; }
+            public string EndedText { get; }
+            public DateTime? SinceUtc { get; set; } = null;
+            public string? Identity { get; set; } = null;
+            public DateTime ReportedUtc { get; set; } = DateTime.MinValue;
+            public bool NotePosted { get; set; } = false;
+        }
+
+        /// <summary>
         /// Run one check on its own task and record it as in flight until it finishes.
         /// </summary>
         /// <returns>The task that finishes with the check, or null when the check is already in flight.</returns>
@@ -228,6 +552,7 @@ namespace Armada.Server
         {
             TaskCompletionSource<bool> finished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             if (!_InFlight.TryAdd(pending.Id, finished.Task)) return null;
+            AutomaticCheckRunPlaces.Publish(_InFlight.Count, MaxConcurrentChecks);
 
             _ = Task.Run(async () =>
             {
@@ -250,6 +575,7 @@ namespace Armada.Server
                 finally
                 {
                     _InFlight.TryRemove(pending.Id, out Task? _);
+                    AutomaticCheckRunPlaces.Publish(_InFlight.Count, MaxConcurrentChecks);
                     finished.TrySetResult(true);
                 }
             }, CancellationToken.None);

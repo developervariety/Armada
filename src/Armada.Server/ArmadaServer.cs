@@ -460,7 +460,10 @@ namespace Armada.Server
             _DeploymentService = new DeploymentService(_Database, _WorkflowProfileService, _EnvironmentService, _CheckRunService, _Logging);
             _IncidentService = new IncidentService(_Database);
             _RunbookService = new RunbookService(_Database, _Logging);
-            _AutomaticCheckRuns = new AutomaticCheckRunOrchestrator(_Database, _CheckRunService, _ReleaseService, _IncidentService, _Logging, _DispatchHold);
+            _AutomaticCheckRuns = new AutomaticCheckRunOrchestrator(
+                _Database, _CheckRunService, _ReleaseService, _IncidentService, _Logging, _DispatchHold,
+                () => _Settings.DefinitionOfDone,
+                PostHostSlotNoteAsync);
             _AutonomousRecovery = new AutonomousRecoveryOrchestrator(
                 _Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging,
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService,
@@ -2139,6 +2142,27 @@ namespace Armada.Server
                 missionService: _MissionService,
                 missionOperations: _MissionOperations);
 
+        }
+
+        /// <summary>
+        /// Post a host command slot report to the default coordination room. The board is created after
+        /// the check orchestrator, so the note reads it at post time.
+        /// </summary>
+        private async Task PostHostSlotNoteAsync(string content, CancellationToken token)
+        {
+            if (_CoordinationService == null)
+            {
+                _Logging.Warn(_Header + "host command slot report not posted, the coordination board is not available: " + content);
+                return;
+            }
+
+            await _CoordinationService.PostMessageAsync(
+                CoordinationService.DefaultRoomKey,
+                CoordinationAuthorTypeEnum.System,
+                authorId: null,
+                authorName: "Host Command Slot",
+                content: content,
+                token: token).ConfigureAwait(false);
         }
 
         /// <summary>
