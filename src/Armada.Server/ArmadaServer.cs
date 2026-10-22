@@ -384,7 +384,7 @@ namespace Armada.Server
             // time (well after startup) without reordering startup; it stays null until built,
             // and the brief-slimming path (default off) falls back to the full memory section.
             _DispatchHold = new Armada.Core.Services.DispatchHold();
-            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission, () => _ContextRetrieval, _DispatchHold);
+            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission, () => _ContextRetrieval);
             _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);

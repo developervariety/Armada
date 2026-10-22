@@ -366,6 +366,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A stalled captain is relaunched while the dispatch hold is engaged. The hold
+  refuses only new dispatches, and a relaunch continues an in-flight mission in
+  its own dock, so stall recovery under the hold stops the stalled process and
+  relaunches the agent within `MaxRecoveryAttempts` as it does with no hold.
+  The stalled mission no longer waits as `Pending` until the hold clears while
+  the other stages of in-flight voyages keep running; the
+  `captain.recovery_deferred_dispatch_hold` event and the assignment skip for
+  deferred missions are gone.
+
 - Judge findings exclude items the Judge reports as agreeing with the
   source. A list under a lead-in such as "Spot checks that agree with source:" is
   context, the same as a list under a passing or reviewed lead-in, so neither the

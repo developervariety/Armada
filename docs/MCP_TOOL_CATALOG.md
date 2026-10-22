@@ -644,13 +644,11 @@ the hold is engaged, records one `check.auto_deferred_dispatch_hold` event per
 engagement, and runs the waiting Checks on the first sweep after the hold
 clears. `run_check` and `retry_check_run` are not held.
 
-Stall recovery obeys the same hold. When the heartbeat confirms a stalled
-captain while the hold is engaged, it stops the stalled process and does not
-relaunch it. The mission returns to `Pending` with its branch kept, the captain
-is released, and a `captain.recovery_deferred_dispatch_hold` event names the
-holder and reason once per mission and engagement. Assignment skips that
-mission until the hold clears; the first dispatch pass after that assigns it
-normally. Other `Pending` missions of in-flight voyages are not deferred.
+Stall recovery continues under the hold. A relaunch continues an in-flight
+mission in its own dock and is not a new dispatch, so when the heartbeat
+confirms a stalled captain while the hold is engaged, it stops the stalled
+process and relaunches the agent within `MaxRecoveryAttempts`, as it does with
+no hold. Later stages of in-flight voyages are assigned the same way.
 
 Empty voyages created through REST, WebSocket or the remote-control tunnel
 dispatch no work. Missions added to them later go through the admiral

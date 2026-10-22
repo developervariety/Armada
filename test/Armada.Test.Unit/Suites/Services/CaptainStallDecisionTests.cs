@@ -176,7 +176,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             LoggingModule logging = CreateLogging();
             IDockService docks = new DockService(logging, scene.Db, scene.Settings, scene.Git);
-            MissionService missions = new MissionService(logging, scene.Db, scene.Settings, docks, captains, git: scene.Git, dispatchHold: hold);
+            MissionService missions = new MissionService(logging, scene.Db, scene.Settings, docks, captains, git: scene.Git);
             AdmiralService admiral = new AdmiralService(logging, scene.Db, scene.Settings, captains, missions, new VoyageService(logging, scene.Db), docks,
                 resourcePressureAdmission: admission, git: scene.Git, dispatchHold: hold);
             if (providerProgress != null) admiral.SetProviderProgress(providerProgress);
@@ -671,7 +671,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("AdmiralHeartbeatStall_UnderDispatchHold_StopsWithoutRelaunch_NamesTheHoldOnce_AndDispatchesAfterClear", async () =>
+            await RunTest("AdmiralHeartbeatStall_UnderDispatchHold_RelaunchesTheInFlightMissionInItsDock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -687,40 +687,24 @@ namespace Armada.Test.Unit.Suites.Services
                         int launches = 0;
                         captains.OnStopAgent = c => { stopped.Add(c.ProcessId); return Task.CompletedTask; };
                         captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(relaunchedPid); };
+                        CountingAdmission admission = new CountingAdmission();
                         DispatchHold hold = new DispatchHold();
                         hold.Engage("example rebuild", "example-session");
-                        AdmiralService admiral = CreateAdmiral(scene, captains, hold);
+                        AdmiralService admiral = CreateAdmiral(scene, captains, hold, admission);
 
                         await admiral.HealthCheckAsync().ConfigureAwait(false);
-                        await admiral.HealthCheckAsync().ConfigureAwait(false);
 
-                        Mission held = (await scene.Db.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
-                        Captain released = (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!;
+                        Captain recovered = (await scene.Db.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!;
                         AssertEqual(1, stopped.Count, "the stalled process is stopped once");
                         AssertEqual(pid, stopped[0] ?? 0, "the stop names the stalled process");
-                        AssertEqual(0, launches, "nothing is launched while the hold is engaged");
-                        AssertEqual(MissionStatusEnum.Pending, held.Status, "the mission waits as Pending for the hold to clear");
-                        AssertNull(held.ProcessId, "the held mission records no process");
-                        AssertEqual(Branch, held.BranchName ?? "", "the held mission keeps its branch");
-                        AssertEqual(CaptainStateEnum.Idle, released.State, "the captain is released");
-                        AssertNull(released.CurrentMissionId, "the released captain names no mission");
-                        List<ArmadaEvent> deferrals = await StallEventsAsync(scene, AdmiralService.RecoveryDeferredByDispatchHoldEvent).ConfigureAwait(false);
-                        AssertEqual(1, deferrals.Count, "the deferral is recorded once for the engagement");
-                        AssertContains("example-session", deferrals[0].Message, "the event names the holder");
-                        AssertContains("example rebuild", deferrals[0].Message, "the event names the hold reason");
+                        AssertEqual(1, launches, "the stalled mission is relaunched while the hold is engaged");
+                        AssertEqual(1, recovered.RecoveryAttempts, "the relaunch spends one recovery attempt");
+                        AssertNotNull(hold.Snapshot(), "the hold stays engaged");
+                        await AssertRelaunchedMissionRunsAsync(scene, relaunchedPid, admission, "under the hold").ConfigureAwait(false);
 
-                        // The stopped process's kill arrives late; the admiral already decided the mission's state.
+                        // The stopped process's kill arrives late; the relaunched process still owns the mission.
                         await admiral.HandleProcessExitAsync(pid, 137, scene.Captain.Id, scene.Mission.Id).ConfigureAwait(false);
-                        AssertEqual(MissionStatusEnum.Pending, (await scene.Db.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!.Status,
-                            "the stopped process's exit does not change the held mission");
-
-                        hold.Clear();
-                        await admiral.HealthCheckAsync().ConfigureAwait(false);
-
-                        Mission resumed = (await scene.Db.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
-                        AssertEqual(1, launches, "the first dispatch pass after the hold clears launches the mission");
-                        AssertTrue(resumed.Status == MissionStatusEnum.InProgress || resumed.Status == MissionStatusEnum.Assigned,
-                            "the mission is assigned again after the hold clears, but it is " + resumed.Status);
+                        await AssertRelaunchedMissionRunsAsync(scene, relaunchedPid, admission, "after the stopped process's exit under the hold").ConfigureAwait(false);
                     }
                     finally
                     {

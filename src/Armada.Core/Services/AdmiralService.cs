@@ -125,12 +125,6 @@ namespace Armada.Core.Services
         /// </summary>
         public IntentionalProcessStops IntentionalStops => _IntentionalStops;
 
-        /// <summary>
-        /// Event recorded when stall recovery stops a stalled captain but does not relaunch it because the
-        /// dispatch hold is engaged.
-        /// </summary>
-        public const string RecoveryDeferredByDispatchHoldEvent = "captain.recovery_deferred_dispatch_hold";
-
         private readonly IntentionalProcessStops _IntentionalStops;
 
         /// <summary>
@@ -2272,14 +2266,8 @@ namespace Armada.Core.Services
                             // A restarted process must establish its own provider-progress baseline.
                             _ProviderProgress?.Clear(captain.Id);
 
-                            // A relaunch starts work, so it obeys the dispatch hold like every other dispatch.
-                            DispatchHoldSnapshot? hold = _DispatchHold?.Snapshot();
-                            if (hold != null && mission != null)
-                            {
-                                await DeferStallRecoveryForDispatchHoldAsync(captain, mission, hold, token).ConfigureAwait(false);
-                                return;
-                            }
-
+                            // A relaunch continues an in-flight mission in its own dock; it is not a new dispatch,
+                            // so an engaged dispatch hold, which refuses only new dispatches, does not stop it.
                             await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
                         }
                         else
@@ -2359,60 +2347,6 @@ namespace Armada.Core.Services
             catch (Exception stopEx)
             {
                 _Logging.Warn(_Header + "could not stop stalled captain " + captain.Id + " " + context + ": " + stopEx.Message);
-            }
-        }
-
-        /// <summary>
-        /// Defer a stalled captain's recovery while the dispatch hold is engaged. The stalled process is already
-        /// stopped. The mission goes back to Pending with its branch kept, exactly as an interrupted run does,
-        /// the captain is released, and the hold keeps the mission from being assigned until it clears; the
-        /// first dispatch pass after that assigns it normally. The deferral is recorded once per mission for
-        /// each hold engagement.
-        /// </summary>
-        private async Task DeferStallRecoveryForDispatchHoldAsync(Captain captain, Mission mission, DispatchHoldSnapshot hold, CancellationToken token)
-        {
-            string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
-            string holdDetail = "dispatch_hold engaged by " + holder + " at " + hold.SetByUtc.ToString("u") + ": " + hold.Reason;
-            string reason = "Stall recovery deferred: " + holdDetail + " The stalled agent was stopped and not relaunched; "
-                + "the mission is dispatched again after the hold clears.";
-
-            // Deferred before the write, so no assignment pass can take the mission between the two.
-            bool firstForEngagement = _DispatchHold!.DeferMission(mission.Id);
-
-            MissionStatusEnum decidedStatus = mission.Status;
-            mission.Status = MissionStatusEnum.Pending;
-            mission.AssignmentState = MissionAssignmentStateEnum.Pending;
-            mission.FailureReason = reason;
-            mission.CaptainId = null;
-            mission.DockId = null;
-            mission.ProcessId = null;
-            mission.StartedUtc = null;
-            mission.CompletedUtc = null;
-            mission.LastUpdateUtc = DateTime.UtcNow;
-            if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, decidedStatus, token).ConfigureAwait(false))
-            {
-                // Another writer moved the mission since the stall was confirmed; its decision stands. The stalled
-                // process is already stopped, so the captain is released unless it has moved on too.
-                _Logging.Warn(_Header + "stall recovery for mission " + mission.Id + " not deferred: its status changed from "
-                    + decidedStatus + " while the stalled captain " + captain.Id + " was stopped");
-                Captain? current = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
-                if (current != null && String.Equals(current.CurrentMissionId, mission.Id, StringComparison.Ordinal))
-                    await _Captains.ReleaseAsync(current, token).ConfigureAwait(false);
-                return;
-            }
-
-            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, "stall_recovery_deferred_dispatch_hold", _Logging, token).ConfigureAwait(false);
-            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
-            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
-
-            _Logging.Warn(_Header + "captain " + captain.Id + " stall recovery for mission " + mission.Id + " deferred: " + holdDetail);
-            if (firstForEngagement)
-            {
-                await EmitEventAsync(RecoveryDeferredByDispatchHoldEvent,
-                    "Captain " + captain.Name + " stalled on mission " + mission.Id + "; " + reason,
-                    entityType: "captain", entityId: captain.Id,
-                    captainId: captain.Id, missionId: mission.Id,
-                    vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
             }
         }
 
