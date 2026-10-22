@@ -517,6 +517,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- `ActiveDispatchedCount` in `armada_objective_scheduler_status` describes the
+  latest sweep tick, including a sweep that is disabled or paused. It counts each
+  Open or InProgress voyage that holds a mission on a vessel once, by the same
+  rule the fleet and per-vessel capacity checks use; Complete, Failed and
+  Cancelled voyages never count.
 - A branch has at most one unfinished merge entry per vessel and target, so a
   pipeline whose stages all commit to one branch gets one entry, not one per
   stage that produced work. An enqueue for a branch that already has an active

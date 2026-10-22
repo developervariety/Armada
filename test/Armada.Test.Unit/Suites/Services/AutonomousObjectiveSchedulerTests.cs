@@ -1586,6 +1586,74 @@ namespace Armada.Test.Unit.Suites.Services
                     "The scheduler must not add autonomous work on top of an operator's voyage.");
             }).ConfigureAwait(false);
 
+            await RunTest("Active voyage count holds only Open and InProgress voyages and refreshes while paused", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                    new Vessel("active-count-vessel", "https://github.com/test/active-count.git")
+                    {
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
+
+                Dictionary<VoyageStatusEnum, Voyage> voyages = new Dictionary<VoyageStatusEnum, Voyage>();
+                foreach (VoyageStatusEnum status in Enum.GetValues<VoyageStatusEnum>())
+                {
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("voyage " + status)
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        Status = status
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(new Mission("mission " + status, "Repository work.")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        VoyageId = voyage.Id,
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+                    voyages[status] = voyage;
+                }
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 60,
+                        MaxConcurrentVoyages = 12
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+                try
+                {
+                    await scheduler.SweepAsync().ConfigureAwait(false);
+                    AssertEqual(2, scheduler.ActiveDispatchedCount,
+                        "Only the Open and the InProgress voyage are active; Complete, Failed and Cancelled voyages must not count.");
+
+                    Voyage ending = voyages[VoyageStatusEnum.Open];
+                    ending.Status = VoyageStatusEnum.Complete;
+                    await testDb.Driver.Voyages.UpdateAsync(ending).ConfigureAwait(false);
+                    scheduler.Pause("test", "count refresh");
+
+                    DateTime? before = scheduler.LastSweepCompletedUtc;
+                    scheduler.RequestRefill();
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                    while (scheduler.LastSweepCompletedUtc == before && DateTime.UtcNow < deadline)
+                        await Task.Delay(10).ConfigureAwait(false);
+
+                    AssertEqual("paused", scheduler.LastSkipReason ?? "(null)",
+                        "The refill sweep must run and skip as paused.");
+                    AssertEqual(1, scheduler.ActiveDispatchedCount,
+                        "A paused sweep must report the active voyages of this tick, not the count from the last unpaused sweep.");
+                }
+                finally
+                {
+                    scheduler.Dispose();
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Per-vessel limit dispatches only one objective on a shared vessel", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

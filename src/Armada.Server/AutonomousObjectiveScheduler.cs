@@ -104,10 +104,12 @@ namespace Armada.Server
         public string? LastResultSummary { get; private set; }
 
         /// <summary>
-        /// Number of objectives that have an active linked voyage, as of the last sweep tick.
+        /// Number of active voyages (Open or InProgress) that hold repository work, as of the last sweep tick.
+        /// Every sweep refreshes it, including one that is disabled or paused.
         /// </summary>
         /// <remarks>
-        /// This counts EVERY active linked voyage, including one an operator dispatched by hand --
+        /// This counts EVERY active voyage with a mission on a vessel, including one an operator dispatched
+        /// by hand and one linked to no objective --
         /// not only voyages this scheduler dispatched. That is deliberate: the number exists to
         /// apply back-pressure, and a second autonomous voyage against an objective a human is
         /// already working duplicates the work rather than adding throughput. The consequence is
@@ -541,6 +543,7 @@ namespace Armada.Server
 
                 if (!Enabled)
                 {
+                    await RefreshActiveDispatchedCountAsync(token).ConfigureAwait(false);
                     _Logging.Debug(_Header + "sweep skipped: scheduler is disabled.");
                     await EmitSystemEventAsync("objective_scheduler.skipped_disabled",
                         "Autonomous objective scheduler sweep skipped: scheduler is disabled.", token).ConfigureAwait(false);
@@ -552,6 +555,7 @@ namespace Armada.Server
 
                 if (Paused)
                 {
+                    await RefreshActiveDispatchedCountAsync(token).ConfigureAwait(false);
                     _Logging.Debug(_Header + "sweep skipped: scheduler is paused.");
                     await EmitSystemEventAsync("objective_scheduler.skipped_paused",
                         "Autonomous objective scheduler sweep skipped: scheduler is paused.", token).ConfigureAwait(false);
@@ -1375,6 +1379,20 @@ namespace Armada.Server
                 token).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Recount active voyages on a sweep that dispatches nothing (disabled or paused), so the reported
+        /// count describes this tick and not the last sweep that reached the capacity check.
+        /// </summary>
+        private async Task RefreshActiveDispatchedCountAsync(CancellationToken token)
+        {
+            ActiveDispatchedCount = (await CountActiveDispatchedAsync(token).ConfigureAwait(false)).Total;
+        }
+
+        /// <summary>
+        /// The one active-voyage rule for the fleet and per-vessel capacity checks and the reported count:
+        /// every Open or InProgress voyage, once each, that holds at least one mission on a vessel.
+        /// Complete, Failed and Cancelled voyages never count.
+        /// </summary>
         private async Task<ActiveVoyageSummary> CountActiveDispatchedAsync(CancellationToken token)
         {
             ActiveVoyageSummary summary = new ActiveVoyageSummary();
