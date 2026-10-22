@@ -13,6 +13,12 @@ Armada includes a built-in merge queue that serializes branch merges into a targ
 
 The merge queue is managed through MCP tools (`armada_enqueue_merge`, `armada_process_merge_queue`, `armada_enumerate` with entityType 'merge_queue', etc.) and operates on the bare repository clones that Armada maintains for each vessel.
 
+### One active entry per branch
+
+A branch has at most one unfinished entry (any status other than `Landed`, `Failed` or `Cancelled`) per vessel and target branch. Every stage of a pipeline commits to the same branch, and an entry merges the branch tip, so a second entry could only land the same work again or be cancelled as already landed. An enqueue for a branch that already has an active entry, from any entry point (the landing handler, the landing drain, `armada_enqueue_merge`, REST or WebSocket), attaches to that entry and returns it instead of creating a row. While the entry is still `Queued` and the attaching mission is a later stage of the entry's mission (it reaches it through `DependsOnMissionId`), the entry is retargeted to the attaching mission, whose work is the branch tip. Each attach writes a `merge_queue.enqueue_attached` event on the entry that names the attaching mission, the entry's mission and the previous one. The landing drain skips an earlier stage whose branch entry already belongs to a later stage.
+
+When an entry lands, or is cancelled because its work already landed, the entry's mission and each earlier stage on the same branch that still reads `WorkProduced` become `Complete`, so the landing drain does not enqueue that work again.
+
 ---
 
 ## Status State Machine
@@ -28,7 +34,7 @@ Cancelled  Failed
 - **Testing** -- merged into a temporary integration branch; tests are running.
 - **Landed** -- tests passed and the merge was pushed to the target branch.
 - **Failed** -- merge conflict or test failure.
-- **Cancelled** -- manually removed from the queue.
+- **Cancelled** -- removed from the queue. The entry's test output names the reason: `Cancelled by operator`, the work already landed (the branch or its mission commit is already in the target), or a recovery action (`recovery_rebased`, `recovery_redispatched`).
 
 Terminal states: `Landed`, `Failed`, `Cancelled`.
 

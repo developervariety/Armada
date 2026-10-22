@@ -10,6 +10,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Recovery;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -132,6 +133,51 @@ namespace Armada.Test.Unit.Suites.Services
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(0, mergeQueue.EnqueueCalls.Count, "Active merge entry should prevent a second enqueue.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_PipelineStagesOnOneBranch_KeepOneActiveMergeEntryTiedToTheLastStage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // Worker -> Linter -> Judge(PASS), every stage committing to one branch.
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/pipeline-branch", "Worker").ConfigureAwait(false);
+                Mission linter = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/pipeline-branch", "Linter").ConfigureAwait(false);
+                linter.DependsOnMissionId = worker.Id;
+                await testDb.Driver.Missions.UpdateAsync(linter).ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, linter.Id, pass: true).ConfigureAwait(false);
+                await SetMissionLastUpdateUtcAsync(testDb, worker.Id, DateTime.UtcNow.AddMinutes(-10)).ConfigureAwait(false);
+                await SetMissionLastUpdateUtcAsync(testDb, linter.Id, DateTime.UtcNow.AddMinutes(-5)).ConfigureAwait(false);
+
+                // A separate chain on its own branch.
+                Mission other = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/other-branch", "Worker").ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, other.Id, pass: true).ConfigureAwait(false);
+
+                MergeQueueService mergeQueue = new MergeQueueService(
+                    new LoggingModule(), testDb.Driver, new ArmadaSettings(), new StubGitService(), new MergeFailureClassifier());
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                List<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync().ConfigureAwait(false);
+                List<MergeEntry> pipelineEntries = entries.Where(e => e.BranchName == "armada/pipeline-branch").ToList();
+                AssertEqual(1, pipelineEntries.Count, "Two stages on one branch must share one merge entry. Missions: "
+                    + String.Join(", ", pipelineEntries.Select(e => e.MissionId)));
+                AssertEqual(MergeStatusEnum.Queued, pipelineEntries[0].Status, "The shared entry stays queued");
+                AssertEqual(linter.Id, pipelineEntries[0].MissionId, "The entry lands the last stage, whose work is the branch tip");
+
+                List<MergeEntry> otherEntries = entries.Where(e => e.BranchName == "armada/other-branch").ToList();
+                AssertEqual(1, otherEntries.Count, "A different branch keeps its own entry");
+                AssertEqual(other.Id, otherEntries[0].MissionId, "The other branch's entry lands its own mission");
+
+                List<ArmadaEvent> attached = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.enqueue_attached", 50).ConfigureAwait(false);
+                AssertEqual(1, attached.Count, "The attach is recorded once");
+                AssertEqual(pipelineEntries[0].Id, attached[0].EntityId, "The attach names the shared entry");
+                AssertContains(worker.Id, attached[0].Message, "The attach record names the earlier stage's mission");
             }).ConfigureAwait(false);
 
             await RunTest("SweepAsync_NoDock_DoesNotDiffTheDefaultBranchCheckout", async () =>
@@ -1769,7 +1815,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static AutonomousRecoveryOrchestrator CreateDrainOrchestrator(
             DatabaseDriver database,
-            RecordingMergeQueueService mergeQueue,
+            IMergeQueueService mergeQueue,
             RecordingAdmiralService? admiral = null,
             ArmadaSettings? settings = null,
             IncidentService? incidents = null,

@@ -11,7 +11,7 @@ namespace Armada.Core.Models
         /// <summary>Branch was enqueued and flagged for deep review (predicate or audit gate).</summary>
         EnqueuedFlaggedForReview,
 
-        /// <summary>Mission already has an active merge entry.</summary>
+        /// <summary>Mission or its branch already has an active merge entry; the mission was attached to it or is covered by a later stage.</summary>
         AlreadyEnqueued,
 
         /// <summary>Mission has no branch name to enqueue.</summary>

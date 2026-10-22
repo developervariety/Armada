@@ -602,7 +602,16 @@ namespace Armada.Server
                         // entry carries a tenant only when they share it; otherwise it stays unscoped and readable.
                         entry.TenantId = MergeQueueService.ResolveSharedEntryTenant(mission.TenantId, vessel?.TenantId);
                         entry.UserId = mission.UserId ?? vessel?.UserId;
+                        string requestedEntryId = entry.Id;
                         entry = await _MergeQueue.EnqueueAsync(entry).ConfigureAwait(false);
+                        if (!String.Equals(entry.Id, requestedEntryId, StringComparison.Ordinal))
+                        {
+                            // The branch already had an active entry; the queue recorded the attach. Its auto-land
+                            // evaluation and enqueued event ran when that entry was created.
+                            _Logging.Info(_Header + "mission " + mission.Id + " attached to existing merge entry " + entry.Id + " (branch " + dock.BranchName + " -> " + targetBranch + ")");
+                        }
+                        else
+                        {
                         _Logging.Info(_Header + "mission " + mission.Id + " auto-enqueued as merge entry " + entry.Id + " (branch " + dock.BranchName + " -> " + targetBranch + ")");
 
                         // Evaluate vessel auto-land predicate
@@ -724,6 +733,7 @@ namespace Armada.Server
                         catch (Exception evtEx)
                         {
                             _Logging.Warn(_Header + "error emitting merge_queue.enqueued event for " + mission.Id + ": " + evtEx.Message);
+                        }
                         }
 
                         try

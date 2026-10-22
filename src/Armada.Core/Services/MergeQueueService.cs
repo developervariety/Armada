@@ -47,6 +47,7 @@ namespace Armada.Core.Services
 
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
+        private readonly SemaphoreSlim _EnqueueLock = new SemaphoreSlim(1, 1);
 
         #endregion
 
@@ -140,11 +141,24 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default)
         {
+            BranchEnqueueResult result = await EnqueueOrAttachAsync(entry, token).ConfigureAwait(false);
+            return result.Entry;
+        }
+
+        /// <summary>
+        /// Enqueue a branch, or attach the request to the branch's active entry. A branch has at most one
+        /// unfinished entry per vessel and target: every stage of a pipeline commits to one branch, and the
+        /// entry merges the branch tip, so a second entry could only land the same work again or be
+        /// cancelled as already landed.
+        /// </summary>
+        private async Task<BranchEnqueueResult> EnqueueOrAttachAsync(MergeEntry entry, CancellationToken token)
+        {
             if (entry == null) throw new ArgumentNullException(nameof(entry));
 
+            Mission? mission = null;
             if (!String.IsNullOrEmpty(entry.MissionId))
             {
-                Mission? mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                mission = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
                 string? noLanding = MissionLandingEligibility.RefusalReason(mission);
                 if (noLanding != null)
                 {
@@ -153,10 +167,26 @@ namespace Armada.Core.Services
                 }
             }
 
-            entry.Status = MergeStatusEnum.Queued;
-            entry.CreatedUtc = DateTime.UtcNow;
-            entry.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.MergeEntries.CreateAsync(entry, token).ConfigureAwait(false);
+            await _EnqueueLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                MergeEntry? active = await FindActiveEntryForBranchAsync(entry.VesselId, entry.BranchName, entry.TargetBranch, token).ConfigureAwait(false);
+                if (active != null)
+                {
+                    await AttachToActiveEntryAsync(active, mission, token).ConfigureAwait(false);
+                    return new BranchEnqueueResult(active, true);
+                }
+
+                entry.Status = MergeStatusEnum.Queued;
+                entry.CreatedUtc = DateTime.UtcNow;
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.CreateAsync(entry, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _EnqueueLock.Release();
+            }
+
             await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
             try
             {
@@ -168,7 +198,7 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "enqueued " + entry.Id + " branch " + entry.BranchName + " -> " + entry.TargetBranch);
-            return entry;
+            return new BranchEnqueueResult(entry, false);
         }
 
         /// <summary>
@@ -229,12 +259,33 @@ namespace Armada.Core.Services
             }
 
             string targetBranch = vessel.DefaultBranch ?? "main";
+            string entryVesselId = mission.VesselId ?? vessel.Id;
+
+            // An earlier stage whose branch already has an entry for a later stage is covered by it: the entry
+            // lands the branch tip, which holds this stage's commit. Skip it without another attach record.
+            MergeEntry? branchEntry = await FindActiveEntryForBranchAsync(entryVesselId, mission.BranchName, targetBranch, token).ConfigureAwait(false);
+            if (branchEntry != null && branchEntry.MissionId != null && branchEntry.MissionId != mission.Id)
+            {
+                Mission? entryMission = await _Database.Missions.ReadAsync(branchEntry.MissionId, token).ConfigureAwait(false);
+                if (entryMission != null && await IsLaterStageAsync(entryMission, mission.Id, token).ConfigureAwait(false))
+                {
+                    return new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.AlreadyEnqueued, branchEntry,
+                        "branch already has active merge entry " + branchEntry.Id + " for later stage " + branchEntry.MissionId);
+                }
+            }
+
             MergeEntry entry = new MergeEntry(mission.BranchName, targetBranch);
             entry.MissionId = mission.Id;
-            entry.VesselId = mission.VesselId ?? vessel.Id;
+            entry.VesselId = entryVesselId;
             entry.TenantId = ResolveSharedEntryTenant(mission.TenantId, vessel.TenantId);
             entry.UserId = mission.UserId ?? vessel.UserId;
-            entry = await EnqueueAsync(entry, token).ConfigureAwait(false);
+            BranchEnqueueResult enqueued = await EnqueueOrAttachAsync(entry, token).ConfigureAwait(false);
+            if (enqueued.Attached)
+            {
+                return new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.AlreadyEnqueued, enqueued.Entry,
+                    "attached to active merge entry " + enqueued.Entry.Id + " for branch " + mission.BranchName);
+            }
+            entry = enqueued.Entry;
 
             AutoLandPredicate? autoLandPredicate = vessel.GetAutoLandPredicate();
             bool flaggedForReview = false;
@@ -398,6 +449,7 @@ namespace Armada.Core.Services
             if (entry != null)
             {
                 entry.Status = MergeStatusEnum.Cancelled;
+                if (String.IsNullOrWhiteSpace(entry.TestOutput)) entry.TestOutput = "Cancelled by operator";
                 entry.LastUpdateUtc = DateTime.UtcNow;
                 entry.CompletedUtc = DateTime.UtcNow;
                 await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
@@ -1336,6 +1388,7 @@ namespace Armada.Core.Services
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
+                    await ReconcileLandedBranchMissionsAsync(entry, "Work already landed; merge queue entry " + entry.Id + " cancelled", token).ConfigureAwait(false);
                     await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
                     return;
                 }
@@ -1446,6 +1499,7 @@ namespace Armada.Core.Services
                         entry.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                         await UpdateLandingJobFromEntryAsync(entry, entry.TestOutput, token).ConfigureAwait(false);
+                        await ReconcileLandedBranchMissionsAsync(entry, "Work already landed; merge queue entry " + entry.Id + " cancelled", token).ConfigureAwait(false);
                         await CleanupWorktreeAsync(entry, integrationPath, token).ConfigureAwait(false);
                         return;
                     }
@@ -2118,6 +2172,143 @@ namespace Armada.Core.Services
             }
         }
 
+        private async Task<MergeEntry?> FindActiveEntryForBranchAsync(string? vesselId, string? branchName, string? targetBranch, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(branchName)) return null;
+            List<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
+            MergeEntry? oldest = null;
+            foreach (MergeEntry candidate in entries)
+            {
+                if (IsTerminalMergeStatus(candidate.Status)) continue;
+                if (!String.Equals(candidate.VesselId ?? String.Empty, vesselId ?? String.Empty, StringComparison.Ordinal)) continue;
+                if (!String.Equals(candidate.BranchName, branchName, StringComparison.Ordinal)) continue;
+                if (!String.Equals(candidate.TargetBranch, targetBranch, StringComparison.Ordinal)) continue;
+                if (oldest == null || candidate.CreatedUtc < oldest.CreatedUtc) oldest = candidate;
+            }
+            return oldest;
+        }
+
+        /// <summary>
+        /// Attach a mission's enqueue request to the branch's active entry. The entry follows the latest stage:
+        /// while it is still Queued and the attaching mission is a later stage of the entry's mission (it depends
+        /// on it, directly or through other stages), the entry is retargeted to that mission, whose work is the
+        /// branch tip. Every attach is recorded as a <c>merge_queue.enqueue_attached</c> event naming both missions.
+        /// </summary>
+        private async Task AttachToActiveEntryAsync(MergeEntry active, Mission? mission, CancellationToken token)
+        {
+            if (mission == null || String.Equals(active.MissionId, mission.Id, StringComparison.Ordinal))
+            {
+                _Logging.Info(_Header + "branch " + active.BranchName + " -> " + active.TargetBranch + " already has active entry " + active.Id
+                    + " for the same request; nothing new enqueued");
+                return;
+            }
+
+            string? previousMissionId = active.MissionId;
+            bool retargeted = false;
+            if (active.Status == MergeStatusEnum.Queued && await IsLaterStageAsync(mission, previousMissionId, token).ConfigureAwait(false))
+            {
+                active.MissionId = mission.Id;
+                active.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.MergeEntries.UpdateAsync(active, token).ConfigureAwait(false);
+                await UpdateLandingJobFromEntryAsync(active, null, token).ConfigureAwait(false);
+                retargeted = true;
+                try
+                {
+                    await _JudgeFollowUps.AssociateForMergeEntryAsync(active, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not associate Judge follow-ups for entry " + active.Id + ": " + ex.Message);
+                }
+            }
+
+            string message = "Mission " + mission.Id + " attached to active merge entry " + active.Id + " for branch " + active.BranchName
+                + " -> " + active.TargetBranch + (retargeted
+                    ? "; the entry now lands this mission, the later stage (was " + (previousMissionId ?? "none") + ")"
+                    : "; the entry still lands mission " + (active.MissionId ?? "none"));
+            _Logging.Info(_Header + message);
+
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("merge_queue.enqueue_attached", message);
+                EventOwnerScope.ApplyFromMission(evt, mission);
+                evt.EntityType = "merge_entry";
+                evt.EntityId = active.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = active.VesselId ?? mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.CaptainId = mission.CaptainId;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    entryId = active.Id,
+                    branchName = active.BranchName,
+                    targetBranch = active.TargetBranch,
+                    attachedMissionId = mission.Id,
+                    entryMissionId = active.MissionId,
+                    previousEntryMissionId = previousMissionId,
+                    retargeted = retargeted
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error emitting merge_queue.enqueue_attached for entry " + active.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Whether <paramref name="candidate"/> is a later pipeline stage than <paramref name="currentMissionId"/>:
+        /// it reaches that mission by following <c>DependsOnMissionId</c>. An entry with no mission takes any mission.
+        /// </summary>
+        private async Task<bool> IsLaterStageAsync(Mission candidate, string? currentMissionId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(currentMissionId)) return true;
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            string? predecessorId = candidate.DependsOnMissionId;
+            while (!String.IsNullOrEmpty(predecessorId) && seen.Add(predecessorId))
+            {
+                if (String.Equals(predecessorId, currentMissionId, StringComparison.Ordinal)) return true;
+                Mission? predecessor = await _Database.Missions.ReadAsync(predecessorId, token).ConfigureAwait(false);
+                predecessorId = predecessor?.DependsOnMissionId;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Mark the missions whose work an entry proved landed as Complete: the entry's mission and every earlier
+        /// stage on the same branch that still reads WorkProduced. An earlier stage's commit is an ancestor of the
+        /// later stage's commit on that branch, so it landed too; left WorkProduced, the landing drain would enqueue
+        /// it again on every sweep and each new entry would be cancelled as already landed.
+        /// </summary>
+        private async Task ReconcileLandedBranchMissionsAsync(MergeEntry entry, string reason, CancellationToken token)
+        {
+            await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.Complete, reason, token, entry.TenantId).ConfigureAwait(false);
+            if (String.IsNullOrEmpty(entry.MissionId)) return;
+
+            try
+            {
+                Mission? current = await _Database.Missions.ReadAsync(entry.MissionId, token).ConfigureAwait(false);
+                HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+                string? predecessorId = current?.DependsOnMissionId;
+                while (!String.IsNullOrEmpty(predecessorId) && seen.Add(predecessorId))
+                {
+                    Mission? predecessor = await _Database.Missions.ReadAsync(predecessorId, token).ConfigureAwait(false);
+                    if (predecessor == null) break;
+                    if (predecessor.Status == MissionStatusEnum.WorkProduced
+                        && String.Equals(predecessor.BranchName, entry.BranchName, StringComparison.Ordinal))
+                    {
+                        await ReconcileMissionStatusAsync(predecessor.Id, MissionStatusEnum.Complete,
+                            reason + " (earlier stage on the same branch)", token).ConfigureAwait(false);
+                    }
+                    predecessorId = predecessor.DependsOnMissionId;
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not reconcile earlier stages for entry " + entry.Id + ": " + ex.Message);
+            }
+        }
+
         private static bool IsTerminalMergeStatus(MergeStatusEnum status)
         {
             return MergeStatusRules.IsTerminal(status);
@@ -2331,8 +2522,7 @@ namespace Armada.Core.Services
                 }
 
                 // Reconcile linked mission to Complete
-                await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.Complete,
-                    "Landed via merge queue entry " + entry.Id, token, entry.TenantId).ConfigureAwait(false);
+                await ReconcileLandedBranchMissionsAsync(entry, "Landed via merge queue entry " + entry.Id, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -2358,8 +2548,7 @@ namespace Armada.Core.Services
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     await UpdateLandingJobFromEntryAsync(entry, null, token).ConfigureAwait(false);
                     FireIndexRefreshForVessel(entry.VesselId);
-                    await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.Complete,
-                        "Landed via merge queue entry " + entry.Id, token, entry.TenantId).ConfigureAwait(false);
+                    await ReconcileLandedBranchMissionsAsync(entry, "Landed via merge queue entry " + entry.Id, token).ConfigureAwait(false);
                     return;
                 }
 

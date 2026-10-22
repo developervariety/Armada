@@ -9,11 +9,14 @@ namespace Armada.Core.Services.Interfaces
     public interface IMergeQueueService
     {
         /// <summary>
-        /// Enqueue a branch for testing and merging.
+        /// Enqueue a branch for testing and merging. A branch has at most one unfinished entry per vessel and
+        /// target: when one exists, the request attaches to it (recorded as a <c>merge_queue.enqueue_attached</c>
+        /// event) and that entry is returned, retargeted to the request's mission when that mission is a later
+        /// stage and the entry is still Queued.
         /// </summary>
         /// <param name="entry">Merge entry to enqueue.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The created merge entry.</returns>
+        /// <returns>The created merge entry, or the branch's existing active entry (a different id).</returns>
         Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default);
 
         /// <summary>

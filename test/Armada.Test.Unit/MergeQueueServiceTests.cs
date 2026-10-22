@@ -276,11 +276,20 @@ namespace Armada.Test.Unit
                             git,
                             new MergeFailureClassifier());
 
-                        // The branch was deleted after its work landed; the mission commit is on main.
+                        // The branch was deleted after its work landed; the mission commit is on main. An earlier
+                        // stage on the same branch still reads WorkProduced.
+                        Mission earlierStage = new Mission("earlier stage");
+                        earlierStage.VesselId = vessel.Id;
+                        earlierStage.Status = MissionStatusEnum.WorkProduced;
+                        earlierStage.BranchName = "armada/captain-1/msn_gone";
+                        earlierStage = await testDb.Driver.Missions.CreateAsync(earlierStage).ConfigureAwait(false);
+
                         Mission landed = new Mission("landed straggler");
                         landed.VesselId = vessel.Id;
                         landed.Status = MissionStatusEnum.WorkProduced;
                         landed.CommitHash = landedCommit;
+                        landed.BranchName = "armada/captain-1/msn_gone";
+                        landed.DependsOnMissionId = earlierStage.Id;
                         landed = await testDb.Driver.Missions.CreateAsync(landed).ConfigureAwait(false);
 
                         MergeEntry landedEntry = new MergeEntry();
@@ -296,6 +305,11 @@ namespace Armada.Test.Unit
                         MergeEntry? afterLanded = await service.ProcessSingleAsync(landedEntry.Id).ConfigureAwait(false);
                         AssertEqual(MergeStatusEnum.Cancelled, afterLanded!.Status, "an entry whose work already landed is cancelled, not failed");
                         AssertContains("already in main", afterLanded.TestOutput ?? "", "the reason names the landed commit");
+                        // The landed work's missions end Complete, so the landing drain does not enqueue them again.
+                        Mission? landedAfter = await testDb.Driver.Missions.ReadAsync(landed.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Complete, landedAfter!.Status, "the mission whose commit landed is Complete");
+                        Mission? earlierAfter = await testDb.Driver.Missions.ReadAsync(earlierStage.Id).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Complete, earlierAfter!.Status, "an earlier stage on the same branch is Complete");
 
                         // A missing branch with no landed commit still fails.
                         Mission lost = new Mission("lost branch");

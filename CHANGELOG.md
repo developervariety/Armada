@@ -517,6 +517,19 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A branch has at most one unfinished merge entry per vessel and target, so a
+  pipeline whose stages all commit to one branch gets one entry, not one per
+  stage that produced work. An enqueue for a branch that already has an active
+  entry attaches to it and returns that entry; while it is still Queued and the new mission is
+  a later stage, the entry is retargeted to that mission, whose work is the
+  branch tip. Each attach is recorded as a `merge_queue.enqueue_attached` event
+  naming both missions. The landing drain skips an earlier stage whose branch
+  entry already belongs to a later stage.
+- An entry the queue cancels because its work already landed marks the entry's
+  mission, and each earlier stage on the same branch still in WorkProduced,
+  Complete, as a landed entry does, so the landing drain does not enqueue that
+  work again on every sweep. An operator cancel records `Cancelled by operator`
+  on the entry's test output.
 - A definition-of-done test that fails again in its isolated re-run no longer
   reads "so this is not a load race". The re-run runs on the same loaded host,
   so the failure text says the re-run under the current host load also failed
