@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
+    using Microsoft.Extensions.Time.Testing;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -86,6 +87,65 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(2, participants.Count);
                 }
             });
+
+            await RunTest("A participant key that alternates between names is reported as shared once per window, and a rename is not", async () =>
+            {
+                // Two sessions sharing one key alternate names on every post and heartbeat; the
+                // presence row shows only the last writer and addressed wakes reach both. One
+                // session renaming itself switches once and must not be reported.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTimeProvider time = new FakeTimeProvider(new DateTimeOffset(2026, 1, 5, 12, 0, 0, TimeSpan.Zero));
+                    CoordinationService service = CreateService(testDb, time);
+
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "renamed", "Session A").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "renamed", "Session A v2").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "renamed", "Session A v2").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "single", "Session C").ConfigureAwait(false);
+
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "shared", "session-north").ConfigureAwait(false);
+                    await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "shared", "session-south", "deploying").ConfigureAwait(false);
+                    AssertEqual(0, service.EnumerateSharedParticipantKeys(15).Count, "one switch is a rename, not a shared key");
+                    await service.HeartbeatAsync("campaign-alpha", "shared", "session-north").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "shared", "session-south").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "shared", "session-north").ConfigureAwait(false);
+
+                    List<CoordinationSharedParticipantKey> shared = service.EnumerateSharedParticipantKeys(15);
+                    AssertEqual(1, shared.Count, "only the alternating key is shared");
+                    AssertEqual("shared", shared[0].ParticipantKey);
+                    AssertEqual("session-north,session-south", String.Join(",", shared[0].DisplayNames), "both names, most recent first");
+                    AssertEqual(4, shared[0].NameSwitches);
+                    AssertContains("own participant key", shared[0].Reason);
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(
+                        CoordinationService.SharedParticipantKeyEventType, 50).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "one event per key per window, however often the names alternate");
+                    AssertEqual("shared", events[0].EntityId);
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterCoordinationTools(testDb, service);
+                    JsonElement read = ReadResult(await handlers["armada_coordination_read"](Args(new { })).ConfigureAwait(false));
+                    JsonElement keys = read.GetProperty("SharedParticipantKeys");
+                    AssertEqual(1, keys.GetArrayLength(), "the read result names the shared key");
+                    AssertEqual("shared", keys[0].GetProperty("ParticipantKey").GetString());
+
+                    JsonElement sharedBeat = ReadResult(await handlers["armada_coordination_heartbeat"](
+                        Args(new { participantKey = "shared", displayName = "session-south" })).ConfigureAwait(false));
+                    AssertEqual(JsonValueKind.Object, sharedBeat.GetProperty("SharedParticipantKey").ValueKind, "a session on a shared key is told at its heartbeat");
+                    JsonElement singleBeat = ReadResult(await handlers["armada_coordination_heartbeat"](
+                        Args(new { participantKey = "single", displayName = "Session C" })).ConfigureAwait(false));
+                    AssertEqual(JsonValueKind.Null, singleBeat.GetProperty("SharedParticipantKey").ValueKind, "a key used under one name carries no warning");
+
+                    time.Advance(TimeSpan.FromMinutes(16));
+                    AssertEqual(0, service.EnumerateSharedParticipantKeys(15).Count, "names outside the window no longer count");
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "shared", "session-north").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "shared", "session-south").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "shared", "session-north").ConfigureAwait(false);
+                    events = await testDb.Driver.Events.EnumerateByTypeAsync(
+                        CoordinationService.SharedParticipantKeyEventType, 50).ConfigureAwait(false);
+                    AssertEqual(2, events.Count, "a key still shared in a later window is reported again");
+                }
+            }).ConfigureAwait(false);
 
             await RunTest("A long broadcast note is previewed, but directed mail never is", async () =>
             {
@@ -525,11 +585,11 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private static CoordinationService CreateService(TestDatabase testDb)
+        private static CoordinationService CreateService(TestDatabase testDb, TimeProvider? timeProvider = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
-            return new CoordinationService(logging, testDb.Driver);
+            return new CoordinationService(logging, testDb.Driver, null, timeProvider);
         }
     }
 }

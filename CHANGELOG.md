@@ -398,6 +398,12 @@ upstream integrations and excludes changes already present at that baseline.
   settings reload applies a new count without a restart. The check slot wait
   and the automatic check runner name every current holder. A count above 1
   risks false Timeout failures on a host without the capacity for it.
+- The coordination board reports a participant key that several sessions
+  share. A key that posts or heartbeats under two or more names within the
+  presence window and switches back and forth (one rename does not count) is
+  listed in the `armada_coordination_read` result under `SharedParticipantKeys`,
+  the heartbeat result for that key carries `SharedParticipantKey`, and one
+  `coordination.shared_participant_key` event is written per key per window.
 
 ### Changed
 

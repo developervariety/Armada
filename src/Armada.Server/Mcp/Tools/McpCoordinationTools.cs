@@ -102,7 +102,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_read",
-                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read. Long BROADCAST notes come back previewed, each carrying ContentLength and Truncated, with TruncatedMessageCount on the response; notes addressed to you and every UnreadWake are always whole. Pass includeFullContent=true, ideally with a smaller limit or an afterUtc, to read a previewed note in full.",
+                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read. Long BROADCAST notes come back previewed, each carrying ContentLength and Truncated, with TruncatedMessageCount on the response; notes addressed to you and every UnreadWake are always whole. Pass includeFullContent=true, ideally with a smaller limit or an afterUtc, to read a previewed note in full. SharedParticipantKeys lists participant keys that posted or heartbeated under several names within the presence window and switched back and forth: several sessions share each such key, so an addressed note or wake to it reaches all of them and its presence row shows only the last name. Give each session its own key.",
                 new
                 {
                     type = "object",
@@ -166,6 +166,7 @@ namespace Armada.Server.Mcp.Tools
                             Messages = views,
                             TruncatedMessageCount = truncatedCount,
                             ActiveParticipants = participants,
+                            SharedParticipantKeys = coordination.EnumerateSharedParticipantKeys(activeWithinMinutes),
                             ActiveClaims = claims,
                             UnreadWakes = unreadWakes
                         };
@@ -178,7 +179,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_heartbeat",
-                "Send a presence heartbeat to the shared coordination board. Call periodically while working so other sessions can see you are active, and to prune stale presence. The response carries UnreadWakes: when non-empty, PAUSE your current work and address those directed messages first, then acknowledge each with armada_mark_signal_read.",
+                "Send a presence heartbeat to the shared coordination board. Call periodically while working so other sessions can see you are active, and to prune stale presence. The response carries UnreadWakes: when non-empty, PAUSE your current work and address those directed messages first, then acknowledge each with armada_mark_signal_read. SharedParticipantKey is set when your key posted or heartbeated under several names within the presence window: another session uses the same key, so wakes addressed to it reach both of you. Move one session to its own key.",
                 new
                 {
                     type = "object",
@@ -213,7 +214,7 @@ namespace Armada.Server.Mcp.Tools
                         try { unreadWakes = await coordination.EnumerateUnreadWakesAsync(participantKey!).ConfigureAwait(false); }
                         catch (NotSupportedException) { }
 
-                        return (object)new { Participant = participant, UnreadWakes = unreadWakes };
+                        return (object)new { Participant = participant, UnreadWakes = unreadWakes, SharedParticipantKey = coordination.FindSharedParticipantKey(participantKey!) };
                     }
                     catch (NotSupportedException ex)
                     {

@@ -210,6 +210,15 @@ A session that sends no header receives no wake banner, and must heartbeat or
 read the board with its `participantKey` between monitor-loop iterations to see
 addressed work at all.
 
+A participant key belongs to one session. When a key posts or heartbeats under
+two or more names within the presence window and switches back and forth (one
+rename does not count), the read result lists it under `SharedParticipantKeys`,
+the heartbeat result for that key carries `SharedParticipantKey`, and one
+`coordination.shared_participant_key` event is written per key per window.
+Several sessions on one key all receive its wakes, and its presence row shows
+only the name that wrote last; give each session its own key. Names are tracked
+in memory from posts and heartbeats since the admiral started.
+
 The fleet room is the default board. Each campaign (an objective tree whose root
 carries a `campaign:<name>` tag) also has a `campaign-<name>` room, created on
 first use. A claim on a campaign objective, a note posted with a campaign

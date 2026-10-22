@@ -31,6 +31,18 @@ namespace Armada.Server
         private const int _MaximumCampaignVoyageCacheEntries = 512;
         private readonly object _CampaignVoyageCacheLock = new object();
         private readonly Dictionary<string, CampaignVoyageCacheEntry> _CampaignVoyageCache = new Dictionary<string, CampaignVoyageCacheEntry>(StringComparer.Ordinal);
+        private readonly TimeProvider _TimeProvider;
+        private static readonly TimeSpan _ParticipantNameRetention = TimeSpan.FromMinutes(60);
+        private static readonly TimeSpan _SharedKeyWarningWindow = TimeSpan.FromMinutes(15);
+        private const int _MaximumTrackedParticipantKeys = 1024;
+        private readonly object _ParticipantNameLock = new object();
+        private readonly Dictionary<string, ParticipantNameHistory> _ParticipantNames = new Dictionary<string, ParticipantNameHistory>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Event type written once per participant key per presence window when the key is in use
+        /// under several names.
+        /// </summary>
+        public const string SharedParticipantKeyEventType = "coordination.shared_participant_key";
 
         /// <summary>
         /// Optional bridge to the AgentWake wake path. Invoked with the target
@@ -73,11 +85,13 @@ namespace Armada.Server
         /// <param name="logging">Logging module.</param>
         /// <param name="database">Database driver.</param>
         /// <param name="webSocketHub">Optional WebSocket hub for live message broadcast.</param>
-        public CoordinationService(LoggingModule logging, DatabaseDriver database, WebSocket.ArmadaWebSocketHub? webSocketHub = null)
+        /// <param name="timeProvider">Optional clock for presence-name tracking; the system clock when null.</param>
+        public CoordinationService(LoggingModule logging, DatabaseDriver database, WebSocket.ArmadaWebSocketHub? webSocketHub = null, TimeProvider? timeProvider = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _WebSocketHub = webSocketHub;
+            _TimeProvider = timeProvider ?? TimeProvider.System;
         }
 
         #endregion
@@ -369,6 +383,10 @@ namespace Armada.Server
             };
             participant = await _Database.CoordinationParticipants.UpsertAsync(participant, token).ConfigureAwait(false);
 
+            CoordinationSharedParticipantKey? newlyShared = RecordParticipantName(participantKey, displayName);
+            if (newlyShared != null)
+                await RecordSharedParticipantKeyEventAsync(newlyShared, tenantId, token).ConfigureAwait(false);
+
             // A live session keeps its own reservations alive by heartbeating, in whichever room
             // each claim was made: a claim routed to a campaign room must not lapse while its holder
             // heartbeats in the fleet room.
@@ -384,6 +402,50 @@ namespace Armada.Server
             DateTime staleCutoff = DateTime.UtcNow.AddMinutes(-60);
             await _Database.CoordinationParticipants.PruneAsync(room.Id, staleCutoff, token).ConfigureAwait(false);
             return participant;
+        }
+
+        /// <summary>
+        /// Participant keys in use under several names within the window. A key qualifies when it
+        /// posted or heartbeated under two or more names and switched names at least twice, so one
+        /// rename is not reported while two sessions alternating on one key are. Names are tracked
+        /// in memory from every post and heartbeat since the admiral started, across all rooms.
+        /// </summary>
+        /// <param name="activeWithinMinutes">Presence window in minutes.</param>
+        /// <returns>Shared keys, most recently seen first.</returns>
+        public List<CoordinationSharedParticipantKey> EnumerateSharedParticipantKeys(int activeWithinMinutes = 15)
+        {
+            TimeSpan window = TimeSpan.FromMinutes(Math.Max(1, activeWithinMinutes));
+            DateTime now = _TimeProvider.GetUtcNow().UtcDateTime;
+            List<CoordinationSharedParticipantKey> shared = new List<CoordinationSharedParticipantKey>();
+            lock (_ParticipantNameLock)
+            {
+                foreach (KeyValuePair<string, ParticipantNameHistory> entry in _ParticipantNames)
+                {
+                    CoordinationSharedParticipantKey? found = DescribeShared(entry.Key, entry.Value, now, window);
+                    if (found != null) shared.Add(found);
+                }
+            }
+            return shared.OrderByDescending(s => s.LastSeenUtc).ToList();
+        }
+
+        /// <summary>
+        /// The shared-key finding for one participant key within the window, or null when the key
+        /// is in use under one name.
+        /// </summary>
+        /// <param name="participantKey">Participant key.</param>
+        /// <param name="activeWithinMinutes">Presence window in minutes.</param>
+        /// <returns>The finding, or null.</returns>
+        public CoordinationSharedParticipantKey? FindSharedParticipantKey(string participantKey, int activeWithinMinutes = 15)
+        {
+            if (String.IsNullOrWhiteSpace(participantKey)) return null;
+            TimeSpan window = TimeSpan.FromMinutes(Math.Max(1, activeWithinMinutes));
+            DateTime now = _TimeProvider.GetUtcNow().UtcDateTime;
+            lock (_ParticipantNameLock)
+            {
+                ParticipantNameHistory? history;
+                if (!_ParticipantNames.TryGetValue(participantKey, out history)) return null;
+                return DescribeShared(participantKey, history, now, window);
+            }
         }
 
         /// <summary>
@@ -770,7 +832,111 @@ namespace Armada.Server
             }
         }
 
+        private CoordinationSharedParticipantKey? RecordParticipantName(string participantKey, string displayName)
+        {
+            string name = displayName.Trim();
+            DateTime now = _TimeProvider.GetUtcNow().UtcDateTime;
+            lock (_ParticipantNameLock)
+            {
+                ParticipantNameHistory? history;
+                if (!_ParticipantNames.TryGetValue(participantKey, out history))
+                {
+                    if (_ParticipantNames.Count >= _MaximumTrackedParticipantKeys) PruneParticipantNames(now);
+                    history = new ParticipantNameHistory();
+                    _ParticipantNames[participantKey] = history;
+                }
+
+                DateTime retainFrom = now - _ParticipantNameRetention;
+                foreach (string stale in history.LastSeenByName.Where(n => n.Value < retainFrom).Select(n => n.Key).ToList())
+                    history.LastSeenByName.Remove(stale);
+                history.SwitchUtcs.RemoveAll(t => t < retainFrom);
+
+                if (history.LastName != null && !String.Equals(history.LastName, name, StringComparison.Ordinal))
+                    history.SwitchUtcs.Add(now);
+                history.LastName = name;
+                history.LastSeenByName[name] = now;
+
+                CoordinationSharedParticipantKey? shared = DescribeShared(participantKey, history, now, _SharedKeyWarningWindow);
+                if (shared == null) return null;
+                if (history.WarnedUtc.HasValue && now - history.WarnedUtc.Value < _SharedKeyWarningWindow) return null;
+                history.WarnedUtc = now;
+                return shared;
+            }
+        }
+
+        private void PruneParticipantNames(DateTime now)
+        {
+            DateTime retainFrom = now - _ParticipantNameRetention;
+            foreach (string key in _ParticipantNames
+                .Where(e => e.Value.LastSeenByName.Count == 0 || e.Value.LastSeenByName.Values.Max() < retainFrom)
+                .Select(e => e.Key).ToList())
+            {
+                _ParticipantNames.Remove(key);
+            }
+        }
+
+        private static CoordinationSharedParticipantKey? DescribeShared(string participantKey, ParticipantNameHistory history, DateTime now, TimeSpan window)
+        {
+            DateTime from = now - window;
+            List<KeyValuePair<string, DateTime>> names = history.LastSeenByName
+                .Where(n => n.Value >= from)
+                .OrderByDescending(n => n.Value)
+                .ToList();
+            int switches = history.SwitchUtcs.Count(t => t >= from);
+            if (names.Count < 2 || switches < 2) return null;
+
+            List<string> displayNames = names.Select(n => n.Key).ToList();
+            return new CoordinationSharedParticipantKey
+            {
+                ParticipantKey = participantKey,
+                DisplayNames = displayNames,
+                NameSwitches = switches,
+                LastSeenUtc = names[0].Value,
+                Reason = "Participant key " + participantKey + " posted or heartbeated as " + String.Join(", ", displayNames)
+                    + " within " + (int)window.TotalMinutes + " minutes and switched names " + switches
+                    + " times. Several sessions appear to share it: an addressed note or wake to this key reaches all of them,"
+                    + " and the presence row shows only the name that wrote last. Give each session its own participant key."
+            };
+        }
+
+        private async Task RecordSharedParticipantKeyEventAsync(CoordinationSharedParticipantKey shared, string? tenantId, CancellationToken token)
+        {
+            _Logging.Warn(_Header + shared.Reason);
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(SharedParticipantKeyEventType, shared.Reason);
+                evt.TenantId = tenantId;
+                evt.EntityType = "coordination_participant";
+                evt.EntityId = shared.ParticipantKey;
+                evt.Payload = System.Text.Json.JsonSerializer.Serialize(shared);
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record the shared participant key event for " + shared.ParticipantKey + ": " + ex.Message);
+            }
+        }
+
         #endregion
+
+        /// <summary>
+        /// Names one participant key used recently, the order they switched in, and when the key was
+        /// last reported as shared.
+        /// </summary>
+        private sealed class ParticipantNameHistory
+        {
+            /// <summary>Last post or heartbeat time per name.</summary>
+            public Dictionary<string, DateTime> LastSeenByName { get; } = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+
+            /// <summary>Name on the most recent post or heartbeat.</summary>
+            public string? LastName { get; set; } = null;
+
+            /// <summary>Times the name differed from the previous post or heartbeat.</summary>
+            public List<DateTime> SwitchUtcs { get; } = new List<DateTime>();
+
+            /// <summary>When the shared-key event was last written for this key.</summary>
+            public DateTime? WarnedUtc { get; set; } = null;
+        }
 
         /// <summary>
         /// A remembered voyage-to-campaign-room answer.

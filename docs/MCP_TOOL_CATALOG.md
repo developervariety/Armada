@@ -381,12 +381,16 @@ every tool.
   to its campaign room.
 - `armada_coordination_read` — read recent notes plus who is active. Read this
   before dispatching voyages or touching incidents so you do not duplicate a
-  peer session's work.
+  peer session's work. `SharedParticipantKeys` lists each participant key that
+  posted or heartbeated under several names within the presence window and
+  switched back and forth; several sessions share such a key.
 - `armada_coordination_heartbeat` — refresh your presence while working. The
   heartbeat and read responses carry `UnreadWakes` when notes are addressed to
   your participant key: PAUSE and address those before continuing, then
   acknowledge each with `armada_mark_signal_read`. This is how a session inside
-  a blocking loop learns it was handed work at the next tool boundary.
+  a blocking loop learns it was handed work at the next tool boundary. The
+  heartbeat result carries `SharedParticipantKey` when another session uses
+  your key under a different name; move one session to its own key.
 - `armada_coordination_claim` — claim a vessel or objective before non-trivial
   work so peers see who owns it; heartbeats keep the claim alive, and a claim
   expires unless refreshed.
