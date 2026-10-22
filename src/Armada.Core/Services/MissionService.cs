@@ -3604,40 +3604,11 @@ namespace Armada.Core.Services
             if (voyage == null) return;
 
             List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
-            if (missions.Count == 0) return;
+            VoyageStatusEnum? settled = await VoyageSettlement.DecideAsync(missions, IsCompletionInFlight,
+                () => MergeQueueMissionActivity.GetMissionIdsWithActiveEntriesAsync(_Database, token)).ConfigureAwait(false);
+            if (settled == null) return;
 
-            bool anyActive = missions.Any(m =>
-                m.Status == MissionStatusEnum.Pending ||
-                m.Status == MissionStatusEnum.Assigned ||
-                m.Status == MissionStatusEnum.InProgress ||
-                m.Status == MissionStatusEnum.Testing ||
-                m.Status == MissionStatusEnum.Review ||
-                m.Status == MissionStatusEnum.PullRequestOpen ||
-                (m.Status == MissionStatusEnum.WorkProduced && IsCompletionInFlight(m.Id)));
-
-            if (anyActive) return;
-
-            bool allDone = missions.All(m =>
-                m.Status == MissionStatusEnum.Complete ||
-                m.Status == MissionStatusEnum.Failed ||
-                m.Status == MissionStatusEnum.Cancelled ||
-                m.Status == MissionStatusEnum.LandingFailed ||
-                m.Status == MissionStatusEnum.WorkProduced);
-
-            if (!allDone) return;
-
-            // Not Complete while a WorkProduced mission is still waiting in the merge queue (F14).
-            if (await MergeQueueMissionActivity.AnyAwaitingMergeQueueAsync(_Database, missions, token).ConfigureAwait(false)) return;
-
-            bool anyFailed = missions.Any(m =>
-                m.Status == MissionStatusEnum.Failed ||
-                m.Status == MissionStatusEnum.LandingFailed);
-
-            voyage.Status = anyFailed ? VoyageStatusEnum.Failed : VoyageStatusEnum.Complete;
-            voyage.CompletedUtc = DateTime.UtcNow;
-            voyage.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
-            if (voyage.Status == VoyageStatusEnum.Complete) await PipelineStageSettler.SettleAsync(_Database, missions, token).ConfigureAwait(false);
+            await VoyageSettlement.ApplyAsync(_Database, voyage, settled.Value, missions, token).ConfigureAwait(false);
             _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status + " during mission completion");
         }
 

@@ -59,56 +59,14 @@ namespace Armada.Core.Services
             foreach (Voyage voyage in activeVoyages)
             {
                 List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
-                if (missions.Count == 0) continue;
+                // The merge-queue read is shared across voyages in this pass and made only when a voyage needs it.
+                VoyageStatusEnum? settled = await VoyageSettlement.DecideAsync(missions, isCompletionInFlight, async () =>
+                    missionsInMergeQueue ??= await MergeQueueMissionActivity.GetMissionIdsWithActiveEntriesAsync(_Database, token).ConfigureAwait(false)).ConfigureAwait(false);
+                if (settled == null) continue;
 
-                bool anyActive = missions.Any(m =>
-                    m.Status == MissionStatusEnum.Pending ||
-                    m.Status == MissionStatusEnum.Assigned ||
-                    m.Status == MissionStatusEnum.InProgress ||
-                    m.Status == MissionStatusEnum.Testing ||
-                    m.Status == MissionStatusEnum.Review ||
-                    m.Status == MissionStatusEnum.PullRequestOpen ||
-                    (m.Status == MissionStatusEnum.WorkProduced && isCompletionInFlight != null && isCompletionInFlight(m.Id)));
-
-                if (anyActive)
-                {
-                    continue;
-                }
-
-                // A mission is terminal if it is complete, failed, cancelled, landing-failed,
-                // or an intermediate pipeline stage (WorkProduced) that already handed off.
-                bool allDone = missions.All(m =>
-                    m.Status == MissionStatusEnum.Complete ||
-                    m.Status == MissionStatusEnum.Failed ||
-                    m.Status == MissionStatusEnum.Cancelled ||
-                    m.Status == MissionStatusEnum.LandingFailed ||
-                    m.Status == MissionStatusEnum.WorkProduced);
-
-                // A WorkProduced mission still waiting in the merge queue has not landed yet: keep the voyage open
-                // until its entry lands (mission Complete) or fails (mission LandingFailed) or is cancelled.
-                if (allDone && missions.Any(m => m.Status == MissionStatusEnum.WorkProduced))
-                {
-                    missionsInMergeQueue ??= await MergeQueueMissionActivity.GetMissionIdsWithActiveEntriesAsync(_Database, token).ConfigureAwait(false);
-                    if (missions.Any(m => m.Status == MissionStatusEnum.WorkProduced && missionsInMergeQueue.Contains(m.Id)))
-                    {
-                        continue;
-                    }
-                }
-
-                if (allDone)
-                {
-                    bool anyFailed = missions.Any(m =>
-                        m.Status == MissionStatusEnum.Failed ||
-                        m.Status == MissionStatusEnum.LandingFailed);
-
-                    voyage.Status = anyFailed ? VoyageStatusEnum.Failed : VoyageStatusEnum.Complete;
-                    voyage.CompletedUtc = DateTime.UtcNow;
-                    voyage.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
-                    if (voyage.Status == VoyageStatusEnum.Complete) await PipelineStageSettler.SettleAsync(_Database, missions, token).ConfigureAwait(false);
-                    _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status);
-                    completedVoyages.Add(voyage);
-                }
+                await VoyageSettlement.ApplyAsync(_Database, voyage, settled.Value, missions, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "voyage " + voyage.Id + " reached terminal status " + voyage.Status);
+                completedVoyages.Add(voyage);
             }
 
             return completedVoyages;
