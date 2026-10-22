@@ -526,6 +526,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Every build or test command the admiral runs (Checks, Definition-of-Done
+  gate commands, merge-queue test commands, workspace exec, the API-endpoint
+  `run_command` tool and the self-deploy build) turns off MSBuild node reuse,
+  the MSBuild server and the shared compiler server (`UseSharedCompilation=false`),
+  the same as captain launches, through one shared rule. A build no longer
+  leaves an idle MSBuild worker node or `VBCSCompiler` running in the admiral
+  after it ends. A workflow profile variable of the same name still
+  wins for a Check.
+
 - A definition-of-done command that hits its time limit while another build or
   test command holds a host command slot at the same time no longer fails the
   mission at once. With more than one host slot, two gates of one vessel can run

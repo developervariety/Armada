@@ -116,6 +116,7 @@ namespace Armada.Test.Runtimes.Suites
                 {
                     ["MSBUILDDISABLENODEREUSE"] = "caller-value",
                     ["DOTNET_CLI_USE_MSBUILD_SERVER"] = "caller-value",
+                    ["UseSharedCompilation"] = "caller-value",
                     ["ARMADA_TEST_CALLER_ENVIRONMENT"] = "caller-preserved"
                 };
 
@@ -127,6 +128,7 @@ namespace Armada.Test.Runtimes.Suites
 
                 AssertEqual("1", startInfo.Environment["MSBUILDDISABLENODEREUSE"]);
                 AssertEqual("0", startInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"]);
+                AssertEqual("false", startInfo.Environment["UseSharedCompilation"]);
                 AssertEqual("caller-preserved", startInfo.Environment["ARMADA_TEST_CALLER_ENVIRONMENT"]);
                 AssertEqual("1", startInfo.Environment["TEST_AGENT_RUNTIME_ENVIRONMENT_APPLIED"]);
             });

@@ -242,6 +242,7 @@ namespace Armada.Runtimes.Tools
             target["CI"] = "true";
             target["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
             target["DOTNET_NOLOGO"] = "1";
+            BuildServerEnvironment.Apply(target);
         }
 
         #endregion

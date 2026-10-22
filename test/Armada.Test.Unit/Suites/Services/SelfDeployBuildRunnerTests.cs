@@ -34,6 +34,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, result.ExitCode, "successful stub exit code");
                 AssertContains("-c", result.OutputTail, "build configuration argument reaches stub");
                 AssertContains("-f", result.OutputTail, "target framework argument reaches stub");
+                AssertContains("build-env=1/0/false", result.OutputTail,
+                    "the build runs with MSBuild node reuse and the build servers off, though the admiral process sets none of them");
             });
 
             await RunTest("StubDotnet_NonzeroExitPreservesFailureTail", async () =>
@@ -188,7 +190,7 @@ namespace Armada.Test.Unit.Suites.Services
                 File.WriteAllText(scriptPath,
                     "#!/bin/sh\n" +
                     "case \"$ARMADA_STUB_MODE\" in\n" +
-                    "success) printf '%s\\n' \"$@\"; exit 0 ;;\n" +
+                    "success) printf '%s\\n' \"$@\"; printf 'build-env=%s/%s/%s\\n' \"${MSBUILDDISABLENODEREUSE-unset}\" \"${DOTNET_CLI_USE_MSBUILD_SERVER-unset}\" \"${UseSharedCompilation-unset}\"; exit 0 ;;\n" +
                     "nonzero) echo 'stub build failed' >&2; exit 7 ;;\n" +
                     "flood) yes output | head -c 400000; exit 0 ;;\n" +
                     "hang) (sleep 30) & child=$!; echo \"$child\" > \"$ARMADA_STUB_CHILD_PID_FILE\"; wait \"$child\" ;;\n" +
@@ -207,11 +209,16 @@ namespace Armada.Test.Unit.Suites.Services
 
             public EnvironmentScope Activate()
             {
+                // The build-server variables are removed from this process, so a value the stub reads can only
+                // come from the runner.
                 return new EnvironmentScope(new[]
                 {
-                    new KeyValuePair<string, string>("PATH", Path.Combine(DirectoryPath, "bin") + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH")),
-                    new KeyValuePair<string, string>("ARMADA_STUB_MODE", Mode),
-                    new KeyValuePair<string, string>("ARMADA_STUB_CHILD_PID_FILE", ChildPidPath)
+                    new KeyValuePair<string, string?>("PATH", Path.Combine(DirectoryPath, "bin") + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH")),
+                    new KeyValuePair<string, string?>("ARMADA_STUB_MODE", Mode),
+                    new KeyValuePair<string, string?>("ARMADA_STUB_CHILD_PID_FILE", ChildPidPath),
+                    new KeyValuePair<string, string?>(BuildServerEnvironment.DisableNodeReuseVariable, null),
+                    new KeyValuePair<string, string?>(BuildServerEnvironment.MsBuildServerVariable, null),
+                    new KeyValuePair<string, string?>(BuildServerEnvironment.SharedCompilationVariable, null)
                 });
             }
 
@@ -240,9 +247,9 @@ namespace Armada.Test.Unit.Suites.Services
         {
             private readonly Dictionary<string, string?> _Previous = new Dictionary<string, string?>(StringComparer.Ordinal);
 
-            public EnvironmentScope(IEnumerable<KeyValuePair<string, string>> values)
+            public EnvironmentScope(IEnumerable<KeyValuePair<string, string?>> values)
             {
-                foreach (KeyValuePair<string, string> value in values)
+                foreach (KeyValuePair<string, string?> value in values)
                 {
                     _Previous[value.Key] = Environment.GetEnvironmentVariable(value.Key);
                     Environment.SetEnvironmentVariable(value.Key, value.Value);

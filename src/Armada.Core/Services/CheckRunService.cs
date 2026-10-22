@@ -1622,6 +1622,7 @@ namespace Armada.Core.Services
                 FileName = isWindows ? "cmd.exe" : "/bin/sh",
                 WorkingDirectory = workingDirectory
             };
+            BuildServerEnvironment.Apply(startInfo);
 
             // Applied on top of the inherited environment, so a profile adds to the dock's shell
             // rather than replacing it. A check that needs a variable is otherwise unrunnable in

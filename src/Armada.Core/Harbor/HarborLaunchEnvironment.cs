@@ -2,6 +2,8 @@ namespace Armada.Core.Harbor
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Decides which launch environment variables may travel to a Harbor runner. A runner is another host: provider
@@ -23,13 +25,10 @@ namespace Armada.Core.Harbor
 
         #region Private-Members
 
-        private static readonly HashSet<string> _Forwarded = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "MSBUILDDISABLENODEREUSE",
-            "DOTNET_CLI_USE_MSBUILD_SERVER",
-            "CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT",
-            "MAX_THINKING_TOKENS"
-        };
+        private static readonly HashSet<string> _Forwarded = new HashSet<string>(
+            new[] { "CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT", "MAX_THINKING_TOKENS" }
+                .Concat(BuildServerEnvironment.Variables.Keys),
+            StringComparer.Ordinal);
 
         #endregion
 

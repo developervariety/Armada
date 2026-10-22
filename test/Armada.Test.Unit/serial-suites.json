@@ -22,6 +22,7 @@
     "MCP Architect Tools": "Process-global: sets ARMADA_PROJECT_CLAUDE_MD.",
     "MCP Code Index Tools": "Process-global: sets the code-context timeout environment variable.",
     "MCP Voyage Tools": "Process-global: sets ARMADA_CODE_CONTEXT_TIMEOUT_MS.",
+    "Build Server Environment": "Process-global: removes MSBUILDDISABLENODEREUSE, DOTNET_CLI_USE_MSBUILD_SERVER and UseSharedCompilation from the process environment while its commands run.",
     "Self Deploy Build Runner": "Process-global: sets arbitrary environment variables through a scoped helper.",
     "Native Client Availability": "Process-global: sets PATH.",
     "Captain Runtime Tool Catalog HTTP Probe": "Process-global: puts a fake mux CLI first on PATH.",

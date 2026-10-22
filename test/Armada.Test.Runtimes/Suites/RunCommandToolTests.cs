@@ -121,6 +121,9 @@ namespace Armada.Test.Runtimes.Suites
 
                 AssertFalse(target.ContainsKey("LEFTOVER"), "the start environment is cleared before the allowlist is applied");
                 AssertEqual("0", target["GIT_TERMINAL_PROMPT"], "git must not prompt");
+                AssertEqual("1", target["MSBUILDDISABLENODEREUSE"], "a build the command starts leaves no reusable MSBuild node");
+                AssertEqual("0", target["DOTNET_CLI_USE_MSBUILD_SERVER"], "a build the command starts leaves no MSBuild server");
+                AssertEqual("false", target["UseSharedCompilation"], "a build the command starts leaves no compiler server");
             });
 
             await RunTest("A variable set in the admiral process is invisible to the command", async () =>

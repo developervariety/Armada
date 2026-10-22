@@ -787,8 +787,7 @@ namespace Armada.Runtimes
 
         private static void ApplySharedCaptainEnvironment(ProcessStartInfo startInfo)
         {
-            startInfo.Environment["MSBUILDDISABLENODEREUSE"] = "1";
-            startInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
+            BuildServerEnvironment.Apply(startInfo);
         }
 
         /// <summary>

@@ -3310,6 +3310,7 @@ namespace Armada.Core.Services
 
             string shell = GetShell();
             ProcessStartInfo startInfo = new ProcessStartInfo(shell) { WorkingDirectory = workingDir };
+            BuildServerEnvironment.Apply(startInfo);
             if (OperatingSystem.IsWindows())
             {
                 startInfo.Arguments = "/c " + testCommand;

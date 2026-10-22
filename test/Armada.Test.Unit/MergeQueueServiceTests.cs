@@ -1278,7 +1278,7 @@ namespace Armada.Test.Unit
             return logging;
         }
 
-        private static ArmadaSettings CreateSettings()
+        internal static ArmadaSettings CreateSettings()
         {
             ArmadaSettings settings = new ArmadaSettings();
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mq_idx_docks_" + Guid.NewGuid().ToString("N"));
@@ -1298,7 +1298,7 @@ namespace Armada.Test.Unit
             throw new InvalidOperationException("Timed out waiting for background code-index refresh");
         }
 
-        private static async Task<GitRepoSetup> CreateGitSetupAsync(string rootDir, string captainFilePath = "feature.txt")
+        internal static async Task<GitRepoSetup> CreateGitSetupAsync(string rootDir, string captainFilePath = "feature.txt")
         {
             string remoteDir = Path.Combine(rootDir, "remote.git");
             string sourceDir = Path.Combine(rootDir, "source");
@@ -1377,7 +1377,7 @@ namespace Armada.Test.Unit
             }
         }
 
-        private sealed class GitRepoSetup
+        internal sealed class GitRepoSetup
         {
             public string RemoteDir { get; }
             public string BareDir { get; }

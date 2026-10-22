@@ -60,7 +60,8 @@ namespace Armada.Core.Services
                         {
                             FileName = "dotnet",
                             Arguments = arguments,
-                            WorkingDirectory = workingDirectory
+                            WorkingDirectory = workingDirectory,
+                            EnvironmentVariables = BuildServerEnvironment.Variables
                         },
                         timeoutSource.Token).ConfigureAwait(false);
 

@@ -1711,6 +1711,7 @@ namespace Armada.Core.Services
             IReadOnlyDictionary<string, string>? environment = null)
         {
             ProcessStartInfo startInfo = new ProcessStartInfo(GetShell()) { WorkingDirectory = workingDir };
+            BuildServerEnvironment.Apply(startInfo);
             if (environment != null)
             {
                 foreach (KeyValuePair<string, string> variable in environment)

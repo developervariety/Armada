@@ -418,6 +418,7 @@ namespace Armada.Core.Services
             };
 
             ProcessStartInfo psi = new ProcessStartInfo { WorkingDirectory = rootPath };
+            BuildServerEnvironment.Apply(psi);
             if (OperatingSystem.IsWindows())
             {
                 psi.FileName = "cmd.exe";
