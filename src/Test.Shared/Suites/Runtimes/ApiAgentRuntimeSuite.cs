@@ -741,6 +741,45 @@ namespace Test.Shared.Suites.Runtimes
                 finally { Cleanup(dir); }
             }));
 
+            cases.Add(CaseAsync("slow_gateway_error_names_the_proxy_deadline", "A 502 that arrives only after a long wait names the proxy deadline and what to change; a fast 502 stays a plain status", TestTags.Negative, async () =>
+            {
+                foreach (bool streaming in new[] { false, true })
+                {
+                    string dir = NewTempDir();
+                    try
+                    {
+                        ModelEndpoint endpoint = new ModelEndpoint { Name = "gateway", Provider = ModelProviderEnum.OpenAICompatible, Kind = ModelEndpointKindEnum.Inference, Model = "m", BaseUrl = "http://localhost:1", InferenceOptions = new InferenceOptions { Streaming = streaming } };
+                        ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new GatewayClient(log, 300));
+                        runtime.InferenceRetries = 0;
+                        runtime.GatewayDeadlineHint = TimeSpan.FromMilliseconds(200);
+                        RuntimeProviderError? failure = null;
+                        int? exitCode = null;
+                        using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                        runtime.OnProviderError += (pid, error) => failure = error;
+                        runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                        await runtime.StartAsync(dir, "do it").ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "The run must finish.");
+                        AssertEqual(1, exitCode ?? 0);
+                        AssertEqual(502, failure!.HttpStatusCode);
+                        AssertContains("cutting the request before the model replies", failure.Reason!);
+                        AssertContains(streaming ? "cold model load" : "Enable streaming", failure.Reason!);
+
+                        runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 20, (ep, log) => new GatewayClient(log, 0));
+                        runtime.InferenceRetries = 0;
+                        runtime.GatewayDeadlineHint = TimeSpan.FromMilliseconds(200);
+                        failure = null;
+                        exited.Reset();
+                        runtime.OnProviderError += (pid, error) => failure = error;
+                        runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                        await runtime.StartAsync(dir, "do it").ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "The run must finish.");
+                        AssertEqual(502, failure!.HttpStatusCode);
+                        AssertTrue(failure.Reason == null || !failure.Reason.Contains("cutting the request", StringComparison.Ordinal), "A fast gateway error is not blamed on a proxy deadline");
+                    }
+                    finally { Cleanup(dir); }
+                }
+            }));
+
             cases.Add(CaseAsync("streaming_options_validated", "FirstResponseTimeoutMs is range-checked and streaming settings require a capable Harbor", TestTags.Negative, () =>
             {
                 AssertThrows<ArgumentException>(() => new InferenceOptions { FirstResponseTimeoutMs = 999 }.Validate());
@@ -1136,6 +1175,37 @@ namespace Test.Shared.Suites.Runtimes
                 Stub = stub;
                 Events = events;
             }
+        }
+
+        private sealed class GatewayClient : CompletionClientBase
+        {
+            private readonly int _DelayMs;
+            private readonly CompletionOptions _Defaults = new CompletionOptions { Model = "gateway-model" };
+
+            public GatewayClient(LoggingModule logging, int delayMs) : base("http://localhost:1", null, logging)
+            {
+                _DelayMs = delayMs;
+            }
+
+            public override CompletionOptions Defaults => _Defaults;
+
+            protected override async Task<ToolChatResponse> ToolChatCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token)
+            {
+                if (_DelayMs > 0) await Task.Delay(_DelayMs, token).ConfigureAwait(false);
+                return new ToolChatResponse { Success = false, StatusCode = 502, Error = "Bad Gateway" };
+            }
+
+            protected override async Task<ToolChatStreamingResponse> ToolChatStreamingCoreAsync(ToolChatRequest request, List<ChatMessage> messages, ResolvedCompletion settings, CancellationToken token)
+            {
+                if (_DelayMs > 0) await Task.Delay(_DelayMs, token).ConfigureAwait(false);
+                return new ToolChatStreamingResponse { Success = false, StatusCode = 502, Error = "Bad Gateway" };
+            }
+
+            public override Task<bool> ValidateConnectivityAsync(CancellationToken token = default) => Task.FromResult(true);
+            protected override Task<ChatResponse> ChatCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
+            protected override Task<ChatStreamingResponse> ChatStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
+            protected override Task<GenerationResponse> GenerateCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
+            protected override Task<GenerationStreamingResponse> GenerateStreamingCoreAsync(string prompt, ResolvedCompletion settings, CancellationToken token) => throw new NotImplementedException();
         }
 
         private sealed class StreamRunResult

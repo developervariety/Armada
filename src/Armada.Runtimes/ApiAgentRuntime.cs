@@ -5,6 +5,7 @@ namespace Armada.Runtimes
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Runtime.CompilerServices;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -53,6 +54,12 @@ namespace Armada.Runtimes
         /// Delay before the first inference retry; each further retry doubles it, with jitter.
         /// </summary>
         public TimeSpan InferenceRetryBaseDelay { get; set; } = TimeSpan.FromSeconds(2);
+
+        /// <summary>
+        /// A 502 or 504 that arrives after at least this long is reported as a proxy deadline (with what to change) rather
+        /// than as a bare gateway status.
+        /// </summary>
+        public TimeSpan GatewayDeadlineHint { get; set; } = TimeSpan.FromSeconds(10);
 
         /// <inheritdoc />
         public bool SupportsPlanningSessions => Armada.Core.Services.AgentRuntimeCapabilities.SupportsPlanningSessions(Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint);
@@ -274,14 +281,16 @@ namespace Armada.Runtimes
 
         #region Private-Methods
 
-        private async Task<T> WithInferenceRetryAsync<T>(Func<Task<T>> call, Func<T, bool> succeeded, Func<T, int?> status, Func<T, string?> error, int processId, CancellationToken token)
+        private async Task<T> WithInferenceRetryAsync<T>(Func<Task<T>> call, Func<T, bool> succeeded, Func<T, int?> status, Func<T, string?> error, int processId, StrongBox<long> lastCallMs, CancellationToken token)
         {
             for (int attempt = 0; ; attempt++)
             {
                 T result;
+                System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
                 try
                 {
                     result = await call().ConfigureAwait(false);
+                    lastCallMs.Value = watch.ElapsedMilliseconds;
                 }
                 catch (Exception ex) when (attempt < _InferenceRetries && !token.IsCancellationRequested
                     && (ex is System.Net.Http.HttpRequestException || ex is IOException || ex is TaskCanceledException || ex is TimeoutException))
@@ -375,6 +384,25 @@ namespace Armada.Runtimes
             }
         }
 
+        private RuntimeProviderError InferenceFailure(int? status, string? error, string fallbackReason, long lastCallMs, bool streaming)
+        {
+            RuntimeProviderError? failure = status.HasValue ? RuntimeProviderErrorParser.FromHttpStatus(status.Value, error) : null;
+            if (failure == null) return new RuntimeProviderError { ErrorType = "inference_error", Reason = fallbackReason };
+
+            // A gateway error that arrives only after a long wait is a proxy or load balancer giving up before the model
+            // answered, not the model failing. Retrying cannot help while the cause remains, so name it.
+            if ((status == 502 || status == 504) && lastCallMs >= GatewayDeadlineHint.TotalMilliseconds)
+            {
+                string seconds = (lastCallMs / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+                failure.Reason = "HTTP " + status + " from a gateway after " + seconds + " s with no response from the model. A proxy or load balancer in front of the endpoint "
+                    + "is cutting the request before the model replies. "
+                    + (streaming
+                        ? "The response was streamed, so the model sent nothing in that time: usually a cold model load or long prompt evaluation. Raise the proxy's time-to-first-byte limit or keep the model loaded."
+                        : "Enable streaming for this endpoint so headers arrive with the first token, and raise the proxy's time-to-first-byte limit if cold model loads take longer than it.");
+            }
+            return failure;
+        }
+
         private static string StreamTimeoutMessage(bool received, int firstResponseMs, int idleMs)
         {
             return received
@@ -425,6 +453,7 @@ namespace Armada.Runtimes
                 // StreamChatAsync enforces both deadlines and the client timeout is only an outer bound.
                 int firstResponseMs = Math.Max(endpoint.TimeoutMs, settings.FirstResponseTimeoutMs ?? 0);
                 int idleMs = endpoint.TimeoutMs;
+                StrongBox<long> lastCallMs = new StrongBox<long>(0);
                 client.TimeoutMs = settings.Streaming ? StreamingTotalTimeoutMs : firstResponseMs;
                 CompletionOptions completionOptions = new CompletionOptions
                 {
@@ -446,14 +475,13 @@ namespace Armada.Runtimes
                 async Task RunPlainChatAsync()
                 {
                     completionOptions.SystemPrompt = BuildSystemPrompt(workingDirectory);
-                    ChatResponse reply = await WithInferenceRetryAsync(() => settings.Streaming ? StreamChatAsync(client, prompt, completionOptions, firstResponseMs, idleMs, token) : client.ChatAsync(prompt, completionOptions, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, token).ConfigureAwait(false);
+                    ChatResponse reply = await WithInferenceRetryAsync(() => settings.Streaming ? StreamChatAsync(client, prompt, completionOptions, firstResponseMs, idleMs, token) : client.ChatAsync(prompt, completionOptions, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, lastCallMs, token).ConfigureAwait(false);
                     EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = 1, streamed = settings.Streaming, reply.Success, reply.FinishReason, reply.Usage, textLength = reply.Text?.Length ?? 0, toolCalls = 0 }));
                     if (!reply.Success)
                     {
                         exitCode = 1;
                         EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, reply.Error ?? "Inference request failed.");
-                        RaiseProviderError(processId, (reply.StatusCode.HasValue ? RuntimeProviderErrorParser.FromHttpStatus(reply.StatusCode.Value, reply.Error) : null)
-                            ?? new RuntimeProviderError { ErrorType = "inference_error", Reason = "Inference request failed: " + (reply.Error ?? "the endpoint returned failure without detail") });
+                        RaiseProviderError(processId, InferenceFailure(reply.StatusCode, reply.Error, "Inference request failed: " + (reply.Error ?? "the endpoint returned failure without detail"), lastCallMs.Value, settings.Streaming));
                         WriteFinalMessage(finalMessageFilePath, String.Empty);
                         return;
                     }
@@ -558,7 +586,7 @@ namespace Armada.Runtimes
                     request.Tools = tools;
                     request.Options = completionOptions;
 
-                    ToolChatResponse response = await WithInferenceRetryAsync(() => settings.Streaming ? StreamToolChatAsync(client, request, firstResponseMs, idleMs, token) : client.ToolChatAsync(request, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, token).ConfigureAwait(false);
+                    ToolChatResponse response = await WithInferenceRetryAsync(() => settings.Streaming ? StreamToolChatAsync(client, request, firstResponseMs, idleMs, token) : client.ToolChatAsync(request, token), r => r.Success, r => r.StatusCode, r => r.Error, processId, lastCallMs, token).ConfigureAwait(false);
 
                     EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Inference, "[inference] " + JsonSerializer.Serialize(new { iteration = iteration + 1, maxIterations, streamed = settings.Streaming, response.Success, response.ResponseId, response.FinishReason, response.Usage, reasoningLength = response.Reasoning?.Length ?? 0, textLength = response.Text?.Length ?? 0, toolCalls = response.ToolCalls?.Count ?? 0 }));
 
@@ -566,8 +594,7 @@ namespace Armada.Runtimes
                     {
                         string reason = String.IsNullOrEmpty(response.Error) ? "the inference endpoint reported failure without detail" : response.Error!;
                         EmitDiagnostic(processId, ApiRuntimeDiagnosticKindEnum.Error, "[error] inference call failed: " + reason);
-                        RaiseProviderError(processId, (response.StatusCode.HasValue ? RuntimeProviderErrorParser.FromHttpStatus(response.StatusCode.Value, response.Error) : null)
-                            ?? new RuntimeProviderError { ErrorType = "inference_error", Reason = "Inference request failed: " + reason });
+                        RaiseProviderError(processId, InferenceFailure(response.StatusCode, response.Error, "Inference request failed: " + reason, lastCallMs.Value, settings.Streaming));
                         exitCode = 1;
                         break;
                     }
