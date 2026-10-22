@@ -383,7 +383,7 @@ namespace Armada.Test.Unit.Suites.Services
                         foreach (string body in new[] { response.Markdown, staged })
                         {
                             AssertContains("Goal: alpha", body, "the header names the goal the pack was built for");
-                            AssertContains("Commit: " + indexedCommit, body, "the header names the indexed commit");
+                            AssertContains("Indexed commit (related evidence and assigned files taken from the index): " + indexedCommit, body, "the header names the indexed commit");
                             AssertContains("Covered roots: the " + vessel.Name + " repository at the indexed commit", body, "the header names the roots the pack covers");
                             AssertContains("not in this pack", body, "the header says sibling and evidence trees are not covered");
                         }

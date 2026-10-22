@@ -59,6 +59,40 @@ namespace Armada.Core.Models
         public bool IsExternalSourceTree { get; set; } = false;
 
         /// <summary>
+        /// The sibling checkout (a <c>../</c> path beside the dock) whose HEAD tracks this path, when this
+        /// checkout does not. Empty when no sibling checkout was found to track it.
+        /// </summary>
+        public string SiblingCheckout
+        {
+            get
+            {
+                return _SiblingCheckout;
+            }
+            set
+            {
+                _SiblingCheckout = value ?? "";
+            }
+        }
+
+        /// <summary>
+        /// Sibling checkouts the vessel or the mission declares that could not be searched for this path,
+        /// because they are not provisioned beside the dock or could not be read. A path this checkout does
+        /// not track is absent only when this list is empty: a sibling that was not searched may hold it.
+        /// Never null.
+        /// </summary>
+        public List<string> UnverifiedSiblingCheckouts
+        {
+            get
+            {
+                return _UnverifiedSiblingCheckouts;
+            }
+            set
+            {
+                _UnverifiedSiblingCheckouts = value ?? new List<string>();
+            }
+        }
+
+        /// <summary>
         /// The number of tracked paths the named path matched when it matched more than one, so it
         /// resolves to none of them; zero otherwise. An ambiguous name is not an absent one, and the
         /// brief must not call it new work.
@@ -92,6 +126,8 @@ namespace Armada.Core.Models
 
         private string _Path = "";
         private string _RequestedPath = "";
+        private string _SiblingCheckout = "";
+        private List<string> _UnverifiedSiblingCheckouts = new List<string>();
         private List<GitAnchorCommit> _Commits = new List<GitAnchorCommit>();
 
         #endregion

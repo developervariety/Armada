@@ -4864,7 +4864,7 @@ namespace Armada.Core.Services
                             else
                                 history.IsExternalSourceTree = MissionSubjectExtractor.IsExternalSourceTreePath(path);
                             if (!history.IsExternalSourceTree && history.MatchingPathCount == 0)
-                                await ApplyAnchorPathFallbacksAsync(history, path, worktreePath, "HEAD", vessel, token).ConfigureAwait(false);
+                                await ApplyAnchorPathFallbacksAsync(history, path, worktreePath, "HEAD", vessel, missionText, token).ConfigureAwait(false);
                         }
                     }
 
@@ -4961,6 +4961,13 @@ namespace Armada.Core.Services
                             continue;
                         }
 
+                        if (file.IsExternalSourceTree && file.SiblingCheckout.Length > 0)
+                        {
+                            builder.Append("- `" + file.Path + "` is not tracked here; the sibling checkout `" + file.SiblingCheckout +
+                                "` tracks it at its HEAD. Read it there; never create it in this repository.\n");
+                            continue;
+                        }
+
                         if (file.IsExternalSourceTree)
                         {
                             // A read-only sibling tree is absent from every checkout by design. Calling
@@ -4968,6 +4975,15 @@ namespace Armada.Core.Services
                             builder.Append("- `" + file.Path + "` is not tracked here and reads as a path in a " +
                                 "sibling read-only source tree, which is provisioned beside the dock rather than in it. " +
                                 "Read it there; never create it in this repository.\n");
+                            continue;
+                        }
+
+                        if (file.UnverifiedSiblingCheckouts.Count > 0)
+                        {
+                            // A sibling that was not searched may hold the path, so absence is not established.
+                            builder.Append("- `" + file.Path + "` is not tracked here. It may be a sibling path, not verified here: the sibling checkout" +
+                                (file.UnverifiedSiblingCheckouts.Count == 1 ? " `" : "s `") + String.Join("`, `", file.UnverifiedSiblingCheckouts) +
+                                "` could not be searched beside this dock. Do not treat it as absent" + (readOnly ? ".\n" : " or as new work.\n"));
                             continue;
                         }
 

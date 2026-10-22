@@ -323,11 +323,12 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("BuildContextPackAsync header states when the indexed commit differs from the start commit", async () =>
+            await RunTest("BuildContextPackAsync header names the indexed and start commits, states when they differ, and flags related chunks changed between them", async () =>
             {
                 TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
                 {
-                    ["src/Widgets/WidgetParser.cs"] = "namespace Sample\n{\n    public class WidgetParser\n    {\n        public string Parse() => \"indexed version marker\";\n    }\n}\n"
+                    ["src/Widgets/WidgetParser.cs"] = "namespace Sample\n{\n    public class WidgetParser\n    {\n        public string Parse() => \"indexed version marker\";\n    }\n}\n",
+                    ["src/Widgets/WidgetParserCache.cs"] = "namespace Sample\n{\n    // Repair helper: caches the parser output.\n    public class WidgetParserCache\n    {\n        public string Read() => \"indexed cache marker\";\n    }\n}\n"
                 }).ConfigureAwait(false);
                 string dataRoot = NewTempDirectory("armada-code-index-data-");
 
@@ -344,6 +345,11 @@ namespace Armada.Test.Unit.Suites.Services
                             "src/Widgets/WidgetParser.cs",
                             "namespace Sample\n{\n    public class WidgetParser\n    {\n        public string Parse() => \"start version marker\";\n    }\n}\n",
                             "Change the parser after indexing").ConfigureAwait(false);
+                        await AppendCommitAsync(
+                            repository.Path,
+                            "src/Widgets/WidgetParserCache.cs",
+                            "namespace Sample\n{\n    // Repair helper: caches the parser output.\n    public class WidgetParserCache\n    {\n        public string Read() => \"start cache marker\";\n    }\n}\n",
+                            "Change the cache after indexing").ConfigureAwait(false);
                         string startSha = (await RunGitAsync(repository.Path, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
 
                         ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
@@ -357,7 +363,14 @@ namespace Armada.Test.Unit.Suites.Services
                         }).ConfigureAwait(false);
 
                         string body = File.ReadAllText(response.MaterializedPath);
+                        AssertContains("Indexed commit (related evidence and assigned files taken from the index): " + repository.CommitSha, body,
+                            "The header names the commit the related evidence reflects.");
+                        AssertContains("Start commit (the mission checkout; assigned files marked as read at the start commit): " + startSha, body,
+                            "The header names the commit the assigned files are read at.");
                         AssertContains("Start ref: " + startSha + " (" + startSha + ")", body, "The header names the start ref and its commit.");
+                        AssertContains("src/Widgets/WidgetParserCache.cs:", body, "The related file is staged from the index.");
+                        AssertContains("- Changed between the indexed commit and the start commit " + startSha, body,
+                            "A related chunk whose file changed after the indexed commit is flagged.");
                         AssertContains("the indexed commit " + repository.CommitSha + " differs from the start commit " + startSha, body,
                             "The header states the commit mismatch.");
                         AssertContains("src/Widgets/WidgetParser.cs (read at the start commit)", body, "The changed assigned file is read at the start commit.");

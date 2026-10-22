@@ -952,7 +952,7 @@ namespace Armada.Core.Services
             List<CodeSearchResult> relatedResults = SelectRelatedResults(search.Results, assignedSection.MatchedPaths, assignedPaths, request.Goal);
 
             string header = BuildContextPackHeader(request.Goal, search.Status, request.LexicalOnly, startState, assignedPaths, siblingPaths, assignedSection);
-            string markdown = BuildContextPackMarkdown(header, tokenBudget, assignedSection, relatedResults, search.Status);
+            string markdown = BuildContextPackMarkdown(header, tokenBudget, assignedSection, relatedResults, search.Status, startState);
             if (graphExpansion.Used)
             {
                 markdown = markdown.TrimEnd() + "\n\n" + graphExpansion.Markdown.TrimEnd() + "\n";
@@ -3963,9 +3963,11 @@ namespace Armada.Core.Services
             builder.AppendLine("This is repo discovery evidence from Armada's code index. Playbooks, vessel CLAUDE.md, and project CLAUDE.md rules win on conflict.");
             builder.AppendLine();
             builder.AppendLine("VesselId: " + status.VesselId);
-            builder.AppendLine("Commit: " + (status.IndexedCommitSha ?? ""));
+            builder.AppendLine("Indexed commit (related evidence and assigned files taken from the index): " + (status.IndexedCommitSha ?? ""));
             builder.AppendLine("Freshness: " + status.Freshness);
             builder.AppendLine("IndexedAtUtc: " + (status.IndexedAtUtc.HasValue ? status.IndexedAtUtc.Value.ToString("o") : ""));
+            builder.AppendLine("Start commit (the mission checkout; assigned files marked as read at the start commit): "
+                + (String.IsNullOrWhiteSpace(startState.StartCommit) ? "unknown" : startState.StartCommit));
             builder.AppendLine("Start ref: " + DescribeStartRef(startState));
             builder.AppendLine("Commit check: " + DescribeCommitCheck(startState, assignedSection));
             builder.AppendLine("Covered roots: the " + vesselLabel + " repository at the indexed commit"
@@ -4320,7 +4322,8 @@ namespace Armada.Core.Services
             int tokenBudget,
             ContextPackAssignedSection assignedSection,
             List<CodeSearchResult> relatedResults,
-            CodeIndexStatus status)
+            CodeIndexStatus status,
+            ContextPackStartRefState startState)
         {
             int charBudget = Math.Max(2000, tokenBudget * 4);
             bool hasAssigned = !String.IsNullOrEmpty(assignedSection.Markdown);
@@ -4344,10 +4347,19 @@ namespace Armada.Core.Services
             }
 
             builder.AppendLine(hasAssigned ? "## Related evidence" : "## Evidence");
+            builder.AppendLine();
+            builder.AppendLine("Chunks from the index at commit " + (status.IndexedCommitSha ?? "") + ".");
             int sectionsAdded = 0;
             foreach (CodeSearchResult result in relatedResults)
             {
                 string section = FormatChunk(result.Record, result.Score);
+                if (startState.ChangedPaths != null && startState.ChangedPaths.Contains(result.Record.Path))
+                {
+                    // The chunk is from the indexed commit, and its file changed before the start commit, so
+                    // the checkout may hold different code at these lines.
+                    section = section.TrimEnd() + "\n- Changed between the indexed commit and the start commit "
+                        + startState.StartCommit + "; read the file in the checkout before relying on this chunk.\n";
+                }
 
                 // Related evidence never pushes the pack past its budget, except that when the assigned files
                 // used the whole budget the top related result is still kept.

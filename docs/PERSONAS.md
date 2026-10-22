@@ -281,8 +281,15 @@ A brief carries only what the mission's mode and persona can use:
   anchored at the tracked path. With a declared sibling's directory in front
   and no `../` (`ExampleSibling/lib/Bar.cs`), or as a bare file name that a
   provisioned sibling's HEAD tracks, it is a sibling path, and its cited lines
-  are checked in that sibling. A bare name found nowhere is stated as not found
-  in this checkout or in a provisioned sibling checkout, never as absent.
+  are checked in that sibling. A path written from a sibling checkout's own
+  root (`lib/Bar.cs` for a file of `../ExampleSibling`) is searched in every
+  sibling checkout the vessel declares or the mission names under `../`; a
+  sibling whose HEAD tracks it makes it that sibling's file, and its cited lines
+  are checked there. When a declared sibling is not provisioned or cannot be
+  read, a path found nowhere else is stated as a possible sibling path, not
+  verified here, never as absent or new work. A bare name found nowhere is
+  stated as not found in this checkout or in a provisioned sibling checkout,
+  never as absent.
 - The Runtime Signals verdict lines reach only a Judge, and the Architect
   signal rule reaches only an Architect.
 - The read-only rules forbid editing, committing and pushing. By default they

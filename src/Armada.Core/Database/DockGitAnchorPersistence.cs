@@ -64,6 +64,16 @@ namespace Armada.Core.Database
             return true;
         }
 
+        /// <summary>A sibling checkout beside the dock: one or more <c>../</c> segments, then a relative path.</summary>
+        internal static bool IsSiblingRoot(string? value)
+        {
+            if (String.IsNullOrEmpty(value) || value.Length > 1024) return false;
+            string rest = value.Replace('\\', '/');
+            if (!rest.StartsWith("../", StringComparison.Ordinal)) return false;
+            while (rest.StartsWith("../", StringComparison.Ordinal)) rest = rest.Substring(3);
+            return IsRelativePath(rest);
+        }
+
         private static void Validate(DockGitAnchorSnapshot snapshot)
         {
             if (snapshot == null || snapshot.Version != 1 || !Enum.IsDefined(snapshot.State)
@@ -87,7 +97,9 @@ namespace Armada.Core.Database
             foreach (GitAnchorFileHistory file in snapshot.Anchors.Files)
             {
                 if (file == null || !IsRelativePath(file.Path)
-                    || (file.RequestedPath.Length > 0 && !IsRelativePath(file.RequestedPath)) || file.Commits.Count > 5)
+                    || (file.RequestedPath.Length > 0 && !IsRelativePath(file.RequestedPath)) || file.Commits.Count > 5
+                    || (file.SiblingCheckout.Length > 0 && !IsSiblingRoot(file.SiblingCheckout))
+                    || file.UnverifiedSiblingCheckouts.Count > 8 || !file.UnverifiedSiblingCheckouts.TrueForAll(IsSiblingRoot))
                     throw new InvalidOperationException("Invalid dock anchor path.");
                 foreach (GitAnchorCommit commit in file.Commits)
                     if (commit == null || !IsCommit(commit.Sha) || commit.Subject.Length > 123 || commit.DateUtc.Length > 32)

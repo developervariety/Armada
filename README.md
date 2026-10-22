@@ -336,12 +336,15 @@ Armada owns a repository code index for dispatch-time retrieval:
 - A pack puts the files the mission names under `## Assigned files`, ahead of ranked evidence.
   Ranked evidence follows only when a chunk touches an identifier or file the mission names; when
   nothing in the index does, the pack holds one `No relevant indexed chunk:` line instead of
-  unrelated prose. Every pack header names its goal, the indexed commit, the start ref and its
-  commit, a `Commit check:` line that states whether the indexed commit is the start commit, the
-  covered roots, the assigned files (found and not found), and any `../` sibling inputs the brief
-  names, which a single-vessel pack does not hold. When the indexed commit differs from the start
-  commit, an assigned file that changed between them is read from the local repository at the start
-  commit (a local `git show`; nothing is embedded or summarized). A summarized pack keeps the header
+  unrelated prose. Every pack header names its goal, the indexed commit (`Indexed commit`, which the
+  related evidence and the assigned files taken from the index reflect), the start commit of the
+  mission checkout (`Start commit`, which the assigned files marked as read at the start commit
+  reflect), the start ref, a `Commit check:` line that states whether the indexed commit is the
+  start commit, the covered roots, the assigned files (found and not found), and any `../` sibling
+  inputs the brief names, which a single-vessel pack does not hold. When the indexed commit differs
+  from the start commit, an assigned file that changed between them is read from the local
+  repository at the start commit (a local `git show`; nothing is embedded or summarized), and a
+  related chunk whose file changed between them is marked as possibly out of date. A summarized pack keeps the header
   and the assigned files above the summary. The captain brief tells the captain to record a pack
   that misses files in the report's `Pack:` line, not as a papercut.
 - A mission whose pack is not staged is never skipped in silence: its description gains a

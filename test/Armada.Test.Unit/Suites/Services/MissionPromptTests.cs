@@ -2973,6 +2973,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Dock Git anchors read a path from a sibling checkout's root in that sibling and never call an unsearched path absent", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_sibling_root_path_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    string worktree = Path.Combine(root, "Target");
+                    await CreateFixtureRepositoryAsync(worktree, "README.md", "target\n");
+                    string sibling = Path.Combine(root, "ExampleSibling");
+                    await CreateFixtureRepositoryAsync(sibling, "src/Engine/Reader.cs", CodecFixture);
+                    string siblings = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { RelativePath = "../ExampleSibling" },
+                        new SiblingRepo { RelativePath = "../Unprovisioned" }
+                    });
+
+                    GitAnchors anchors = await ResolveRealDockAnchorsAsync(worktree,
+                        "`Encode` is at src/Engine/Reader.cs:5 in the sibling.\n" +
+                        "Compare it with lib/Other/Parser.cs and ../FromText/notes/readme.md.",
+                        siblings);
+
+                    AssertNull(anchors.ResolutionError, "the anchors resolve completely");
+                    AssertEqual(0, anchors.CitationIssues.Count, "the cited range is read in the sibling that tracks it: " + String.Join(" | ", anchors.CitationIssues));
+                    string section = MissionService.BuildGitAnchorsSection(anchors);
+                    AssertContains("- `src/Engine/Reader.cs` is not tracked here; the sibling checkout `../ExampleSibling` tracks it at its HEAD.", section,
+                        "a path a provisioned sibling tracks from its own root is named as that sibling's file");
+                    AssertContains("- `lib/Other/Parser.cs` is not tracked here. It may be a sibling path, not verified here: the sibling checkouts `../Unprovisioned`, `../FromText` could not be searched", section,
+                        "a path no searched checkout tracks, with declared siblings unsearched, is stated as unverified");
+                    AssertFalse(section.Contains("does not exist"), "no path is called absent while a declared sibling was not searched: " + section);
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("GitAnchors Section Is Omitted When Nothing Resolved", () =>
             {
                 GitAnchors anchors = GitAnchors.Unresolved("no git service is configured on this admiral");

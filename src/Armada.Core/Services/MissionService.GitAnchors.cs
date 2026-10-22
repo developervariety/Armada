@@ -100,7 +100,9 @@ namespace Armada.Core.Services
                 if (!file.ExistsOnRevision)
                 {
                     if (!file.IsExternalSourceTree) return null;
-                    string? siblingPath = await SiblingPathForAsync(range.Path, worktreePath, vessel, token).ConfigureAwait(false);
+                    string? siblingPath = file.SiblingCheckout.Length > 0
+                        ? file.SiblingCheckout + "/" + range.Path
+                        : await SiblingPathForAsync(range.Path, worktreePath, vessel, token).ConfigureAwait(false);
                     return siblingPath == null ? null
                         : await CheckSiblingCitationAsync(range, siblingPath, worktreePath, vessel, token).ConfigureAwait(false);
                 }
@@ -191,10 +193,11 @@ namespace Armada.Core.Services
         /// Read a named path that matched nothing as written the other ways text names files. With this
         /// repository's directory in front it is anchored at the tracked path it names; with a declared
         /// sibling's directory in front, or as the bare name of a file a provisioned sibling tracks, it is a
-        /// sibling path. Only a path none of those reach stays absent.
+        /// sibling path; written from a sibling checkout's own root, it is a sibling path when that checkout
+        /// tracks it. Only a path none of those reach, with every declared sibling searched, stays absent.
         /// </summary>
         private async Task ApplyAnchorPathFallbacksAsync(GitAnchorFileHistory history, string requested,
-            string worktreePath, string revision, Vessel vessel, CancellationToken token)
+            string worktreePath, string revision, Vessel vessel, string missionText, CancellationToken token)
         {
             string? own = CitedPathPrefix.WithoutOwnRepository(requested, vessel);
             if (own != null)
@@ -214,7 +217,82 @@ namespace Armada.Core.Services
                 }
             }
             if (await SiblingPathForAsync(requested, worktreePath, vessel, token).ConfigureAwait(false) != null)
+            {
                 history.IsExternalSourceTree = true;
+                return;
+            }
+            if (!CitedPathPrefix.IsBareName(requested))
+                await ApplySiblingRootFallbackAsync(history, requested, worktreePath, vessel, missionText, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Search every sibling checkout the vessel or the mission declares for a path written from that
+        /// checkout's own root. A sibling whose HEAD tracks it marks the path a sibling path; a declared
+        /// sibling that is not provisioned or cannot be read is recorded as unsearched, so the path is never
+        /// stated as absent on a search that did not run.
+        /// </summary>
+        private async Task ApplySiblingRootFallbackAsync(GitAnchorFileHistory history, string requested,
+            string worktreePath, Vessel vessel, string missionText, CancellationToken token)
+        {
+            List<string> unverified = new List<string>();
+            foreach (string root in DeclaredSiblingRoots(vessel, missionText))
+            {
+                string siblingRoot = Path.GetFullPath(Path.Combine(worktreePath, root));
+                if (!Directory.Exists(siblingRoot) || !Directory.EnumerateFileSystemEntries(siblingRoot).Any())
+                {
+                    unverified.Add(root);
+                    continue;
+                }
+                try
+                {
+                    TrackedPathMatch? match = await TryMatchTrackedPathAsync(siblingRoot, "HEAD", requested, token).ConfigureAwait(false);
+                    if (match == null)
+                    {
+                        unverified.Add(root);
+                        continue;
+                    }
+                    if (String.IsNullOrEmpty(match.Path) && match.CandidateCount == 0) continue;
+                    history.IsExternalSourceTree = true;
+                    history.SiblingCheckout = root;
+                    history.UnverifiedSiblingCheckouts = new List<string>();
+                    return;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    // A sibling is a separate checkout: one that cannot be read leaves the path unverified.
+                    unverified.Add(root);
+                }
+            }
+            history.UnverifiedSiblingCheckouts = unverified;
+        }
+
+        /// <summary>
+        /// The sibling checkouts a dock may hold for this mission, as <c>../</c> paths: every sibling the
+        /// vessel declares, then every <c>../name</c> root the mission text names a file under.
+        /// </summary>
+        private static List<string> DeclaredSiblingRoots(Vessel vessel, string missionText)
+        {
+            List<string> roots = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+            {
+                if (sibling == null) continue;
+                string declared = NormalizeCitationPath(sibling.RelativePath);
+                if (DockGitAnchorPersistence.IsSiblingRoot(declared) && seen.Add(declared)) roots.Add(declared);
+            }
+            foreach (string path in ContextPackManifest.ExtractSiblingPaths(missionText))
+            {
+                string[] segments = NormalizeCitationPath(path).Split('/');
+                if (segments.Length < 3 || segments[0] != ".." || segments[1].Length == 0
+                    || segments[1] == "." || segments[1] == "..") continue;
+                string root = "../" + segments[1];
+                if (seen.Add(root)) roots.Add(root);
+            }
+            return roots;
         }
 
         /// <summary>
@@ -387,7 +465,7 @@ namespace Armada.Core.Services
                     {
                         history.IsExternalSourceTree = MissionSubjectExtractor.IsExternalSourceTreePath(requested);
                         if (!history.IsExternalSourceTree)
-                            await ApplyAnchorPathFallbacksAsync(history, requested, path, seed.ProvisionedCommit, vessel, token).ConfigureAwait(false);
+                            await ApplyAnchorPathFallbacksAsync(history, requested, path, seed.ProvisionedCommit, vessel, text, token).ConfigureAwait(false);
                         if (history.ExistsOnRevision && (!DockGitAnchorPersistence.IsRelativePath(history.Path)
                             || RuntimeLogFormatter.RedactSecrets(history.Path) != history.Path)) { result.Truncated = true; continue; }
                         if (history.MatchingPathCount > 1)

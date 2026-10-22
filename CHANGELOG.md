@@ -490,6 +490,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A context pack header names both commits it draws on: `Indexed commit` for the
+  related evidence and the assigned files taken from the index, and `Start
+  commit` for the assigned files read at the mission checkout's start commit. A
+  related chunk whose file changed between the two is marked as possibly out of
+  date.
+- The Git Anchors block searches the declared sibling checkouts for a path
+  written from a sibling's own root, and names the sibling that tracks it. A path
+  that no searched checkout tracks, while a declared sibling could not be
+  searched, is stated as a possible sibling path, not verified here, never as
+  absent or new work.
 - Dispatch preflight question 1 passes a citation whose line range lies inside
   the body of the declaration it names, such as `` `Size` (`Book.cs:20-22`) ``
   for lines inside `Size`. A range that crosses into the next declaration, or
