@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
 
     /// <summary>
     /// Outcome of one <see cref="BoundedProcessRunner"/> run. Nothing is dropped silently: a timeout, a caller
@@ -61,6 +62,13 @@ namespace Armada.Core.Services
         /// they could not be checked for the run identifier.
         /// </summary>
         public int ContainmentUnreadableProcesses { get; set; } = 0;
+
+        /// <summary>
+        /// Command lines of the processes still in the run's process group when it hit its time limit, read just before
+        /// the kill, so the result says what the command was still doing (a test host, or a lock the command took
+        /// itself). Linux group-owning runs that timed out only; empty otherwise. See <see cref="ProcessGroupSnapshot"/>.
+        /// </summary>
+        public IReadOnlyList<string> ProcessesAtTimeout { get; set; } = Array.Empty<string>();
 
         /// <summary>Why the containment sweep stopped before it was sure it had found every descendant; null when it finished or did not run.</summary>
         public string? ContainmentSweepError { get; set; } = null;

@@ -604,7 +604,8 @@ namespace Armada.Server
                     _Logging,
                     new DockerCliContainerRuntimeProbe(),
                     _Git,
-                    flakeScoreAdapter);
+                    flakeScoreAdapter,
+                    new HostLoadMonitor());
             }
             MissionOutcomeWakeHandler outcomeWake = new MissionOutcomeWakeHandler(_RemoteTriggerService, _Logging);
             missionService.OnMissionOutcome = async (Mission mission, bool willInvokeLanding) =>

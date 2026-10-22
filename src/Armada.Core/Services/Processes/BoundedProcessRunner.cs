@@ -125,6 +125,7 @@ namespace Armada.Core.Services
                         result.Cancelled = token.IsCancellationRequested;
                         result.TimedOut = !result.Cancelled;
                         inputStop.Cancel();
+                        if (result.TimedOut && ownsProcessGroup) result.ProcessesAtTimeout = SnapshotGroup(process);
                         result.KillError = Kill(process, ownsProcessGroup);
                         if (containmentId != null) Sweep(containmentId, result);
                         result.StillRunningAfterKill = !await WaitForExitAsync(process, request.KillDrainTimeout).ConfigureAwait(false);
@@ -304,6 +305,23 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 return ex.GetType().Name + ": " + ex.Message;
+            }
+        }
+
+        /// <summary>
+        /// Read what is still running in the process's group before the kill. The process leads its group, so its
+        /// identifier names the group.
+        /// </summary>
+        private static IReadOnlyList<string> SnapshotGroup(Process process)
+        {
+            try
+            {
+                return ProcessGroupSnapshot.Read(process.Id);
+            }
+            catch (InvalidOperationException)
+            {
+                // The process is gone, so its group has nothing to describe.
+                return Array.Empty<string>();
             }
         }
 

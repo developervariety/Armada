@@ -14,7 +14,9 @@ namespace Armada.Core.Services
     /// <remarks>
     /// Load is the 1-minute load average from <c>/proc/loadavg</c>, compared with the logical core count.
     /// The host is overloaded when the load average is above <see cref="OverloadFactor"/> times the core
-    /// count. Load has fallen when the load average is at or below <see cref="RecoveredFactor"/> times the
+    /// count. A long command ran under load when either the 1-minute or the 15-minute average is above that
+    /// threshold (see <see cref="RanOverloaded"/>), because the 1-minute average falls as soon as the
+    /// command's own processes exit. Load has fallen when the load average is at or below <see cref="RecoveredFactor"/> times the
     /// core count. On a host without <c>/proc/loadavg</c>, or when the file cannot be read or parsed, the
     /// reading is unknown: an unknown reading is never overloaded and always counts as fallen, so
     /// behavior there is the same as at normal load.
@@ -51,6 +53,7 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private readonly Func<double?> _LoadReader;
+        private readonly Func<double?> _LongLoadReader;
         private readonly Func<int> _CoreCountReader;
         private readonly Func<DateTime> _Clock;
         private readonly Func<TimeSpan, CancellationToken, Task> _Delay;
@@ -68,13 +71,19 @@ namespace Armada.Core.Services
         /// <see cref="Environment.ProcessorCount"/>.</param>
         /// <param name="clock">Returns the current UTC time. Defaults to <see cref="DateTime.UtcNow"/>.</param>
         /// <param name="delay">Waits the given interval. Defaults to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.</param>
+        /// <param name="longLoadReader">Returns the 15-minute load average, or null when unknown. Defaults to
+        /// reading <c>/proc/loadavg</c> on Linux and null elsewhere, except that a monitor given its own
+        /// <paramref name="loadReader"/> and no long reader reads the 15-minute average as unknown, so a supplied
+        /// 1-minute source is never mixed with the real host's 15-minute load.</param>
         public HostLoadMonitor(
             Func<double?>? loadReader = null,
             Func<int>? coreCountReader = null,
             Func<DateTime>? clock = null,
-            Func<TimeSpan, CancellationToken, Task>? delay = null)
+            Func<TimeSpan, CancellationToken, Task>? delay = null,
+            Func<double?>? longLoadReader = null)
         {
             _LoadReader = loadReader ?? ReadLinuxLoadAverage;
+            _LongLoadReader = longLoadReader ?? (loadReader == null ? ReadLinuxLongLoadAverage : UnknownLoadAverage);
             _CoreCountReader = coreCountReader ?? DefaultCoreCount;
             _Clock = clock ?? DefaultClock;
             _Delay = delay ?? DefaultDelay;
@@ -101,6 +110,17 @@ namespace Armada.Core.Services
                 load = null;
             }
 
+            double? longLoad;
+            try
+            {
+                longLoad = _LongLoadReader();
+            }
+            catch (Exception)
+            {
+                // An unreadable load is an unknown reading, which counts as normal load.
+                longLoad = null;
+            }
+
             int cores;
             try
             {
@@ -112,10 +132,12 @@ namespace Armada.Core.Services
             }
 
             if (load.HasValue && (Double.IsNaN(load.Value) || Double.IsInfinity(load.Value) || load.Value < 0)) load = null;
+            if (longLoad.HasValue && (Double.IsNaN(longLoad.Value) || Double.IsInfinity(longLoad.Value) || longLoad.Value < 0)) longLoad = null;
 
             return new HostLoadReading
             {
                 LoadAverage1Min = load,
+                LoadAverage15Min = longLoad,
                 LogicalCores = cores,
                 ReadUtc = _Clock()
             };
@@ -132,6 +154,46 @@ namespace Armada.Core.Services
             if (reading == null) throw new ArgumentNullException(nameof(reading));
             if (!reading.LoadAverage1Min.HasValue) return false;
             return reading.LoadAverage1Min.Value > OverloadThreshold(reading.LogicalCores);
+        }
+
+        /// <summary>
+        /// Whether a long command that ends at this reading ran under load: the 1-minute or the 15-minute
+        /// load average is above <see cref="OverloadFactor"/> times the core count. The 1-minute average
+        /// alone can read normal at the moment a long command ends, after load stood above the threshold
+        /// for most of its run.
+        /// </summary>
+        /// <param name="reading">The reading taken when the command ended.</param>
+        /// <returns>True when either known average is above the threshold; false otherwise.</returns>
+        public bool RanOverloaded(HostLoadReading reading)
+        {
+            if (reading == null) throw new ArgumentNullException(nameof(reading));
+            if (IsOverloaded(reading)) return true;
+            if (!reading.LoadAverage15Min.HasValue) return false;
+            return reading.LoadAverage15Min.Value > OverloadThreshold(reading.LogicalCores);
+        }
+
+        /// <summary>
+        /// Wait while the host is overloaded, reading the load every <see cref="RecheckInterval"/>, for at most
+        /// <see cref="MaximumWait"/>. Unlike <see cref="WaitForLoadToFallAsync"/>, the wait ends as soon as the
+        /// host is no longer overloaded, not when load has fully fallen.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The last reading taken. <see cref="IsOverloaded"/> on it is true when the wait ended at the
+        /// maximum.</returns>
+        public async Task<HostLoadReading> WaitWhileOverloadedAsync(CancellationToken token = default)
+        {
+            HostLoadReading reading = Read();
+            DateTime deadline = reading.ReadUtc + MaximumWait;
+            while (IsOverloaded(reading) && reading.ReadUtc < deadline)
+            {
+                TimeSpan remaining = deadline - reading.ReadUtc;
+                TimeSpan interval = remaining < RecheckInterval ? remaining : RecheckInterval;
+                await _Delay(interval, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                reading = Read();
+            }
+
+            return reading;
         }
 
         /// <summary>
@@ -197,11 +259,17 @@ namespace Armada.Core.Services
         /// <returns>The 1-minute load average, or null when the text is empty or cannot be parsed.</returns>
         public static double? ParseLoadAverage(string? content)
         {
-            if (String.IsNullOrWhiteSpace(content)) return null;
-            string[] parts = content.Trim().Split(new char[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0) return null;
-            if (!Double.TryParse(parts[0], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double value)) return null;
-            return value;
+            return ParseLoadAverageField(content, 0);
+        }
+
+        /// <summary>
+        /// Read the 15-minute load average from the text of <c>/proc/loadavg</c>.
+        /// </summary>
+        /// <param name="content">The file's text, for example <c>3.52 2.10 1.07 2/1234 5678</c>.</param>
+        /// <returns>The 15-minute load average, or null when the text is empty, too short, or cannot be parsed.</returns>
+        public static double? ParseLongLoadAverage(string? content)
+        {
+            return ParseLoadAverageField(content, 2);
         }
 
         #endregion
@@ -224,6 +292,38 @@ namespace Armada.Core.Services
                 // An unreadable file is an unknown reading, which counts as normal load.
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Read the 15-minute load average from <c>/proc/loadavg</c> on Linux. Returns null on any other
+        /// platform and on any read or parse failure.
+        /// </summary>
+        private static double? ReadLinuxLongLoadAverage()
+        {
+            if (!OperatingSystem.IsLinux()) return null;
+            try
+            {
+                return ParseLongLoadAverage(File.ReadAllText("/proc/loadavg"));
+            }
+            catch (Exception)
+            {
+                // An unreadable file is an unknown reading, which counts as normal load.
+                return null;
+            }
+        }
+
+        private static double? UnknownLoadAverage()
+        {
+            return null;
+        }
+
+        private static double? ParseLoadAverageField(string? content, int field)
+        {
+            if (String.IsNullOrWhiteSpace(content)) return null;
+            string[] parts = content.Trim().Split(new char[] { ' ', '\t', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length <= field) return null;
+            if (!Double.TryParse(parts[field], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double value)) return null;
+            return value;
         }
 
         private static int DefaultCoreCount()

@@ -254,24 +254,25 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("A stored TestFail record round-trips its failing test names and overflow flag", async () =>
+            await RunTest("A stored TestFail record round-trips its failing test names, overflow flag and time limit, and a record written before the time limit field reads it as false", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
+                    DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
+
                     Mission mission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
                     DefinitionOfDoneEvaluationRecord record = new DefinitionOfDoneEvaluationRecord
                     {
                         Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Failed,
                         CommandLabel = "unit-test",
-                        ExitCode = 1,
+                        ExitCode = -1,
                         FailureClass = DefinitionOfDoneFailureClassEnum.TestFail,
                         OutputTail = "--- OUTPUT TAIL ---",
                         FailedTestNames = new System.Collections.Generic.List<string> { "X.Y.FirstTest", "X.Y.SecondTest" },
-                        FailedTestNamesOverflow = false
+                        FailedTestNamesOverflow = false,
+                        TimedOut = true
                     };
                     await CreateEvaluationEventAsync(testDb.Driver, mission.Id, JsonSerializer.Serialize(record), DateTime.UtcNow).ConfigureAwait(false);
-
-                    DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
                     MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
 
                     AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState, "The record is recorded");
@@ -280,6 +281,18 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("X.Y.FirstTest", report.LatestEvaluation.FailedTestNames[0], "First name round-trips");
                     AssertEqual("X.Y.SecondTest", report.LatestEvaluation.FailedTestNames[1], "Second name round-trips");
                     AssertFalse(report.LatestEvaluation.FailedTestNamesOverflow, "The overflow flag round-trips as false");
+                    AssertTrue(report.LatestEvaluation.TimedOut, "The time limit round-trips as true");
+
+                    // A record stored before the time limit field existed has no TimedOut key at all.
+                    Mission legacyMission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                    string legacy = "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"CommandLabel\":\"unit-test\",\"ExitCode\":-1,\"FailureClass\":\"Timeout\""
+                        + ",\"OutputTail\":\"timed out\",\"StartedUtc\":\"2026-09-13T12:00:00Z\",\"CompletedUtc\":\"2026-09-13T12:20:00Z\"}";
+                    await CreateEvaluationEventAsync(testDb.Driver, legacyMission.Id, legacy, DateTime.UtcNow).ConfigureAwait(false);
+                    MissionDefinitionOfDoneReport legacyReport = await reports.GetForMissionAsync(_Admin, legacyMission).ConfigureAwait(false);
+
+                    AssertEqual(RecordedHistoryStateEnum.Recorded, legacyReport.HistoryState, "A record without the time limit field is still Recorded");
+                    AssertFalse(legacyReport.LatestEvaluation!.TimedOut, "A record without the time limit field reads it as false");
+                    AssertEqual(DefinitionOfDoneFailureClassEnum.Timeout, legacyReport.LatestEvaluation.FailureClass, "Its recorded class is read as stored");
                 }
             }).ConfigureAwait(false);
 
@@ -549,6 +562,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"FailureClass\":\"TestFail\"" + times + "}",
                         "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"CommandLabel\":\"build\",\"SkippedReason\":\"persona\"" + times + "}",
                         "{\"SchemaVersion\":1,\"Outcome\":\"EvaluationError\",\"FailureClass\":\"Infra\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"TimedOut\":true" + times + "}",
                         "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"RecoveryAttempts\":-1" + times + "}"
                     };
                     foreach (string payload in contradictory)

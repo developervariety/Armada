@@ -3,8 +3,8 @@ namespace Armada.Core.Models
     using System;
 
     /// <summary>
-    /// Payload of the event recorded when a definition-of-done gate that failed with a <c>Timeout</c>
-    /// classification while the host was overloaded is run again after load falls.
+    /// Payload of the event recorded when a definition-of-done gate whose command hit its time limit while the
+    /// host ran overloaded is run again after load falls.
     /// </summary>
     public class DefinitionOfDoneLoadRerunRecord
     {
@@ -34,6 +34,11 @@ namespace Armada.Core.Models
         /// 1-minute load average read when the gate failed.
         /// </summary>
         public double? LoadAtTimeout { get; set; } = null;
+
+        /// <summary>
+        /// 15-minute load average read when the gate failed, or null when it was unknown.
+        /// </summary>
+        public double? LongLoadAtTimeout { get; set; } = null;
 
         /// <summary>
         /// Logical core count the readings are compared against.

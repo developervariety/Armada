@@ -112,6 +112,12 @@ namespace Armada.Core.Models
         public bool FailedTestNamesOverflow { get; set; } = false;
 
         /// <summary>
+        /// True when the failing command hit its time limit, whatever <see cref="FailureClass"/> says. A
+        /// <see cref="DefinitionOfDoneFailureClassEnum.TestFail"/> with this set named failing tests before the limit.
+        /// </summary>
+        public bool TimedOut { get; set; } = false;
+
+        /// <summary>
         /// Captain that produced the evaluated work.
         /// </summary>
         public string? CaptainId { get; set; } = null;
@@ -192,6 +198,7 @@ namespace Armada.Core.Models
                     ? new List<string>(result.FailedTestNames)
                     : null;
                 record.FailedTestNamesOverflow = result.FailedTestNamesOverflow;
+                record.TimedOut = result.TimedOut;
             }
             else
             {

@@ -48,34 +48,70 @@ cancel wrote; it is not failed, handed off or landed.
 A failed event write is logged with the outcome and exception type. It never
 changes the gate outcome or the mission decision.
 
-## Timeout under host load
+## Time limits and host load
 
-A whole host running several times slower than normal times out commands that
-pass at normal load, with no test failing. When an evaluation ends with a
-`Timeout` failure class, the gate reads the host load. The host is overloaded
-when the 1-minute load average (the first field of `/proc/loadavg`) is above
-2 times the logical core count. On an overloaded host the gate does not report
+Each gate command has a time limit (`CommandTimeoutSeconds`). The limit starts
+when the command's process starts, after the host-wide command slot is granted,
+so a wait for the slot never counts against it; a wait of a second or more is
+logged as `<label> command waited N s for the host command slot`, before the
+`running <label> command` line. The limit does count everything the command
+does after it starts, including a lock the command takes itself (for example a
+`flock` around a suite that captains also run). On Linux the message of a
+command stopped at its limit therefore names the processes still in its
+process group, redacted and bounded to 20 command lines of 200 characters:
+`Still running at the limit: flock -x <lock> ...; dotnet test ...`.
+
+The record keeps two separate facts about a command that hits its limit:
+
+- `TimedOut` is true whenever the command hit its time limit.
+- `FailureClass` is `TestFail` when the output named failing tests before the
+  limit, and `Timeout` when it named none. A `TestFail` that also timed out
+  keeps the named tests in `FailedTestNames` with `FailedTestNamesOverflow`
+  set, because the tests still running at the limit never finished, and its
+  failure reason reads `<label> command exited -1 and also hit its time limit,
+  so some tests did not finish`. Autonomous recovery reads that as a test
+  failure; it blocks a rescue only for `Infra` and `Timeout`.
+
+The host is overloaded when the 1-minute load average (the first field of
+`/proc/loadavg`) is above 2 times the logical core count. A host without
+`/proc/loadavg`, or a reading that cannot be parsed, counts as normal load.
+
+**Before the first command.** A gate that will run commands and is due to
+start on an overloaded host waits first, so its time limits count run time and
+not time queued behind host load. It holds its dock lease and no host slot,
+reads the load every 30 seconds, and starts as soon as the host is no longer
+overloaded, or after 20 minutes even when it still is. It records event
+`mission.definition_of_done_load_admission`; the payload is a
+`DefinitionOfDoneLoadAdmissionRecord`, schema version 1: reason
+`host_overloaded`, the load when the gate was due and when it started, the core
+count, the threshold, whether load fell, and the seconds waited. A gate that is
+skipped does not wait, and a host that is not overloaded starts at once and
+records nothing.
+
+**After a time limit.** When an evaluation fails with `TimedOut` set, the gate
+reads the load again. The run stood under load when the 1-minute or the
+15-minute average (the third field) is above the threshold; the 15-minute
+average counts because the 1-minute average falls as soon as the timed-out
+command's own processes exit. After a run under load the gate does not report
 that result:
 
 1. It releases the host-wide command slot and keeps its dock lease.
-2. It reads the load again every 30 seconds until the load average is at or
-   below the logical core count, for at most 20 minutes. At 20 minutes it
+2. It reads the load again every 30 seconds until the 1-minute average is at
+   or below the logical core count, for at most 20 minutes. At 20 minutes it
    stops waiting even when load is still high.
 3. It records event `mission.definition_of_done_load_rerun`. The payload is a
    `DefinitionOfDoneLoadRerunRecord`, schema version 1: the command that timed
-   out, the load at the timeout and at the re-run, the core count, both
-   thresholds, whether load fell, and the seconds waited.
+   out, the 1-minute and 15-minute load at the timeout, the load at the
+   re-run, the core count, both thresholds, whether load fell, and the seconds
+   waited.
 4. It runs the whole evaluation once more, through the host-wide slot. That
    result is the gate outcome and is recorded as the evaluation event. A
-   second `Timeout` fails the mission with the same reason and failure class
-   as any other `Timeout`; there is no third run.
+   second time limit fails the mission like any other; there is no third run.
 
-A `Timeout` at normal load fails at once. A host without `/proc/loadavg`, or a
-reading that cannot be parsed, counts as normal load, so the gate behaves the
-same as without this rule. While the gate waits for load it is still a
-running gate: it shows in `RunningGates`, and cancelling the mission stops the
-wait and records `Cancelled`. The interrupted-gate re-run follows the same
-rule.
+A time limit hit at normal load fails at once. While the gate waits for load
+it is still a running gate: it shows in `RunningGates`, and cancelling the
+mission stops the wait and records `Cancelled`. The interrupted-gate re-run
+follows the same rules.
 
 Each gate command (build, unit tests, each consumer build and test) waits for a
 host-wide command slot, which it shares with check runs and merge-queue test

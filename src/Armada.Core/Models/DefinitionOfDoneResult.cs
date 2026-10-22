@@ -53,7 +53,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Ordered, de-duplicated identifiers of the tests the runner reported as failed, or null
         /// when the failure was not a test failure. Populated only for a <see cref="DefinitionOfDoneFailureClassEnum.TestFail"/>
-        /// result, and only comparable when <see cref="FailedTestNamesOverflow"/> is false.
+        /// result (including one that also hit its time limit), and only comparable when <see cref="FailedTestNamesOverflow"/> is false.
         /// </summary>
         public IReadOnlyList<string>? FailedTestNames { get; set; }
 
@@ -62,6 +62,13 @@ namespace Armada.Core.Models
         /// set is incomplete and must be treated as unknown by any comparison.
         /// </summary>
         public bool FailedTestNamesOverflow { get; set; }
+
+        /// <summary>
+        /// True when the failing command hit its time limit. Recorded apart from <see cref="FailureClass"/>: a run
+        /// that hit its time limit after naming failing tests is a <see cref="DefinitionOfDoneFailureClassEnum.TestFail"/>
+        /// that also timed out, and a run that hit it with no failing test is a <see cref="DefinitionOfDoneFailureClassEnum.Timeout"/>.
+        /// </summary>
+        public bool TimedOut { get; set; }
 
         /// <summary>
         /// Non-null when the gate was skipped rather than run (e.g., persona not applicable,

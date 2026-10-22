@@ -13631,8 +13631,12 @@ namespace Armada.Core.Services
             string tail = String.IsNullOrWhiteSpace(result.OutputTail) ? "" : "\n" + result.OutputTail.Trim();
             DefinitionOfDoneFailureClassEnum failureClass = result.FailureClass
                 ?? DefinitionOfDoneFailureClassEnum.Infra;
+            // The time limit is its own fact: a TestFail run can also have hit it, and the reader needs both.
+            string timedOut = result.TimedOut && failureClass != DefinitionOfDoneFailureClassEnum.Timeout
+                ? " and also hit its time limit, so some tests did not finish"
+                : String.Empty;
             return "DoD gate failed: classification=" + failureClass + "; " + label +
-                " command exited " + result.ExitCode + tail;
+                " command exited " + result.ExitCode + timedOut + tail;
         }
 
         private static string ApplyReviewFeedback(string? description, string reviewComment)

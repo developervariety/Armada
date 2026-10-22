@@ -403,6 +403,20 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A definition-of-done command that names failing tests and then hits its time
+  limit fails as `TestFail` with the named tests, and records `TimedOut` as a
+  separate fact; recovery no longer refuses its rescue as a host fault. A gate
+  due to start on an overloaded host waits until the host is no longer
+  overloaded (at most 20 minutes) and records
+  `mission.definition_of_done_load_admission` with reason `host_overloaded`,
+  so its time limits count run time. The re-run after a time limit also counts
+  a run as under load when the 15-minute load average is above the threshold,
+  because the 1-minute average falls once the timed-out command exits. A
+  command stopped at its limit names the processes still in its process group
+  (Linux; for example a `flock` the command was still waiting on), and a wait
+  for the host command slot, which never counts against the limit, is logged
+  on its own line.
+
 - A Check that waits is visible while it waits. The automatic Check runner
   reports three waits: the host command slot held for free memory
   (`check.memory_wait_*`), every slot busy while requests wait

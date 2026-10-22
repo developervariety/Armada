@@ -292,6 +292,7 @@ namespace Armada.Core.Services
                 RunnerOutputIncomplete = stored.RunnerOutputIncomplete ?? false,
                 FailedTestNames = stored.FailedTestNames,
                 FailedTestNamesOverflow = stored.FailedTestNamesOverflow ?? false,
+                TimedOut = stored.TimedOut ?? false,
                 CaptainId = stored.CaptainId,
                 DockId = stored.DockId,
                 BranchName = stored.BranchName,
@@ -329,7 +330,8 @@ namespace Armada.Core.Services
                 || stored.OutputCaptureUnavailableReason != null
                 || stored.RunnerOutputTruncated == true
                 || stored.RunnerOutputIncomplete == true
-                || (stored.RunnerOutputOmittedBytes ?? 0) > 0;
+                || (stored.RunnerOutputOmittedBytes ?? 0) > 0
+                || stored.TimedOut == true;
 
             switch (outcome)
             {
@@ -403,6 +405,7 @@ namespace Armada.Core.Services
             public bool? RunnerOutputIncomplete { get; set; }
             public List<string>? FailedTestNames { get; set; }
             public bool? FailedTestNamesOverflow { get; set; }
+            public bool? TimedOut { get; set; }
             public string? CaptainId { get; set; }
             public string? DockId { get; set; }
             public string? BranchName { get; set; }
