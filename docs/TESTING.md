@@ -82,6 +82,7 @@ As a safety net, `server-gate.sh` retries that abort at most twice, and only whe
 
 ```bash
 scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>] [--shards <n>]
+                             [--host-lock <path>] [--lock-held] [--min-available-mb <n>]
 
 # host and scratch directory from the environment
 export ARMADA_GATE_SSH_HOST=<server-host>
@@ -94,8 +95,11 @@ The script:
 1. Refuses to run while tracked files have uncommitted changes. The gate tests a commit, so commit first.
 2. Creates `<scratch-dir>/repo.git` on the host when it is absent, and pushes the commit to it under `refs/gate/<sha>`. No branch moves.
 3. Clones or fetches into `<scratch-dir>/worktree`, checks the commit out detached, and removes untracked build output.
-4. Builds `src/Armada.sln`, then runs `scripts/common/run-tests.sh` with its logs kept.
-5. Prints the combined summary and exits non-zero when the build or any runner fails. The build log, the combined log and every runner log (`runners/`) stay on the host under `<scratch-dir>/logs/<time>-<sha>/`.
+4. Takes the host-wide gate lock on the host, then waits until the host reports at least the minimum available memory, and prints both (see below).
+5. Builds `src/Armada.sln`, then runs `scripts/common/run-tests.sh` with its logs kept.
+6. Prints the combined summary and exits non-zero when the build or any runner fails. The build log, the combined log and every runner log (`runners/`) stay on the host under `<scratch-dir>/logs/<time>-<sha>/`.
+
+**One gate per host.** A gate build and its test runners hold several GB of memory, and two gates at once run a host without swap out of memory. So every gate takes a host-wide lock directory (`--host-lock`, else `$ARMADA_GATE_HOST_LOCK`, else `/tmp/armada-gate-host.lock`) on the host, for the whole run. The script takes the lock itself, inside the session that runs the gate, so the lock is held exactly as long as the gate. It writes an `owner` file (pid, UTC start time, scratch directory, ref and commit), and its exit trap shuts down this run's build servers and then releases the lock, on success, failure, or a dropped session. A waiting gate prints the holder every five minutes. When the holder's process no longer exists, one waiter reports it and takes the lock over, so a killed gate cannot block the host. After it takes the lock, the gate waits until `MemAvailable` reaches `--min-available-mb` (else `$ARMADA_GATE_MIN_AVAILABLE_MB`, else 8000; `0` turns the wait off) and prints the value. A caller that already holds the same lock for the run passes `--lock-held`, and the script then neither takes nor releases it.
 
 Only one gate runs per scratch directory at a time. The host needs git, bash and the .NET SDK; `~/.dotnet` is added to `PATH` when `dotnet` is not already on it.
 

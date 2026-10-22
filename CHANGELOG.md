@@ -322,6 +322,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Changed
 
+- `scripts/linux/server-gate.sh` runs one gate per host. It takes a host-wide
+  lock directory (`--host-lock`, `ARMADA_GATE_HOST_LOCK`, default
+  `/tmp/armada-gate-host.lock`) inside the session that runs the gate, writes an
+  owner file, waits until the host has `--min-available-mb` of available memory
+  (default 8000), and releases the lock from its exit trap after it shuts down
+  this run's build servers. A lock whose owner process is gone is taken over and
+  reported. `--lock-held` serves a caller that already holds the lock.
+
 - Claude Code captains launch with `--exclude-dynamic-system-prompt-sections`,
   so the per-repository system-prompt sections (memory path, environment, git
   status) reach the captain in its first message instead of the system prompt.

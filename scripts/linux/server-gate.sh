@@ -11,6 +11,7 @@
 #
 # Usage:
 #   scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>] [--shards <n>]
+#                                [--host-lock <path>] [--lock-held] [--min-available-mb <n>]
 #
 #   <ref>            Local commit to test (a branch, tag or SHA). It must be committed; the script refuses
 #                    to run while tracked files have uncommitted changes.
@@ -18,6 +19,12 @@
 #   --scratch-dir    Absolute path of the scratch directory on the host. Default: $ARMADA_GATE_SCRATCH_DIR.
 #                    Created when absent. Holds repo.git, worktree/, logs/ and a lock file.
 #   --shards         Unit shard count passed to run-tests.sh. Default: run-tests.sh's own default.
+#   --host-lock      Host-wide lock directory on the host. Every gate on the host takes it, so only one gate
+#                    builds and tests at a time. Default: $ARMADA_GATE_HOST_LOCK, else /tmp/armada-gate-host.lock.
+#   --lock-held      The caller already holds the host lock for this run; do not take or release it.
+#   --min-available-mb
+#                    Wait after taking the host lock until the host reports at least this much available
+#                    memory. Default: $ARMADA_GATE_MIN_AVAILABLE_MB, else 8000. 0 disables the wait.
 #
 # Example:
 #   ARMADA_GATE_SSH_HOST=<server-host> ARMADA_GATE_SCRATCH_DIR=<scratch-dir> scripts/linux/server-gate.sh HEAD
@@ -29,13 +36,16 @@
 set -euo pipefail
 
 usage() {
-  sed -n '12,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '12,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 ref=""
 ssh_host="${ARMADA_GATE_SSH_HOST:-}"
 scratch_dir="${ARMADA_GATE_SCRATCH_DIR:-}"
 shards=""
+host_lock="${ARMADA_GATE_HOST_LOCK:-/tmp/armada-gate-host.lock}"
+lock_held="0"
+min_available_mb="${ARMADA_GATE_MIN_AVAILABLE_MB:-8000}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -48,6 +58,14 @@ while [ "$#" -gt 0 ]; do
     --shards)
       if [ "$#" -lt 2 ]; then echo "--shards requires a count" >&2; exit 2; fi
       shards="$2"; shift 2 ;;
+    --host-lock)
+      if [ "$#" -lt 2 ]; then echo "--host-lock requires a path" >&2; exit 2; fi
+      host_lock="$2"; shift 2 ;;
+    --lock-held)
+      lock_held="1"; shift ;;
+    --min-available-mb)
+      if [ "$#" -lt 2 ]; then echo "--min-available-mb requires a number" >&2; exit 2; fi
+      min_available_mb="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     -*)
@@ -69,6 +87,14 @@ scratch_dir="${scratch_dir%/}"
 if [ -z "$scratch_dir" ]; then echo "The scratch directory cannot be the root directory." >&2; exit 2; fi
 if [ -n "$shards" ] && ! [[ "$shards" =~ ^[1-9][0-9]*$ ]]; then
   echo "Shard count must be a positive integer, got '$shards'." >&2; exit 2
+fi
+
+case "$host_lock" in
+  /*) ;;
+  *) echo "The host lock must be an absolute path on the host, got '$host_lock'." >&2; exit 2 ;;
+esac
+if ! [[ "$min_available_mb" =~ ^[0-9]+$ ]]; then
+  echo "Minimum available memory must be a whole number of MB, got '$min_available_mb'." >&2; exit 2
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -101,7 +127,7 @@ ssh "$ssh_host" "mkdir -p $quoted_scratch && { [ -d $quoted_scratch/repo.git ] |
 # Push the commit under a gate-only ref, so no branch on the host moves.
 git push -q "${ssh_host}:${scratch_dir}/repo.git" "${sha}:${gate_ref}"
 
-remote_args="$(printf '%q ' "$scratch_dir" "$sha" "$shards")"
+remote_args="$(printf '%q ' "$scratch_dir" "$sha" "$shards" "$host_lock" "$lock_held" "$min_available_mb" "$ref")"
 
 set +e
 ssh "$ssh_host" "bash -s -- $remote_args" <<'REMOTE'
@@ -109,6 +135,10 @@ set -uo pipefail
 scratch="$1"
 sha="$2"
 shards="$3"
+host_lock="$4"
+lock_held="$5"
+min_available_mb="$6"
+gate_label="$7"
 repo="$scratch/repo.git"
 worktree="$scratch/worktree"
 logs="$scratch/logs/$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:12}"
@@ -194,6 +224,71 @@ run_gate() {
   fi
   return 0
 }
+
+# One gate at a time on the whole host. A gate build and its test runners hold several GB, and two at once
+# run a host without swap out of memory, so every gate takes the host lock here, on the host, for the whole
+# run, and the EXIT trap releases it after this run's build servers are shut down. The owner file names the
+# holder; a lock whose owner process is gone is reported and taken over, so a killed gate cannot wedge the
+# host. A caller that already holds the lock passes --lock-held.
+lock_taken=0
+release_host_lock() {
+  dotnet build-server shutdown < /dev/null > /dev/null 2>&1 9>&- || true
+  if [ "$lock_taken" = "1" ]; then
+    rm -f "$host_lock/owner"
+    rmdir "$host_lock" 2>/dev/null || echo "WARNING: could not remove host lock $host_lock"
+  fi
+}
+trap release_host_lock EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ "$lock_held" = "1" ]; then
+  echo "Host lock: held by the caller ($host_lock)"
+else
+  waited=0
+  until mkdir "$host_lock" 2>/dev/null; do
+    owner_pid="$(sed -n 's/^pid=//p' "$host_lock/owner" 2>/dev/null)"
+    if [ -n "$owner_pid" ] && ! kill -0 "$owner_pid" 2>/dev/null; then
+      # Only one waiter can move the owner file, so only one takes over. The moved file is checked again:
+      # when its owner is alive (another waiter took over first), it goes back untouched.
+      claimed="$host_lock.stale.$$"
+      if mv "$host_lock/owner" "$claimed" 2>/dev/null; then
+        claimed_pid="$(sed -n 's/^pid=//p' "$claimed" 2>/dev/null)"
+        if [ -n "$claimed_pid" ] && kill -0 "$claimed_pid" 2>/dev/null; then
+          mv "$claimed" "$host_lock/owner" 2>/dev/null || true
+        else
+          echo "Host lock: owner pid $claimed_pid is gone; taking over ($(tr '\n' ' ' < "$claimed"))"
+          rm -f "$claimed"
+          rmdir "$host_lock" 2>/dev/null || true
+          continue
+        fi
+      fi
+    fi
+    if [ $(( waited % 300 )) -eq 0 ]; then
+      echo "Host lock: waiting ${waited}s for $host_lock ($(tr '\n' ' ' < "$host_lock/owner" 2>/dev/null || echo 'no owner file'))"
+    fi
+    sleep 15
+    waited=$(( waited + 15 ))
+  done
+  lock_taken=1
+  printf 'pid=%s\nutc=%s\nscratch=%s\nref=%s\nsha=%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$scratch" "$gate_label" "$sha" > "$host_lock/owner"
+  echo "Host lock: taken ($host_lock)"
+fi
+
+if [ "$min_available_mb" -gt 0 ] && [ -r /proc/meminfo ]; then
+  waited=0
+  while :; do
+    available_mb=$(( $(sed -n 's/^MemAvailable: *\([0-9]*\) kB/\1/p' /proc/meminfo) / 1024 ))
+    if [ "$available_mb" -ge "$min_available_mb" ]; then break; fi
+    if [ $(( waited % 300 )) -eq 0 ]; then
+      echo "Memory: ${available_mb} MB available, waiting for ${min_available_mb} MB (${waited}s)"
+    fi
+    sleep 15
+    waited=$(( waited + 15 ))
+  done
+  echo "Memory: ${available_mb} MB available (minimum ${min_available_mb} MB)"
+fi
 
 if command -v flock >/dev/null 2>&1; then
   exec 9> "$scratch/gate.lock"
