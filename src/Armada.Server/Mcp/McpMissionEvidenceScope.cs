@@ -41,6 +41,9 @@ namespace Armada.Server.Mcp
         /// <summary>Read a report source within the caller's evidence scope.</summary>
         public static async Task<Mission?> ReadMissionAsync(DatabaseDriver database, AuthContext caller, string id)
         {
+            McpAbbreviatedIdResolution resolved = await McpAbbreviatedIdResolver.ResolveMissionAsync(database, caller, id).ConfigureAwait(false);
+            if (resolved.Ambiguous) return null;
+            id = resolved.Id;
             if (String.IsNullOrEmpty(caller.MissionId))
                 return await CallerScopedRead.ReadMissionAsync(database, caller, id).ConfigureAwait(false);
 
@@ -54,6 +57,9 @@ namespace Armada.Server.Mcp
         /// <summary>Read an objective linked to the caller's mission, without previewing its evidence.</summary>
         public static async Task<Objective?> ReadObjectiveAsync(DatabaseDriver database, AuthContext caller, string id)
         {
+            McpAbbreviatedIdResolution resolved = await McpAbbreviatedIdResolver.ResolveObjectiveAsync(database, caller, id).ConfigureAwait(false);
+            if (resolved.Ambiguous) return null;
+            id = resolved.Id;
             Mission? anchor = await ReadAnchorAsync(database, caller).ConfigureAwait(false);
             if (anchor == null) return null;
             Objective? target = await database.Objectives.ReadAsync(id).ConfigureAwait(false);
@@ -69,6 +75,9 @@ namespace Armada.Server.Mcp
         public static async Task<Voyage?> ReadVoyageAsync(DatabaseDriver database, AuthContext caller, string id)
         {
             if (String.IsNullOrWhiteSpace(id)) return null;
+            McpAbbreviatedIdResolution resolved = await McpAbbreviatedIdResolver.ResolveVoyageAsync(database, caller, id).ConfigureAwait(false);
+            if (resolved.Ambiguous) return null;
+            id = resolved.Id;
             MissionReadScope? scope = await OpenAsync(database, caller).ConfigureAwait(false);
             if (scope == null) return null;
             Voyage? voyage = await CallerScopedRead.ReadVoyageAsync(database, OwnerScopeOf(caller), id).ConfigureAwait(false);
@@ -127,6 +136,9 @@ namespace Armada.Server.Mcp
         /// <summary>Explain a refused mission read without revealing another owner's record.</summary>
         public static async Task<McpScopeDenial> DenyMissionAsync(DatabaseDriver database, AuthContext caller, string? id)
         {
+            McpAbbreviatedIdResolution resolved = await McpAbbreviatedIdResolver.ResolveMissionAsync(database, caller, id).ConfigureAwait(false);
+            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Mission not found");
+            id = resolved.Id;
             Mission? record = String.IsNullOrWhiteSpace(id) ? null : await database.Missions.ReadAsync(id).ConfigureAwait(false);
             return McpScopeDenial.Create("Mission not found", IsOwnedOutOfScope(caller, record?.TenantId, record?.UserId, record != null));
         }
@@ -134,6 +146,9 @@ namespace Armada.Server.Mcp
         /// <summary>Explain a refused objective read without revealing another owner's record.</summary>
         public static async Task<McpScopeDenial> DenyObjectiveAsync(DatabaseDriver database, AuthContext caller, string? id)
         {
+            McpAbbreviatedIdResolution resolved = await McpAbbreviatedIdResolver.ResolveObjectiveAsync(database, caller, id).ConfigureAwait(false);
+            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Objective not found");
+            id = resolved.Id;
             Objective? record = String.IsNullOrWhiteSpace(id) ? null : await database.Objectives.ReadAsync(id).ConfigureAwait(false);
             return McpScopeDenial.Create("Objective not found", IsOwnedOutOfScope(caller, record?.TenantId, record?.UserId, record != null));
         }
@@ -141,6 +156,9 @@ namespace Armada.Server.Mcp
         /// <summary>Explain a refused voyage read without revealing another owner's record.</summary>
         public static async Task<McpScopeDenial> DenyVoyageAsync(DatabaseDriver database, AuthContext caller, string? id)
         {
+            McpAbbreviatedIdResolution resolved = await McpAbbreviatedIdResolver.ResolveVoyageAsync(database, caller, id).ConfigureAwait(false);
+            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Voyage not found");
+            id = resolved.Id;
             Voyage? record = String.IsNullOrWhiteSpace(id) ? null : await database.Voyages.ReadAsync(id).ConfigureAwait(false);
             return McpScopeDenial.Create("Voyage not found", IsOwnedOutOfScope(caller, record?.TenantId, record?.UserId, record != null));
         }
@@ -230,19 +248,25 @@ namespace Armada.Server.Mcp
                 {
                     if (owned.TryGetValue(blockerId, out Objective? blocker)) links.Objectives[blocker.Id] = blocker;
                 }
-                foreach (string citedId in CitedIds(objective))
+                foreach (string cited in CitedIds(objective))
                 {
+                    // A cited abbreviation links the one record it resolves to, the same as the full id.
+                    string citedId = cited;
                     if (citedId.StartsWith("obj_", StringComparison.Ordinal))
                     {
-                        if (owned.TryGetValue(citedId, out Objective? cited)) links.Objectives[cited.Id] = cited;
+                        McpAbbreviatedIdResolution objectiveId = McpAbbreviatedIdResolver.ResolveAmong(citedId, owned.Keys);
+                        if (!objectiveId.Ambiguous && owned.TryGetValue(objectiveId.Id, out Objective? citedObjective))
+                            links.Objectives[citedObjective.Id] = citedObjective;
                     }
                     else if (citedId.StartsWith("msn_", StringComparison.Ordinal))
                     {
-                        links.MissionIds.Add(citedId);
+                        McpAbbreviatedIdResolution missionId = await McpAbbreviatedIdResolver.ResolveMissionAsync(database, caller, citedId).ConfigureAwait(false);
+                        if (!missionId.Ambiguous) links.MissionIds.Add(missionId.Id);
                     }
                     else
                     {
-                        links.VoyageIds.Add(citedId);
+                        McpAbbreviatedIdResolution voyageId = await McpAbbreviatedIdResolver.ResolveVoyageAsync(database, caller, citedId).ConfigureAwait(false);
+                        if (!voyageId.Ambiguous) links.VoyageIds.Add(voyageId.Id);
                     }
                 }
             }

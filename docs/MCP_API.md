@@ -775,6 +775,18 @@ when the caller's owner holds the record but no evidence link reaches it, and
 `not_found` otherwise. An absent, purged or other-owner record all read as
 `not_found`, so a denial never reveals another owner's record.
 
+These reads, `get_objective`, `armada_mission_status`, `armada_voyage_status`
+and `armada_mission_change_summary` accept an abbreviated id: the prefix and the
+eight-character creation-time part of a full id, such as `msn_abcd1234`. The
+abbreviation resolves to the one full id the caller can see (its own owner for a
+mission caller, its normal read scope for an operator), and the normal scope
+check then applies. Records the caller cannot see are never candidates, so an
+abbreviation of another owner's record reads as `not_found`. When two visible
+records share the abbreviation, the read returns `Reason` `ambiguous_id` and no
+record; pass the full id. An objective that cites an abbreviated id links the one
+record it resolves to, the same as the full id, and an ambiguous citation links
+nothing.
+
 `armada_mission_output` returns digest-backed pages of persisted output. A mission
 caller can read its own output, missions in the same voyage, and its direct
 `DependsOnMissionId` or `ParentMissionId` source. Each source must have the same

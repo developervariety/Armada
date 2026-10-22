@@ -1202,6 +1202,115 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("MissionEvidence_AbbreviatedIdsResolveToTheOneRecordTheCallerCanSee", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string tenant = Armada.Core.Constants.DefaultTenantId;
+                    string user = Armada.Core.Constants.DefaultUserId;
+                    UserMaster otherUser = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant, "abbrev-other-" + Guid.NewGuid().ToString("N") + "@example.com", "password")).ConfigureAwait(false);
+
+                    // Each mission gets its own creation-time part, except the twins, which share one on purpose.
+                    long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    Voyage earlier = await testDb.Driver.Voyages.CreateAsync(new Voyage("earlier rescue voyage") { TenantId = tenant, UserId = user }).ConfigureAwait(false);
+                    Mission cited = await testDb.Driver.Missions.CreateAsync(new Mission("earlier rescue worker")
+                    {
+                        Id = IdAt("msn", now, "citedWorker"),
+                        TenantId = tenant,
+                        UserId = user,
+                        VoyageId = earlier.Id,
+                        AgentOutput = "rescue worker report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    // A record of another owner created in the same millisecond shares the abbreviation; it is
+                    // never a candidate, so the caller's abbreviation still resolves to its own record.
+                    Mission otherOwnerTwin = await testDb.Driver.Missions.CreateAsync(new Mission("other owner twin")
+                    {
+                        Id = IdAt("msn", now, "otherOwnerTwin"),
+                        TenantId = tenant,
+                        UserId = otherUser.Id,
+                        AgentOutput = "other owner report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission otherOwnerOnly = await testDb.Driver.Missions.CreateAsync(new Mission("other owner mission")
+                    {
+                        Id = IdAt("msn", now + 1, "otherOwnerOnly"),
+                        TenantId = tenant,
+                        UserId = otherUser.Id,
+                        AgentOutput = "hidden report",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    Mission twinA = await testDb.Driver.Missions.CreateAsync(new Mission("same-owner twin a")
+                    {
+                        Id = IdAt("msn", now + 2, "firstTwin"),
+                        TenantId = tenant,
+                        UserId = user,
+                        AgentOutput = "twin a",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(new Mission("same-owner twin b")
+                    {
+                        Id = IdAt("msn", now + 2, "secondTwin"),
+                        TenantId = tenant,
+                        UserId = user,
+                        AgentOutput = "twin b",
+                        Status = MissionStatusEnum.Complete
+                    }).ConfigureAwait(false);
+
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("follow-up worker")
+                    {
+                        Id = IdAt("msn", now + 3, "followUpWorker"),
+                        TenantId = tenant,
+                        UserId = user,
+                        Persona = Armada.Core.PersonaCatalog.Worker
+                    }).ConfigureAwait(false);
+                    Objective own = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "follow-up objective citing short ids",
+                        TenantId = tenant,
+                        UserId = user,
+                        MissionIds = new List<string> { worker.Id },
+                        Description = "Read the rescue worker report in mission " + cited.Id.Substring(0, 12)
+                            + " of voyage " + earlier.Id.Substring(0, 12) + ", and the twin "
+                            + twinA.Id.Substring(0, 12) + "."
+                    }).ConfigureAwait(false);
+                    EvidenceHandlers tools = EvidenceHandlers.Register(testDb.Driver);
+
+                    AuthContext caller = McpTestCaller.Operator;
+                    caller.MissionId = worker.Id;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        object byShort = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = cited.Id.Substring(0, 12) })).ConfigureAwait(false);
+                        AssertTrue(byShort is MissionOutputArtifactPage, "an abbreviated id reads the one visible mission; actual result: " + JsonSerializer.Serialize(byShort));
+                        AssertEqual(cited.AgentOutput, ((MissionOutputArtifactPage)byShort).Content, "the abbreviation resolves to the caller's record, not the other owner's twin");
+                        object byFull = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = cited.Id })).ConfigureAwait(false);
+                        AssertTrue(byFull is MissionOutputArtifactPage, "a short id cited by the objective links the mission like its full id; actual result: " + JsonSerializer.Serialize(byFull));
+
+                        string voyageStatus = JsonSerializer.Serialize(await tools.VoyageStatus!(JsonSerializer.SerializeToElement(new { voyageId = earlier.Id.Substring(0, 12) })).ConfigureAwait(false));
+                        AssertFalse(voyageStatus.Contains("\"Error\"", StringComparison.Ordinal), "an abbreviated cited voyage reads; actual result: " + voyageStatus);
+                        AssertContains("\"TotalMissions\":1", voyageStatus, "the voyage read uses the resolved id");
+
+                        object objective = await tools.ReadObjective!(JsonSerializer.SerializeToElement(new { objectiveId = own.Id.Substring(0, 12) })).ConfigureAwait(false);
+                        AssertTrue(objective is Objective, "an abbreviated objective id reads the caller's objective; actual result: " + JsonSerializer.Serialize(objective));
+
+                        string ambiguous = JsonSerializer.Serialize(await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = twinA.Id.Substring(0, 12) })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"ambiguous_id\"", ambiguous, "two visible missions make the abbreviation ambiguous");
+                        AssertFalse(ambiguous.Contains("twin a", StringComparison.Ordinal), "an ambiguous read returns no record");
+                        object twinByFull = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = twinA.Id })).ConfigureAwait(false);
+                        AssertFalse(twinByFull is MissionOutputArtifactPage, "an ambiguous citation links neither twin");
+
+                        string hidden = JsonSerializer.Serialize(await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = otherOwnerOnly.Id.Substring(0, 12) })).ConfigureAwait(false));
+                        AssertContains("\"Reason\":\"not_found\"", hidden, "another owner's record reads as absent through its abbreviation");
+                    }
+
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        object operatorRead = await tools.ReadOutput!(JsonSerializer.SerializeToElement(new { missionId = otherOwnerOnly.Id.Substring(0, 12) })).ConfigureAwait(false);
+                        AssertTrue(operatorRead is MissionOutputArtifactPage, "an operator resolves an abbreviation within its own scope; actual result: " + JsonSerializer.Serialize(operatorRead));
+                    }
+                }
+            });
+
             await RunTest("MissionEvidence_CallerReadsAncestorLinkedChildAndCitedRecordsOnly", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1781,6 +1890,19 @@ namespace Armada.Test.Unit.Suites.Services
                 }, database);
                 return handlers;
             }
+        }
+
+        /// <summary>A record id whose creation-time part encodes the given Unix milliseconds.</summary>
+        private static string IdAt(string prefix, long unixMilliseconds, string tail)
+        {
+            const string digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+            char[] timePart = new char[8];
+            for (int i = 7; i >= 0; i--)
+            {
+                timePart[i] = digits[(int)(unixMilliseconds % 36)];
+                unixMilliseconds /= 36;
+            }
+            return prefix + "_" + new string(timePart) + "_" + tail;
         }
 
         /// <summary>One mission read by a mission caller and whether its scope allows it.</summary>

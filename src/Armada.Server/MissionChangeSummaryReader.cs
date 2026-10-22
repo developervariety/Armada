@@ -87,6 +87,7 @@ namespace Armada.Server
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(database, caller, missionId).ConfigureAwait(false);
                 if (mission == null)
                     return Refuse(summary, MissionChangeSummary.MissionNotFoundReason, "No mission has that id.");
+                summary.MissionId = mission.Id;
 
                 if (own != null)
                 {

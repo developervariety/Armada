@@ -95,6 +95,7 @@ namespace Armada.Server.Mcp.Tools
                         database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
                     if (authorized == null)
                         return (object)await McpMissionEvidenceScope.DenyMissionAsync(database, McpCallerContext.Require(), missionId).ConfigureAwait(false);
+                    missionId = authorized.Id;
 
                     Mission? mission = await database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };

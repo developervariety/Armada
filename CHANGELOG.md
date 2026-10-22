@@ -24,6 +24,12 @@ upstream integrations and excludes changes already present at that baseline.
   size and SHA-256 match, `IDataExpiryObserver` sees each expiring database row
   before it is deleted, and `ArchiveKeys` fixes the `raw/` and `trace/` key
   layout. `docs/ARCHIVE.md` describes them.
+- The mission, voyage and objective read tools accept an abbreviated id (the
+  prefix and creation-time part, such as `msn_abcd1234`). It resolves to the one
+  full id the caller can see, and the normal scope check then applies. Another
+  owner's record reads as `not_found`; two visible matches return
+  `ambiguous_id`. An objective that cites an abbreviated id links the record it
+  resolves to, so a brief that names a mission by its short id can read it.
 - Typed-decision quality is measurable against outcomes. Every recorded call
   names its subject (`subject_type`, `subject_id`): the mission, else the
   objective, else the record the seam judged (`papercut_group`, `board_note`,

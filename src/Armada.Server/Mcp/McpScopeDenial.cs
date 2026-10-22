@@ -18,7 +18,10 @@ namespace Armada.Server.Mcp
         /// <summary>Plain error text, such as "Mission not found".</summary>
         public string Error { get; set; } = "";
 
-        /// <summary><see cref="NotFound"/> or <see cref="OutOfScope"/>.</summary>
+        /// <summary>Reason when an abbreviated id names more than one record the caller can see.</summary>
+        public const string Ambiguous = McpAbbreviatedIdResolver.AmbiguousReason;
+
+        /// <summary><see cref="NotFound"/>, <see cref="OutOfScope"/> or <see cref="Ambiguous"/>.</summary>
         public string Reason { get; set; } = NotFound;
 
         /// <summary>What the caller can do about the denial.</summary>
@@ -40,6 +43,18 @@ namespace Armada.Server.Mcp
                 Detail = outOfScope
                     ? "The record exists but nothing links it to this mission. A captain reads its own report chain and direct dependencies, the objectives that authorize its mission with their ancestors, blockers and children, the records those objectives cite by id, and the missions and voyages those objectives list."
                     : "No record with this id is visible to this caller."
+            };
+        }
+
+        /// <summary>Create the denial for an abbreviated id that names more than one visible record.</summary>
+        /// <param name="error">Plain error text.</param>
+        public static McpScopeDenial CreateAmbiguous(string error)
+        {
+            return new McpScopeDenial
+            {
+                Error = error,
+                Reason = Ambiguous,
+                Detail = "The abbreviated id matches more than one record visible to this caller. Pass the full id."
             };
         }
 

@@ -284,6 +284,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new { Error = "Voyage not found" };
                     }
                     Voyage voyage = readScope.Voyage;
+                    voyageId = voyage.Id;
 
                     // Default: summary mode (returns voyage metadata + mission counts by status, no mission objects)
                     bool isSummary = request.Summary != false;
@@ -416,7 +417,10 @@ namespace Armada.Server.Mcp.Tools
             }
             else
             {
-                voyage = await CallerScopedRead.ReadVoyageAsync(database, caller, voyageId).ConfigureAwait(false);
+                McpAbbreviatedIdResolution resolvedId = await McpAbbreviatedIdResolver.ResolveVoyageAsync(database, caller, voyageId).ConfigureAwait(false);
+                voyage = resolvedId.Ambiguous
+                    ? null
+                    : await CallerScopedRead.ReadVoyageAsync(database, caller, resolvedId.Id).ConfigureAwait(false);
                 if (caller.IsAdmin)
                 {
                     tenantId = null;
