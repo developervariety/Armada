@@ -25,6 +25,11 @@ namespace Armada.Core.Services
         /// </summary>
         public const int DefaultMaxOutputChars = 400;
 
+        /// <summary>
+        /// The completion line a work stage ends with when it finished.
+        /// </summary>
+        public const string CompletionMarker = "[ARMADA:RESULT] COMPLETE";
+
         #endregion
 
         #region Public-Methods
@@ -60,6 +65,25 @@ namespace Armada.Core.Services
                 return false;
 
             return true;
+        }
+
+        /// <summary>
+        /// Whether a work stage stopped before finishing: it produced no commit beyond the one it started from, left no
+        /// diff, and never wrote the completion line. Unlike <see cref="IsNoOp"/>, this holds however long the run took
+        /// and however much it narrated, which is how a model that ends its turn mid-task (still reading files) looks.
+        /// Unknown commits are treated as "made progress" so a gap in the evidence never rejects real work.
+        /// </summary>
+        /// <param name="diffSnapshot">Captured diff, or null.</param>
+        /// <param name="agentOutput">The stage's handoff output.</param>
+        /// <param name="startCommit">The commit the stage's dock started from, or null when unknown.</param>
+        /// <param name="producedCommit">The commit the stage ended on, or null when unknown.</param>
+        /// <returns>True when the stage left no work and did not report completion.</returns>
+        public static bool IsUnfinishedWork(string? diffSnapshot, string? agentOutput, string? startCommit, string? producedCommit)
+        {
+            if (!String.IsNullOrWhiteSpace(diffSnapshot)) return false;
+            if (String.IsNullOrWhiteSpace(startCommit) || String.IsNullOrWhiteSpace(producedCommit)) return false;
+            if (!String.Equals(startCommit.Trim(), producedCommit.Trim(), StringComparison.OrdinalIgnoreCase)) return false;
+            return String.IsNullOrEmpty(agentOutput) || agentOutput.IndexOf(CompletionMarker, StringComparison.Ordinal) < 0;
         }
 
         #endregion

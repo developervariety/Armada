@@ -99,6 +99,16 @@ namespace Armada.Core.Services.Interfaces
         string? GetPlacementWaitReason(string missionId);
 
         /// <summary>
+        /// Whether the mission's voyage binds its persona to one captain strictly ("wait for selected captain"), so no
+        /// recovery path may hand it to a different captain.
+        /// </summary>
+        /// <param name="mission">Mission.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True for a strict assignment.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when mission is null.</exception>
+        Task<bool> HasStrictCaptainAssignmentAsync(Mission mission, CancellationToken token = default);
+
+        /// <summary>
         /// Re-drive pipeline handoffs that dangled: WorkProduced missions whose Pending downstream
         /// stage was never prepared. Returns the number of missions whose handoff was re-driven.
         /// </summary>

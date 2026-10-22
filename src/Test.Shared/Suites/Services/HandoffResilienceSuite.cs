@@ -374,6 +374,45 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(await h.Missions.TryAssignAsync(mission, vessel).ConfigureAwait(false), "a stale unhealthy result does not block dispatch");
             }));
 
+            cases.Add(CaseAsync("worker_that_stops_mid_task_is_redispatched", "A Worker that ran for minutes but ended with no commit, no diff and no completion line is re-dispatched, not handed off as WorkProduced", TestTags.Reliability, async () =>
+            {
+                foreach (bool reportedComplete in new[] { false, true })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    StubGitService git = new StubGitService();
+                    git.HeadCommitResult = "1111111111111111111111111111111111111111";
+                    Harness h = new Harness(testDb, git);
+                    h.Missions.OnGetMissionOutput = _ => reportedComplete
+                        ? "Nothing needed changing: StartNew already exists.\n[ARMADA:RESULT] COMPLETE\nVerified the existing factory and its test."
+                        : "I'll start by reading the key files. Now let me examine the test file structure.";
+                    DatabaseDriver db = testDb.Driver;
+
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Captain captain = await db.Captains.CreateAsync(new Captain("stopped-early") { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("stopped") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission mission = await CreateRunningMissionAsync(testDb, h, vessel, voyage, captain, "Worker", false).ConfigureAwait(false);
+                    mission.StartedUtc = DateTime.UtcNow.AddMinutes(-3);
+                    mission.TotalRuntimeMs = 180000;
+                    await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    string metadata = Path.Combine(h.Settings.LogDirectory, "docks");
+                    Directory.CreateDirectory(metadata);
+                    File.WriteAllText(Path.Combine(metadata, mission.DockId + ".start"), "1111111111111111111111111111111111111111\n");
+
+                    await h.Missions.HandleCompletionAsync(captain, mission.Id).ConfigureAwait(false);
+
+                    Mission? after = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    if (reportedComplete)
+                    {
+                        AssertEqual(0, after!.NoOpRedispatchAttempts, "a stage that reports completion with nothing to change is not rejected");
+                    }
+                    else
+                    {
+                        AssertEqual(1, after!.NoOpRedispatchAttempts, "the unfinished run is re-dispatched: " + after.Status + " " + after.FailureReason);
+                        AssertTrue(after.Status != MissionStatusEnum.WorkProduced && after.Status != MissionStatusEnum.Complete, "not handed off as finished work");
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("noop_budget_is_not_spent_by_earlier_resumes", "A mission resumed after transient errors still gets its no-op re-dispatch", TestTags.Reliability, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

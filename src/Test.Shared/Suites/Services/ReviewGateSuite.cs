@@ -276,7 +276,7 @@ namespace Test.Shared.Suites.Services
                 nextPid++;
                 return Task.FromResult(nextPid);
             };
-            missionService.OnGetMissionOutput = _ => "reviewable stage output";
+            missionService.OnGetMissionOutput = _ => "reviewable stage output\n[ARMADA:RESULT] COMPLETE";
 
             Vessel vessel = new Vessel("review-vessel", "https://github.com/test/repo.git");
             vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_review_bare_" + Guid.NewGuid().ToString("N"));

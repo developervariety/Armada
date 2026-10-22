@@ -2147,6 +2147,9 @@ namespace Armada.Core.Services
                 || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.ProductManager) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Recorder))
                 return false;
             if (String.IsNullOrEmpty(mission.VoyageId) || (mission.Description ?? String.Empty).Contains(_EscalatedHeading, StringComparison.Ordinal)) return false;
+            // A strict assignment fixes the captain on purpose (tests that control model identity), so it fails rather
+            // than finishing on a different model.
+            if (await _Missions.HasStrictCaptainAssignmentAsync(mission, token).ConfigureAwait(false)) return false;
 
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId!, token).ConfigureAwait(false);
             Captain? plannerCaptain = await CaptainEscalationSelector.SelectAsync(_Database, mission, captain.Id, voyageMissions, token).ConfigureAwait(false);

@@ -1104,7 +1104,7 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(MissionStatusEnum.InProgress, apiWorker!.Status, "Primary worker should auto-dispatch after architect completion");
 
                     Captain? workerCaptain = await testDb.Driver.Captains.ReadAsync(apiWorker.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "worker complete";
+                    missionService.OnGetMissionOutput = _ => "worker complete\n[ARMADA:RESULT] COMPLETE";
                     await missionService.HandleCompletionAsync(workerCaptain!, apiWorker.Id).ConfigureAwait(false);
 
                     apiWorker = await testDb.Driver.Missions.ReadAsync(apiWorker.Id).ConfigureAwait(false);
@@ -1521,7 +1521,7 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(MissionStatusEnum.Pending, backendWorker.Status, "Dependent worker should remain pending until the upstream chain completes");
 
                     Captain? activeWorkerCaptain = await testDb.Driver.Captains.ReadAsync(coreWorker.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "core worker complete";
+                    missionService.OnGetMissionOutput = _ => "core worker complete\n[ARMADA:RESULT] COMPLETE";
                     await missionService.HandleCompletionAsync(activeWorkerCaptain!, coreWorker.Id).ConfigureAwait(false);
 
                     coreTest = await testDb.Driver.Missions.ReadAsync(coreTest!.Id).ConfigureAwait(false);
@@ -3101,7 +3101,7 @@ namespace Test.Shared.Suites.Services
                     testEngineer.DependsOnMissionId = worker.Id;
                     testEngineer = await testDb.Driver.Missions.CreateAsync(testEngineer).ConfigureAwait(false);
 
-                    missionService.OnGetMissionOutput = _ => "worker complete";
+                    missionService.OnGetMissionOutput = _ => "worker complete\n[ARMADA:RESULT] COMPLETE";
 
                     await missionService.HandleCompletionAsync(workerCaptain, worker.Id).ConfigureAwait(false);
 
@@ -3140,7 +3140,7 @@ namespace Test.Shared.Suites.Services
                         landingCalled = true;
                         return Task.CompletedTask;
                     };
-                    missionService.OnGetMissionOutput = _ => "worker complete";
+                    missionService.OnGetMissionOutput = _ => "worker complete\n[ARMADA:RESULT] COMPLETE";
 
                     Vessel vessel = new Vessel("scope-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));

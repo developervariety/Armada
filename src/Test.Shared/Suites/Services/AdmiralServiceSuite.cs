@@ -583,6 +583,42 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("strict_worker_is_not_escalated_to_another_captain", "A Worker strictly assigned to one captain fails after its resumes instead of finishing on the planner's captain", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxRecoveryAttempts = 1;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("strict-esc-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Captain claude = await db.Captains.CreateAsync(new Captain("claude", AgentRuntimeEnum.ClaudeCode) { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                    Captain mux = await db.Captains.CreateAsync(new Captain("mux", AgentRuntimeEnum.Mux) { State = CaptainStateEnum.Working, ProcessId = 4343, RecoveryAttempts = 1 }).ConfigureAwait(false);
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("strict-esc") { Status = VoyageStatusEnum.InProgress,
+                        CaptainOverridesJson = System.Text.Json.JsonSerializer.Serialize(new List<CaptainAssignmentOverride> { new CaptainAssignmentOverride { Persona = "Worker", CaptainId = mux.Id, StrictCaptain = true } }) }).ConfigureAwait(false);
+                    await db.Missions.CreateAsync(new Mission("Plan [Architect]", "plan") { VoyageId = voyage.Id, VesselId = vessel.Id, Persona = "Architect", Status = MissionStatusEnum.WorkProduced, CaptainId = claude.Id }).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id) { WorktreePath = Path.Combine(Path.GetTempPath(), "armada_esc_dock_" + Guid.NewGuid().ToString("N")), Active = true };
+                    Directory.CreateDirectory(dock.WorktreePath);
+                    dock = await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+                    Mission worker = await db.Missions.CreateAsync(new Mission("Build it [Worker]", "Do it.") { VoyageId = voyage.Id, VesselId = vessel.Id, Persona = "Worker", Status = MissionStatusEnum.InProgress, ProcessId = 4343, DockId = dock.Id, BranchName = "armada/mux/strict", RequestedCaptainId = mux.Id, CaptainId = mux.Id }).ConfigureAwait(false);
+                    mux.CurrentMissionId = worker.Id;
+                    mux.CurrentDockId = dock.Id;
+                    await db.Captains.UpdateAsync(mux).ConfigureAwait(false);
+
+                    RuntimeProviderError endpoint502 = new RuntimeProviderError { HttpStatusCode = 502, ErrorType = "llm_error", Reason = "the model endpoint rejected the request" };
+                    await service.HandleProcessExitAsync(4343, RuntimeFailureClassifier.Decide(1, endpoint502), mux.Id, worker.Id).ConfigureAwait(false);
+
+                    Mission? after = await db.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                    AssertEqual(mux.Id, after!.RequestedCaptainId, "the strict captain is kept");
+                    AssertFalse((after.Description ?? "").Contains("## Escalated to", StringComparison.Ordinal), "no escalation to a different model");
+                    try { Directory.Delete(dock.WorktreePath, true); } catch { }
+                }
+            }));
+
             cases.Add(Case("runtime_failure_classifier_transient_and_task_failures", "Endpoint 5xx and connection errors are Transient; iteration and budget stops are TaskFailure", TestTags.Positive, () =>
             {
                 AssertEqual(RuntimeFailureKindEnum.Transient, RuntimeFailureClassifier.Classify(1, new RuntimeProviderError { HttpStatusCode = 500, ErrorType = "llm_error" }));

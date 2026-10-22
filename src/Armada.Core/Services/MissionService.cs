@@ -841,6 +841,13 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public Task<bool> HasStrictCaptainAssignmentAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            return HasStrictCaptainOverrideAsync(mission, token);
+        }
+
+        /// <inheritdoc />
         public string? GetPlacementWaitReason(string missionId)
         {
             if (String.IsNullOrEmpty(missionId)) return null;
@@ -1350,7 +1357,12 @@ namespace Armada.Core.Services
 
         private async Task<bool> TryRejectNoOpCompletionAsync(Mission mission, Dock? dock, CancellationToken token)
         {
-            if (!NoOpCompletionDetector.IsNoOp(mission.DiffSnapshot, mission.AgentOutput, mission.TotalRuntimeMs))
+            // A work stage that ended without a commit, a diff or its completion line stopped early (a model ending its
+            // turn mid-task), however long it ran. Review and planning stages never commit, so they are exempt.
+            bool workStage = String.IsNullOrEmpty(mission.Persona) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Worker);
+            bool unfinished = workStage && dock != null
+                && NoOpCompletionDetector.IsUnfinishedWork(mission.DiffSnapshot, mission.AgentOutput, TryReadDockStartCommit(dock.Id), mission.CommitHash);
+            if (!unfinished && !NoOpCompletionDetector.IsNoOp(mission.DiffSnapshot, mission.AgentOutput, mission.TotalRuntimeMs))
                 return false;
 
             // Release the dock/captain before re-dispatching or failing.
@@ -1379,8 +1391,8 @@ namespace Armada.Core.Services
                 mission.TotalRuntimeMs = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                _Logging.Warn(_Header + "no-op completion detected for mission " + mission.Id +
-                    "; re-dispatching to a fresh captain (attempt " + mission.NoOpRedispatchAttempts + "/" + maxAttempts + ")");
+                _Logging.Warn(_Header + (unfinished ? "unfinished completion (no commit, no diff, no completion line)" : "no-op completion") + " detected for mission " + mission.Id +
+                    "; re-dispatching (attempt " + mission.NoOpRedispatchAttempts + "/" + maxAttempts + ")");
 
                 if (!String.IsNullOrEmpty(mission.VesselId))
                 {
@@ -1392,8 +1404,11 @@ namespace Armada.Core.Services
 
             // Retries exhausted: fail and surface to the operator inbox (LandingFailed/Failed feed it).
             mission.Status = MissionStatusEnum.Failed;
-            mission.FailureReason = "No-op completion: the captain repeatedly completed with no changes after " +
-                mission.NoOpRedispatchAttempts + " re-dispatch attempt(s). Likely an impossible or mis-specified mission.";
+            mission.FailureReason = unfinished
+                ? "Unfinished completion: the captain repeatedly ended its run without a commit, a diff or the completion line, after "
+                    + mission.NoOpRedispatchAttempts + " re-dispatch attempt(s). The model is stopping mid-task; check its context window and output limits, or use a stronger captain."
+                : "No-op completion: the captain repeatedly completed with no changes after " +
+                    mission.NoOpRedispatchAttempts + " re-dispatch attempt(s). Likely an impossible or mis-specified mission.";
             mission.FailureKind = MissionFailureKindEnum.NoOp;
             mission.CaptainId = null;
             mission.DockId = null;
