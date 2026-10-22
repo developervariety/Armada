@@ -470,7 +470,11 @@ heartbeat Check of a voyage or mission whose commit, configured command and
 environment variables match such a record passes without running the command,
 and its summary names the gate's mission. A failed, cancelled or timed-out gate
 records nothing, and a pass from the gate's isolated re-run of failing classes is
-not a full-suite pass. The records live in the admiral's memory, so after a
+not a full-suite pass. A UnitTest or IntegrationTest Check whose full run fails on
+at most three named tests re-runs them alone under the same rule as the gate
+(`docs/OPERATIONAL_ASSETS.md`, Workflow Profiles), in the same checkout and under
+the host command slot; it passes only when that re-run passes, and its summary
+then reads `passed on isolated re-run` with the full run's failure. The records live in the admiral's memory, so after a
 restart the Check runs its command. An operator's `run_check` or
 `retry_check_run` always runs the command.
 

@@ -200,6 +200,7 @@ namespace Armada.Core.Services
                         WorkflowProfileId = profile!.Id,
                         Type = type,
                         CommitHash = candidate.IntegrationCommit,
+                        DiffBaseCommit = candidate.TargetBaseCommit,
                         Label = "Integration candidate " + ShortCommit(candidate.IntegrationCommit) + " for " + candidate.TargetBranch
                     }, token).ConfigureAwait(false);
                 }

@@ -911,6 +911,91 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("unit_test_check_rerun_of_its_failing_tests_alone_decides_the_result", "A UnitTest check whose full run fails one test re-runs it alone: it passes and records the re-run when the re-run passes, and stays failed when the re-run fails", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+                await EnsureTenantAndUserAsync(testDb, "ten_check_rerun", "usr_check_rerun").ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated("ten_check_rerun", "usr_check_rerun", false, false, "UnitTest");
+
+                const string failingTest = "Sample.Tests.TimingFixture.Completes_within_bound";
+                const string fullRun = "printf '  Failed " + failingTest + " [5 ms]\\nFailed!  - Failed:     1, Passed:     4, Skipped:     0, Total:     5\\n'; exit 1";
+
+                // The re-run reads the failing names from the environment and proves it received them.
+                List<IsolatedRerunRow> rows = new List<IsolatedRerunRow>
+                {
+                    new IsolatedRerunRow("re-run passes", "printf 'rerun-of:%s\\n' \"$" + IsolatedRerunPlan.NamesEnvironmentVariable + "\"; exit 0", CheckRunStatusEnum.Passed),
+                    new IsolatedRerunRow("re-run fails", "printf 'rerun-of:%s\\n' \"$" + IsolatedRerunPlan.NamesEnvironmentVariable + "\"; exit 1", CheckRunStatusEnum.Failed)
+                };
+
+                foreach (IsolatedRerunRow row in rows)
+                {
+                    string repositoryPath = Path.Combine(Path.GetTempPath(), "armada-check-rerun-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(repositoryPath);
+                    try
+                    {
+                        RunGitForTest(repositoryPath, "init");
+                        RunGitForTest(repositoryPath, "checkout", "-b", "main");
+                        RunGitForTest(repositoryPath, "config", "user.name", "Armada test");
+                        RunGitForTest(repositoryPath, "config", "user.email", "armada-test@example.invalid");
+                        File.WriteAllText(Path.Combine(repositoryPath, "TimingFixture.cs"), "base\n");
+                        RunGitForTest(repositoryPath, "add", "TimingFixture.cs");
+                        RunGitForTest(repositoryPath, "commit", "-m", "base");
+                        string baseCommit = RunGitForTest(repositoryPath, "rev-parse", "HEAD").Trim();
+                        File.WriteAllText(Path.Combine(repositoryPath, "Other.cs"), "change\n");
+                        RunGitForTest(repositoryPath, "add", "Other.cs");
+                        RunGitForTest(repositoryPath, "commit", "-m", "change");
+                        string candidateCommit = RunGitForTest(repositoryPath, "rev-parse", "HEAD").Trim();
+
+                        Vessel vessel = CreateVessel("ten_check_rerun", "usr_check_rerun", repositoryPath);
+                        vessel.Name = "Check Rerun Vessel " + row.Name;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                        WorkflowProfile profile = new WorkflowProfile
+                        {
+                            TenantId = "ten_check_rerun",
+                            UserId = "usr_check_rerun",
+                            Name = "Check Rerun Workflow " + row.Name,
+                            Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = vessel.Id,
+                            UnitTestCommand = fullRun,
+                            IsolatedTestRerunCommand = row.RerunCommand
+                        };
+                        await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                        CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                        {
+                            VesselId = vessel.Id,
+                            WorkflowProfileId = profile.Id,
+                            Type = CheckRunTypeEnum.UnitTest,
+                            CommitHash = candidateCommit,
+                            DiffBaseCommit = baseCommit,
+                            Label = "Candidate"
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(row.Expected, run.Status, row.Name + ": the isolated re-run decides the check");
+                        AssertContains("rerun-of:" + failingTest, run.Output ?? "", row.Name + ": the re-run ran with the failing name");
+                        AssertContains("Isolated re-run of 1 failing test(s) (" + failingTest + ")", run.Summary ?? "", row.Name + ": the summary names the re-run tests");
+                        AssertContains("TimingFixture file not in the change", run.Summary ?? "", row.Name + ": the summary says the failing test's file is outside the change");
+                        if (row.Expected == CheckRunStatusEnum.Passed)
+                        {
+                            AssertContains("Candidate passed on isolated re-run. The full run failed (exit 1", run.Summary ?? "", "a pass on re-run is recorded as one, with the full-run failure");
+                            AssertContains(") passed.", run.Summary ?? "", "the summary records the re-run outcome");
+                        }
+                        else
+                        {
+                            AssertContains("also failed (exit 1)", run.Summary ?? "", "a failing re-run is recorded");
+                        }
+                    }
+                    finally
+                    {
+                        TryDeleteDirectory(repositoryPath);
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("run_async_fails_fast_when_required_workflow_input_is_missing", "RunAsync fails fast when required workflow input is missing", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -974,6 +1059,22 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private sealed class IsolatedRerunRow
+        {
+            public IsolatedRerunRow(string name, string rerunCommand, CheckRunStatusEnum expected)
+            {
+                Name = name;
+                RerunCommand = rerunCommand;
+                Expected = expected;
+            }
+
+            public string Name { get; }
+
+            public string RerunCommand { get; }
+
+            public CheckRunStatusEnum Expected { get; }
+        }
 
         private static async Task WaitForHostSlotWaiterAsync(string checkRunId)
         {

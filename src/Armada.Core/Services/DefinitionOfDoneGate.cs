@@ -47,8 +47,6 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
-        private const int MaxIsolatedRerunClasses = 3;
-
         private readonly string _Header = "[DefinitionOfDoneGate] ";
 
         // The host slot the running evaluation holds. A gate takes the slot at its first command and keeps it
@@ -696,9 +694,9 @@ namespace Armada.Core.Services
                     DefinitionOfDoneResult afterFlake = await MaybeRerunFlakyTestAsync(mission, profile, effectiveTest, worktreePath, testResult, token).ConfigureAwait(false);
 
                     // A test that loses a race under the loaded suite passes when its class runs alone, and
-                    // a real defect fails again; the isolated re-run is the truth. The independent UnitTest
-                    // Check still runs the whole suite at this commit, so a race only the full suite shows
-                    // is not hidden. Bounded to a few failing classes.
+                    // a real defect fails again; the isolated re-run is the truth. Test Checks apply the same
+                    // rule through IsolatedRerunPlan and record the full-run failure in their summary, so a
+                    // race only the full suite shows is not hidden. Bounded to a few failing classes.
                     if (!afterFlake.Passed && ReferenceEquals(afterFlake, testResult) && _Settings.RerunFailingClassesOnce)
                         afterFlake = await RerunFailingClassesOnceAsync(mission, "vessel", profile, effectiveTest, worktreePath, testResult, testLabel, token).ConfigureAwait(false);
                     if (!afterFlake.Passed) return afterFlake;
@@ -1270,11 +1268,9 @@ namespace Armada.Core.Services
             string logLabel,
             CancellationToken token)
         {
-            if (testResult.FailureClass != DefinitionOfDoneFailureClassEnum.TestFail) return testResult;
-            if (testResult.FailedTestNames == null || testResult.FailedTestNames.Count == 0 || testResult.FailedTestNamesOverflow)
-                return NoteNoRerun(testResult, subject, "the failing test names could not be read in full");
-
-            IsolatedRerunPlan plan = IsolatedRerunPlan.Build(profile, testCommand, testResult.FailedTestNames, MaxIsolatedRerunClasses);
+            IsolatedRerunPlan plan = IsolatedRerunPlan.ForFailedRun(
+                profile, testCommand, testResult.FailureClass, testResult.FailedTestNames, testResult.FailedTestNamesOverflow);
+            if (plan.NotTestFailure) return testResult;
             if (plan.Command == null)
                 return NoteNoRerun(testResult, subject, plan.NotRerunReason ?? IsolatedRerunPlan.NoCommandReason);
 
@@ -1381,7 +1377,7 @@ namespace Armada.Core.Services
                 return testResult;
 
             // The flake-score re-run has no class bound of its own; a profile command is bounded by name count.
-            IsolatedRerunPlan plan = IsolatedRerunPlan.Build(profile, testCommand, testResult.FailedTestNames, MaxIsolatedRerunClasses, boundClasses: false);
+            IsolatedRerunPlan plan = IsolatedRerunPlan.Build(profile, testCommand, testResult.FailedTestNames, IsolatedRerunPlan.MaxCount, boundClasses: false);
             if (plan.NothingToRerun) return testResult;
 
             bool crossBranch;

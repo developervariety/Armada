@@ -2,14 +2,15 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
-    /// How the definition-of-done gate re-runs a red suite's failing tests alone, or the named reason it
-    /// cannot. One rule serves the vessel, flake-score and consumer re-runs, each with its own workflow
-    /// profile. A profile that sets <c>IsolatedTestRerunCommand</c> re-runs through that command, and the
-    /// failing names reach it only through the <see cref="NamesEnvironmentVariable"/> environment variable,
-    /// never through the command text. Without that field, a <c>dotnet test</c> command is narrowed to the
+    /// How a red suite's failing tests are re-run alone, or the named reason they cannot be. One rule serves
+    /// the definition-of-done gate (vessel, flake-score and consumer re-runs) and the test Checks that
+    /// <see cref="CheckRunService"/> runs, each with its own workflow profile. A profile that sets
+    /// <c>IsolatedTestRerunCommand</c> re-runs through that command, and the failing names reach it only
+    /// through the <see cref="NamesEnvironmentVariable"/> environment variable, never through the command text. Without that field, a <c>dotnet test</c> command is narrowed to the
     /// failing classes by <see cref="FlakeRerunCommand"/>; any other command has no re-run route.
     /// </summary>
     public sealed class IsolatedRerunPlan
@@ -21,6 +22,17 @@ namespace Armada.Core.Services
         /// one name per line.
         /// </summary>
         public const string NamesEnvironmentVariable = "ARMADA_RERUN_TESTS";
+
+        /// <summary>
+        /// Largest number of failing tests (profile command) or failing classes (dotnet test) that are
+        /// re-run alone. A larger failure is not a flake to isolate, so its red stands.
+        /// </summary>
+        public const int MaxCount = 3;
+
+        /// <summary>
+        /// Reason recorded when the failing test names are missing, overflowed, or read from incomplete output.
+        /// </summary>
+        public const string NamesIncompleteReason = "the failing test names could not be read in full";
 
         /// <summary>
         /// Reason recorded when failing names were read but the profile has no isolated re-run command and
@@ -76,6 +88,12 @@ namespace Armada.Core.Services
         /// </summary>
         public bool NothingToRerun { get; private set; } = false;
 
+        /// <summary>
+        /// True when the red run did not fail on its tests (a compile error, an environment fault, a timeout
+        /// with no named failure), so no isolated re-run applies and no reason is worth recording.
+        /// </summary>
+        public bool NotTestFailure { get; private set; } = false;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -87,6 +105,39 @@ namespace Armada.Core.Services
         #endregion
 
         #region Public-Methods
+
+        /// <summary>
+        /// Plan the isolated re-run of a red suite run under the shared rule: only a test failure whose
+        /// complete set of failing names is known, within <see cref="MaxCount"/>, is re-run alone.
+        /// </summary>
+        /// <param name="profile">The workflow profile of the suite that failed.</param>
+        /// <param name="testCommand">The test command that failed.</param>
+        /// <param name="failureClass">The class of the red run, or null when it was not classified.</param>
+        /// <param name="failingNames">The failing test names read from the run, or null when none were read.</param>
+        /// <param name="namesIncomplete">True when the set is overflowed or was read from incomplete output.</param>
+        /// <returns>The plan; <see cref="Command"/> is null when the red stands, with the reason.</returns>
+        public static IsolatedRerunPlan ForFailedRun(
+            WorkflowProfile? profile,
+            string testCommand,
+            DefinitionOfDoneFailureClassEnum? failureClass,
+            IReadOnlyList<string>? failingNames,
+            bool namesIncomplete)
+        {
+            if (failureClass != DefinitionOfDoneFailureClassEnum.TestFail)
+            {
+                return new IsolatedRerunPlan
+                {
+                    NotTestFailure = true,
+                    NothingToRerun = true,
+                    NotRerunReason = "the run failed as " + (failureClass?.ToString() ?? "unclassified") + ", not on its tests"
+                };
+            }
+
+            if (failingNames == null || failingNames.Count == 0 || namesIncomplete)
+                return new IsolatedRerunPlan { NothingToRerun = true, NotRerunReason = NamesIncompleteReason };
+
+            return Build(profile, testCommand, failingNames, MaxCount);
+        }
 
         /// <summary>
         /// Plan the isolated re-run of a red suite.

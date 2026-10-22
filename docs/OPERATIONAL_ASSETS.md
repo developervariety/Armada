@@ -177,10 +177,20 @@ UnitTest command. Use a containerless unit-test command only when the normal
 suite has fixtures that require an unavailable container runtime. Do not use a
 filter to hide ordinary failures.
 
-When the definition-of-done gate sees a red unit-test run, it re-runs the
-failing tests once alone; a test that lost a race under load passes alone and a
-real defect fails again. Two optional fields let a vessel whose runner is not
-`dotnet test` take part:
+When the definition-of-done gate or a UnitTest or IntegrationTest Check sees a
+red test run, it re-runs the failing tests once alone; a test that lost a race
+under load passes alone and a real defect fails again. Both apply one rule: only
+a test failure with a complete set of failing names, at most three tests (or
+three classes for `dotnet test`), is re-run, and the result of the re-run
+decides. A Check that passes this way records `passed on isolated re-run` in its
+summary, with the full run's exit code and test counts, the re-run tests, and the
+re-run outcome; its output carries the re-run command and output after the full
+run. A Check whose re-run fails, or that cannot re-run, stays `Failed` and its
+summary says which. A landing's integration Check also names, for each failing
+test, whether a file named for its class is in the change since the target tip.
+The definition-of-done setting `RerunFailingClassesOnce` turns the re-run off for
+the gate and the Checks together. Two optional fields let a vessel whose runner
+is not `dotnet test` take part:
 
 - `failedTestLinePattern` is a .NET regular expression with a named group
   `name` that reads one failing test name from one output line, for example
@@ -193,13 +203,13 @@ real defect fails again. Two optional fields let a vessel whose runner is not
   `name` group. Each match has a 250 ms timeout; a pattern that exceeds it marks
   the names unreadable, and nothing is re-run.
 - `isolatedTestRerunCommand` is a complete command that re-runs only the named
-  tests and every other step of the unit-test command. The gate passes the
-  failing names in the `ARMADA_RERUN_TESTS` environment variable, one per line,
-  and never writes a name into the command text. It re-runs at most three names
-  this way.
+  tests and every other step of the unit-test command. The gate and the Checks
+  pass the failing names in the `ARMADA_RERUN_TESTS` environment variable, one
+  per line, and never write a name into the command text. They re-run at most
+  three names this way.
 
-Without `isolatedTestRerunCommand`, the gate narrows a `dotnet test` command to
-the failing classes itself. Any other command is not re-run, and the failure
+Without `isolatedTestRerunCommand`, the gate and the Checks narrow a
+`dotnet test` command to the failing classes themselves. Any other command is not re-run, and the failure
 text names the missing field. A consumer suite uses the consumer's own profile.
 
 A failed gate command's failure text opens with the test outcomes it read from

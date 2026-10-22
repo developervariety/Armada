@@ -215,8 +215,10 @@ namespace Armada.Core.Settings
         /// <remarks>
         /// A test that loses a race under the loaded full suite, such as two tests sharing a process-wide
         /// console, fails the gate for nothing, while a real defect fails again when its class runs alone.
-        /// A race in product code that only shows under the full suite is still caught by the independent
-        /// UnitTest Check, which runs the whole suite at the same commit. At most three failing classes are re-run.
+        /// The same switch governs the UnitTest and IntegrationTest Checks, which apply the same rule through
+        /// <see cref="Armada.Core.Services.IsolatedRerunPlan"/> and record the full-run failure in their summary,
+        /// so a race that only shows under the full suite stays visible. At most three failing tests or classes
+        /// are re-run.
         /// </remarks>
         public bool RerunFailingClassesOnce { get; set; } = true;
 

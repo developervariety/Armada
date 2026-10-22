@@ -76,5 +76,12 @@ namespace Armada.Core.Models
         /// Optional raw command override.
         /// </summary>
         public string? CommandOverride { get; set; } = null;
+
+        /// <summary>
+        /// Optional commit the checked change is measured against, such as the target tip a landing merged
+        /// onto. When set, a failed test Check's summary says for each failing test whether a file named for
+        /// its class is in the change since this commit. Used for triage only; not persisted.
+        /// </summary>
+        public string? DiffBaseCommit { get; set; } = null;
     }
 }

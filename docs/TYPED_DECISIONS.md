@@ -882,9 +882,10 @@ Two platform-side decisions ship `Gate`:
   that lost a race under the loaded suite usually passes alone. A test that
   fails again alone keeps the red, and the failure text records the host load
   the re-run ran under; on a busy host it says the failure may still be
-  load-related (see `reference/backend-dod.md`). A race only the full suite
-  shows is still caught by the independent UnitTest Check, which runs the whole
-  suite at the same commit. When no re-run is possible, the failure text states why.
+  load-related (see `reference/backend-dod.md`). The UnitTest and
+  IntegrationTest Checks apply the same isolated re-run rule and record the
+  full-run failure in their summary, so a race only the full suite shows stays
+  visible there. When no re-run is possible, the failure text states why.
 - **`change_substance`** sits over the extension-based
   `ChangeSubstanceClassifier`, which stays the rule. The model reads the rescue's
   added hunks and answers a `substance` Choice `{behaviour, test_only, docs_only,

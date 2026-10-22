@@ -9,6 +9,20 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A UnitTest or IntegrationTest Check, the landing integration Check among them,
+  re-runs its failing tests once alone under the same rule and bound as the
+  definition-of-done gate, through the shared isolated re-run plan: a test
+  failure with a complete set of at most three failing tests (or three classes
+  for `dotnet test`) is re-run through the profile's `isolatedTestRerunCommand`
+  or a narrowed `dotnet test` command, and the Check passes only when the re-run
+  passes. Its summary then reads `passed on isolated re-run` with the full run's
+  exit code and test counts, the re-run tests and the re-run outcome; a re-run
+  that fails, or a red that cannot be re-run, stays `Failed` and the summary says
+  which. A landing's integration Check also says, for each failing test, whether a
+  file named for its class is in the change since the target tip. The
+  definition-of-done setting `RerunFailingClassesOnce` switches the gate and the
+  Checks together.
+
 - An operator restart of a downstream stage that was cancelled behind a failed
   upstream stage reopens its `Failed` voyage. The stage runs on the commit of
   the nearest earlier stage that handed off work, each skipped stage is

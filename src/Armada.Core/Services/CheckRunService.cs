@@ -25,6 +25,13 @@ namespace Armada.Core.Services
         public Action<CheckRun>? OnCheckRunChanged { get; set; }
 
         /// <summary>
+        /// Whether a failed test Check re-runs its few failing tests once in isolation under the shared
+        /// <see cref="IsolatedRerunPlan"/> rule. The server reads the definition-of-done setting
+        /// <c>RerunFailingClassesOnce</c>, so the gate and the Checks follow one switch. Defaults to on.
+        /// </summary>
+        public Func<bool> IsolatedRerunEnabled { get; set; } = () => true;
+
+        /// <summary>
         /// Directory-name prefix of the private checkout a check run executes in. The check run id
         /// follows it, so a storage sweep can recognize the checkout of a live check.
         /// </summary>
@@ -37,6 +44,7 @@ namespace Armada.Core.Services
         public const int CheckCommandOutputLimitBytes = 4 * 1024 * 1024;
 
         private const string _WorktreeLockReason = "armada check run in progress";
+        private const int _RerunOutputLimitChars = 64 * 1024;
 
         private readonly string _Header = "[CheckRunService] ";
         private readonly DatabaseDriver _Database;
@@ -397,6 +405,8 @@ namespace Armada.Core.Services
                 onRecorded?.Invoke(run);
 
                 IsolatedCheckout? isolatedCheckout = null;
+                string executionDirectory = run.WorkingDirectory!;
+                string executionCommand = run.Command;
 
                 CommandExecutionResult execution;
 
@@ -409,8 +419,8 @@ namespace Armada.Core.Services
                     if (slotRequested.Status != CheckRunStatusEnum.Pending) return slotRequested;
                     run = slotRequested;
 
-                    string executionDirectory = run.WorkingDirectory!;
-                    string executionCommand = run.Command;
+                    executionDirectory = run.WorkingDirectory!;
+                    executionCommand = run.Command;
 
                     if (IsIsolatedCheckoutType(run.Type))
                     {
@@ -489,6 +499,7 @@ namespace Armada.Core.Services
                 run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
                 run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
                 run.Summary = BuildSummary(run, profile);
+                await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, request.DiffBaseCommit, token).ConfigureAwait(false);
 
                 await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
 
@@ -1251,6 +1262,7 @@ namespace Armada.Core.Services
             run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
             run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
             run.Summary = BuildSummary(run, profile);
+            await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, null, token).ConfigureAwait(false);
 
             await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
 
@@ -1680,7 +1692,8 @@ namespace Armada.Core.Services
             return new CommandExecutionResult
             {
                 ExitCode = exitCode,
-                Output = output
+                Output = output,
+                Truncated = result.Truncated
             };
         }
 
@@ -1737,6 +1750,165 @@ namespace Armada.Core.Services
             }
 
             return results;
+        }
+
+        private static bool IsTestCheckType(CheckRunTypeEnum type)
+        {
+            return type == CheckRunTypeEnum.UnitTest || type == CheckRunTypeEnum.IntegrationTest;
+        }
+
+        /// <summary>
+        /// Apply the isolated re-run rule of <see cref="IsolatedRerunPlan"/> to a failed test Check, the same
+        /// rule and bound the definition-of-done gate applies. When the run failed on a few named tests that
+        /// the profile can re-run alone, they are re-run once in the same checkout under the host command
+        /// slot, and the Check passes only when that re-run passes. The summary and output always say that
+        /// the full run failed, which tests were re-run and how the re-run ended, or why no re-run applied,
+        /// so a pass on re-run is never read as a full-suite pass.
+        /// </summary>
+        private async Task ApplyIsolatedRerunAsync(
+            CheckRun run,
+            WorkflowProfile? profile,
+            CommandExecutionResult execution,
+            string executionCommand,
+            string executionDirectory,
+            string? diffBaseCommit,
+            CancellationToken token)
+        {
+            if (run.Status != CheckRunStatusEnum.Failed || !IsTestCheckType(run.Type)) return;
+            if (!IsolatedRerunEnabled()) return;
+            if (String.IsNullOrWhiteSpace(executionDirectory) || !Directory.Exists(executionDirectory)) return;
+
+            DefinitionOfDoneFailureClassEnum failureClass = new DefinitionOfDoneFailureClassifier().Classify(
+                "unit-test", execution.ExitCode, execution.Output);
+            Regex? pattern = null;
+            if (!String.IsNullOrWhiteSpace(profile?.FailedTestLinePattern)
+                && !FailedTestLinePattern.TryCreate(profile!.FailedTestLinePattern, FailedTestLinePattern.MatchTimeout, out pattern, out string? patternError))
+            {
+                _Logging.Warn(_Header + "check " + run.Id + " workflow profile " + profile.Id + " FailedTestLinePattern ignored: " + patternError);
+                pattern = null;
+            }
+
+            FailedTestNameExtractor.FailedTestNameSet failing = failureClass == DefinitionOfDoneFailureClassEnum.TestFail
+                ? FailedTestNameExtractor.Extract(execution.Output, pattern)
+                : FailedTestNameExtractor.FailedTestNameSet.Empty;
+            IsolatedRerunPlan plan = IsolatedRerunPlan.ForFailedRun(
+                profile, executionCommand, failureClass, failing.Names, failing.Overflow || failing.PatternTimedOut || execution.Truncated);
+            if (plan.NotTestFailure) return;
+
+            string triage = await DescribeFailingTestsInChangeAsync(failing.Names, diffBaseCommit, executionDirectory, token).ConfigureAwait(false);
+            string names = String.Join(", ", failing.Names);
+
+            if (plan.Command == null)
+            {
+                string reason = plan.NotRerunReason ?? IsolatedRerunPlan.NoCommandReason;
+                _Logging.Info(_Header + "check " + run.Id + " red not re-run in isolation: " + reason);
+                run.Summary = run.Summary + " Not re-run in isolation: " + reason + "." + triage;
+                run.Output = run.Output + Environment.NewLine + Environment.NewLine + "Not re-run in isolation: " + reason + ".";
+                return;
+            }
+
+            Dictionary<string, string> environment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
+            foreach (KeyValuePair<string, string> pair in plan.Environment) environment[pair.Key] = pair.Value;
+
+            _Logging.Info(_Header + "check " + run.Id + " re-running " + plan.Count + " failing " + plan.Unit + " in isolation"
+                + (plan.FromProfile ? " through the profile's IsolatedTestRerunCommand" : String.Empty));
+            CommandExecutionResult rerun;
+            try
+            {
+                using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run) + " (isolated re-run)", token).ConfigureAwait(false))
+                {
+                    rerun = await ExecuteCommandAsync(plan.Command, executionDirectory, _CommandTimeout, token, environment).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                rerun = new CommandExecutionResult { ExitCode = -1, Output = ex.Message };
+            }
+
+            bool passed = rerun.ExitCode == 0;
+            _Logging.Info(_Header + "check " + run.Id + " isolated re-run passed=" + passed);
+            string fullRunExit = run.ExitCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
+            string rerunText = "Isolated re-run of " + plan.Count + " failing " + plan.Unit + " (" + names + ") "
+                + (passed ? "passed" : "also failed (exit " + rerun.ExitCode.ToString(System.Globalization.CultureInfo.InvariantCulture) + ")") + ".";
+            run.Output = run.Output + Environment.NewLine + Environment.NewLine
+                + "--- ISOLATED RE-RUN: " + plan.Command + " ---" + Environment.NewLine
+                + rerunText + Environment.NewLine + BoundRerunOutput(rerun.Output);
+
+            if (passed)
+            {
+                string label = !String.IsNullOrWhiteSpace(run.Label) ? run.Label! : run.Type.ToString();
+                string? testDetails = BuildTestSummaryText(run.TestSummary);
+                run.Status = CheckRunStatusEnum.Passed;
+                run.ExitCode = 0;
+                run.Summary = label + " passed on isolated re-run. The full run failed (exit " + fullRunExit
+                    + (String.IsNullOrWhiteSpace(testDetails) ? String.Empty : "; " + testDetails) + "). "
+                    + rerunText + triage;
+                return;
+            }
+
+            run.Summary = run.Summary + " " + rerunText + triage;
+        }
+
+        private static string BoundRerunOutput(string output)
+        {
+            if (String.IsNullOrEmpty(output) || output.Length <= _RerunOutputLimitChars) return output ?? String.Empty;
+            return "...(re-run output truncated)" + Environment.NewLine + output.Substring(output.Length - _RerunOutputLimitChars);
+        }
+
+        /// <summary>
+        /// Say, for each failing test, whether a file named for its class is in the change since the diff base,
+        /// so a failure outside the change is visible at a glance. Empty when no base is known; a diff that
+        /// cannot be read is named rather than skipped.
+        /// </summary>
+        private async Task<string> DescribeFailingTestsInChangeAsync(
+            IReadOnlyList<string> failingNames,
+            string? diffBaseCommit,
+            string executionDirectory,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(diffBaseCommit) || failingNames.Count == 0) return String.Empty;
+            string shortBase = diffBaseCommit.Trim().Length > 12 ? diffBaseCommit.Trim().Substring(0, 12) : diffBaseCommit.Trim();
+
+            GitCommandResult diff;
+            try
+            {
+                diff = await RunGitCaptureAsync(executionDirectory, TimeSpan.FromSeconds(60), token, "diff", "--name-only", diffBaseCommit.Trim(), "HEAD").ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read the change since " + shortBase + " for failing-test triage: " + ex.Message);
+                return " The change since " + shortBase + " could not be read for triage (" + ex.GetType().Name + ").";
+            }
+
+            if (diff.ExitCode != 0)
+                return " The change since " + shortBase + " could not be read for triage (git exit " + diff.ExitCode + ").";
+
+            HashSet<string> changedStems = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string line in diff.StdOut.Split('\n'))
+            {
+                string path = line.Trim();
+                if (path.Length > 0) changedStems.Add(Path.GetFileNameWithoutExtension(path));
+            }
+
+            List<string> parts = new List<string>();
+            foreach (string name in failingNames)
+            {
+                IReadOnlyList<string> classes = FlakeRerunCommand.DeriveClassNames(new[] { name });
+                string verdict = classes.Count == 0
+                    ? "class unknown"
+                    : (changedStems.Contains(classes[0]) ? "in the change" : "not in the change");
+                parts.Add(name + " (" + (classes.Count == 0 ? String.Empty : classes[0] + " file ") + verdict + ")");
+            }
+
+            return " Failing tests against the change since " + shortBase + ": " + String.Join("; ", parts) + ".";
         }
 
         private static string BuildSummary(CheckRun run, WorkflowProfile? profile)
@@ -2327,6 +2499,7 @@ namespace Armada.Core.Services
         {
             public int ExitCode { get; set; } = -1;
             public string Output { get; set; } = String.Empty;
+            public bool Truncated { get; set; } = false;
         }
 
         /// <summary>

@@ -441,6 +441,7 @@ namespace Armada.Server
             _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging, () => _Settings.BannedDiffPatterns);
+            _CheckRunService.IsolatedRerunEnabled = () => _Settings.DefinitionOfDone.RerunFailingClassesOnce;
 
             // Both landing paths validate the actual merged commit through this one validator before the
             // target moves; it needs the check service, so it is wired after both landing services exist.
