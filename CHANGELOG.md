@@ -1431,6 +1431,14 @@ upstream integrations and excludes changes already present at that baseline.
 - Added-test coverage extraction accepts recognized test attributes and excludes
   unannotated helper methods from its bounded candidate list.
 
+- A coordination note addressed to a session's name reaches the session. A
+  `toParticipantKey` that is no participant key but is the name exactly one
+  participant key posts or heartbeats under is stored and woken under that key,
+  so the read filter, the wake and `armada_mark_signal_read` agree, and the post
+  result carries `AddressNotice`. `armada_coordination_read` and
+  `armada_coordination_heartbeat` refuse a `participantKey` that differs from
+  the session's participant header instead of reading the header key silently.
+
 ## Added
 
 - **Typed decisions:** provider-neutral closed-question classification behind

@@ -186,6 +186,11 @@ namespace Armada.Server
             if (String.IsNullOrEmpty(content)) throw new ArgumentException("Message content must not be empty.", nameof(content));
             if (String.IsNullOrWhiteSpace(authorName)) throw new ArgumentException("Author name must not be empty.", nameof(authorName));
 
+            CoordinationAddressResolution address = await ResolveAddressAsync(toParticipantKey, token).ConfigureAwait(false);
+            if (address.Notice != null)
+                _Logging.Warn(_Header + "note from " + authorName + ": " + address.Notice);
+            toParticipantKey = address.ResolvedKey;
+
             CoordinationRoom room = await EnsureRoomAsync(roomKey, DefaultRoomKey == roomKey ? DefaultRoomName : null, DefaultRoomKey == roomKey ? DefaultRoomDescription : null, token).ConfigureAwait(false);
 
             CoordinationMessage message = new CoordinationMessage
@@ -203,6 +208,7 @@ namespace Armada.Server
                 ToParticipantKey = String.IsNullOrWhiteSpace(toParticipantKey) ? null : toParticipantKey
             };
             message = await _Database.CoordinationMessages.CreateAsync(message, token).ConfigureAwait(false);
+            message.AddressNotice = address.Notice;
 
             await _Database.CoordinationRooms.UpdateAsync(room, token).ConfigureAwait(false);
 
@@ -402,6 +408,68 @@ namespace Armada.Server
             DateTime staleCutoff = DateTime.UtcNow.AddMinutes(-60);
             await _Database.CoordinationParticipants.PruneAsync(room.Id, staleCutoff, token).ConfigureAwait(false);
             return participant;
+        }
+
+        /// <summary>
+        /// Resolve the addressee of a note. A key that a participant uses (a presence row in any room
+        /// or a post or heartbeat since the admiral started) is used as is. A value that is no such
+        /// key but that exactly one participant key uses as its name resolves to that key, so the
+        /// note and its wake reach the session that reads and acknowledges as that key. A name
+        /// several keys use, or a value nobody uses, stays as given.
+        /// </summary>
+        /// <param name="toParticipantKey">Addressee the sender gave; null or blank for a broadcast note.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The resolution, with a sender-facing notice when the value was a name.</returns>
+        public async Task<CoordinationAddressResolution> ResolveAddressAsync(string? toParticipantKey, CancellationToken token = default)
+        {
+            CoordinationAddressResolution resolution = new CoordinationAddressResolution();
+            if (String.IsNullOrWhiteSpace(toParticipantKey)) return resolution;
+            string requested = toParticipantKey.Trim();
+            resolution.RequestedKey = requested;
+            resolution.ResolvedKey = requested;
+
+            Dictionary<string, HashSet<string>> namesByKey = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            DateTime retainFrom = _TimeProvider.GetUtcNow().UtcDateTime - _ParticipantNameRetention;
+            lock (_ParticipantNameLock)
+            {
+                foreach (KeyValuePair<string, ParticipantNameHistory> entry in _ParticipantNames)
+                {
+                    HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (KeyValuePair<string, DateTime> name in entry.Value.LastSeenByName)
+                        if (name.Value >= retainFrom) names.Add(name.Key);
+                    namesByKey[entry.Key] = names;
+                }
+            }
+
+            List<CoordinationPresenceEntry> presence = await EnumeratePresenceAcrossRoomsAsync((int)_ParticipantNameRetention.TotalMinutes, token).ConfigureAwait(false);
+            foreach (CoordinationPresenceEntry entry in presence)
+            {
+                HashSet<string>? names;
+                if (!namesByKey.TryGetValue(entry.ParticipantKey, out names))
+                {
+                    names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    namesByKey[entry.ParticipantKey] = names;
+                }
+                if (!String.IsNullOrWhiteSpace(entry.DisplayName)) names.Add(entry.DisplayName.Trim());
+            }
+
+            if (namesByKey.ContainsKey(requested)) return resolution;
+
+            List<string> matches = namesByKey.Where(e => e.Value.Contains(requested)).Select(e => e.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
+            if (matches.Count == 1)
+            {
+                resolution.ResolvedKey = matches[0];
+                resolution.Notice = "'" + requested + "' is not a participant key; it is the name participant key '" + matches[0]
+                    + "' posts or heartbeats under, so the note and its wake go to '" + matches[0]
+                    + "'. Address notes to the participant key.";
+            }
+            else if (matches.Count > 1)
+            {
+                resolution.Notice = "'" + requested + "' is not a participant key, and several participant keys use it as a name ("
+                    + String.Join(", ", matches) + "). The note stays addressed to '" + requested
+                    + "' and reaches no session until one reads that key. Address the note to one of those keys.";
+            }
+            return resolution;
         }
 
         /// <summary>

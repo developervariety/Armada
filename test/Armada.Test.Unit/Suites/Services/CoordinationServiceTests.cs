@@ -147,6 +147,59 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A note addressed to a participant's name is delivered to that participant's key, and so is its wake", async () =>
+            {
+                // A peer addressed a session by the name it posts under. The session reads and
+                // acknowledges as its participant key, so a note stored under the name reached
+                // neither its read filter nor its wakes.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    CoordinationService service = CreateService(testDb);
+                    await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "session-key", "session-name", "working on the deploy").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "twin-a", "twin-name").ConfigureAwait(false);
+                    await service.HeartbeatAsync(CoordinationService.DefaultRoomKey, "twin-b", "twin-name").ConfigureAwait(false);
+
+                    CoordinationMessage byName = await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "peer", "peer", "issue for you", toParticipantKey: "session-name").ConfigureAwait(false);
+                    AssertEqual("session-key", byName.ToParticipantKey, "a name resolves to the key that uses it");
+                    AssertContains("session-key", byName.AddressNotice ?? String.Empty, "the sender is told which key received the note");
+
+                    List<CoordinationMessage> visible = await service.ReadMessagesAsync(
+                        CoordinationService.DefaultRoomKey, visibleToParticipantKey: "session-key").ConfigureAwait(false);
+                    AssertTrue(visible.Any(m => m.Id == byName.Id), "the key's read sees the note");
+                    List<Signal> wakes = await service.EnumerateUnreadWakesAsync("session-key").ConfigureAwait(false);
+                    AssertEqual(1, wakes.Count, "the wake goes to the key the session acknowledges as");
+                    AssertEqual(0, (await service.EnumerateUnreadWakesAsync("session-name").ConfigureAwait(false)).Count, "no wake waits on the name");
+
+                    CoordinationMessage byKey = await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "peer", "peer", "second issue", toParticipantKey: "session-key").ConfigureAwait(false);
+                    AssertEqual("session-key", byKey.ToParticipantKey);
+                    AssertNull(byKey.AddressNotice, "a real key needs no notice");
+
+                    CoordinationMessage ambiguous = await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "peer", "peer", "which twin", toParticipantKey: "twin-name").ConfigureAwait(false);
+                    AssertEqual("twin-name", ambiguous.ToParticipantKey, "a name several keys use is not guessed");
+                    AssertContains("several participant keys", ambiguous.AddressNotice ?? String.Empty);
+
+                    CoordinationMessage unknown = await service.PostMessageAsync(CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                        "peer", "peer", "for a session not yet seen", toParticipantKey: "offline-key").ConfigureAwait(false);
+                    AssertEqual("offline-key", unknown.ToParticipantKey, "a value nobody uses stays as given");
+                    AssertNull(unknown.AddressNotice);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A session identified by the participant header is refused when it names a different participant key", () =>
+            {
+                AssertNull(McpCoordinationTools.ParticipantKeyRefusal(null, "any-key"), "no header: the given key is used");
+                AssertNull(McpCoordinationTools.ParticipantKeyRefusal("session-key", null), "no key given: the header key is used");
+                AssertNull(McpCoordinationTools.ParticipantKeyRefusal("session-key", " session-key "), "the same key");
+                string? refusal = McpCoordinationTools.ParticipantKeyRefusal("session-key", "session-name");
+                AssertNotNull(refusal, "a different key is refused, never read silently as the header key");
+                AssertContains("session-key", refusal!);
+                AssertContains("session-name", refusal!);
+            }).ConfigureAwait(false);
+
             await RunTest("A long broadcast note is previewed, but directed mail never is", async () =>
             {
                 // A full room read returned 57,501 characters and blew the caller's tool

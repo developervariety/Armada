@@ -53,7 +53,7 @@ namespace Armada.Server.Mcp.Tools
                         missionId = new { type = "string", description = "Optional related mission ID (msn_ prefix)." },
                         vesselId = new { type = "string", description = "Optional related vessel ID (vsl_ prefix)." },
                         incidentId = new { type = "string", description = "Optional related incident ID (inc_ prefix)." },
-                        toParticipantKey = new { type = "string", description = "Optional participant key to address this note to - marks it as work or an answer directed at one session while staying visible to all." }
+                        toParticipantKey = new { type = "string", description = "Optional participant key to address this note to - marks it as work or an answer directed at one session while staying visible to all. A value that is no participant key but is the name exactly one participant key posts or heartbeats under is delivered to that key, and the result's AddressNotice says so; address notes to the key." }
                     },
                     required = new[] { "content", "authorName" }
                 },
@@ -112,7 +112,7 @@ namespace Armada.Server.Mcp.Tools
                         limit = new { type = "integer", description = "Maximum number of notes to return (default 50)." },
                         afterUtc = new { type = "string", description = "Optional ISO 8601 timestamp; returns only notes created after it." },
                         activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." },
-                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it." },
+                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it. A session that sends the X-Armada-Participant header reads as that key; passing a different key is refused rather than silently read as the header key." },
                         includeFullContent = new { type = "boolean", description = "Return every note whole instead of previewing long broadcast notes (default false). Notes addressed to you and UnreadWakes are always whole either way." }
                     }
                 },
@@ -125,6 +125,9 @@ namespace Armada.Server.Mcp.Tools
                     string roomKey = String.IsNullOrWhiteSpace(request.RoomKey) ? CoordinationService.DefaultRoomKey : request.RoomKey!;
                     int limit = request.Limit.HasValue && request.Limit.Value > 0 ? request.Limit.Value : 50;
                     int activeWithinMinutes = request.ActiveWithinMinutes.HasValue && request.ActiveWithinMinutes.Value > 0 ? request.ActiveWithinMinutes.Value : 15;
+                    string? keyRefusal = ParticipantKeyRefusal(ArmadaMcpHttpServer.CurrentParticipantKey, request.ParticipantKey);
+                    if (keyRefusal != null)
+                        return (object)new { Error = keyRefusal };
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
 
                     try
@@ -185,7 +188,7 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        participantKey = new { type = "string", description = "Stable identifier for your session." },
+                        participantKey = new { type = "string", description = "Stable identifier for your session. With the X-Armada-Participant header it must equal the header key." },
                         displayName = new { type = "string", description = "Display name shown to other sessions." },
                         roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." }
                     },
@@ -194,6 +197,9 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     CoordinationHeartbeatArgs request = JsonSerializer.Deserialize<CoordinationHeartbeatArgs>(args!.Value, _JsonOptions)!;
+                    string? keyRefusal = ParticipantKeyRefusal(ArmadaMcpHttpServer.CurrentParticipantKey, request.ParticipantKey);
+                    if (keyRefusal != null)
+                        return (object)new { Error = keyRefusal };
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
                     if (String.IsNullOrWhiteSpace(participantKey))
                         return (object)new { Error = "participantKey is required" };
@@ -727,6 +733,26 @@ namespace Armada.Server.Mcp.Tools
         /// <paramref name="includeFullContent"/> says; broadcast notes are previewed
         /// unless the caller asked for everything.
         /// </summary>
+        /// <summary>
+        /// Refusal for a caller that sends the participant header and also names a different
+        /// participant key. The header is the session's identity: wakes are read and acknowledged
+        /// as that key, so honouring a different key would show mail the session cannot
+        /// acknowledge, and reading as the header key while the caller asked for another reads the
+        /// wrong mailbox silently. Null when there is no header, no requested key, or they match.
+        /// </summary>
+        /// <param name="authenticatedKey">Participant key from the request header.</param>
+        /// <param name="requestedKey">Participant key the caller passed.</param>
+        /// <returns>The refusal text, or null.</returns>
+        internal static string? ParticipantKeyRefusal(string? authenticatedKey, string? requestedKey)
+        {
+            if (String.IsNullOrWhiteSpace(authenticatedKey) || String.IsNullOrWhiteSpace(requestedKey)) return null;
+            if (String.Equals(authenticatedKey.Trim(), requestedKey.Trim(), StringComparison.Ordinal)) return null;
+            return "participantKey '" + requestedKey.Trim() + "' differs from this session's participant key '" + authenticatedKey.Trim()
+                + "' (the " + ArmadaMcpHttpServer.ParticipantHeaderName + " header). The session reads and acknowledges wakes as '"
+                + authenticatedKey.Trim() + "' only. Omit participantKey or pass '" + authenticatedKey.Trim()
+                + "'; a note addressed to a name this session posts under is delivered to its participant key.";
+        }
+
         private static List<CoordinationMessageView> BuildMessageViews(
             List<CoordinationMessage> messages,
             string? participantKey,

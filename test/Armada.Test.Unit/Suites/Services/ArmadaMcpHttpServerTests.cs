@@ -314,6 +314,47 @@ namespace Armada.Test.Unit.Suites.Services
                     "a tool that already returns its wakes must not be given a second copy");
             }).ConfigureAwait(false);
 
+            await RunTest("CoordinationRead_RefusesAParticipantKeyThatDiffersFromTheHeader", async () =>
+            {
+                // A session sent the participant header and passed a different participantKey;
+                // the header key was read silently, so notes addressed to the key it asked for
+                // never appeared and nothing said why.
+                using (Armada.Test.Unit.TestHelpers.TestDatabase testDb = await Armada.Test.Unit.TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    Armada.Server.CoordinationService coordination = new Armada.Server.CoordinationService(logging, testDb.Driver);
+                    int port = GetAvailablePort();
+                    await using ArmadaMcpHttpServer server = CreateServer(port);
+                    Armada.Server.Mcp.Tools.McpCoordinationTools.Register(
+                        (name, description, schema, handler) => server.RegisterTool(name, description, schema, handler),
+                        testDb.Driver,
+                        coordination);
+                    await server.StartAsync().ConfigureAwait(false);
+
+                    using HttpClient client = new HttpClient
+                    {
+                        BaseAddress = new Uri("http://127.0.0.1:" + port)
+                    };
+
+                    JsonElement mismatched = await CallToolAsync(
+                        client, 1, "armada_coordination_read", "session-key", new { participantKey = "session-name" }).ConfigureAwait(false);
+                    string refused = ResultText(mismatched);
+                    AssertContains("differs from this session", refused);
+                    AssertFalse(refused.Contains("\"Messages\"", StringComparison.Ordinal), "a refused read returns no notes");
+
+                    JsonElement matching = await CallToolAsync(
+                        client, 2, "armada_coordination_read", "session-key", new { participantKey = "session-key" }).ConfigureAwait(false);
+                    string read = ResultText(matching);
+                    AssertContains("Messages", read);
+                    AssertFalse(read.Contains("differs from", StringComparison.Ordinal), "the header key itself is read");
+
+                    JsonElement heartbeat = await CallToolAsync(
+                        client, 3, "armada_coordination_heartbeat", "session-key", new { participantKey = "session-name", displayName = "session-name" }).ConfigureAwait(false);
+                    AssertContains("differs from this session", ResultText(heartbeat));
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("PendingWake_LookupFailureLeavesTheToolResultIntact", async () =>
             {
                 int port = GetAvailablePort();
@@ -687,13 +728,14 @@ namespace Armada.Test.Unit.Suites.Services
             HttpClient client,
             int id,
             string toolName,
-            string? participantKey)
+            string? participantKey,
+            object? arguments = null)
         {
             HttpRequestMessage request = CreateRequest(
                 "/mcp",
                 id,
                 "tools/call",
-                new { name = toolName, arguments = new { } });
+                new { name = toolName, arguments = arguments ?? new { } });
             if (participantKey != null)
                 request.Headers.TryAddWithoutValidation(
                     ArmadaMcpHttpServer.ParticipantHeaderName, participantKey);

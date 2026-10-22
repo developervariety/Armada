@@ -210,6 +210,17 @@ A session that sends no header receives no wake banner, and must heartbeat or
 read the board with its `participantKey` between monitor-loop iterations to see
 addressed work at all.
 
+A session that sends the header reads, heartbeats and acknowledges wakes as the
+header key. `armada_coordination_read` and `armada_coordination_heartbeat`
+refuse a `participantKey` argument that differs from the header key, with an
+error that names both, instead of reading the header key silently.
+
+A note's `toParticipantKey` names a participant key. When the value is no
+participant key but is the name exactly one participant key posts or
+heartbeats under, the note and its wake go to that key, and the post result
+carries `AddressNotice` naming the key. A name several keys use, or a value
+nobody uses, stays as given; the first gets an `AddressNotice` too.
+
 A participant key belongs to one session. When a key posts or heartbeats under
 two or more names within the presence window and switches back and forth (one
 rename does not count), the read result lists it under `SharedParticipantKeys`,

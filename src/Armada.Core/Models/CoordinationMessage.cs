@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -80,6 +81,13 @@ namespace Armada.Core.Models
         /// them as work directed at one participant.
         /// </summary>
         public string? ToParticipantKey { get; set; } = null;
+
+        /// <summary>
+        /// Set only on the result of a post: how the addressee was resolved when the sender named a
+        /// participant by its display or author name, or why it could not be. Not stored.
+        /// </summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? AddressNotice { get; set; } = null;
 
         /// <summary>
         /// Creation timestamp in UTC.

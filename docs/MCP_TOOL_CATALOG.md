@@ -378,12 +378,17 @@ every tool.
 
 - `armada_coordination_post` — post a note. Claim work before you start it;
   report outcomes when you finish. Pass `objectiveId` to route a campaign note
-  to its campaign room.
+  to its campaign room. Address a note with `toParticipantKey` set to the
+  recipient's participant key; a session's display or author name that exactly
+  one key uses is delivered to that key, and `AddressNotice` on the result says
+  so.
 - `armada_coordination_read` — read recent notes plus who is active. Read this
   before dispatching voyages or touching incidents so you do not duplicate a
   peer session's work. `SharedParticipantKeys` lists each participant key that
   posted or heartbeated under several names within the presence window and
-  switched back and forth; several sessions share such a key.
+  switched back and forth; several sessions share such a key. A session that
+  sends the participant header reads as that key, and a different
+  `participantKey` argument is refused with an error naming both keys.
 - `armada_coordination_heartbeat` — refresh your presence while working. The
   heartbeat and read responses carry `UnreadWakes` when notes are addressed to
   your participant key: PAUSE and address those before continuing, then
