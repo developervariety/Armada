@@ -668,6 +668,52 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<GitCommitMergeResult> MergeCommitAsync(string worktreePath, string commitHash, string? fetchBranch, string message, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrEmpty(commitHash)) throw new ArgumentNullException(nameof(commitHash));
+            if (String.IsNullOrEmpty(message)) throw new ArgumentNullException(nameof(message));
+
+            if (!await RefResolvesAsync(worktreePath, commitHash, token).ConfigureAwait(false))
+            {
+                if (!String.IsNullOrWhiteSpace(fetchBranch))
+                    await ExecuteProcessAsync(worktreePath, "git", _NotARepository, token, "fetch", "origin", "refs/heads/" + fetchBranch!.Trim()).ConfigureAwait(false);
+                if (!await RefResolvesAsync(worktreePath, commitHash, token).ConfigureAwait(false))
+                    return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Missing, "Commit " + commitHash + " is not in this repository"
+                        + (String.IsNullOrWhiteSpace(fetchBranch) ? "." : " and branch " + fetchBranch + " on origin does not provide it."));
+            }
+
+            if (await IsAncestorAsync(worktreePath, commitHash, "HEAD", token).ConfigureAwait(false) == true)
+                return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.AlreadyContained);
+
+            GitProcessResult merge = await ExecuteProcessAsync(worktreePath, "git", _NoMatch, token, "merge", "--no-ff", "--no-edit", "-m", message, commitHash).ConfigureAwait(false);
+            string failure = (merge.StandardError + "\n" + merge.StandardOutput).Trim();
+            if (!merge.Succeeded && !await MergeInProgressAsync(worktreePath, token).ConfigureAwait(false)
+                && (failure.Contains("user.email", StringComparison.OrdinalIgnoreCase) || failure.Contains("user.name", StringComparison.OrdinalIgnoreCase)
+                    || failure.Contains("identity", StringComparison.OrdinalIgnoreCase)))
+            {
+                // No git identity on this host: merge as Armada.
+                merge = await ExecuteProcessAsync(worktreePath, "git", _NoMatch, token, "-c", "user.name=Armada", "-c", "user.email=armada@localhost",
+                    "merge", "--no-ff", "--no-edit", "-m", message, commitHash).ConfigureAwait(false);
+                failure = (merge.StandardError + "\n" + merge.StandardOutput).Trim();
+            }
+            if (merge.Succeeded) return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Merged);
+
+            IReadOnlyList<string> conflicted = await GetConflictedFilesAsync(worktreePath, token).ConfigureAwait(false);
+            // Never leave the worktree mid-merge. Not cancellable, so a shutdown cannot strand conflict markers.
+            if (await MergeInProgressAsync(worktreePath, CancellationToken.None).ConfigureAwait(false))
+                await ExecuteProcessAsync(worktreePath, "git", CancellationToken.None, "merge", "--abort").ConfigureAwait(false);
+
+            if (conflicted.Count > 0)
+            {
+                GitCommitMergeResult result = new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Conflicted, failure);
+                result.ConflictedFiles = new List<string>(conflicted);
+                return result;
+            }
+            return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Failed, failure.Length > 0 ? failure : "git merge exited with code " + merge.ExitCode + ".");
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<string>> GetRecentCommitsForPathsAsync(string worktreePath, IReadOnlyList<string> paths, int maxPerPath, CancellationToken token = default)
         {
             List<string> results = new List<string>();
@@ -1340,6 +1386,12 @@ namespace Armada.Core.Services
                 if (Int64.TryParse(line, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out long seconds)) values.Add(seconds);
             }
             return values;
+        }
+
+        private async Task<bool> MergeInProgressAsync(string worktreePath, CancellationToken token)
+        {
+            GitProcessResult result = await ExecuteProcessAsync(worktreePath, "git", _NoMatch, token, "rev-parse", "-q", "--verify", "MERGE_HEAD").ConfigureAwait(false);
+            return result.Succeeded;
         }
 
         private async Task<bool> RefResolvesAsync(string repoPath, string gitRef, CancellationToken token)

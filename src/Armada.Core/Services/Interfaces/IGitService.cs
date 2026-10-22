@@ -256,6 +256,22 @@ namespace Armada.Core.Services.Interfaces
         Task<bool> ForceAdvanceBranchAsync(string worktreePath, string branchName, string commitHash, CancellationToken token = default);
 
         /// <summary>
+        /// Merge one commit into the worktree's current branch with a merge commit. A commit the branch already contains
+        /// changes nothing. A commit the repository lacks is fetched from origin's <paramref name="fetchBranch"/> first,
+        /// when one is given. A conflicting merge is aborted, so the worktree is never left mid-merge; the conflicted
+        /// files are reported. Uses the repository's git identity, falling back to "Armada" when none is configured.
+        /// </summary>
+        /// <param name="worktreePath">Worktree path.</param>
+        /// <param name="commitHash">Commit to merge.</param>
+        /// <param name="fetchBranch">Branch on origin that holds the commit, or null.</param>
+        /// <param name="message">Merge commit message.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>What happened.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when worktreePath, commitHash or message is null or empty.</exception>
+        Task<GitCommitMergeResult> MergeCommitAsync(string worktreePath, string commitHash, string? fetchBranch, string message, CancellationToken token = default)
+            => Task.FromResult(new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Failed, "This git service cannot merge commits."));
+
+        /// <summary>
         /// Return recent commit summaries touching the given repository paths, as "path: shorthash subject"
         /// lines, so a mission brief can state what changed under the paths it names. Best-effort: unknown
         /// paths and git failures yield fewer (or no) entries rather than throwing.

@@ -389,6 +389,83 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("failed_slice_cancels_integration_and_restart_restores_it", "A failed sibling slice cancels the final integration and its stages; restarting the failed mission restores them with the branch kept", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Captains.OnLaunchAgent = (_, _, _) => Task.FromResult(4343);
+                await CreateCaptainAsync(testDb, "Integrator", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Sliced plan")).ConfigureAwait(false);
+                Mission slice = await testDb.Driver.Missions.CreateAsync(new Mission("Slice A [Worker]", "Implement A") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CommitHash = "aaa111", BranchName = "armada/a" }).ConfigureAwait(false);
+                Mission rejected = await testDb.Driver.Missions.CreateAsync(new Mission("Review A", "Review") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", Status = MissionStatusEnum.Failed, FailureKind = MissionFailureKindEnum.JudgeRejected, DependsOnMissionId = slice.Id, BranchName = "armada/a" }).ConfigureAwait(false);
+                Mission integration = await testDb.Driver.Missions.CreateAsync(new Mission("Integrate [Worker]", "Integrate") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", WaitForVoyageWorkers = true, BranchName = "armada/integrate" }).ConfigureAwait(false);
+                Mission integrationJudge = await testDb.Driver.Missions.CreateAsync(new Mission("Review integration", "Review") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", DependsOnMissionId = integration.Id }).ConfigureAwait(false);
+
+                MissionAssignmentBlocker? blocker = await h.Missions.GetAssignmentBlockerAsync(integration).ConfigureAwait(false);
+                AssertContains(rejected.Id, String.Join(",", blocker!.BlockingMissionIds));
+                AssertFalse(await h.Missions.TryAssignAsync(integration, vessel).ConfigureAwait(false), "integration does not run without the failed slice");
+
+                Mission? cancelled = await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Cancelled, cancelled!.Status);
+                AssertEqual(MissionFailureKindEnum.DependencyFailed, cancelled.FailureKind);
+                AssertContains(rejected.Id, cancelled.FailureReason ?? "");
+                AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(integrationJudge.Id).ConfigureAwait(false))!.Status, "its own stages stop with it");
+
+                await h.Missions.RestartAsync((await testDb.Driver.Missions.ReadAsync(rejected.Id).ConfigureAwait(false))!).ConfigureAwait(false);
+                Mission? restored = await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Pending, restored!.Status, "restarting the failed mission brings integration back");
+                AssertEqual("armada/integrate", restored.BranchName, "the integration keeps its branch");
+                AssertEqual(MissionStatusEnum.Pending, (await testDb.Driver.Missions.ReadAsync(integrationJudge.Id).ConfigureAwait(false))!.Status);
+                AssertEqual(MissionAssignmentBlockerReasonEnum.WaitingForVoyageWorkers, (await h.Missions.GetAssignmentBlockerAsync(restored).ConfigureAwait(false))!.Reason,
+                    "it waits for the restarted slice instead of running");
+            }));
+
+            cases.Add(CaseAsync("integration_merges_sibling_work_before_launch", "Integration starts with the other slices' commits merged, a conflict left to the Worker with its files named, and an operator-cancelled slice listed as dropped", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RecordingMergeGit merges = new RecordingMergeGit();
+                Harness h = new Harness(testDb, new DirCreatingGitService(), merges);
+                h.Captains.OnLaunchAgent = (_, _, _) => Task.FromResult(4344);
+                await CreateCaptainAsync(testDb, "Integrator", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Sliced plan")).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Slice A [Worker]", "A") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CommitHash = "aaa111", BranchName = "armada/a", CompletedUtc = DateTime.UtcNow.AddMinutes(-3) }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Slice B [Worker]", "B") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CommitHash = "bbb222", BranchName = "armada/b", CompletedUtc = DateTime.UtcNow.AddMinutes(-2) }).ConfigureAwait(false);
+                Mission dropped = await testDb.Driver.Missions.CreateAsync(new Mission("Slice C [Worker]", "C") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CommitHash = "ccc333", BranchName = "armada/c", CompletedUtc = DateTime.UtcNow.AddMinutes(-1) }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Review C", "Review") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", Status = MissionStatusEnum.Cancelled, FailureKind = MissionFailureKindEnum.OperatorAction, DependsOnMissionId = dropped.Id }).ConfigureAwait(false);
+                Mission integration = await testDb.Driver.Missions.CreateAsync(new Mission("Integrate [Worker]", "Integrate the slices.") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", WaitForVoyageWorkers = true }).ConfigureAwait(false);
+
+                AssertTrue(await h.Missions.TryAssignAsync(integration, vessel).ConfigureAwait(false), "integration starts once the slices settle");
+                AssertEqual("aaa111@armada/a,bbb222@armada/b", String.Join(",", merges.Calls), "each kept slice's commit is merged, oldest first; the dropped slice is not");
+                Mission? started = await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false);
+                string description = started!.Description ?? "";
+                AssertContains("Slice A [Worker]", description);
+                AssertContains(": merged", description);
+                AssertContains("`git merge bbb222` conflicts in `src/shared.cs`", description);
+                AssertContains("cancelled by an operator", description);
+                AssertContains(dropped.Id, description);
+            }));
+
+            cases.Add(CaseAsync("integration_refused_when_sibling_commit_missing", "Integration is refused, not started without the work, when a sibling's commit is not in the dock's repository", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RecordingMergeGit merges = new RecordingMergeGit();
+                Harness h = new Harness(testDb, new DirCreatingGitService(), merges);
+                h.Captains.OnLaunchAgent = (_, _, _) => Task.FromResult(4345);
+                await CreateCaptainAsync(testDb, "Integrator", AgentRuntimeEnum.ClaudeCode).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Sliced plan")).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Slice Z [Worker]", "Z") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.WorkProduced, CommitHash = "zzz999", BranchName = "armada/z" }).ConfigureAwait(false);
+                Mission integration = await testDb.Driver.Missions.CreateAsync(new Mission("Integrate [Worker]", "Integrate") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", WaitForVoyageWorkers = true }).ConfigureAwait(false);
+
+                AssertFalse(await h.Missions.TryAssignAsync(integration, vessel).ConfigureAwait(false));
+                Mission? refused = await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, refused!.Status);
+                AssertContains("zzz999", refused.FailureReason ?? "");
+                AssertContains("push its branch", refused.FailureReason ?? "");
+            }));
+
             cases.Add(CaseAsync("existing_rework_inherits_final_stage_barrier", "A stored rework inherits its root's barrier and waits for sibling review without waiting on its own Judge", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -709,6 +786,24 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Classes
+
+        private sealed class RecordingMergeGit : StubGitService, IGitService
+        {
+            public List<string> Calls { get; } = new List<string>();
+
+            public Task<GitCommitMergeResult> MergeCommitAsync(string worktreePath, string commitHash, string? fetchBranch, string message, CancellationToken token = default)
+            {
+                Calls.Add(commitHash + "@" + fetchBranch);
+                if (commitHash == "zzz999") return Task.FromResult(new GitCommitMergeResult(GitCommitMergeOutcomeEnum.Missing, "not here"));
+                if (commitHash == "bbb222")
+                {
+                    GitCommitMergeResult conflict = new GitCommitMergeResult(GitCommitMergeOutcomeEnum.Conflicted, "CONFLICT");
+                    conflict.ConflictedFiles = new List<string> { "src/shared.cs" };
+                    return Task.FromResult(conflict);
+                }
+                return Task.FromResult(new GitCommitMergeResult(GitCommitMergeOutcomeEnum.Merged));
+            }
+        }
 
         private sealed class Harness
         {

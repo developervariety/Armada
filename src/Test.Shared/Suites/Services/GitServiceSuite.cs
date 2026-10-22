@@ -7,6 +7,8 @@ namespace Test.Shared.Suites.Services
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using SyslogLogging;
     using Test.Shared.Infrastructure;
@@ -727,6 +729,49 @@ namespace Test.Shared.Suites.Services
                 finally { try { Directory.Delete(repo, true); } catch { } }
             }));
 
+            cases.Add(CaseAsync("merge_commit_merges_skips_contained_and_aborts_conflicts", "MergeCommitAsync merges a commit, skips one already contained, aborts a conflict cleanly and reports a missing commit", TestTags.Positive, async () =>
+            {
+                GitService service = CreateService();
+                string repo = TestGitRepoHelper.CreateWorkingRepoCopy();
+
+                try
+                {
+                    string baseCommit = (await RunGitAsync(repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    string sliceA = await CommitOnNewBranchAsync(repo, "slice-a", baseCommit, "a.txt", "from a").ConfigureAwait(false);
+                    string sliceB = await CommitOnNewBranchAsync(repo, "slice-b", baseCommit, "shared.txt", "from b").ConfigureAwait(false);
+                    string sliceC = await CommitOnNewBranchAsync(repo, "slice-c", baseCommit, "shared.txt", "from c").ConfigureAwait(false);
+                    await RunGitAsync(repo, "checkout", "-q", "-b", "integration", baseCommit).ConfigureAwait(false);
+
+                    GitCommitMergeResult merged = await service.MergeCommitAsync(repo, sliceA, null, "integrate a").ConfigureAwait(false);
+                    AssertEqual(GitCommitMergeOutcomeEnum.Merged, merged.Outcome, merged.Message);
+                    AssertTrue(File.Exists(Path.Combine(repo, "a.txt")), "the merged slice's file is on the branch");
+
+                    GitCommitMergeResult again = await service.MergeCommitAsync(repo, sliceA, null, "integrate a").ConfigureAwait(false);
+                    AssertEqual(GitCommitMergeOutcomeEnum.AlreadyContained, again.Outcome);
+
+                    AssertEqual(GitCommitMergeOutcomeEnum.Merged, (await service.MergeCommitAsync(repo, sliceB, null, "integrate b").ConfigureAwait(false)).Outcome);
+                    string beforeConflict = (await RunGitAsync(repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                    GitCommitMergeResult conflict = await service.MergeCommitAsync(repo, sliceC, null, "integrate c").ConfigureAwait(false);
+                    AssertEqual(GitCommitMergeOutcomeEnum.Conflicted, conflict.Outcome);
+                    AssertTrue(conflict.ConflictedFiles.Contains("shared.txt"), "the conflicted file is named");
+                    AssertEqual(beforeConflict, (await RunGitAsync(repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "an aborted merge leaves HEAD alone");
+                    AssertEqual(String.Empty, (await RunGitAsync(repo, "status", "--porcelain", "--untracked-files=no").ConfigureAwait(false)).Trim(), "no conflict markers are left behind");
+                    AssertFalse(File.Exists(Path.Combine(repo, ".git", "MERGE_HEAD")), "the worktree is not left mid-merge");
+
+                    GitCommitMergeResult missing = await service.MergeCommitAsync(repo, "0123456789abcdef0123456789abcdef01234567", "no-such-branch", "integrate missing").ConfigureAwait(false);
+                    AssertEqual(GitCommitMergeOutcomeEnum.Missing, missing.Outcome);
+                }
+                finally
+                {
+                    if (Directory.Exists(repo))
+                    {
+                        try { Directory.Delete(repo, true); }
+                        catch { }
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("force_advance_branch_empty_args_returns_false", "ForceAdvanceBranchAsync returns false for empty arguments", TestTags.Negative, async () =>
             {
                 GitService service = CreateService();
@@ -1007,6 +1052,15 @@ namespace Test.Shared.Suites.Services
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return new GitService(logging);
+        }
+
+        private static async Task<string> CommitOnNewBranchAsync(string repo, string branch, string startCommit, string file, string content)
+        {
+            await RunGitAsync(repo, "checkout", "-q", "-b", branch, startCommit).ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(repo, file), content).ConfigureAwait(false);
+            await RunGitAsync(repo, "add", "-A").ConfigureAwait(false);
+            await RunGitAsync(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", branch).ConfigureAwait(false);
+            return (await RunGitAsync(repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
