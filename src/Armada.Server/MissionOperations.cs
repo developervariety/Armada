@@ -601,6 +601,7 @@ namespace Armada.Server
             if (Directory.Exists(missionLogDir))
                 paths.AddRange(Directory.GetFiles(missionLogDir, missionId + ".*.log"));
             paths.Add(Path.Combine(_Settings.LogDirectory, "diffs", missionId + ".diff"));
+            paths.Add(MissionService.FullHandoffStorePath(_Settings.LogDirectory, missionId));
 
             foreach (string path in paths.Distinct(StringComparer.Ordinal))
             {

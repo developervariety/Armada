@@ -575,6 +575,10 @@ namespace Armada.Core.Services
             string root = Path.Combine(_Settings.LogDirectory, "instructions");
             TimeSpan retention = TimeSpan.FromDays(Math.Max(0, section.InstructionRetentionDays));
             await ScanExpiredFiles(root, "*", retention, delete, report, category, token, history: true).ConfigureAwait(false);
+            // The complete text of a cut handoff is brief material like an instruction snapshot, so the same
+            // retention bounds it.
+            string handoffs = Path.Combine(_Settings.LogDirectory, MissionService.HandoffFullTextDirectoryName);
+            await ScanExpiredFiles(handoffs, "*.md", retention, delete, report, category, token, history: true).ConfigureAwait(false);
             report.Categories.Add(category);
         }
 

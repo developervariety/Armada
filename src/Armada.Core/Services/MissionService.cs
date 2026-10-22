@@ -3703,12 +3703,29 @@ namespace Armada.Core.Services
             string? briefDescription = RewriteBriefPaths(
                 RetargetInstructionFileNames(mission.Description, instructionsFileName, worktreePath),
                 _Settings.BriefPathRewrites);
-            List<ContextBriefFile> descriptionFiles = BuildMissionDescriptionFiles(briefDescription);
-            await WriteBriefFilesAsync(worktreePath, MissionDescriptionFolder, descriptionFiles, token).ConfigureAwait(false);
             // A handoff embeds a bounded preview of a long earlier-stage report; the complete report is written
             // beside it, so the downstream stage reads every finding from its own checkout.
             await WriteBriefFilesAsync(worktreePath, HandoffOutputFolder, await BuildHandoffOutputFilesAsync(mission, token).ConfigureAwait(false), token).ConfigureAwait(false);
-            string boundedDescription = BoundMetadataDescription(briefDescription, descriptionFiles);
+            // A description cut at the handoff names the dock file of its complete text; that text is staged
+            // with the same path rewrites, so the cut never removes anything the captain can read.
+            List<ContextBriefFile> fullHandoffFiles = await BuildFullHandoffFilesAsync(
+                mission,
+                text => RewriteBriefPaths(RetargetInstructionFileNames(text, instructionsFileName, worktreePath), _Settings.BriefPathRewrites) ?? text,
+                token).ConfigureAwait(false);
+            await WriteBriefFilesAsync(worktreePath, HandoffFullTextFolder, fullHandoffFiles, token).ConfigureAwait(false);
+            // A description copied from another brief can tell the captain to read staged files this dock never
+            // receives. Every such read points at the complete handoff text when one is staged, otherwise at the
+            // inline text. The description files depend on the rewritten text, so the check runs on the files
+            // that text produces.
+            string? fullHandoffFirstFile = fullHandoffFiles.Count > 0 ? fullHandoffFiles[0].RelativePath : null;
+            List<ContextBriefFile> descriptionFiles = BuildMissionDescriptionFiles(briefDescription);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                briefDescription = RewriteUnstagedBriefingReads(briefDescription, worktreePath, descriptionFiles, fullHandoffFirstFile);
+                descriptionFiles = BuildMissionDescriptionFiles(briefDescription);
+            }
+            await WriteBriefFilesAsync(worktreePath, MissionDescriptionFolder, descriptionFiles, token).ConfigureAwait(false);
+            string boundedDescription = BoundMetadataDescription(briefDescription, descriptionFiles, fullHandoffFirstFile);
             templateParams["MissionDescription"] = boundedDescription;
 
             // The output contract is stated here and nowhere else in the brief. A read-only mission's persona
@@ -8464,10 +8481,18 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "pipeline handoff: mission " + nextMission.Id + " description of " +
                     handoffDescription.Length + " chars exceeds the " + descriptionBudget +
-                    " char budget; truncating the tail. The full change remains on branch " +
+                    " char budget; truncating the middle and keeping the full text for the dock. The full change remains on branch " +
                     (completedMission.BranchName ?? "unknown"));
+                // The cut keeps the brief inside its budget; the complete text is kept beside the mission record
+                // and staged into the dock, and the marker names the dock file, so the next stage can always
+                // read what the cut removed.
+                bool kept = await StoreFullHandoffAsync(nextMission.Id, handoffDescription, token).ConfigureAwait(false);
                 handoffDescription = TruncateMissionDescription(
-                    handoffDescription, descriptionBudget, completedMission.BranchName);
+                    handoffDescription, descriptionBudget, completedMission.BranchName, kept ? HandoffFullTextFirstFile : null);
+            }
+            else
+            {
+                DeleteStoredFullHandoff(nextMission.Id);
             }
 
             nextMission.Description = handoffDescription;
@@ -9172,15 +9197,20 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="description">Description to bound.</param>
         /// <param name="maxChars">Maximum characters allowed.</param>
+        /// <param name="branchName">Branch holding the full change, or null.</param>
+        /// <param name="fullTextPath">Dock file holding the complete text before the cut, or null when none is staged.</param>
         /// <returns>The bounded description.</returns>
-        internal static string TruncateMissionDescription(string description, int maxChars, string? branchName = null)
+        internal static string TruncateMissionDescription(string description, int maxChars, string? branchName = null, string? fullTextPath = null)
         {
             if (String.IsNullOrEmpty(description) || description.Length <= maxChars) return description;
 
             string branchNote = String.IsNullOrEmpty(branchName)
                 ? " the full change is on the branch"
                 : " the full change is on branch " + branchName;
-            string marker = "\n\n...(mission brief truncated to fit the budget; the middle of the prior-stage diff is elided;" + branchNote + ")\n";
+            string fullTextNote = String.IsNullOrEmpty(fullTextPath)
+                ? ""
+                : "; full text: `" + fullTextPath + "` and the numbered files after it in your checkout, read them in order";
+            string marker = "\n\n...(mission brief truncated to fit the budget; the middle of the prior-stage diff is elided;" + branchNote + fullTextNote + ")\n";
             return BoundDescriptionWithCriteria(description, maxChars, Math.Max(0, (maxChars - marker.Length) / 3), marker);
         }
 
@@ -9207,6 +9237,19 @@ namespace Armada.Core.Services
         /// <returns>A bounded copy fit for the metadata module.</returns>
         internal static string BoundMetadataDescription(string? description, List<ContextBriefFile>? fullTextFiles)
         {
+            return BoundMetadataDescription(description, fullTextFiles, null);
+        }
+
+        /// <summary>
+        /// Bounds the description embedded in the mission.metadata module, naming the dock files that hold
+        /// the full description and, when the handoff cut the description, the first file of its complete text.
+        /// </summary>
+        /// <param name="description">Persisted mission description.</param>
+        /// <param name="fullTextFiles">Dock files holding the full description, in order; null or empty when none were written.</param>
+        /// <param name="fullHandoffFirstFile">First dock file of the complete handoff text, or null when none is staged.</param>
+        /// <returns>A bounded copy fit for the metadata module.</returns>
+        internal static string BoundMetadataDescription(string? description, List<ContextBriefFile>? fullTextFiles, string? fullHandoffFirstFile)
+        {
             if (String.IsNullOrEmpty(description)) return "No additional description provided.";
 
             if (description.Length <= _MaxMetadataDescriptionChars) return description;
@@ -9220,6 +9263,11 @@ namespace Armada.Core.Services
                         + fullTextFiles.Count + " files)";
                 marker = "\n\n...(middle of the mission description elided here. The full description is in " + files
                     + " in your working directory. Read them in full, in order, before you start; each fits one read.)\n";
+            }
+            if (!String.IsNullOrEmpty(fullHandoffFirstFile))
+            {
+                marker = marker.TrimEnd('\n', ')') + ". The complete handoff text, before the handoff cut, starts at `"
+                    + fullHandoffFirstFile + "`; read it and the numbered files after it in order.)\n";
             }
             return BoundDescriptionWithCriteria(description, _MaxMetadataDescriptionChars, _MaxMetadataDescriptionHeadChars, marker, _MinMetadataContextChars);
         }

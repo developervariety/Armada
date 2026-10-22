@@ -500,6 +500,16 @@ upstream integrations and excludes changes already present at that baseline.
   that no searched checkout tracks, while a declared sibling could not be
   searched, is stated as a possible sibling path, not verified here, never as
   absent or new work.
+- A pipeline handoff past the description budget no longer loses the middle of
+  the prior stage's diff, Judge verdict or test list. The complete handoff text
+  is kept on the Admiral and staged into the next stage's dock under
+  `_briefing/handoff-full/`, and the cut marker names
+  `_briefing/handoff-full/01-handoff.md`. The record and the brief keep their
+  cut, so the prompt size does not change. The instruction retention bounds the
+  kept text, and a mission purge deletes it.
+- A brief no longer tells the captain to read a `_briefing/` file the dock does
+  not hold. Each such read points at the staged complete handoff text, or at
+  the inline text when none is staged.
 - Dispatch preflight question 1 passes a citation whose line range lies inside
   the body of the declaration it names, such as `` `Size` (`Book.cs:20-22`) ``
   for lines inside `Size`. A range that crosses into the next declaration, or

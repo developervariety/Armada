@@ -73,7 +73,8 @@ runs as `Keep` or `Delete` and is named in the report's `Errors`.
 ## What is history
 
 The disk-lifecycle pass treats these as history: mission logs, diff snapshots,
-instruction snapshots, dock metadata and stage-start records, final messages
+instruction snapshots and kept handoff texts (`logs/handoffs`, bounded by the
+instruction retention), dock metadata and stage-start records, final messages
 (`logs/final-messages`, bounded by the mission-log retention), whole
 operator-evidence folders idle past `diskLifecycle.operatorEvidenceRetentionDays`,
 and the files of each `archive.sessionRoots` entry older than its

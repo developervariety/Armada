@@ -371,6 +371,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A handoff longer than the description budget is cut in the record, but the next stage must still
+            // read every line: the complete text is staged into its dock and the cut marker names that file.
+            await RunTest("TryAssign_HandoffPastTheDescriptionBudget_StagesTheCompleteTextTheMarkerNames", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/long-diff").ConfigureAwait(false);
+                    System.Text.StringBuilder diff = new System.Text.StringBuilder();
+                    for (int file = 0; file < 40; file++)
+                    {
+                        diff.Append("diff --git a/src/F" + file + ".cs b/src/F" + file + ".cs\n--- a/src/F" + file + ".cs\n+++ b/src/F" + file + ".cs\n@@ -1 +1,12 @@\n");
+                        for (int line = 0; line < 12; line++) diff.Append("+DIFF-LINE-" + file + "-" + line + " keeps the reviewed change readable\n");
+                    }
+                    worker.DiffSnapshot = diff.ToString();
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    Mission judge = await CreateDependentAsync(testDb.Driver, vessel, "Judge", worker.Id, "BASE-BRIEF-SENTINEL review the change.").ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(judge, vessel).ConfigureAwait(false);
+                    Mission readBack = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    string description = readBack.Description ?? String.Empty;
+
+                    AssertTrue(worker.DiffSnapshot.Length > 20000, "Precondition: the diff alone is past the description budget");
+                    AssertFalse(description.Contains("+DIFF-LINE-20-6 ", StringComparison.Ordinal), "Precondition: the record holds the cut copy");
+                    AssertTrue(description.Length <= 20000 + 2000, "The record copy stays at the description budget");
+                    AssertContains("full text: `" + MissionService.HandoffFullTextFirstFile + "`", description, "The cut marker names the dock file of the complete text");
+
+                    string kept = await File.ReadAllTextAsync(MissionService.FullHandoffStorePath(settings.LogDirectory, judge.Id)).ConfigureAwait(false);
+                    AssertContains("BASE-BRIEF-SENTINEL review the change.", kept, "The complete text holds the base brief");
+                    AssertContains(worker.DiffSnapshot.TrimEnd('\n'), kept, "The complete text holds the whole diff");
+
+                    string dock = Path.Combine(Path.GetTempPath(), "armada_full_handoff_dock_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(dock);
+                    try
+                    {
+                        await missions.GenerateClaudeMdAsync(dock, readBack, vessel).ConfigureAwait(false);
+                        string first = Path.Combine(dock, MissionService.HandoffFullTextFirstFile.Replace('/', Path.DirectorySeparatorChar));
+                        AssertTrue(File.Exists(first), "The file the marker names is staged in the dock");
+
+                        string folder = Path.Combine(dock, MissionService.HandoffFullTextFolder.Replace('/', Path.DirectorySeparatorChar));
+                        System.Text.StringBuilder joined = new System.Text.StringBuilder();
+                        foreach (string part in Directory.GetFiles(folder, "*.md").OrderBy(p => p, StringComparer.Ordinal))
+                        {
+                            string content = await File.ReadAllTextAsync(part).ConfigureAwait(false);
+                            joined.Append(content.Substring(content.IndexOf("\n\n", StringComparison.Ordinal) + 2));
+                        }
+                        AssertEqual(kept, joined.ToString(), "The staged files, joined in order, equal the complete handoff text");
+
+                        string brief = await File.ReadAllTextAsync(Path.Combine(dock, "CLAUDE.md")).ConfigureAwait(false);
+                        AssertContains("`" + MissionService.HandoffFullTextFirstFile + "`", brief, "The brief names the staged complete text");
+                        AssertFalse(brief.Contains("+DIFF-LINE-20-6 ", StringComparison.Ordinal), "The brief keeps its cut, so its size is unchanged");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(dock, true); } catch { }
+                    }
+                }
+            });
+
             await RunTest("TryAssign_TestEngineerReport_HandoffCarriesTheAddedTestsList", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

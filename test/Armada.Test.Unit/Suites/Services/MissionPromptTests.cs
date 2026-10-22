@@ -484,7 +484,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A brief lists the _briefing paths it names that are not staged in the dock", async () =>
+            await RunTest("A brief points every read of an unstaged _briefing file at the inline text and lists the other absent paths", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -503,7 +503,7 @@ namespace Armada.Test.Unit.Suites.Services
                         mission.Title = "Use the staged inputs";
                         mission.Persona = "Worker";
                         mission.Description = "Read `_briefing/context-pack.md`, then _briefing/mission/01-description.md through " +
-                            "_briefing/mission/03-description.md, and the table at _briefing/source/table.md.";
+                            "_briefing/mission/03-description.md.\nThe source table is kept at _briefing/source/table.md.";
 
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
                         string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
@@ -513,9 +513,11 @@ namespace Armada.Test.Unit.Suites.Services
                         string section = brief.Substring(sectionStart);
                         int sectionEnd = section.IndexOf("\n## ", 3, StringComparison.Ordinal);
                         if (sectionEnd > 0) section = section.Substring(0, sectionEnd);
-                        AssertContains("_briefing/mission/01-description.md", section, "an absent description part is listed");
-                        AssertContains("_briefing/mission/03-description.md", section, "the far end of a named range is listed");
-                        AssertContains("_briefing/source/table.md", section, "an absent source file is listed");
+                        AssertFalse(brief.Contains("_briefing/mission/01-description.md"), "a read of an absent description part is not left in the brief");
+                        AssertFalse(brief.Contains("_briefing/mission/03-description.md"), "the far end of a named range is not left in the brief");
+                        AssertContains("Read `_briefing/context-pack.md`, then the inline text of this brief.", brief,
+                            "the read of the absent range points at the inline text, and the staged file stays named");
+                        AssertContains("_briefing/source/table.md", section, "an absent path that no line asks to read is listed");
                         AssertFalse(section.Contains("context-pack.md"), "a staged file is not listed as absent");
 
                         string cleanDir = Path.Combine(tempDir, "clean");

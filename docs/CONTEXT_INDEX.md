@@ -241,6 +241,13 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
   `<mission id>.mission/`. Neither counts against the instruction-file byte
   budget (`captainInstructionByteBudget`, default 65,536), so the budget
   bounds the brief itself; `docs/PERSONAS.md` describes its warning event.
+- **A read of a staged file the dock does not hold is rewritten.** A line that
+  tells the captain to read, open or see a `_briefing/` file that is not staged
+  (a range of `_briefing/mission/` parts copied from another brief, a handoff
+  path in plain text) points at the complete handoff text under
+  `_briefing/handoff-full/` when one is staged, and otherwise at the inline
+  text of the brief. Other absent paths are listed under
+  `## Named Files Not Staged`.
 - **Fail-safe.** When no context index was built, or retrieval returns a
   degraded (fail-safe) result or no core, the section falls back to the full
   read-every-file memory section and logs a warning. A failure therefore

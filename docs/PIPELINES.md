@@ -176,6 +176,16 @@ description has an 80,000-character narrative budget instead of 20,000; the
 captain brief embeds a bounded copy, and the full description is written into
 the dock as files the captain reads.
 
+A handoff past that budget is cut in the mission record: the head and the
+newest tail stay, and the middle is elided. The complete handoff text is kept
+on the Admiral under `logs/handoffs/<mission id>.md` and staged into the dock
+under `_briefing/handoff-full/` as bounded files that join back to the exact
+text. The cut marker names `_briefing/handoff-full/01-handoff.md`, and the
+brief's metadata marker names it too, so the next stage reads the whole diff,
+verdict and test list from its own checkout. The brief keeps its cut, so its
+size does not change. A later handoff that fits removes the kept text, and a
+mission purge deletes it.
+
 A report-only pipeline can revise its report. A Worker stage whose own chain
 already holds a Worker is told to revise the root report: address every
 reviewer finding or reject it with evidence, and publish the complete revised
