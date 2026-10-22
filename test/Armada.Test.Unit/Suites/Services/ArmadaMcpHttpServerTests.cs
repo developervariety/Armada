@@ -355,6 +355,57 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("CoordinationTools_AcceptTheConfiguredBaseKeyAndNameTheSessionKey", async () =>
+            {
+                // A bridge made the configured key unique for one session. The session knows
+                // only the configured key, so naming it must mean the header key, and the
+                // result must tell the session which key it reads and acknowledges as.
+                using (Armada.Test.Unit.TestHelpers.TestDatabase testDb = await Armada.Test.Unit.TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    Armada.Server.CoordinationService coordination = new Armada.Server.CoordinationService(logging, testDb.Driver);
+                    int port = GetAvailablePort();
+                    await using ArmadaMcpHttpServer server = CreateServer(port);
+                    Armada.Server.Mcp.Tools.McpCoordinationTools.Register(
+                        (name, description, schema, handler) => server.RegisterTool(name, description, schema, handler),
+                        testDb.Driver,
+                        coordination);
+                    await server.StartAsync().ConfigureAwait(false);
+
+                    using HttpClient client = new HttpClient
+                    {
+                        BaseAddress = new Uri("http://127.0.0.1:" + port)
+                    };
+
+                    JsonElement withoutKey = await CallToolAsync(
+                        client, 1, "armada_coordination_heartbeat", "operator-ab12cd", new { displayName = "operator" }, "operator").ConfigureAwait(false);
+                    string heartbeat = ResultText(withoutKey);
+                    AssertFalse(heartbeat.Contains("\"Error\"", StringComparison.Ordinal), "a heartbeat with no participantKey uses the header key: " + heartbeat);
+                    AssertContains("\"YourParticipantKey\":\"operator-ab12cd\"", heartbeat);
+
+                    JsonElement baseKeyHeartbeat = await CallToolAsync(
+                        client, 2, "armada_coordination_heartbeat", "operator-ab12cd", new { participantKey = "operator", displayName = "operator" }, "operator").ConfigureAwait(false);
+                    string baseHeartbeat = ResultText(baseKeyHeartbeat);
+                    AssertFalse(baseHeartbeat.Contains("differs from", StringComparison.Ordinal), "the configured base key means the header key: " + baseHeartbeat);
+                    AssertContains("\"YourParticipantKey\":\"operator-ab12cd\"", baseHeartbeat);
+
+                    JsonElement baseKeyRead = await CallToolAsync(
+                        client, 3, "armada_coordination_read", "operator-ab12cd", new { participantKey = "operator" }, "operator").ConfigureAwait(false);
+                    string read = ResultText(baseKeyRead);
+                    AssertContains("Messages", read);
+                    AssertContains("\"YourParticipantKey\":\"operator-ab12cd\"", read);
+
+                    JsonElement otherKey = await CallToolAsync(
+                        client, 4, "armada_coordination_read", "operator-ab12cd", new { participantKey = "someone-else" }, "operator").ConfigureAwait(false);
+                    AssertContains("differs from this session", ResultText(otherKey));
+
+                    JsonElement baseWithoutUniqueKey = await CallToolAsync(
+                        client, 5, "armada_coordination_read", "operator-ab12cd", new { participantKey = "operator" }).ConfigureAwait(false);
+                    AssertContains("differs from this session", ResultText(baseWithoutUniqueKey));
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("PendingWake_LookupFailureLeavesTheToolResultIntact", async () =>
             {
                 int port = GetAvailablePort();
@@ -729,7 +780,8 @@ namespace Armada.Test.Unit.Suites.Services
             int id,
             string toolName,
             string? participantKey,
-            object? arguments = null)
+            object? arguments = null,
+            string? participantBaseKey = null)
         {
             HttpRequestMessage request = CreateRequest(
                 "/mcp",
@@ -739,6 +791,9 @@ namespace Armada.Test.Unit.Suites.Services
             if (participantKey != null)
                 request.Headers.TryAddWithoutValidation(
                     ArmadaMcpHttpServer.ParticipantHeaderName, participantKey);
+            if (participantBaseKey != null)
+                request.Headers.TryAddWithoutValidation(
+                    ArmadaMcpHttpServer.ParticipantBaseHeaderName, participantBaseKey);
             return await SendAsync(client, request).ConfigureAwait(false);
         }
 

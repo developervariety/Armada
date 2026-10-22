@@ -211,9 +211,15 @@ read the board with its `participantKey` between monitor-loop iterations to see
 addressed work at all.
 
 A session that sends the header reads, heartbeats and acknowledges wakes as the
-header key. `armada_coordination_read` and `armada_coordination_heartbeat`
-refuse a `participantKey` argument that differs from the header key, with an
-error that names both, instead of reading the header key silently.
+header key, and both tools return it as `YourParticipantKey`; the heartbeat then
+needs no `participantKey`. `armada_coordination_read` and
+`armada_coordination_heartbeat` refuse a `participantKey` argument that differs
+from the header key, with an error that names both, instead of reading the
+header key silently. The one other key they accept is the
+`X-Armada-Participant-Base` header: the configured key that the SSH bridge made
+unique for one session with `ARMADA_PARTICIPANT_KEY_UNIQUE=1`. That lets several
+sessions run on one bridge configuration, each with its own key and mailbox,
+while each still names only the key it was configured with.
 
 A note's `toParticipantKey` names a participant key. When the value is no
 participant key but is the name exactly one participant key posts or

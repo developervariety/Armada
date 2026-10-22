@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
@@ -193,8 +194,11 @@ export async function runBridge(options = {}) {
   const output = options.output || process.stdout;
   const errorOutput = options.errorOutput || process.stderr;
   const environment = options.environment || process.env;
+  // One bridge process serves one client session, so the identity is fixed once here
+  // and every request of this process carries the same key.
+  const identity = resolveParticipantIdentity(environment);
   const request = options.request ||
-    ((message, sessionId, requestObject) => sendRequestOverSsh(message, sessionId, requestObject, environment));
+    ((message, sessionId, requestObject) => sendRequestOverSsh(message, sessionId, requestObject, environment, identity));
   let sessionId = null;
   let queue = Promise.resolve();
 
@@ -364,7 +368,7 @@ export function buildSshArgs(environment, remoteCommand) {
   return args;
 }
 
-async function sendRequestOverSsh(message, sessionId, requestObject, environment) {
+async function sendRequestOverSsh(message, sessionId, requestObject, environment, identity) {
   const sshCommand = environment.ARMADA_SSH_COMMAND || "ssh";
   const mcpUrl = environment.ARMADA_MCP_URL || DEFAULT_MCP_URL;
   const timeoutSeconds = parseTimeoutSeconds(environment.ARMADA_MCP_TIMEOUT_SEC);
@@ -378,9 +382,12 @@ async function sendRequestOverSsh(message, sessionId, requestObject, environment
   // Identify the coordination-board session behind this call. The remote transport
   // is stateless, so every request must carry its own identity; without it Armada
   // cannot return the directed wakes waiting on this operator.
-  const participantKey = validateParticipantKey(environment.ARMADA_PARTICIPANT_KEY);
+  const { key: participantKey, baseKey } = identity || resolveParticipantIdentity(environment);
   if (participantKey) {
     headers.push("--header", shellQuote("X-Armada-Participant: " + participantKey));
+    if (baseKey) {
+      headers.push("--header", shellQuote("X-Armada-Participant-Base: " + baseKey));
+    }
   }
 
   // The Admiral refuses an MCP request without credentials. The credential stays on the server:
@@ -491,6 +498,38 @@ export function validateRemotePath(value) {
 
 function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\"'\"'") + "'";
+}
+
+// Several client sessions often start from one bridge configuration. With one fixed
+// key they share a mailbox: each receives and can acknowledge the other's wakes.
+// ARMADA_PARTICIPANT_KEY_UNIQUE makes the key unique to this bridge process by
+// adding a random suffix once; the configured key travels beside it as the base
+// key, so the session can keep naming the key it was configured with.
+const UNIQUE_SUFFIX_LENGTH = 6;
+
+export function createParticipantKeySuffix(randomSource = randomBytes) {
+  const bytes = randomSource(8);
+  let value = 0n;
+  for (const byte of bytes) {
+    value = (value << 8n) | BigInt(byte);
+  }
+  return value.toString(36).padStart(UNIQUE_SUFFIX_LENGTH, "0").slice(-UNIQUE_SUFFIX_LENGTH);
+}
+
+export function resolveParticipantIdentity(environment, createSuffix = createParticipantKeySuffix) {
+  const baseKey = validateParticipantKey(environment.ARMADA_PARTICIPANT_KEY);
+  if (!baseKey || !isEnabledFlag(environment.ARMADA_PARTICIPANT_KEY_UNIQUE)) {
+    return { key: baseKey, baseKey: null };
+  }
+
+  return { key: validateParticipantKey(baseKey + "-" + createSuffix()), baseKey };
+}
+
+function isEnabledFlag(value) {
+  if (value === undefined || value === null) {
+    return false;
+  }
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
 }
 
 export function validateParticipantKey(value) {

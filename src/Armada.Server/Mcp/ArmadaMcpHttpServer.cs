@@ -52,10 +52,24 @@ namespace Armada.Server.Mcp
         /// </summary>
         public static string? CurrentParticipantKey => _RequestParticipantKey.Value;
 
+        /// <summary>
+        /// Request header naming the configured key that a bridge made unique for one
+        /// session. The session knows this base key, not the suffix the bridge added,
+        /// so a tool argument that names the base key means the header key.
+        /// </summary>
+        public const string ParticipantBaseHeaderName = "X-Armada-Participant-Base";
+
+        /// <summary>
+        /// Gets the configured base key behind the current request's participant key,
+        /// or null when the bridge did not make the key unique.
+        /// </summary>
+        public static string? CurrentParticipantBaseKey => _RequestParticipantBaseKey.Value;
+
         // Set by the middleware below and read inside the tool handler. An AsyncLocal
         // flows down the request's async chain, which is what a stateless transport
         // leaves us: the header is the only place the caller's identity exists.
         private static readonly AsyncLocal<string?> _RequestParticipantKey = new AsyncLocal<string?>();
+        private static readonly AsyncLocal<string?> _RequestParticipantBaseKey = new AsyncLocal<string?>();
 
         private readonly string _Hostname;
         private readonly int _Port;
@@ -226,7 +240,10 @@ namespace Armada.Server.Mcp
                     return;
                 }
 
-                _RequestParticipantKey.Value = ReadParticipantHeader(context);
+                _RequestParticipantKey.Value = ReadParticipantHeader(context, ParticipantHeaderName);
+                _RequestParticipantBaseKey.Value = _RequestParticipantKey.Value == null
+                    ? null
+                    : ReadParticipantHeader(context, ParticipantBaseHeaderName);
                 try
                 {
                     using (McpCallerContext.Begin(caller))
@@ -237,6 +254,7 @@ namespace Armada.Server.Mcp
                 finally
                 {
                     _RequestParticipantKey.Value = null;
+                    _RequestParticipantBaseKey.Value = null;
                 }
             });
 
@@ -492,9 +510,9 @@ namespace Armada.Server.Mcp
             return CreateTextResult(text, isError);
         }
 
-        private static string? ReadParticipantHeader(HttpContext context)
+        private static string? ReadParticipantHeader(HttpContext context, string headerName)
         {
-            if (!context.Request.Headers.TryGetValue(ParticipantHeaderName, out StringValues values))
+            if (!context.Request.Headers.TryGetValue(headerName, out StringValues values))
                 return null;
 
             string? value = values.Count == 0 ? null : values[0];

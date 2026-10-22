@@ -428,6 +428,18 @@ Configure it per client:
 - SSH stdio bridge: set `ARMADA_PARTICIPANT_KEY` in the MCP server's `env`.
   `scripts/mcp-ssh-http-bridge.mjs` turns it into the header. The same `env`
   must also set `ARMADA_MCP_AUTH_HEADER_FILE`, or every request is refused.
+- Several sessions on one bridge configuration: also set
+  `ARMADA_PARTICIPANT_KEY_UNIQUE=1`. Each bridge process (one per client
+  session) then sends the configured key plus a random six-character suffix,
+  fixed for the life of that process, as `X-Armada-Participant`, and the
+  configured key as `X-Armada-Participant-Base`. Each session gets its own
+  mailbox: it receives and acknowledges only its own wakes. The session never
+  needs the suffix. `armada_coordination_read` and
+  `armada_coordination_heartbeat` accept the configured key, or no key, as the
+  session's own; their results name the full key as `YourParticipantKey`; and a
+  note addressed to the session's display name reaches its key. Without the flag
+  every session on the configuration shares one key, and the board reports it
+  under `SharedParticipantKeys`.
 - Direct HTTP clients: add the header to the server entry's `headers` object.
 - Bounded helpers: `scripts/autonomy/spawn-helper.sh` writes the header into the
   generated per-helper config. An `AUTONOMY_CLAUDE_MCP_CONFIG` you supply

@@ -104,7 +104,7 @@ namespace Armada.Server.Mcp.Tools
                         limit = new { type = "integer", description = "Maximum number of notes to return (default 50)." },
                         afterUtc = new { type = "string", description = "Optional ISO 8601 timestamp; returns only notes created after it." },
                         activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." },
-                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it. A session that sends the X-Armada-Participant header reads as that key; passing a different key is refused rather than silently read as the header key." },
+                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it. A session that sends the X-Armada-Participant header reads as that key, and the result names it as YourParticipantKey; passing a different key is refused rather than silently read as the header key. The configured key a bridge made unique for this session is accepted as the header key." },
                         includeFullContent = new { type = "boolean", description = "Return every note whole instead of previewing long broadcast notes (default false). Notes addressed to you and UnreadWakes are always whole either way." }
                     }
                 },
@@ -117,7 +117,7 @@ namespace Armada.Server.Mcp.Tools
                     string roomKey = String.IsNullOrWhiteSpace(request.RoomKey) ? CoordinationService.DefaultRoomKey : request.RoomKey!;
                     int limit = request.Limit.HasValue && request.Limit.Value > 0 ? request.Limit.Value : 50;
                     int activeWithinMinutes = request.ActiveWithinMinutes.HasValue && request.ActiveWithinMinutes.Value > 0 ? request.ActiveWithinMinutes.Value : 15;
-                    string? keyRefusal = ParticipantKeyRefusal(ArmadaMcpHttpServer.CurrentParticipantKey, request.ParticipantKey);
+                    string? keyRefusal = ParticipantKeyRefusal(ArmadaMcpHttpServer.CurrentParticipantKey, request.ParticipantKey, ArmadaMcpHttpServer.CurrentParticipantBaseKey);
                     if (keyRefusal != null)
                         return (object)new { Error = keyRefusal };
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
@@ -158,6 +158,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)new
                         {
                             RoomKey = roomKey,
+                            YourParticipantKey = String.IsNullOrWhiteSpace(participantKey) ? null : participantKey,
                             Messages = views,
                             TruncatedMessageCount = truncatedCount,
                             ActiveParticipants = participants,
@@ -180,21 +181,21 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        participantKey = new { type = "string", description = "Stable identifier for your session. With the X-Armada-Participant header it must equal the header key." },
+                        participantKey = new { type = "string", description = "Stable identifier for your session. Omit it when the session sends the X-Armada-Participant header: the header key is used, and the result names it as YourParticipantKey. When given with the header it must equal the header key or the configured key the bridge made unique." },
                         displayName = new { type = "string", description = "Display name shown to other sessions." },
                         roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." }
                     },
-                    required = new[] { "participantKey", "displayName" }
+                    required = new[] { "displayName" }
                 },
                 async (args) =>
                 {
                     CoordinationHeartbeatArgs request = JsonSerializer.Deserialize<CoordinationHeartbeatArgs>(args!.Value, _JsonOptions)!;
-                    string? keyRefusal = ParticipantKeyRefusal(ArmadaMcpHttpServer.CurrentParticipantKey, request.ParticipantKey);
+                    string? keyRefusal = ParticipantKeyRefusal(ArmadaMcpHttpServer.CurrentParticipantKey, request.ParticipantKey, ArmadaMcpHttpServer.CurrentParticipantBaseKey);
                     if (keyRefusal != null)
                         return (object)new { Error = keyRefusal };
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
                     if (String.IsNullOrWhiteSpace(participantKey))
-                        return (object)new { Error = "participantKey is required" };
+                        return (object)new { Error = "participantKey is required when the session sends no " + ArmadaMcpHttpServer.ParticipantHeaderName + " header" };
                     if (String.IsNullOrWhiteSpace(request.DisplayName))
                         return (object)new { Error = "displayName is required" };
 
@@ -212,7 +213,7 @@ namespace Armada.Server.Mcp.Tools
                         try { unreadWakes = await coordination.EnumerateUnreadWakesAsync(participantKey!).ConfigureAwait(false); }
                         catch (NotSupportedException) { }
 
-                        return (object)new { Participant = participant, UnreadWakes = unreadWakes, SharedParticipantKey = coordination.FindSharedParticipantKey(participantKey!) };
+                        return (object)new { Participant = participant, YourParticipantKey = participantKey, UnreadWakes = unreadWakes, SharedParticipantKey = coordination.FindSharedParticipantKey(participantKey!) };
                     }
                     catch (NotSupportedException ex)
                     {
@@ -714,11 +715,15 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="authenticatedKey">Participant key from the request header.</param>
         /// <param name="requestedKey">Participant key the caller passed.</param>
+        /// <param name="baseKey">Configured key the bridge made unique for this session; the
+        /// session knows only this key, so passing it means the header key.</param>
         /// <returns>The refusal text, or null.</returns>
-        internal static string? ParticipantKeyRefusal(string? authenticatedKey, string? requestedKey)
+        internal static string? ParticipantKeyRefusal(string? authenticatedKey, string? requestedKey, string? baseKey = null)
         {
             if (String.IsNullOrWhiteSpace(authenticatedKey) || String.IsNullOrWhiteSpace(requestedKey)) return null;
             if (String.Equals(authenticatedKey.Trim(), requestedKey.Trim(), StringComparison.Ordinal)) return null;
+            if (!String.IsNullOrWhiteSpace(baseKey)
+                && String.Equals(baseKey.Trim(), requestedKey.Trim(), StringComparison.Ordinal)) return null;
             return "participantKey '" + requestedKey.Trim() + "' differs from this session's participant key '" + authenticatedKey.Trim()
                 + "' (the " + ArmadaMcpHttpServer.ParticipantHeaderName + " header). The session reads and acknowledges wakes as '"
                 + authenticatedKey.Trim() + "' only. Omit participantKey or pass '" + authenticatedKey.Trim()

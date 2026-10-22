@@ -15,6 +15,15 @@ upstream integrations and excludes changes already present at that baseline.
   deployment tools as well as objective and coordination tools. No visible match
   returns `not_found`; two return `ambiguous_id`. Delete and purge tools keep
   requiring full ids and refuse an abbreviation with `full_id_required`.
+- Several sessions can share one SSH bridge configuration without sharing a
+  coordination mailbox. With `ARMADA_PARTICIPANT_KEY_UNIQUE=1` each bridge
+  process sends the configured participant key plus a random suffix fixed for
+  its life, and the configured key as `X-Armada-Participant-Base`.
+  `armada_coordination_read` and `armada_coordination_heartbeat` accept that
+  base key, or no key, as the session's own, and return the full key as
+  `YourParticipantKey`; the heartbeat does not require `participantKey` when
+  the header is sent. Without the flag the bridge sends the configured key
+  unchanged.
 - Writes accept abbreviated record ids and store the full id. `create_objective`
   and `update_objective` resolve the objective being updated, `parentObjectiveId`
   and every linked-id list; `armada_coordination_post` resolves its objective,
