@@ -407,9 +407,10 @@ armada go "Auth" -t "Add auth middleware" -t "Add login endpoint" -t "Add token 
 
 ### Auto-Recovery
 
-Armada recovers from two kinds of trouble without you:
+Armada recovers from these kinds of trouble without you:
 
 - **Stalled captains.** When a captain produces no output for `StallThresholdMinutes` (10), the Admiral repairs the dock and relaunches the agent in it, up to `MaxRecoveryAttempts` times (default 3). A mission that runs past `MaxMissionRuntimeMinutes` (240) is failed as a runaway.
+- **Endpoint and handoff trouble.** A transient model failure resumes the captain in place after a backoff; three endpoint-level failures in a row pause new work to that endpoint for two minutes. A captain that keeps failing is excluded or quarantined instead of being picked again. A Judge or Architect whose output breaks its contract gets one repair turn. Every work stage is built and tested before it hands off, whatever runtime ran it. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
 - **Mechanical failures.** A mission that failed with a compile error, failing tests, a landing conflict, a timeout, or a crash opens an incident, and Armada dispatches a bounded rescue mission for it, up to `MaxMissionRecoveryAttempts` (default 2, maximum 5, 0 disables). Failures that need judgment (scope, Judge verdicts, environment problems) are left for a person.
 
 ---

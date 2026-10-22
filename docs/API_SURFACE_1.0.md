@@ -30,7 +30,7 @@ administrator).
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 196 | 12 |
+| Settings keys | 199 | 12 |
 
 ## REST API
 
@@ -869,6 +869,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `maxMissionRecoveryAttempts` | int | `2` |  |
 | `maxMissionRuntimeMinutes` | int | `240` |  |
 | `maxNoOpRedispatchAttempts` | int | `1` |  |
+| `maxOutputRepairAttempts` | int | `1` |  |
 | `maxRecoveryAttempts` | int | `3` |  |
 | `mcp` | object |  |  |
 | `mcp.allowUnauthenticatedLoopback` | bool | `true` |  |
@@ -968,4 +969,6 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `telemetry.prometheusPort` | int | `9464` |  |
 | `telemetry.serviceName` | string | `"armada"` |  |
 | `terminalBell` | bool | `true` |  |
+| `transientResumeDelaySeconds` | int | `5` |  |
+| `verifyAllStageRuntimes` | bool | `true` |  |
 | `webSocketEnabled` | bool | `true` |  |

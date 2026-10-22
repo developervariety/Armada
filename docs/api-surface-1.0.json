@@ -18384,6 +18384,12 @@
       "experimental": false
     },
     {
+      "key": "maxOutputRepairAttempts",
+      "type": "int",
+      "default": "1",
+      "experimental": false
+    },
+    {
       "key": "maxRecoveryAttempts",
       "type": "int",
       "default": "3",
@@ -18990,6 +18996,18 @@
     },
     {
       "key": "terminalBell",
+      "type": "bool",
+      "default": "true",
+      "experimental": false
+    },
+    {
+      "key": "transientResumeDelaySeconds",
+      "type": "int",
+      "default": "5",
+      "experimental": false
+    },
+    {
+      "key": "verifyAllStageRuntimes",
       "type": "bool",
       "default": "true",
       "experimental": false

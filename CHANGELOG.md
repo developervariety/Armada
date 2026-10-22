@@ -6,6 +6,27 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Handoff and dispatch hardening for mixed runtimes
+
+Mixed fleets (Claude Code, Codex, Mux, API endpoints, local and cloud models) now fail narrowly and recover by themselves instead of cascading. The audit and its status are in `HANDOFF_EXAMINATION_RESULTS.md`.
+
+- **Assignment is claim-first.** A mission is assigned only after its captain is claimed; a provisioning or launch exception rolls back the claim instead of releasing a captain that another mission now holds. A mission can no longer run twice, and a captain is no longer left Working with no process. Captain lifecycle writes (release, dock, process) are compare-and-swap.
+- **One failing mission no longer stops the health loop.** Each phase (dispatch, merge queue, recovery, watchdogs) runs and fails on its own.
+- **Failures are classified by kind, not by runtime.** Stream errors, inference errors, timeouts, 408 and 529/overloaded are transient rather than crashes. When a run reports several errors, the most significant one is kept. A Mux exit 0 with a failed or missing `run_completed` counts as a failure.
+- **Output repair turn.** A Judge or Architect whose output breaks its contract (no verdict, conflicting verdicts, a missing lens or affected case, an invalid plan block) runs once more with the exact errors quoted before the mission fails (`MaxOutputRepairAttempts`, default 1, 0 to 3). Numbered narration is no longer turned into a Worker-to-Judge chain.
+- **New Judge verdict `SPEC_CONFLICT`.** It reports a criterion that cannot be satisfied as written, with a `## Spec Conflict` section, so a person decides instead of rework repeating until the budget is spent.
+- **Every runtime's stage is checked before handoff.** The workflow-profile build and test commands now run after Claude Code and Codex work stages too, not only Mux and API (`VerifyAllStageRuntimes`, default true). A check that also fails on the stage's base commit is not blamed on the captain. Build output from the check is reverted rather than committed.
+- **Handoff keeps the branch.** Every stage records its exact commit, and the next stage starts from it even when the two stages run on different hosts. Leftover changes are not committed over a captain's own commit.
+- **Captains that keep failing are taken out of rotation.** A launch failure backs off per captain and excludes it from the retry. A deterministic configuration failure quarantines the captain. A failed captain moves straight to Stalled or Quarantined, without an Idle gap in which it could be picked again.
+- **Endpoint load and outages.** A transient resume waits with jittered exponential backoff (`TransientResumeDelaySeconds`, default 5, up to 60 seconds). `AgentSettings.MaxConcurrent` is enforced, and an endpoint can cap missions per base URL (`inferenceOptions.maxConcurrentMissions`). After three consecutive endpoint-level failures across captains, missions stop going to that base URL for two minutes; a clean run reopens it. API captains retry a failed inference call in the loop instead of ending the run.
+- **Ollama context window.** `inferenceOptions.contextLength` is sent as `num_ctx` on Ollama and Ollama Cloud endpoints. An API captain whose prompt reaches 95% of the window stops with `context_limit_exceeded` instead of continuing on silently truncated history. Endpoints that set it run only on Harbors that advertise `api-inference-context-v1`; otherwise they run on the Admiral. Both settings are in the dashboard and TUI endpoint forms. The TUI form no longer drops `maxConcurrentMissions` when an endpoint is edited.
+- **Harbor capacity waits.** When every capable Harbor is at capacity, the mission waits for a slot instead of starting on the Admiral, where the runtime may be missing. Dock affinity no longer pins a launch to a Harbor that cannot run the captain's runtime.
+- **Harbor link.** A job message is acknowledged only after the Admiral has handled it. Large frames are decoded once. The vanished-job grace period restarts on reconnect. Requests on a replaced link fail at once. Job stops run off the receive loop.
+- **Runtime lifecycle.** Stop sends SIGTERM before killing; the exit handler no longer blocks thread-pool threads. Captain heartbeat writes are throttled, and Mux output buffers are bounded.
+- **Pipelines settle correctly.** Halting a voyage of independent missions stops their running processes, not just their records. A completion still in flight no longer lets a voyage settle early. Restart recovery keeps the Judge gate, and crash rescue opens only for standalone work. No-op re-dispatches have their own counter (migration 89), separate from resumes and interruptions. The no-op and missing-dock paths release the captain and settle the voyage.
+- **Claude Code final message.** Claude Code missions now write the final assistant message as the handoff artifact, as Codex, Mux and API captains already did, instead of handing off a trimmed transcript.
+- Update Harbor alongside the Admiral: the Harbor-side link, stop and context-window changes apply only to an updated Harbor.
+
 ### API mission configuration failures
 
 - Reject API mission launches with disabled tool calls or an empty allowlist before creating a runtime. Preserve plain Ask chat and nonempty/read-only tool policies.

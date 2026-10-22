@@ -350,10 +350,13 @@ For a mission that does not yet own a dock, the router chooses among the registe
 order:
 
 1. **Affinity.** If the mission's dock is already pinned to a Harbor, it goes to that Harbor -- no other
-   Harbor is considered. If that Harbor is offline or no longer registered, no Harbor is chosen.
+   Harbor is considered. If that Harbor is offline, no longer registered, disabled, or does not advertise the
+   captain's runtime, no Harbor is chosen and the reason says which.
 2. **Preference.** An eligible Harbor named by `vessel.preferredHarborId` wins.
 3. **Capability.** A Harbor is eligible only if it is enabled, connected, under its `maxConcurrentJobs`
    capacity, and advertises the requested runtime plus every capability in `vessel.requiredCapabilities`.
+   API captains also need `api-inference-policy-v1` when their endpoint restricts tools or generation, and
+   `api-inference-context-v1` when it sets `contextLength`; an older Harbor would ignore those settings.
 4. **Least load.** Among the remaining eligible Harbors, the least loaded one is chosen, with larger
    remaining headroom and then name used as deterministic tie-breakers.
 
@@ -362,7 +365,8 @@ required capabilities, all capable Harbors at capacity, or the dock's Harbor is 
 depends on `requireHarborForLaunch`:
 
 - **Off (default):** the captain runs on the Admiral host, as in Local mode. The same happens when no Harbor is
-  connected at all.
+  connected at all. The exception is capacity: when a connected Harbor could run the work but is full, the mission
+  waits for a slot instead of running on the Admiral, where the runtime may not be installed.
 - **On:** the mission is not assigned until an eligible Harbor owned by the mission's user is connected; it stays
   Pending and is retried on each dispatch pass. Routing then considers only that user's Harbors, so a launch never
   lands on a shared Harbor or another user's Harbor, and if none can take it at launch time the launch is refused and
