@@ -161,6 +161,47 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(Case("text_cli_reply_becomes_final_message", "A Gemini, Cursor or OpenCode run that exits cleanly writes its stdout reply, not its stderr progress, as the final message; a failed run writes none", TestTags.Positive, () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                foreach (Func<LoggingModule, string, BaseAgentRuntime> factory in new Func<LoggingModule, string, BaseAgentRuntime>[] {
+                    (log, stub) => new GeminiRuntime(log) { ExecutablePath = stub },
+                    (log, stub) => new CursorRuntime(log) { ExecutablePath = stub },
+                    (log, stub) => new OpenCodeRuntime(log) { ExecutablePath = stub } })
+                {
+                    foreach (int exit in new[] { 0, 1 })
+                    {
+                        string root = Path.Combine(Path.GetTempPath(), "armada-final-" + Guid.NewGuid().ToString("N"));
+                        Directory.CreateDirectory(root);
+                        try
+                        {
+                            string stub = Path.Combine(root, "stub.sh");
+                            File.WriteAllText(stub, "#!/bin/sh\ncat > /dev/null\necho 'reading files...' >&2\necho 'Changed the parser.'\necho '[ARMADA:RESULT] COMPLETE'\nexit " + exit + "\n");
+                            File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                            LoggingModule logging = new LoggingModule();
+                            logging.Settings.EnableConsole = false;
+                            BaseAgentRuntime runtime = factory(logging, stub);
+                            string finalMessage = Path.Combine(root, "final.txt");
+                            using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                            runtime.OnProcessExited += (pid, code) => exited.Set();
+                            runtime.StartAsync(root, "do it", finalMessageFilePath: finalMessage).GetAwaiter().GetResult();
+                            AssertTrue(exited.Wait(TimeSpan.FromSeconds(15)), "stub did not exit");
+                            if (exit == 0)
+                            {
+                                AssertTrue(File.Exists(finalMessage), runtime.Name + " wrote no final message");
+                                string text = File.ReadAllText(finalMessage);
+                                AssertEqual("Changed the parser.\n[ARMADA:RESULT] COMPLETE", text);
+                            }
+                            else AssertFalse(File.Exists(finalMessage), runtime.Name + " wrote a final message for a failed run");
+                        }
+                        finally
+                        {
+                            try { Directory.Delete(root, true); } catch { }
+                        }
+                    }
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.RuntimeProviderErrorParser",
                 displayName: "Runtime Provider Error Parser",

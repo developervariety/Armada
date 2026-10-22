@@ -51,6 +51,7 @@ namespace Armada.Runtimes
         #region Private-Members
 
         private string _ExecutablePath = "opencode";
+        private readonly CliTextFinalMessage _FinalMessage = new CliTextFinalMessage();
 
         #endregion
 
@@ -106,7 +107,32 @@ namespace Armada.Runtimes
         /// <returns>The provider error, or null.</returns>
         protected override RuntimeProviderError? TryParseProviderError(string line, bool fromStdout)
         {
-            return fromStdout ? null : RuntimeProviderErrorParser.TryParseCliStderrLine(line, "OpenCode");
+            if (fromStdout)
+            {
+                _FinalMessage.Observe(line);
+                return null;
+            }
+            return RuntimeProviderErrorParser.TryParseCliStderrLine(line, "OpenCode");
+        }
+
+        /// <summary>
+        /// Start a launch: collect its stdout reply for the final-message file.
+        /// </summary>
+        /// <param name="finalMessageFilePath">The launch's final-message file, or null.</param>
+        protected override void BeginLaunch(string? finalMessageFilePath)
+        {
+            _FinalMessage.Begin(finalMessageFilePath);
+        }
+
+        /// <summary>
+        /// On a clean exit, write the stdout reply as the final message, so handoff reads the reply rather than a transcript.
+        /// </summary>
+        /// <param name="exitCode">The process exit code, or null when unknown.</param>
+        /// <returns>The exit code, unchanged.</returns>
+        protected override int? ResolveExitCode(int? exitCode)
+        {
+            _FinalMessage.Complete(exitCode);
+            return exitCode;
         }
 
         /// <summary>
