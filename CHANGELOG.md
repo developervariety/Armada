@@ -558,6 +558,10 @@ upstream integrations and excludes changes already present at that baseline.
   failure reason ends with `uncommitted work saved to <ref>`. A snapshot that
   cannot be written records `mission.work_snapshot_failed`; the relaunch still
   runs, and recovery exhaustion keeps the dock on disk instead of reclaiming it.
+- The reclaim anchor refs section of `docs/MCP_TOOL_CATALOG.md` states where
+  the anchors live: `DockService` writes `refs/armada/docks/<dockId>` and
+  `refs/armada/missions/<missionId>` to the vessel bare repository, and nothing
+  in Armada pushes them to origin.
 - Every dock removal path saves a dock's uncommitted work before it removes the
   checkout: reclaim (and so unstick, stall recovery and mission completion),
   delete, purge, a provision over a previous attempt's or a finished dock's

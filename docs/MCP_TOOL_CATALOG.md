@@ -1022,17 +1022,24 @@ The sweep follows these rules:
 
 #### Reclaim anchor refs
 
-When a dock is reclaimed, `DockService` pushes the dock `HEAD` to origin under
-two names, so a produced commit can be found by dock or mission id without
-knowing its SHA. The push goes to origin through the dock worktree, so the
-vessel bare normally does not hold these refs and the hosted remote never prunes
-them.
+When a dock is reclaimed, `DockService` writes the dock `HEAD` to the vessel
+bare repository under two names, so a produced commit can be found by dock or
+mission id without knowing its SHA. It runs `git update-ref` in the dock
+worktree, and a worktree shares its refs with the bare it belongs to, so the
+refs land in the bare. Nothing in Armada pushes them to origin: no push names a
+`refs/armada/` refspec, and the vessel bare is a plain `--bare` clone, so a push
+from a dock sends only the branch it names. A dock branch's preserve ref,
+`refs/armada-preserved/<branch>`, is written to the bare the same way.
 
 - `refs/armada/docks/<dockId>` names every reclaimed dock, including a
-  branchless Architect fan-out worker (`AnchorDockCommitAsync`,
-  `src/Armada.Core/Services/DockService.cs:720-721`).
+  branchless Architect fan-out worker (`AnchorDockCommitAsync` in
+  `src/Armada.Core/Services/DockService.cs`).
 - `refs/armada/missions/<missionId>` names the mission that owned the dock, when
-  it can be resolved (`src/Armada.Core/Services/DockService.cs:723-728`).
+  it can be resolved (the same method).
+
+The branch cleanup sweep lists origin as well as the bare. Under
+`LocalAndRemote` it deletes an anchor that origin holds, with the same rules,
+but origin holds one only when a push that Armada does not make put it there.
 
 Both anchors name the dock's HEAD only. Uncommitted work -- tracked edits and
 untracked files that are not ignored -- is saved before the checkout is removed
