@@ -114,6 +114,34 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("branch_in_use_waits", "Two missions continuing one branch do not run at once, even on a vessel that allows concurrency", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Harness h = await BuildHarnessAsync(testDb.Driver);
+                    h.Vessel.AllowConcurrentMissions = true;
+                    await testDb.Driver.Vessels.UpdateAsync(h.Vessel);
+                    await AddCaptainAsync(testDb.Driver, "Idle One", CaptainStateEnum.Idle);
+                    Mission running = await AddMissionAsync(testDb.Driver, h.Vessel, "slice two", MissionStatusEnum.InProgress);
+                    running.BranchName = "armada/voyage/slice-one";
+                    await testDb.Driver.Missions.UpdateAsync(running);
+                    Mission mission = await AddMissionAsync(testDb.Driver, h.Vessel, "slice three", MissionStatusEnum.Pending);
+                    mission.BranchName = "armada/voyage/slice-one";
+                    await testDb.Driver.Missions.UpdateAsync(mission);
+
+                    MissionAssignmentBlocker? blocker = await h.Missions.GetAssignmentBlockerAsync(mission);
+                    AssertNotNull(blocker, "blocker");
+                    AssertEqual(MissionAssignmentBlockerReasonEnum.BranchInUse, blocker!.Reason, "reason");
+                    AssertTrue(blocker.BlockingMissionIds.Contains(running.Id), "the mission holding the branch is named");
+                    AssertFalse(await h.Missions.TryAssignAsync(mission, h.Vessel), "no second worktree on a checked-out branch");
+
+                    running.Status = MissionStatusEnum.WorkProduced;
+                    await testDb.Driver.Missions.UpdateAsync(running);
+                    MissionAssignmentBlocker? after = await h.Missions.GetAssignmentBlockerAsync(mission);
+                    AssertTrue(after == null || after.Reason != MissionAssignmentBlockerReasonEnum.BranchInUse, "the wait ends when the holder finishes");
+                }
+            }));
+
             cases.Add(CaseAsync("dependency_not_finished", "A pipeline stage waits for its dependency", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

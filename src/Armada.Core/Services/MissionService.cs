@@ -302,6 +302,15 @@ namespace Armada.Core.Services
                 return blocker;
             }
 
+            List<Mission> sameBranch = BranchHolders(mission, activeMissions);
+            if (sameBranch.Count > 0)
+            {
+                blocker.Reason = MissionAssignmentBlockerReasonEnum.BranchInUse;
+                blocker.BlockingMissionIds = sameBranch.Select(m => m.Id).ToList();
+                blocker.Summary = "Branch " + mission.BranchName + " is in use by '" + sameBranch[0].Title + "'. This mission continues that branch and starts when it finishes.";
+                return blocker;
+            }
+
             if (activeMissions.Count > 0 && !vessel.AllowConcurrentMissions)
             {
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.VesselConcurrencyLimit;
@@ -520,6 +529,15 @@ namespace Armada.Core.Services
             if (!vessel.AllowConcurrentMissions && concurrentCount > 0)
             {
                 _Logging.Info(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s); deferring " + mission.Id + " (AllowConcurrentMissions=false)");
+                return false;
+            }
+
+            // Two missions continuing one branch (two slices that both build on an earlier slice) cannot share it: git
+            // refuses a second worktree for a checked-out branch. The later one waits and then stacks on the first.
+            List<Mission> branchHolders = BranchHolders(mission, activeMissions);
+            if (branchHolders.Count > 0)
+            {
+                _Logging.Info(_Header + "mission " + mission.Id + " waits: branch " + mission.BranchName + " is in use by " + branchHolders[0].Id);
                 return false;
             }
 
@@ -4930,6 +4948,14 @@ namespace Armada.Core.Services
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             }
+        }
+
+        private static List<Mission> BranchHolders(Mission mission, IEnumerable<Mission> vesselMissions)
+        {
+            if (String.IsNullOrEmpty(mission.BranchName)) return new List<Mission>();
+            return vesselMissions.Where(m => m.Id != mission.Id
+                && (m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress)
+                && String.Equals(m.BranchName, mission.BranchName, StringComparison.Ordinal)).ToList();
         }
 
         private async Task<string?> PersonaDefaultCaptainIdAsync(Mission mission, string? routingPersona, CancellationToken token)

@@ -80,6 +80,13 @@ namespace Armada.Core.Enums
         /// A captain is free, but no host can take the mission's dock yet (for example Require Harbor is on and no
         /// connected Harbor has the capabilities it needs, or every capable Harbor is at capacity).
         /// </summary>
-        PlacementWaiting
+        PlacementWaiting,
+
+        /// <summary>
+        /// Another active mission is working on the branch this mission continues (for example, two slices that both
+        /// build on one earlier slice). It waits so both do not check out one branch at once; the slices then stack on
+        /// the branch in order.
+        /// </summary>
+        BranchInUse
     }
 }
