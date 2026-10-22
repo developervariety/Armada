@@ -188,7 +188,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("persona_default_applies_at_assignment", "Persona default captain is resolved as the preferred captain and assigned", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("persona_default_applies_at_assignment", "Persona default captain is preferred at assignment without being persisted as a pin", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -203,9 +203,28 @@ namespace Test.Shared.Suites.Services
                     AssertTrue(assigned, "Persona default captain should be assignable");
 
                     Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(defaultCaptain.Id, read!.RequestedCaptainId, "Persona default should resolve into the mission's preferred captain");
+                    AssertNull(read!.RequestedCaptainId, "A persona default is a preference, never persisted as a pin");
+                    AssertNull(read.Tier, "A persona default never becomes a tier floor");
                     AssertEqual(defaultCaptain.Id, read.CaptainId, "Mission should be assigned to the persona default captain");
                 }
+            }));
+
+            cases.Add(CaseAsync("busy_persona_default_falls_back_without_tier_floor", "A busy Premium persona default does not keep its mission waiting while a Standard captain is idle", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain premiumDefault = await AddCaptainAsync(testDb.Driver, "premium-default", CaptainStateEnum.Working, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                Captain standard = await AddCaptainAsync(testDb.Driver, "standard-idle", CaptainStateEnum.Idle, null, CaptainTierEnum.Standard).ConfigureAwait(false);
+                Persona persona = new Persona("RoutingBusyDefaultRole", "persona.worker");
+                persona.DefaultCaptainId = premiumDefault.Id;
+                await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+
+                Mission mission = await AddMissionAsync(testDb.Driver, harness.Vessel, "RoutingBusyDefaultRole", null, null).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(mission, harness.Vessel).ConfigureAwait(false), "An idle Standard captain takes the work while the Premium default is busy");
+                Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                AssertEqual(standard.Id, read!.CaptainId);
+                AssertNull(read.RequestedCaptainId, "No pin is left behind");
+                AssertNull(read.Tier, "No tier floor is inherited from the busy default");
             }));
 
             cases.Add(CaseAsync("escalated_busy_waits_for_alternative", "An escalated mission cannot fall back to the original captain while its alternative is busy", TestTags.Negative, async () =>

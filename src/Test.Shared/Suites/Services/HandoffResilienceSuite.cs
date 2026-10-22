@@ -355,6 +355,25 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(await h.Missions.TryAssignAsync(mission, vessel).ConfigureAwait(false), "a clean run closes the breaker");
             }));
 
+            cases.Add(CaseAsync("recently_unhealthy_endpoint_is_skipped", "A captain whose endpoint failed a recent health check is not picked; a stale result does not block", TestTags.Reliability, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Harness h = new Harness(testDb, new DirCreatingGitService());
+                h.Captains.OnLaunchAgent = (_, _, _) => Task.FromResult(9810);
+                DatabaseDriver db = testDb.Driver;
+
+                ModelEndpoint gpu = await db.ModelEndpoints.CreateAsync(new ModelEndpoint { Name = "gpu", BaseUrl = "http://gpu-box:11434", Model = "qwen",
+                    HealthStatus = EndpointHealthStatusEnum.Unhealthy, LastHealthCheckUtc = DateTime.UtcNow.AddMinutes(-1), LastHealthError = "connection refused" }).ConfigureAwait(false);
+                await db.Captains.CreateAsync(new Captain("gpu-captain", AgentRuntimeEnum.ApiEndpoint) { ModelEndpointId = gpu.Id }).ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission mission = await db.Missions.CreateAsync(new Mission("Work", "Do it") { VesselId = vessel.Id }).ConfigureAwait(false);
+                AssertFalse(await h.Missions.TryAssignAsync(mission, vessel).ConfigureAwait(false), "a recently unhealthy endpoint gets no new mission");
+
+                gpu.LastHealthCheckUtc = DateTime.UtcNow.AddHours(-2);
+                await db.ModelEndpoints.UpdateAsync(gpu).ConfigureAwait(false);
+                AssertTrue(await h.Missions.TryAssignAsync(mission, vessel).ConfigureAwait(false), "a stale unhealthy result does not block dispatch");
+            }));
+
             cases.Add(CaseAsync("noop_budget_is_not_spent_by_earlier_resumes", "A mission resumed after transient errors still gets its no-op re-dispatch", TestTags.Reliability, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

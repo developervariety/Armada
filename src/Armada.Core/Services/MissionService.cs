@@ -64,6 +64,7 @@ namespace Armada.Core.Services
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, EndpointBreakerState> _EndpointBreakers = new System.Collections.Concurrent.ConcurrentDictionary<string, EndpointBreakerState>(StringComparer.OrdinalIgnoreCase);
         private const int _EndpointBreakerThreshold = 3;
         private static readonly TimeSpan _EndpointBreakerOpenFor = TimeSpan.FromMinutes(2);
+        private static readonly TimeSpan _UnhealthyEndpointWindow = TimeSpan.FromMinutes(15);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _CompletionsInFlight = new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _ReviewDecisionGate = new SemaphoreSlim(1, 1);
 
@@ -2861,6 +2862,16 @@ namespace Armada.Core.Services
                         continue;
                     }
 
+                    // A recent failed health probe means a launch would fail the same way. An old result says nothing about
+                    // now (probes may be off), so only a check within the window counts.
+                    if (endpoint.HealthStatus == EndpointHealthStatusEnum.Unhealthy && endpoint.LastHealthCheckUtc.HasValue
+                        && DateTime.UtcNow - endpoint.LastHealthCheckUtc.Value <= _UnhealthyEndpointWindow)
+                    {
+                        _Logging.Debug(_Header + "captain " + candidate.Id + " skipped for mission " + mission.Id + ": endpoint " + endpoint.BaseUrl + " failed its health check at "
+                            + endpoint.LastHealthCheckUtc.Value.ToString("o") + (String.IsNullOrEmpty(endpoint.LastHealthError) ? String.Empty : " (" + endpoint.LastHealthError + ")"));
+                        continue;
+                    }
+
                     if (_EndpointBreakers.TryGetValue(EndpointCapacityKey(endpoint), out EndpointBreakerState? breaker))
                     {
                         bool open;
@@ -4594,6 +4605,14 @@ namespace Armada.Core.Services
 
             if (await HasStrictCaptainOverrideAsync(mission, token).ConfigureAwait(false)) return false;
 
+            if (String.IsNullOrEmpty(mission.RequestedCaptainId))
+            {
+                string? defaultCaptainId = await PersonaDefaultCaptainIdAsync(mission, RoutingPersona(mission), token).ConfigureAwait(false);
+                if (defaultCaptainId != null && idleCaptains.Any(c => c.Id == defaultCaptainId && CaptainVisibleToMission(c, mission) &&
+                    (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)))
+                    return true;
+            }
+
             IEnumerable<Captain> eligible = idleCaptains.Where(c => CaptainVisibleToMission(c, mission) &&
                 (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow));
             string routingPersona = RoutingPersona(mission);
@@ -4734,6 +4753,15 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "requested captain " + requestedCaptainId + " is busy; falling back by tier for this dispatch tick");
             }
 
+            // A persona's default captain is preferred when idle, like a requested captain, but is never persisted, so
+            // when it is busy the mission falls through to normal routing with no tier floor taken from it.
+            if (String.IsNullOrEmpty(requestedCaptainId))
+            {
+                string? defaultCaptainId = await PersonaDefaultCaptainIdAsync(mission, persona, token).ConfigureAwait(false);
+                Captain? personaDefault = defaultCaptainId == null ? null : idleCaptains.FirstOrDefault(c => c.Id == defaultCaptainId);
+                if (personaDefault != null) return personaDefault;
+            }
+
             // Filter by AllowedPersonas (null persona = any; null AllowedPersonas = fills any persona).
             List<Captain> eligible;
             if (String.IsNullOrEmpty(persona))
@@ -4810,10 +4838,12 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Resolve and persist the preferred captain and fallback tier for a mission from (in order) an
-        /// explicit value already set, the voyage-level override for the mission's persona, or the persona's
-        /// default captain. A dangling captain reference is left as-is and degrades to normal routing at
-        /// assignment time. Best-effort: never throws for a missing persona/voyage.
+        /// Resolve and persist the preferred captain and fallback tier for a mission from an explicit value already
+        /// set or the voyage-level override for the mission's persona. A persona's default captain is not persisted:
+        /// it is a preference consulted on each dispatch tick (see PersonaDefaultCaptainIdAsync), so it never becomes
+        /// a pin or a tier floor that keeps the mission waiting while other captains are idle. A dangling captain
+        /// reference is left as-is and degrades to normal routing at assignment time. Best-effort: never throws for a
+        /// missing persona/voyage.
         /// </summary>
         private async Task ResolvePreferredCaptainAsync(Mission mission, CancellationToken token)
         {
@@ -4853,13 +4883,6 @@ namespace Armada.Core.Services
                 resolvedTier = chosen.FallbackTier;
             }
 
-            if (String.IsNullOrEmpty(resolvedCaptainId))
-            {
-                Persona? persona = await ReadPersonaByNameAsync(mission.TenantId, routingPersona, token, mission.UserId).ConfigureAwait(false);
-                if (persona != null && persona.CaptainPriorities.Count == 0 && !String.IsNullOrEmpty(persona.DefaultCaptainId))
-                    resolvedCaptainId = persona.DefaultCaptainId;
-            }
-
             if (String.IsNullOrEmpty(resolvedCaptainId) && resolvedTier == null) return;
 
             bool changed = false;
@@ -4892,6 +4915,15 @@ namespace Armada.Core.Services
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             }
+        }
+
+        private async Task<string?> PersonaDefaultCaptainIdAsync(Mission mission, string? routingPersona, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(routingPersona)) return null;
+            Persona? persona = await ReadPersonaByNameAsync(mission.TenantId, routingPersona, token, mission.UserId).ConfigureAwait(false);
+            // A nonempty hierarchy supersedes the legacy default captain.
+            if (persona == null || persona.CaptainPriorities.Count > 0 || String.IsNullOrEmpty(persona.DefaultCaptainId)) return null;
+            return persona.DefaultCaptainId;
         }
 
         private async Task<Persona?> ReadPersonaByNameAsync(string? tenantId, string personaName, CancellationToken token, string? userId = null)
