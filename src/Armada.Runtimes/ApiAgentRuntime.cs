@@ -126,6 +126,10 @@ namespace Armada.Runtimes
         // Outer bound on one streamed call; the idle and first-response watchdog is what normally ends a stalled stream.
         private const int StreamingTotalTimeoutMs = 3600000;
         private static readonly ConcurrentDictionary<int, CancellationTokenSource> _Running = new ConcurrentDictionary<int, CancellationTokenSource>();
+        private static readonly ConcurrentDictionary<int, Task> _Loops = new ConcurrentDictionary<int, Task>();
+        // How long a stop waits for the run's loop to finish its current step, so a relaunch into the same dock never
+        // overlaps a loop that is still writing files.
+        private static readonly TimeSpan _StopWaitLimit = TimeSpan.FromSeconds(15);
 
         private readonly ModelEndpoint? _Endpoint;
         private readonly Func<string, ModelEndpoint?>? _EndpointResolver;
@@ -255,20 +259,28 @@ namespace Armada.Runtimes
             OnProcessStarted?.Invoke(processId);
 
             // Run the loop in the background so StartAsync returns the pid promptly, mirroring a process launch.
-            _ = Task.Run(() => RunLoopAsync(processId, endpoint, workingDirectory, prompt, model, captain?.ReasoningEffort, finalMessageFilePath, mcpUrl, mcpToken, cts));
+            Task loop = Task.Run(() => RunLoopAsync(processId, endpoint, workingDirectory, prompt, model, captain?.ReasoningEffort, finalMessageFilePath, mcpUrl, mcpToken, cts));
+            _Loops[processId] = loop;
+            _ = loop.ContinueWith(_ => _Loops.TryRemove(processId, out Task? _), TaskScheduler.Default);
 
             return Task.FromResult(processId);
         }
 
         /// <inheritdoc />
-        public Task StopAsync(int processId, CancellationToken token = default)
+        public async Task StopAsync(int processId, CancellationToken token = default)
         {
             if (_Running.TryGetValue(processId, out CancellationTokenSource? cts))
             {
                 try { cts.Cancel(); } catch { }
             }
 
-            return Task.CompletedTask;
+            // Wait (bounded) for the loop to leave its current model call or tool, so the caller can relaunch into the
+            // same working directory without two loops editing it at once.
+            if (_Loops.TryGetValue(processId, out Task? loop))
+            {
+                Task finished = await Task.WhenAny(loop, Task.Delay(_StopWaitLimit, token)).ConfigureAwait(false);
+                if (finished != loop) _Logging.Warn(_Header + "process " + processId + " did not finish within " + _StopWaitLimit.TotalSeconds + " s of the stop request");
+            }
         }
 
         /// <inheritdoc />

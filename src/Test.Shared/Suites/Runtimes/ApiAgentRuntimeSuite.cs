@@ -560,7 +560,7 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
-            cases.Add(CaseAsync("stop_cancels_running_loop", "StopAsync cancels a running loop and it is no longer tracked", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("stop_cancels_running_loop", "StopAsync cancels a running loop and returns only after the loop has exited", TestTags.Positive, async () =>
             {
                 string dir = NewTempDir();
                 try
@@ -579,7 +579,9 @@ namespace Test.Shared.Suites.Runtimes
                     AssertTrue(await runtime.IsRunningAsync(pid).ConfigureAwait(false), "Expected the loop to be running.");
 
                     await runtime.StopAsync(pid).ConfigureAwait(false);
-                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "Expected the loop to exit after cancellation.");
+                    // StopAsync returns only after the loop has finished, so a relaunch into the same dock cannot overlap it.
+                    AssertTrue(exited.IsSet, "The loop has exited by the time StopAsync returns.");
+                    AssertEqual(-1, exitCode ?? 0, "A stop reports the interruption sentinel.");
                     AssertTrue(!await runtime.IsRunningAsync(pid).ConfigureAwait(false), "Expected the loop to no longer be tracked.");
                 }
                 finally
