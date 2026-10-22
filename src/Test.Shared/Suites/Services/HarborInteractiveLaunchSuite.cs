@@ -66,6 +66,22 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("hbr_api_policy", (await router.DecideAsync(context).ConfigureAwait(false)).HarborId, "Updated Harbor may execute the restricted endpoint.");
             }));
 
+            cases.Add(CaseAsync("endpoint_context_window_requires_capable_harbor", "An endpoint with a context window excludes Harbors that would ignore it", TestTags.Negative, async () =>
+            {
+                using Scenario s = await Scenario.CreateAsync().ConfigureAwait(false);
+                HarborHandshake handshake = new HarborHandshake { HarborId = "hbr_api_context", Name = "API Harbor", ProtocolVersion = HarborProtocol.Version, MaxConcurrentJobs = 2,
+                    Capabilities = new List<HarborCapability> { new HarborCapability { Name = "ApiEndpoint", Available = true }, new HarborCapability { Name = HarborProtocol.InferencePolicyCapability, Available = true } } };
+                await s.Manager.OnHandshakeAsync(handshake, Constants.DefaultTenantId, "usr_ask", (message, token) => Task.CompletedTask).ConfigureAwait(false);
+                ModelEndpoint endpoint = new ModelEndpoint { InferenceOptions = new InferenceOptions { ContextLength = 16384 } };
+                Captain captain = new Captain("api-context") { Runtime = AgentRuntimeEnum.ApiEndpoint, ModelEndpointId = endpoint.Id };
+                CaptainLaunchRouter router = new CaptainLaunchRouter(s.Settings, new AgentRuntimeFactory(s.Logging), s.Manager, id => endpoint, s.Logging);
+                CaptainLaunchContext context = new CaptainLaunchContext(captain, "pipeline context") { TenantId = Constants.DefaultTenantId, UserId = "usr_ask" };
+                AssertNull((await router.DecideAsync(context).ConfigureAwait(false)).HarborId, "A Harbor that predates the context window must not run it and ignore it.");
+                handshake.Capabilities.Add(new HarborCapability { Name = HarborProtocol.InferenceContextCapability, Available = true });
+                await s.Manager.OnHandshakeAsync(handshake, Constants.DefaultTenantId, "usr_ask", (message, token) => Task.CompletedTask).ConfigureAwait(false);
+                AssertEqual("hbr_api_context", (await router.DecideAsync(context).ConfigureAwait(false)).HarborId, "An updated Harbor may run it.");
+            }));
+
             cases.Add(CaseAsync("endpoint_requires_harbor_refuses_local_fallback", "Endpoint-specific Harbor requirement applies to pipeline decisions and interactive launches", TestTags.Negative, async () =>
             {
                 using Scenario s = await Scenario.CreateAsync().ConfigureAwait(false);

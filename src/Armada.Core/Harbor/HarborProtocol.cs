@@ -37,6 +37,12 @@ namespace Armada.Core.Harbor
         public const string InferencePolicyCapability = "api-inference-policy-v1";
 
         /// <summary>
+        /// Harbor applies an endpoint's context window (Ollama num_ctx) and stops an API captain whose prompt fills it. An
+        /// older Harbor ignores the setting, so an endpoint that sets one runs only on Harbors that advertise this.
+        /// </summary>
+        public const string InferenceContextCapability = "api-inference-context-v1";
+
+        /// <summary>
         /// Capability a Harbor advertises when it can send a captain's permission prompts to Armada (Approve in Armada):
         /// it honors <see cref="HarborLaunchRequest.CliPermissionPolicy"/>. The detail lists the runtimes it can do this
         /// for, comma separated (for example "ClaudeCode,Mux"; Mux only when the Harbor's mux is 1.5.0 or later). A

@@ -43,6 +43,10 @@ namespace Armada.Core.Models
         public bool RequiresPolicySupport => !ToolsEnabled || ReadOnlyTools || !McpToolsEnabled || AllowedTools != null
             || MaxIterations != 100 || MaxTokens.HasValue || Temperature.HasValue || TopP.HasValue || RequireHarbor;
 
+        /// <summary>Whether launching on a Harbor requires a Harbor that applies the context window.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool RequiresContextSupport => ContextLength.HasValue;
+
         /// <summary>Validate supplied settings without silently changing them.</summary>
         public void Validate()
         {

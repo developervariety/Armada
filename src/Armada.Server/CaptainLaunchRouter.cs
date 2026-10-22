@@ -104,9 +104,12 @@ namespace Armada.Server
                     ExcludedHarborIds = new List<string>(context.ExcludedHarborIds ?? new List<string>())
                 };
 
-                if (context.Captain.Runtime == AgentRuntimeEnum.ApiEndpoint && !String.IsNullOrWhiteSpace(context.Captain.ModelEndpointId)
-                    && _EndpointResolver?.Invoke(context.Captain.ModelEndpointId)?.InferenceOptions.RequiresPolicySupport == true)
-                    request.RequiredCapabilities.Add(HarborProtocol.InferencePolicyCapability);
+                if (context.Captain.Runtime == AgentRuntimeEnum.ApiEndpoint && !String.IsNullOrWhiteSpace(context.Captain.ModelEndpointId))
+                {
+                    InferenceOptions? inference = _EndpointResolver?.Invoke(context.Captain.ModelEndpointId)?.InferenceOptions;
+                    if (inference?.RequiresPolicySupport == true) request.RequiredCapabilities.Add(HarborProtocol.InferencePolicyCapability);
+                    if (inference?.RequiresContextSupport == true) request.RequiredCapabilities.Add(HarborProtocol.InferenceContextCapability);
+                }
 
                 _Logging.Debug(_Header + "Harbor routing for " + context.Purpose + " (captain " + context.Captain.Id + "): tenant=" + (context.TenantId ?? "(none)")
                     + " runtime=" + request.RequestedRuntime + " dockHarbor=" + (request.ExistingHarborId ?? "(none)")
