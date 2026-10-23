@@ -6003,7 +6003,8 @@
         "Approvals for this run": "Aprobaciones para esta ejecución",
         "Approval timeout (seconds)": "Tiempo de espera de aprobación (segundos)",
         "Automatic approval requires an administrator.": "La aprobación automática requiere un administrador.",
-        "this run": "esta ejecución"
+        "this run": "esta ejecución",
+        "{{name}} Branches": "Ramas de {{name}}"
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -10943,7 +10944,8 @@
         "Approvals for this run": "本次运行的批准设置",
         "Approval timeout (seconds)": "批准超时（秒）",
         "Automatic approval requires an administrator.": "自动批准需要管理员权限。",
-        "this run": "本次运行"
+        "this run": "本次运行",
+        "{{name}} Branches": "{{name}} 分支"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15846,7 +15848,8 @@
         "Approvals for this run": "本次執行的核准設定",
         "Approval timeout (seconds)": "核准逾時（秒）",
         "Automatic approval requires an administrator.": "自動核准需要管理員權限。",
-        "this run": "本次執行"
+        "this run": "本次執行",
+        "{{name}} Branches": "{{name}} 分支"
       },
       "sections": {}
     },
@@ -20709,7 +20712,8 @@
         "Approvals for this run": "今次執行嘅批准設定",
         "Approval timeout (seconds)": "批准逾時（秒）",
         "Automatic approval requires an administrator.": "自動批准需要管理員權限。",
-        "this run": "今次執行"
+        "this run": "今次執行",
+        "{{name}} Branches": "{{name}} 分支"
       },
       "sections": {}
     },
@@ -25588,7 +25592,8 @@
         "Approvals for this run": "この実行の承認設定",
         "Approval timeout (seconds)": "承認タイムアウト（秒）",
         "Automatic approval requires an administrator.": "自動承認には管理者権限が必要です。",
-        "this run": "この実行"
+        "this run": "この実行",
+        "{{name}} Branches": "{{name}} のブランチ"
       },
       "sections": {}
     },
@@ -30458,7 +30463,8 @@
         "Approvals for this run": "Genehmigungen für diesen Lauf",
         "Approval timeout (seconds)": "Genehmigungsfrist (Sekunden)",
         "Automatic approval requires an administrator.": "Automatische Genehmigungen erfordern Administratorrechte.",
-        "this run": "diesem Lauf"
+        "this run": "diesem Lauf",
+        "{{name}} Branches": "Branches von {{name}}"
       },
       "sections": {}
     },
@@ -35328,7 +35334,8 @@
         "Approvals for this run": "Approbations pour cette exécution",
         "Approval timeout (seconds)": "Délai d’approbation (secondes)",
         "Automatic approval requires an administrator.": "L’approbation automatique nécessite un administrateur.",
-        "this run": "cette exécution"
+        "this run": "cette exécution",
+        "{{name}} Branches": "Branches de {{name}}"
       },
       "sections": {}
     },
@@ -40198,7 +40205,8 @@
         "Approvals for this run": "Approvazioni per questa esecuzione",
         "Approval timeout (seconds)": "Timeout approvazione (secondi)",
         "Automatic approval requires an administrator.": "L’approvazione automatica richiede un amministratore.",
-        "this run": "questa esecuzione"
+        "this run": "questa esecuzione",
+        "{{name}} Branches": "Branch di {{name}}"
       },
       "sections": {}
     }

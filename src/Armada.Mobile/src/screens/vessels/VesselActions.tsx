@@ -176,7 +176,7 @@ export function useVesselActions({ fleets, pipelines, onChanged, onDeleted, excl
         footer = <VesselFormActions status={formStatus} onSave={() => formRef.current?.save()} onCancel={close} />;
         break;
       case 'branches':
-        title = `${t('Manage Branches')} -- ${vessel?.name ?? ''}`;
+        title = t('{{name}} Branches', { name: vessel?.name ?? '' });
         body = vessel ? <Branches vesselId={vessel.id} /> : null;
         break;
       case 'context':

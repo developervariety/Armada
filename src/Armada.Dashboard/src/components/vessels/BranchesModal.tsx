@@ -102,7 +102,7 @@ export default function BranchesModal({ vesselId, vesselName, open, onClose, ini
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ width: 'min(980px, 95vw)', maxWidth: 'min(980px, 95vw)', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ margin: 0 }}>{t('Manage Branches')} -- {vesselName}</h3>
+          <h3 style={{ margin: 0 }}>{t('{{name}} Branches', { name: vesselName })}</h3>
         </div>
 
         {error && <p className="text-dim" style={{ color: 'var(--red)' }}>{error}</p>}

@@ -333,8 +333,8 @@ namespace Armada.Tui.Screens.Build
 
         private static string TitleOf(OpsScreen? screen, string vesselName)
         {
-            string label = screen != null ? screen.Tr("Manage Branches") : "Manage Branches";
-            return label + " -- " + (vesselName ?? "");
+            string name = vesselName ?? "";
+            return screen != null ? screen.Tr("{{name}} Branches", LocalizationArgs.Of("name", name)) : name + " Branches";
         }
 
         #endregion
