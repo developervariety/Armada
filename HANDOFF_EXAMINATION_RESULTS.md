@@ -678,7 +678,7 @@ Every item still open, with its planned resolution, in the order it will be work
 
 | Order | Item | What is left | Planned resolution | Status |
 |---|---|---|---|---|
-| 1 | D14 remainder | Validation of an endpoint whose missions run on a Harbor still runs on the Admiral (its result now says so). | A Harbor protocol request that runs the validation on the Harbor that would run the mission. Low priority: only Admiral-local addresses are affected, and the result already states its limit. | Queued |
+| 1 | D14 remainder | Endpoint validation still runs on the Admiral; for an Admiral-local address its result says it did not reach the Harbor. Ask chat is not affected: `CaptainChatService` already routes turns through `CaptainLaunchRouter`, as missions are. | Validate through the launch router as a one-turn probe ("reply with pong") on the Harbor that would run the endpoint's missions. Low priority: only `localhost`-style endpoints are affected, and none are configured on the live fleet. | Queued |
 | - | R6 (qwen3.5:122b load) | Conductor VMRs are at 300 s and streaming is now on for the live API endpoints, but Ollama's own `OLLAMA_LOAD_TIMEOUT` (5 minutes) expires before the 81 GB model loads. | Raise `OLLAMA_LOAD_TIMEOUT` on the GB10 host or use a smaller model. Recheck that Conductor's patched 504 message reaches Armada's error text once Conductor is redeployed. | External |
 | - | L3 | Each Judge rework round re-runs the whole verification chain. | Not shortened by default (C11); only an explicit policy may shorten it. | Kept by policy |
 | - | D11 | Name-order captain selection. | Least-recently-used was rejected after testing (it starves the Judge of an independent captain); revisit only together with Judge independence. | Kept by policy |
