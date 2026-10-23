@@ -18,7 +18,7 @@ namespace Test.Shared.Suites.Services
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
-    /// Fault-injection matrix (T1 in HANDOFF_EXAMINATION_RESULTS.md). Each case runs real missions through the real
+    /// Fault-injection matrix (T1 in archive/HANDOFF_EXAMINATION_RESULTS.md). Each case runs real missions through the real
     /// lifecycle handler, Admiral, mission service, docks and git, with a scripted captain runtime that reproduces one way
     /// heterogeneous runtimes and local models misbehave: a millisecond exit, a lost stream, overload, an unclassified
     /// crash, and a Judge whose output format drifts. The assertions are about outcomes, not runtime identity, so a

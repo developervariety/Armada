@@ -8,7 +8,7 @@ All notable changes to Armada are documented in this file.
 
 ### Handoff and dispatch hardening for mixed runtimes
 
-Mixed fleets (Claude Code, Codex, Mux, API endpoints, local and cloud models) now fail narrowly and recover by themselves instead of cascading. The audit and its status are in `HANDOFF_EXAMINATION_RESULTS.md`.
+Mixed fleets (Claude Code, Codex, Mux, API endpoints, local and cloud models) now fail narrowly and recover by themselves instead of cascading. The audit and its status are in `archive/HANDOFF_EXAMINATION_RESULTS.md`.
 
 - **Assignment is claim-first.** A mission is assigned only after its captain is claimed; a provisioning or launch exception rolls back the claim instead of releasing a captain that another mission now holds. A mission can no longer run twice, and a captain is no longer left Working with no process. Captain lifecycle writes (release, dock, process) are compare-and-swap.
 - **One failing mission no longer stops the health loop.** Each phase (dispatch, merge queue, recovery, watchdogs) runs and fails on its own.

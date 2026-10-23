@@ -20,7 +20,7 @@ namespace Test.Shared.Suites.Services
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
-    /// Descriptors for the dispatch and handoff hardening in HANDOFF_EXAMINATION_RESULTS.md: claim-first assignment with
+    /// Descriptors for the dispatch and handoff hardening in archive/HANDOFF_EXAMINATION_RESULTS.md: claim-first assignment with
     /// one rollback boundary (D1, D2, D6), compare-and-set launch recording (D4), terminal launch failures that settle
     /// dependents (H16), isolated health-check phases (D7), and bounded output-contract repair turns (L4, H2, H3).
     /// </summary>
