@@ -82,6 +82,13 @@ namespace Armada.Server
             Console.WriteLine(line);
         }
 
+        private static void ReportMigrationBackupRefusal(DatabaseBackupException failure)
+        {
+            Console.Error.WriteLine("DATABASE STARTUP REFUSED: verified pre-migration backup failed ("
+                + failure.FailureReason + "). No migration was started.");
+            Environment.ExitCode = 3;
+        }
+
         static async Task Main(string[] args)
         {
             // Catch unhandled exceptions so the server doesn't silently die
@@ -142,6 +149,15 @@ namespace Armada.Server
                     throw new ArgumentException("--validate-database must be the only argument.");
                 using (DatabaseDriver database = DatabaseDriverFactory.Create(_Settings.Database, _Logging))
                 {
+                    try
+                    {
+                        await new MigrationBackupService(_Settings, _Logging).PrepareAsync(database).ConfigureAwait(false);
+                    }
+                    catch (DatabaseBackupException ex)
+                    {
+                        ReportMigrationBackupRefusal(ex);
+                        return;
+                    }
                     await database.InitializeAsync().ConfigureAwait(false);
                     Console.WriteLine("DATABASE VALIDATION PASSED; schema version "
                         + await database.GetSchemaVersionAsync().ConfigureAwait(false));
@@ -205,7 +221,16 @@ namespace Armada.Server
 
             _Server = new ArmadaServer(_Logging, _Settings);
             _Server.OnStopping = () => waitHandle.Set();
-            await _Server.StartAsync().ConfigureAwait(false);
+            try
+            {
+                await _Server.StartAsync().ConfigureAwait(false);
+            }
+            catch (DatabaseBackupException ex)
+            {
+                _Server.Stop();
+                ReportMigrationBackupRefusal(ex);
+                return;
+            }
 
             Console.WriteLine("Admiral running on port " + _Settings.AdmiralPort);
             Console.WriteLine("MCP server on port " + _Settings.McpPort);

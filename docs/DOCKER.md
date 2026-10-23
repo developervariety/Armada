@@ -474,7 +474,7 @@ Its advanced Mux fields accept an optional integer from 1 to 100.
 ## Database Client Tools
 
 Backup (`armada_backup`, `GET /api/v1/backup`, WebSocket `backup`) and the
-self-deploy preflight use the configured provider's native client tools inside
+self-deploy preflight, and startup migration backup use the configured provider's native client tools inside
 the admiral container. When a tool is absent they fail with
 `native_client_missing_<tool>`. They never report a successful backup without
 the tool.
@@ -487,6 +487,31 @@ the tool.
 | SQL Server | ODBC 18 `sqlcmd` (`mssql-tools18`) | not installed: needs Microsoft's apt repository and `ACCEPT_EULA=Y`; add it in a derived image |
 
 A PostgreSQL server newer than 16 needs a matching client package in the image.
+
+### Backup before a schema upgrade
+
+Startup and `--validate-database` inspect the stored migration version before
+initializing the database. An existing versioned database with pending migrations
+requires a native backup and a successful isolated restore check before any
+migration runs. Fresh databases and databases at the current schema version skip
+this backup.
+
+The archive stays under `<data-directory>/backups/` with a
+`pre-migration-<timestamp>-v<stored>-to-v<target>-<unique>.zip` name. Its manifest
+records the stored schema version and verified backup state. SQL Server keeps
+its native `.bak` artifact at the server path recorded in the manifest; retain
+that file with the archive.
+
+The database account needs the same backup, isolated database creation, restore,
+and cleanup permissions as `armada_backup`. Native client tools must be present
+before an upgrade starts. SQL Server also requires
+`selfDeploy.sqlServerBackupDirectory`, a directory writable by the database
+server, and the derived image with `sqlcmd` described above.
+
+A failed backup or restore check stops startup with exit code 3 and prints
+`DATABASE STARTUP REFUSED`. No migration starts. Correct the reported storage,
+client, or permission fault and start again. The server keeps successful
+pre-migration backups; it does not automatically restore or remove them.
 
 ### Upgrading a running deployment
 

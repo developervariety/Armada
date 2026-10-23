@@ -83,6 +83,10 @@ only from the current local execution; older files remain visible as artifacts.
 Both versions reject an unknown shared test database provider. The fork's shared
 console runner reports the configuration error before it discovers or runs tests.
 
+Both versions protect an existing database before a startup schema upgrade.
+The fork requires a provider-native backup and a verified isolated restore for
+all four providers before migration begins. A failed backup stops startup.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the

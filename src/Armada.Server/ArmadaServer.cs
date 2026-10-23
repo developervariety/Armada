@@ -271,6 +271,7 @@ namespace Armada.Server
         {
             // Initialize database
             _Database = DatabaseDriverFactory.Create(_Settings.Database, _Logging);
+            await new MigrationBackupService(_Settings, _Logging).PrepareAsync(_Database).ConfigureAwait(false);
             await _Database.InitializeAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "database initialized");
             await PasswordHashUpgradeService.UpgradeLegacyHashesAsync(_Database, _Logging).ConfigureAwait(false);

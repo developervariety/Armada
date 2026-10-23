@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Startup and `--validate-database` retain a verified native backup before
+  upgrading an existing versioned database. The backup must pass an isolated
+  restore check before any migration starts. Backup failure stops startup
+  with exit code 3 and leaves the migration ledger unchanged. Fresh and current
+  databases do not create an extra archive.
+
 - A definition-of-done gate waiting for the host command slot carries a visible
   slot-wait record, like a check run's. The dispatch-hold `RunningGates` list
   gives each gate a `SlotWait` that reads `Running` while it holds a slot,
