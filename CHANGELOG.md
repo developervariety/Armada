@@ -9,6 +9,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A definition-of-done gate waiting for the host command slot carries a visible
+  slot-wait record, like a check run's. The dispatch-hold `RunningGates` list
+  gives each gate a `SlotWait` that reads `Running` while it holds a slot,
+  `WaitingForSlot` with its `Position` in line while it waits for one, or
+  `Queued` before its first command. An operator can now tell a gate queued
+  behind others from one that is lost without reading the lock holder's dock.
+
 - A check or gate command the OS terminates by a signal (`128 + signal`; `143`
   is SIGTERM, `137` is SIGKILL) with no failing test named is read as an
   environment interruption, not a code failure. The definition-of-done

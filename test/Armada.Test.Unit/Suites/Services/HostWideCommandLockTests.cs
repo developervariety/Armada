@@ -190,6 +190,37 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("A mission's gate slot wait names its state, its place and its holder", () =>
+            {
+                // A gate that holds a slot is running a suite.
+                HostSlotSnapshot holding = new HostSlotSnapshot();
+                holding.Holders.Add(new HostSlotHolder { Key = "msn_gate", Description = "a gate", SinceUtc = DateTime.UtcNow });
+                AssertEqual("Running", GateSlotWait.Describe("msn_gate", holding).State, "a gate that holds a slot is running");
+
+                // A gate waiting in line is not lost: it names its place and the holder it waits behind.
+                HostSlotSnapshot waiting = new HostSlotSnapshot { HolderKey = "msn_other", HolderDescription = "another gate", HolderSinceUtc = DateTime.UtcNow };
+                waiting.Holders.Add(new HostSlotHolder { Key = "msn_other", Description = "another gate", SinceUtc = waiting.HolderSinceUtc });
+                DateTime askedAt = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                waiting.Waiters.Add(new HostSlotWaiter { Position = 2, Key = "msn_gate", Description = "a gate", RequestedUtc = askedAt });
+
+                GateSlotWait inLine = GateSlotWait.Describe("msn_gate", waiting);
+                AssertEqual("WaitingForSlot", inLine.State, "a gate waiting in line is not lost");
+                AssertEqual(2, inLine.Position, "the gate names its place in line");
+                AssertEqual(askedAt, inLine.WaitingSinceUtc, "the wait names when the gate asked");
+                AssertEqual("another gate", inLine.HolderDescription, "the wait names what holds the slot");
+                AssertContains("not lost", inLine.Guidance);
+
+                // A registered gate that neither holds nor waits for a slot is queued before its first command.
+                AssertEqual("Queued", GateSlotWait.Describe("msn_gate", new HostSlotSnapshot()).State, "a gate that has not asked for a slot is queued, not lost");
+
+                // Memory holding the queue surfaces on the gate first in line.
+                HostSlotSnapshot memoryHeld = new HostSlotSnapshot { HeldForMemory = true, MemoryWaitReason = "waiting for free memory" };
+                memoryHeld.Waiters.Add(new HostSlotWaiter { Position = 1, Key = "msn_gate", Description = "a gate", RequestedUtc = askedAt });
+                AssertEqual("waiting for free memory", GateSlotWait.Describe("msn_gate", memoryHeld).MemoryWaitReason, "a gate first in line names the memory hold");
+
+                return Task.CompletedTask;
+            });
+
             await RunTest("With one slot a second request waits and the snapshot names one holder", async () =>
             {
                 List<IDisposable> leases = new List<IDisposable>();

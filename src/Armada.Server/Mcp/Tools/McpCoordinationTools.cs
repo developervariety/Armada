@@ -513,7 +513,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 register(
                     "armada_dispatch_hold",
-                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. Engaging or clearing posts a system note to the coordination board. Status and engage list UnfinishedJobs: background jobs (dispatches included) accepted but not finished; RunningGates: definition-of-done gates running or waiting for the host command slot; GateReruns: interrupted gates being re-run; and HostSlot: who holds and who waits for the host command slot, with MemoryWaitReason when free memory holds the next request. A restart records each unfinished job Lost and kills every running gate and check, so wait for UnfinishedJobs, RunningGates and GateReruns to be empty and HostSlot to have no holder or waiter before restarting.",
+                    "Engage, clear, or inspect the fleet-wide dispatch hold. Engage it BEFORE rebuilding or redeploying the admiral so other sessions and the objective scheduler cannot start new voyages against a binary about to change. In-flight voyages continue; only new dispatches are refused. Engaging or clearing posts a system note to the coordination board. Status and engage list UnfinishedJobs: background jobs (dispatches included) accepted but not finished; RunningGates: definition-of-done gates running or waiting for the host command slot, each with a SlotWait (Running, WaitingForSlot with its Position in line, or Queued before its first command) so a queued gate is told from a lost one; GateReruns: interrupted gates being re-run; and HostSlot: who holds and who waits for the host command slot, with MemoryWaitReason when free memory holds the next request. A restart records each unfinished job Lost and kills every running gate and check, so wait for UnfinishedJobs, RunningGates and GateReruns to be empty and HostSlot to have no holder or waiter before restarting.",
                     new
                     {
                         type = "object",
@@ -568,10 +568,12 @@ namespace Armada.Server.Mcp.Tools
 
         private static List<RunningGateRow> RunningGates()
         {
+            HostSlotSnapshot slot = HostWideCommandLock.Snapshot();
             return DefinitionOfDoneGateRuns.Snapshot().Select(entry => new RunningGateRow
             {
                 MissionId = entry.Key,
-                StartedUtc = entry.Value
+                StartedUtc = entry.Value,
+                SlotWait = GateSlotWait.Describe(entry.Key, slot)
             }).ToList();
         }
 
@@ -585,6 +587,13 @@ namespace Armada.Server.Mcp.Tools
 
             /// <summary>When the gate started, including its wait for the host command slot.</summary>
             public DateTime StartedUtc { get; set; }
+
+            /// <summary>
+            /// Where the gate stands for the host command slot: Running while it holds one, WaitingForSlot with its
+            /// Position while it waits in line, or Queued before its first command. This tells a queued gate from a
+            /// lost one without reading its dock.
+            /// </summary>
+            public GateSlotWait? SlotWait { get; set; } = null;
         }
 
         private static List<UnfinishedJobRow> UnfinishedJobs(LongRunningJobService? jobs)

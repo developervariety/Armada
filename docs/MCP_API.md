@@ -420,7 +420,10 @@ addressed to that key names the job, its reason and its objective, so the
 submitter learns of the failure without polling the job. Finished records are kept for 14 days. `armada_dispatch_hold`
 `status` and `engage` list `UnfinishedJobs`, the jobs a restart would lose,
 `RunningGates`, the definition-of-done gates running or waiting for the host
-command slot, `GateReruns`, the interrupted gates being re-run, and `HostSlot`,
+command slot, each with a `SlotWait` that reads `Running` while the gate holds a
+slot, `WaitingForSlot` with its `Position` in line while it waits, or `Queued`
+before its first command, so a queued gate is told from a lost one without
+reading its dock, `GateReruns`, the interrupted gates being re-run, and `HostSlot`,
 who holds and who waits for the host command slot, with `MemoryWaitReason`
 when free memory holds the next request. A restart kills every gate
 and check listed there; wait for `UnfinishedJobs`, `RunningGates` and

@@ -150,9 +150,11 @@ plain `Timeout`.
 
 A time limit hit at normal load on a silent command that held the host alone
 fails at once. While the gate waits for load or for the host it is still a
-running gate: it shows in `RunningGates`, and cancelling the mission stops the
-wait and records `Cancelled`. The interrupted-gate re-run follows the same
-rules.
+running gate: it shows in `RunningGates` with a `SlotWait` that reads `Running`
+while it holds a slot, `WaitingForSlot` with its `Position` in line while it
+waits for one, or `Queued` before its first command, so a gate queued behind
+others is told from one that is lost. Cancelling the mission stops the wait and
+records `Cancelled`. The interrupted-gate re-run follows the same rules.
 
 **After an isolated re-run that fails again.** When a red unit-test suite (the
 vessel's own or a consumer's) is re-run once with only its failing tests, the
