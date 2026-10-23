@@ -72,6 +72,10 @@ Both versions protect cancelled missions from stale full-row writes. The fork
 keeps explicit status-conditioned transitions and restart to `Pending`, and stops
 completion and handoff paths when they observe cancellation.
 
+Both versions recover interrupted Architect fan-out. The fork also repairs partial
+stage chains, preserves started work and holds ambiguous graphs for review. A
+completion record is tied to the stored plan so a changed plan is checked again.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the

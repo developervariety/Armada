@@ -561,3 +561,26 @@ expected status to match and keeps its transition contract.
 
 Completion and review approval stop when their write observes a different stored
 status. Pipeline handoff also checks cancellation before it prepares dependents.
+
+## Interrupted Architect fan-out
+
+The handoff sweep reconciles an Architect in `WorkProduced` when its voyage is
+still open or in progress and its completion is no longer running. Recovery uses
+the existing Architect parser, first Worker template, stage shape and dependency
+rules. It preserves the plan evidence and delivered mailbox notes. A completion
+marker in the Architect description includes a digest of the parsed plan. A
+changed plan cannot use a previous completion marker.
+
+New fan-out Workers and cloned stages have stable opaque identifiers for their
+Architect slice or template edge. If a create succeeds but its acknowledgement
+is lost, the next sweep reuses that row. Older rows are reused only when their
+lineage and stored shape give one safe match. Partial chains are completed before
+pending slice dependencies are applied. Other fan-out roots are boundaries, not
+stages to copy. Direct dependents wait while recovery is in progress.
+
+Recovery does not rewrite a started slice. A missing stage behind started work,
+a conflicting brief, an ambiguous match or an unsafe dependency places the
+Architect on operator review hold with an `architect_fanout_recovery` reason.
+The graph and existing work remain available for inspection. Clear retries safe
+reconciliation and keeps the hold if the graph is still unsafe. Fail uses the
+existing failed-hold recovery path. A terminal voyage is not re-opened.

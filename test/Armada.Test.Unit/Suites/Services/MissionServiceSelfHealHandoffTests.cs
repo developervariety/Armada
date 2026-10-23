@@ -1213,6 +1213,324 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(upstream.HeldForOperatorReview, "The unverified upstream is held for the operator.");
                 }
             });
+
+            await RunTest("RecoverDanglingHandoffs_ArchitectRepairsPartialSliceChainIdempotently", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                        new Voyage("Interrupted Architect fan-out") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                    Mission architect = new Mission("[Architect] Plan", "Plan the work.");
+                    architect.VesselId = vessel.Id;
+                    architect.VoyageId = voyage.Id;
+                    architect.Persona = "Architect";
+                    architect.Status = MissionStatusEnum.WorkProduced;
+                    architect.AgentOutput =
+                        "[ARMADA:MISSION]\n" +
+                        "title: First slice\n" +
+                        "description: Implement the first slice.\n" +
+                        "[/ARMADA:MISSION]\n" +
+                        "[ARMADA:MISSION]\n" +
+                        "title: Second slice\n" +
+                        "dependsOnMissionId: M1\n" +
+                        "description: Implement the second slice.\n" +
+                        "[/ARMADA:MISSION]";
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+                    string firstBrief = MissionService.ArchitectDerivedBriefPreamble + "\n\nImplement the first slice.";
+                    string secondBrief = MissionService.ArchitectDerivedBriefPreamble + "\n\nImplement the second slice.";
+                    Mission firstWorker = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "First slice [Worker]", "Worker",
+                        "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + firstBrief, architect.Id).ConfigureAwait(false);
+                    Mission firstTest = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "First slice [TestEngineer]", "TestEngineer",
+                        firstBrief, firstWorker.Id).ConfigureAwait(false);
+                    Mission firstJudge = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "First slice [Judge]", "Judge",
+                        firstBrief, firstTest.Id).ConfigureAwait(false);
+
+                    Mission secondWorker = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "Second slice [Worker]", "Worker",
+                        "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + secondBrief, architect.Id).ConfigureAwait(false);
+                    Mission secondTest = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "Second slice [TestEngineer]", "TestEngineer",
+                        secondBrief, secondWorker.Id).ConfigureAwait(false);
+
+                    Signal mail = new Signal(SignalTypeEnum.Mail, System.Text.Json.JsonSerializer.Serialize(
+                        new VoyageMailboxSignalPayload { VoyageId = voyage.Id, Message = "Keep the public contract." }));
+                    mail = await testDb.Driver.Signals.CreateAsync(mail).ConfigureAwait(false);
+                    string notes = "[ORCHESTRATOR NOTES]\nKeep the public contract.\n[/ORCHESTRATOR NOTES]\n\n";
+                    firstWorker.Description = notes + firstWorker.Description;
+                    secondWorker.Description = notes + secondWorker.Description;
+                    await testDb.Driver.Missions.UpdateAsync(firstWorker).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(secondWorker).ConfigureAwait(false);
+
+                    int firstRecovery = await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    List<Mission> afterFirstRecovery = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    Mission? repairedSecondJudge = afterFirstRecovery.SingleOrDefault(m =>
+                        m.Persona == "Judge" && m.Title == "Second slice [Judge]");
+                    Mission? readBackFirstWorker = await testDb.Driver.Missions.ReadAsync(firstWorker.Id).ConfigureAwait(false);
+                    Mission? readBackFirstJudge = await testDb.Driver.Missions.ReadAsync(firstJudge.Id).ConfigureAwait(false);
+                    Mission? readBackSecondWorker = await testDb.Driver.Missions.ReadAsync(secondWorker.Id).ConfigureAwait(false);
+
+                    AssertTrue(firstRecovery > 0, "The interrupted fan-out is recovered.");
+                    AssertTrue((await testDb.Driver.Signals.ReadAsync(mail.Id).ConfigureAwait(false))!.Read,
+                        "A note already delivered to every slice is marked read after recovery.");
+                    AssertEqual(notes + "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + firstBrief,
+                        (await testDb.Driver.Missions.ReadAsync(firstWorker.Id).ConfigureAwait(false))!.Description,
+                        "Recovery preserves the delivered mailbox block.");
+                    AssertNotNull(repairedSecondJudge, "The missing final stage is created for the partial second chain.");
+                    AssertEqual(secondTest.Id, repairedSecondJudge!.DependsOnMissionId, "The missing stage continues from the existing cloned stage.");
+                    AssertEqual(firstWorker.Id, readBackFirstWorker!.Id, "The first template Worker keeps its id.");
+                    AssertEqual(firstJudge.Id, readBackFirstJudge!.Id, "The first template chain keeps its existing terminal stage id.");
+                    AssertEqual(firstJudge.Id, readBackSecondWorker!.DependsOnMissionId, "The second slice is sequenced after the first slice terminal stage.");
+
+                    int missionCountAfterRepair = afterFirstRecovery.Count;
+                    string repairedJudgeId = repairedSecondJudge.Id;
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    List<Mission> afterSecondRecovery = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    Mission? secondPassJudge = afterSecondRecovery.SingleOrDefault(m => m.Id == repairedJudgeId);
+                    Mission? secondPassArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+
+                    AssertEqual(missionCountAfterRepair, afterSecondRecovery.Count, "A second recovery creates no duplicate stages.");
+                    AssertNotNull(secondPassJudge, "The repaired stage keeps its id on a repeated recovery.");
+                    AssertContains("<!-- armada:fanout-complete -->", secondPassArchitect!.Description,
+                        "A fully repaired fan-out records its completion marker.");
+                    secondPassArchitect.AgentOutput = secondPassArchitect.AgentOutput!.Replace("Implement the second slice.", "A changed second slice.", StringComparison.Ordinal);
+                    await testDb.Driver.Missions.UpdateAsync(secondPassArchitect).ConfigureAwait(false);
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    AssertTrue((await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!.HeldForOperatorReview,
+                        "The completion marker cannot certify a different stored plan.");
+                    AssertEqual(missionCountAfterRepair, (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false)).Count);
+
+                }
+            });
+
+            await RunTest("RecoverDanglingHandoffs_ArchitectRetriesCreateAfterLostAcknowledgement", async () =>
+            {
+                string[] lostCreateTitles =
+                {
+                    "Second slice [Worker]",
+                    "Second slice [TestEngineer]",
+                    "Second slice [Judge]"
+                };
+
+                foreach (string lostCreateTitle in lostCreateTitles)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        MissionService missions = CreateMissionService(testDb.Driver, settings);
+                        Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                            new Voyage("Lost Architect create acknowledgement") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                        Mission architect = new Mission("[Architect] Plan", "Plan the work.");
+                        architect.VesselId = vessel.Id;
+                        architect.VoyageId = voyage.Id;
+                        architect.Persona = "Architect";
+                        architect.Status = MissionStatusEnum.WorkProduced;
+                        architect.AgentOutput =
+                            "[ARMADA:MISSION]\n" +
+                            "title: First slice\n" +
+                            "description: Implement the first slice.\n" +
+                            "[/ARMADA:MISSION]\n" +
+                            "[ARMADA:MISSION]\n" +
+                            "title: Second slice\n" +
+                            "dependsOnMissionId: M1\n" +
+                            "description: Implement the second slice.\n" +
+                            "[/ARMADA:MISSION]";
+                        architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+                        string firstBrief = MissionService.ArchitectDerivedBriefPreamble + "\n\nImplement the first slice.";
+                        Mission firstWorker = await CreateArchitectSliceStageAsync(
+                            testDb.Driver, vessel, voyage, architect, "First slice [Worker]", "Worker",
+                            "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + firstBrief, architect.Id).ConfigureAwait(false);
+                        Mission firstTest = await CreateArchitectSliceStageAsync(
+                            testDb.Driver, vessel, voyage, architect, "First slice [TestEngineer]", "TestEngineer",
+                            firstBrief, firstWorker.Id).ConfigureAwait(false);
+                        Mission firstJudge = await CreateArchitectSliceStageAsync(
+                            testDb.Driver, vessel, voyage, architect, "First slice [Judge]", "Judge",
+                            firstBrief, firstTest.Id).ConfigureAwait(false);
+
+                        using (Microsoft.Data.Sqlite.SqliteConnection connection = new Microsoft.Data.Sqlite.SqliteConnection(testDb.ConnectionString))
+                        {
+                            await connection.OpenAsync().ConfigureAwait(false);
+                            using (Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand())
+                            {
+                                command.CommandText = "CREATE TRIGGER lose_architect_create_ack AFTER INSERT ON missions WHEN NEW.title = '" + lostCreateTitle
+                                    + "' BEGIN SELECT RAISE(FAIL, 'lost create acknowledgement'); END;";
+                                await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                            }
+                        }
+
+                        await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                        List<Mission> afterLostAcknowledgement = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                        List<Mission> persistedTarget = afterLostAcknowledgement.Where(m => m.Title == lostCreateTitle).ToList();
+                        AssertEqual(1, persistedTarget.Count, "The insert committed before its acknowledgement was lost.");
+                        string targetId = persistedTarget[0].Id;
+
+                        using (Microsoft.Data.Sqlite.SqliteConnection connection = new Microsoft.Data.Sqlite.SqliteConnection(testDb.ConnectionString))
+                        {
+                            await connection.OpenAsync().ConfigureAwait(false);
+                            using (Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand())
+                            {
+                                command.CommandText = "DROP TRIGGER lose_architect_create_ack;";
+                                await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                            }
+                        }
+
+                        await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                        await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                        List<Mission> afterRetries = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                        Mission? secondWorker = afterRetries.SingleOrDefault(m => m.Title == "Second slice [Worker]");
+                        Mission? secondTest = afterRetries.SingleOrDefault(m => m.Title == "Second slice [TestEngineer]");
+                        Mission? secondJudge = afterRetries.SingleOrDefault(m => m.Title == "Second slice [Judge]");
+                        Mission? readBackArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+
+                        AssertEqual(7, afterRetries.Count, "Retries create exactly the two three-stage slices and the Architect.");
+                        AssertEqual(afterRetries.Count, afterRetries.Select(m => m.Title).Distinct(StringComparer.Ordinal).Count(), "Recovery creates no duplicate titles.");
+                        AssertNotNull(secondWorker, "The second Worker exists.");
+                        AssertNotNull(secondTest, "The second TestEngineer exists.");
+                        AssertNotNull(secondJudge, "The second Judge exists.");
+                        Mission? retainedTarget = afterRetries.SingleOrDefault(m => m.Title == lostCreateTitle);
+                        AssertEqual(targetId, retainedTarget!.Id, "Recovery keeps the row whose create acknowledgement was lost.");
+                        AssertEqual(firstJudge.Id, secondWorker!.DependsOnMissionId, "The second root depends on the first slice terminal stage.");
+                        AssertEqual(secondWorker.Id, secondTest!.DependsOnMissionId, "The second TestEngineer depends on its Worker.");
+                        AssertEqual(secondTest.Id, secondJudge!.DependsOnMissionId, "The second Judge depends on its TestEngineer.");
+                        AssertContains("<!-- armada:fanout-complete -->", readBackArchitect!.Description,
+                            "Successful retries record the fan-out completion marker.");
+                    }
+                }
+            });
+
+            await RunTest("RecoverDanglingHandoffs_ArchitectDescriptionFallbackCompletionIsStable", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Fallback plan") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission architect = new Mission("Plan", "1. Build the widget");
+                    architect.Persona = "Architect";
+                    architect.Status = MissionStatusEnum.WorkProduced;
+                    architect.VesselId = vessel.Id;
+                    architect.VoyageId = voyage.Id;
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+                    await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect, "Placeholder", "Worker", "Waiting for the plan.", architect.Id).ConfigureAwait(false);
+                    AssertEqual(1, await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false));
+                    string completedDescription = (await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!.Description;
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    Mission current = (await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!;
+                    AssertFalse(current.HeldForOperatorReview, "A completion marker must not change the numbered fallback plan it certifies.");
+                    AssertEqual(completedDescription, current.Description, "Repeated recovery keeps one stable completion record.");
+                    AssertEqual(2, (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false)).Count);
+                }
+            });
+
+            await RunTest("RecoverDanglingHandoffs_ArchitectLeavesStartedAmbiguousSliceForOperator", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                        new Voyage("Started Architect slice") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                    Mission architect = new Mission("[Architect] Plan", "Plan the work.");
+                    architect.VesselId = vessel.Id;
+                    architect.VoyageId = voyage.Id;
+                    architect.Persona = "Architect";
+                    architect.Status = MissionStatusEnum.WorkProduced;
+                    architect.AgentOutput =
+                        "[ARMADA:MISSION]\n" +
+                        "title: First slice\n" +
+                        "description: Implement the first slice.\n" +
+                        "[/ARMADA:MISSION]\n" +
+                        "[ARMADA:MISSION]\n" +
+                        "title: Second slice\n" +
+                        "dependsOnMissionId: M1\n" +
+                        "description: Implement the second slice.\n" +
+                        "[/ARMADA:MISSION]";
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+                    string firstBrief = MissionService.ArchitectDerivedBriefPreamble + "\n\nImplement the first slice.";
+                    string secondBrief = MissionService.ArchitectDerivedBriefPreamble + "\n\nImplement the second slice.";
+                    Mission firstWorker = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "First slice [Worker]", "Worker",
+                        "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + firstBrief, architect.Id).ConfigureAwait(false);
+                    Mission firstTest = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "First slice [TestEngineer]", "TestEngineer",
+                        firstBrief, firstWorker.Id).ConfigureAwait(false);
+                    Mission firstJudge = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "First slice [Judge]", "Judge",
+                        firstBrief, firstTest.Id).ConfigureAwait(false);
+                    Mission secondWorker = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "Second slice [Worker]", "Worker",
+                        "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + secondBrief, architect.Id).ConfigureAwait(false);
+                    secondWorker.Status = MissionStatusEnum.InProgress;
+                    secondWorker.StartedUtc = DateTime.UtcNow.AddMinutes(-1);
+                    secondWorker.BranchName = "armada/started-slice";
+                    secondWorker = await testDb.Driver.Missions.UpdateAsync(secondWorker).ConfigureAwait(false);
+                    Mission existingChild = await CreateArchitectSliceStageAsync(
+                        testDb.Driver, vessel, voyage, architect, "Second slice [TestEngineer]", "TestEngineer",
+                        "Operator-edited brief.", secondWorker.Id).ConfigureAwait(false);
+                    string existingDescription = secondWorker.Description;
+                    string existingTitle = secondWorker.Title;
+                    string existingDependency = secondWorker.DependsOnMissionId!;
+                    string existingBranch = secondWorker.BranchName!;
+
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    Mission? readBackArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+                    Mission? readBackSecondWorker = await testDb.Driver.Missions.ReadAsync(secondWorker.Id).ConfigureAwait(false);
+                    Mission? readBackExistingChild = await testDb.Driver.Missions.ReadAsync(existingChild.Id).ConfigureAwait(false);
+                    List<Mission> afterRecovery = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+
+                    AssertTrue(readBackArchitect!.HeldForOperatorReview, "An unsafe started slice is held for operator review.");
+                    AssertContains("architect_fanout_recovery", readBackArchitect.HeldForOperatorReviewReason ?? String.Empty,
+                        "The hold names the unsafe Architect recovery.");
+                    AssertEqual(existingDescription, readBackSecondWorker!.Description, "Recovery preserves the started Worker brief.");
+                    AssertEqual(existingTitle, readBackSecondWorker.Title, "Recovery preserves the started Worker title.");
+                    AssertEqual(existingDependency, readBackSecondWorker.DependsOnMissionId, "Recovery does not rewire the started Worker.");
+                    AssertEqual(existingBranch, readBackSecondWorker.BranchName, "Recovery preserves the started Worker branch.");
+                    AssertEqual("Operator-edited brief.", readBackExistingChild!.Description, "Recovery preserves the existing child brief.");
+                    AssertEqual(1, afterRecovery.Count(m => m.Id == existingChild.Id), "The existing child remains unique.");
+                    AssertEqual(6, afterRecovery.Count, "Recovery creates no stage behind the started partial chain.");
+                    await AssertThrowsAsync<InvalidOperationException>(() => missions.ClearOperatorReviewHoldAsync(architect.Id, "operator", "retry safely"),
+                        "Clearing a graph hold cannot bypass safe reconciliation.").ConfigureAwait(false);
+                    AssertTrue((await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!.HeldForOperatorReview);
+
+                    AssertEqual(firstJudge.Id, (await testDb.Driver.Missions.ReadAsync(firstJudge.Id).ConfigureAwait(false))!.Id,
+                        "The existing first-slice terminal stage remains present.");
+                }
+            });
+        }
+
+        private async Task<Mission> CreateArchitectSliceStageAsync(
+            SqliteDatabaseDriver db,
+            Vessel vessel,
+            Voyage voyage,
+            Mission architect,
+            string title,
+            string persona,
+            string description,
+            string dependsOn)
+        {
+            Mission mission = new Mission(title, description);
+            mission.VesselId = vessel.Id;
+            mission.VoyageId = voyage.Id;
+            mission.Persona = persona;
+            mission.Status = MissionStatusEnum.Pending;
+            mission.DependsOnMissionId = dependsOn;
+            mission.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+            mission.Mode = architect.Mode;
+            return await db.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
     }
 }

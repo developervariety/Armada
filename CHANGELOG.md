@@ -9,6 +9,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Interrupted Architect fan-out is reconciled from the stored plan. Recovery
+  fills missing Workers and partial stage chains with stable create identities,
+  preserves existing rows and started work, repairs pending dependency edges,
+  and records completion against the plan. Ambiguous or unsafe graphs are held
+  for operator review. Clearing that hold retries safe reconciliation; it cannot
+  bypass it. Mailbox notes already in the slice briefs are preserved and consumed.
+
 - An ordinary full-row mission update cannot move a cancelled mission to another
   status except `Pending` for restart. A refused write preserves all stored
   fields and timestamps, and returns the current stored status to its caller.

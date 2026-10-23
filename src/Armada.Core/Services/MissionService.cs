@@ -705,7 +705,7 @@ namespace Armada.Core.Services
                     // either appends a redundant prepare or, worse, drops a mailbox block the batch
                     // has not yet consumed. Try again on the next sweep tick once the completion
                     // handler clears its entry.
-                    if (_InFlightCompletions.ContainsKey(dependency.Id))
+                    if (_InFlightCompletions.ContainsKey(dependency.Id) || _ArchitectRecoveries.ContainsKey(dependency.Id))
                     {
                         _Logging.Info(_Header + "mission " + mission.Id + " depends on " + dependency.Id +
                             " (" + dependency.Status + ") whose completion is still in flight -- deferring self-heal to next sweep tick");
@@ -1365,7 +1365,11 @@ namespace Armada.Core.Services
             foreach (Mission produced in workProduced)
             {
                 if (String.IsNullOrEmpty(produced.VoyageId)) continue;
-                if (String.Equals(produced.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) continue;
+                if (String.Equals(produced.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (await TryRecoverArchitectFanOutAsync(produced, token).ConfigureAwait(false)) redriven++;
+                    continue;
+                }
                 if (produced.HeldForOperatorReview)
                 {
                     _Logging.Debug(_Header + "not re-driving handoff for mission " + produced.Id + ": held for operator review");
@@ -1484,6 +1488,8 @@ namespace Armada.Core.Services
         public async Task<Mission> ClearOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default)
         {
             Mission mission = await RequireHeldMissionAsync(missionId, operatorName, reason, token).ConfigureAwait(false);
+            if ((mission.HeldForOperatorReviewReason ?? String.Empty).StartsWith("architect_fanout_recovery:", StringComparison.Ordinal))
+                return await ClearArchitectRecoveryHoldAsync(mission, operatorName, reason, token).ConfigureAwait(false);
 
             // A handoff-outcome hold has its own three choices, each recorded as a label on the decision.
             if (HandoffOutcomeHold.IsReason(mission.HeldForOperatorReviewReason))
@@ -6892,6 +6898,12 @@ namespace Armada.Core.Services
                 m.DependsOnMissionId == completedMission.Id &&
                 m.Status == MissionStatusEnum.Pending).ToList();
 
+            if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
+            {
+                if (IsArchitectFanOutComplete(completedMission)) return true;
+                if (voyageMissions.Any(m => IsArchitectSliceRoot(m) && BelongsToArchitect(voyageMissions, m, completedMission.Id)))
+                    return await TryRecoverArchitectFanOutAsync(completedMission, token, allowOwnCompletion: true).ConfigureAwait(false);
+            }
             if (dependentMissions.Count == 0) return false;
 
             // Load unread mailbox signals once for all downstream missions in this handoff batch
@@ -6961,6 +6973,7 @@ namespace Armada.Core.Services
                                     foreach (Signal s in additionalApplicable) appliedSignalIds.Add(s.Id);
                                 }
                                 Mission additionalWorker = new Mission(parsed[i].Title + " [Worker]", additionalDesc);
+                                additionalWorker.Id = ArchitectSliceId(completedMission.Id, nextMission.Id, i);
                                 additionalWorker.TenantId = completedMission.TenantId;
                                 additionalWorker.UserId = completedMission.UserId;
                                 additionalWorker.VoyageId = completedMission.VoyageId;
@@ -6984,6 +6997,7 @@ namespace Armada.Core.Services
                     await ApplyArchitectMissionDependenciesAsync(completedMission, parsed, token).ConfigureAwait(false);
                     foreach (string signalId in appliedSignalIds)
                         await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
+                    await MarkArchitectFanOutCompleteAsync(completedMission, token).ConfigureAwait(false);
                     return true; // Architect special handling complete, skip normal handoff
                 }
 
@@ -11002,6 +11016,7 @@ namespace Armada.Core.Services
                 Mission clonedStage = new Mission(
                     parsedTitle + " [" + templateChild.Persona + "]",
                     parsedDescription);
+                clonedStage.Id = ArchitectFanOutId(newDependency.Id, templateChild.Id);
                 clonedStage.TenantId = templateChild.TenantId;
                 clonedStage.UserId = templateChild.UserId;
                 clonedStage.VoyageId = templateChild.VoyageId;
@@ -11173,7 +11188,7 @@ namespace Armada.Core.Services
             {
                 architectMission.AgentOutput,
                 architectMission.DiffSnapshot,
-                architectMission.Description
+                RemoveArchitectFanOutCompletionRecords(architectMission.Description)
             };
 
             foreach (string? candidateSource in candidateSources)
