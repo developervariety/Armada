@@ -967,48 +967,67 @@ namespace Armada.Core.Services
 
             // A root (stage-1) mission -- one with no dependency to inherit a branch from -- that is
             // being REASSIGNED keeps its committed work on its own persisted branch. A restart resets
-            // such a mission to Pending but retains its branch and its active dock, so the replacement
+            // such a mission to Pending but retains its branch and an active dock, so the replacement
             // captain must continue that branch, not cut a fresh one from the default branch and orphan
-            // the committed work. Continuation is authorized only by the mission's own RETAINED ACTIVE
-            // dock on this vessel, tenant and branch: a bare branch name left on the row by an aborted
-            // earlier attempt retains no such dock and still gets a fresh captain branch. This is kept
-            // separate from the inherited-branch rule above; it never relaxes it. The saved ref is
-            // resolved BEFORE provisioning, and if it no longer resolves the mission is held rather than
-            // cut from the default branch, because that would silently abandon the work.
+            // the committed work. The precise invariant: a reassigned root mission continues on its
+            // committed branch when a verifiably-active matching dock authorizes it or when its saved ref
+            // still resolves; it HOLDS when it had continuation state that is now gone (an active dock
+            // whose ref vanished, or a resolvable ref with no active dock); it falls to a fresh branch
+            // only when it has NEITHER an active dock NOR a resolvable committed ref -- the legacy
+            // aborted-first-assignment policy, preserved. This is kept separate from the inherited-branch
+            // rule above; it never relaxes it.
+            //
+            // Continuation authority is an ACTIVE dock of this vessel, tenant and branch found by QUERY,
+            // not the mission's DockId pointer: every assignment-failure cleanup clears that pointer, so
+            // keying on it loses authority on the retry and silently cuts fresh (the defect on the retry
+            // path). The reconcile-retained dock stays Active while its mission is unfinished, so the
+            // query re-authorizes every attempt. A bare branch name left by an aborted FIRST assignment
+            // is cleared on that failure (a fresh branch is not preserved), so it never reaches here.
             bool preserveReassignedRootBranch = false;
             if (String.IsNullOrEmpty(mission.DependsOnMissionId)
-                && !String.IsNullOrEmpty(mission.BranchName)
-                && !String.IsNullOrEmpty(mission.DockId))
+                && !String.IsNullOrEmpty(mission.BranchName))
             {
-                Dock? retainedDock = await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
-                bool dockAuthorizesContinuation = retainedDock != null
-                    && retainedDock.Active
-                    && String.Equals(retainedDock.VesselId, mission.VesselId, StringComparison.Ordinal)
-                    && String.Equals(retainedDock.BranchName, mission.BranchName, StringComparison.Ordinal)
-                    && String.Equals(retainedDock.TenantId, vessel.TenantId, StringComparison.Ordinal);
-                if (dockAuthorizesContinuation)
-                {
-                    string savedBranchRepoPath = !String.IsNullOrEmpty(vessel.LocalPath)
-                        ? vessel.LocalPath!
-                        : Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
-                    string? savedBranchHead = _Git == null
-                        ? null
-                        : await _Git.GetRevisionCommitShaAsync(savedBranchRepoPath, mission.BranchName!, token).ConfigureAwait(false);
-                    if (String.IsNullOrEmpty(savedBranchHead))
-                    {
-                        await HoldForAssignmentAsync(mission, MissionAssignmentHold.RootContinuationRefMissing, mission.BranchName,
-                            "A restart retained this root mission's committed branch " + mission.BranchName
-                            + " and its active dock, but that branch no longer resolves in the vessel repository; "
-                            + "holding rather than cutting a fresh branch from the default branch, which would orphan the committed work.",
-                            token).ConfigureAwait(false);
-                        await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
-                        return false;
-                    }
+                bool activeDockAuthorizes = await HasActiveDockForBranchAsync(mission.VesselId!, vessel.TenantId, mission.BranchName!, token).ConfigureAwait(false);
 
+                string savedBranchRepoPath = !String.IsNullOrEmpty(vessel.LocalPath)
+                    ? vessel.LocalPath!
+                    : Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
+                string? savedBranchHead = _Git == null
+                    ? null
+                    : await _Git.GetRevisionCommitShaAsync(savedBranchRepoPath, mission.BranchName!, token).ConfigureAwait(false);
+
+                if (activeDockAuthorizes && !String.IsNullOrEmpty(savedBranchHead))
+                {
                     preserveReassignedRootBranch = true;
                     _Logging.Info(_Header + "mission " + mission.Id + " continues its retained root branch " + mission.BranchName
                         + " (head " + savedBranchHead + ") under replacement captain " + captain.Id + " after reassignment");
                 }
+                else if (activeDockAuthorizes)
+                {
+                    // An active dock claims the branch but it no longer resolves in the vessel repository.
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.RootContinuationRefMissing, mission.BranchName,
+                        "A restart retained this root mission's committed branch " + mission.BranchName
+                        + " and an active dock, but that branch no longer resolves in the vessel repository; holding rather "
+                        + "than cutting a fresh branch from the default branch, which would orphan the committed work.",
+                        token).ConfigureAwait(false);
+                    await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
+                    return false;
+                }
+                else if (!String.IsNullOrEmpty(savedBranchHead))
+                {
+                    // Committed work exists on the persisted branch but no active dock authorizes
+                    // continuation (a failed provision left no live dock). Hold rather than cut a fresh
+                    // branch from the default branch, which would orphan the committed work.
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.RootContinuationDockMissing, mission.BranchName,
+                        "This root mission's persisted branch " + mission.BranchName + " holds committed work but no active "
+                        + "dock authorizes continuation; holding rather than cutting a fresh branch from the default branch, "
+                        + "which would orphan the committed work.",
+                        token).ConfigureAwait(false);
+                    await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
+                    return false;
+                }
+                // Neither an active dock nor a resolvable branch: nothing to continue and no committed
+                // work to lose, so fall through to a fresh captain branch.
             }
 
             // Reuse the saved branch for an inherited stage OR a reassigned root continuation; both
@@ -1223,7 +1242,10 @@ namespace Armada.Core.Services
                     mission.AssignmentState = MissionAssignmentStateEnum.Failed;
                     mission.Status = MissionStatusEnum.Pending;
                     mission.CaptainId = null;
-                    mission.BranchName = null;
+                    // Keep a retained root-continuation (or inherited) branch so the retry continues it
+                    // rather than cutting a fresh one from the default branch and orphaning committed work.
+                    if (!preserveSavedBranch)
+                        mission.BranchName = null;
                     mission.DockId = null;
                     mission.ProcessId = null;
                     mission.StartedUtc = null;
@@ -2155,6 +2177,34 @@ namespace Armada.Core.Services
                 await DiscardUncommittedDockAsync(mission, dock).ConfigureAwait(false);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// True when the vessel has an active dock bound to the given branch under the same tenant. This
+        /// is the authority for continuing a reassigned root mission on its committed branch: it reads the
+        /// live dock records rather than the mission's dock pointer, which every assignment-failure cleanup
+        /// clears, so a retry re-authorizes from the same still-active dock. Dock rows per vessel are few,
+        /// and this runs only for a root mission that already carries a persisted branch.
+        /// </summary>
+        /// <param name="vesselId">Vessel whose docks are searched.</param>
+        /// <param name="tenantId">Tenant the dock must belong to.</param>
+        /// <param name="branchName">Branch the dock must be bound to.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when a matching active dock exists.</returns>
+        private async Task<bool> HasActiveDockForBranchAsync(string vesselId, string? tenantId, string branchName, CancellationToken token)
+        {
+            List<Dock> vesselDocks = await _Database.Docks.EnumerateByVesselAsync(vesselId, token).ConfigureAwait(false);
+            foreach (Dock candidate in vesselDocks)
+            {
+                if (candidate.Active
+                    && String.Equals(candidate.VesselId, vesselId, StringComparison.Ordinal)
+                    && String.Equals(candidate.BranchName, branchName, StringComparison.Ordinal)
+                    && String.Equals(candidate.TenantId, tenantId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>

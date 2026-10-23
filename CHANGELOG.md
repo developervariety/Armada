@@ -43,11 +43,16 @@ upstream integrations and excludes changes already present at that baseline.
 - A root (stage-1) mission reassigned after a restart continues on its own
   persisted branch at the committed head instead of cutting a fresh branch from
   the default branch, so committed work is not orphaned. Continuation is
-  authorized only by the mission's retained active dock on the same vessel,
-  tenant and branch; a stale branch name with no active dock still gets a fresh
-  captain branch. When the retained branch no longer resolves, the mission holds
-  with `root_continuation_ref_missing` rather than restarting from the default
-  branch.
+  authorized by an active dock on the same vessel, tenant and branch, resolved
+  from the live dock records rather than the mission's dock pointer, so a retry
+  after a failed launch or provision still continues the committed branch once
+  the dock pointer has been cleared. When the persisted branch still carries
+  committed work but no active dock authorizes it, the mission holds with
+  `root_continuation_dock_missing` rather than cutting a fresh branch from the
+  default branch; when an active dock authorizes the branch but it no longer
+  resolves, the mission holds with `root_continuation_ref_missing`. A branch
+  name with no committed work and no active dock still gets a fresh captain
+  branch, exactly as a first assignment would.
 
 - Consumer verification rebases absolute workflow environment paths from each
   host checkout into its provisioned candidate worktree. Build, tests and retries
