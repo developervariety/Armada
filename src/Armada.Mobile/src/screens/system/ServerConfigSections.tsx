@@ -9,6 +9,7 @@ import { useNotifications } from '../../notifications/NotificationContext';
 import { errorText } from '../../resource/useLoad';
 import { intOr, useDraft, type MobileServerSettings } from './settingsModel';
 import { NumberField, SaveRow, SettingsSection } from './settingsParts';
+import { SwitchField } from '../../components/ui/SwitchField';
 
 export interface SectionProps {
   settings: MobileServerSettings;
@@ -106,10 +107,13 @@ export function AgentSettingsSection({ settings, locked, onSaved }: SectionProps
     stallThresholdMinutes: String(settings.stallThresholdMinutes),
     idleCaptainTimeoutSeconds: String(settings.idleCaptainTimeoutSeconds),
     landingMode: settings.landingMode || DEFAULT_GLOBAL_LANDING_MODE,
+    blockDependentsOfFailedStages: settings.blockDependentsOfFailedStages ?? false,
   });
   const { save, saving } = useSettingsSave(onSaved);
   const v = draft.value;
   const modes = getGlobalLandingModes(t);
+  // Shown only when the server reports the setting (older servers do not have it).
+  const blockingSupported = settings.blockDependentsOfFailedStages !== undefined;
   const help = t('How finished missions land when neither the vessel nor the voyage sets a landing mode (default Merge and Push).');
   return (
     <SettingsSection title={t('Agent Settings')} description={t('Settings that control captain monitoring, stalling, cleanup, and how finished missions land.')} testID="settings-agent">
@@ -126,6 +130,16 @@ export function AgentSettingsSection({ settings, locked, onSaved }: SectionProps
         disabled={locked}
         testID="settings-landing-mode"
       />
+      {blockingSupported && (
+        <SwitchField
+          label={t('Block Stages After a Failure')}
+          hint={t('On: stages after a failed one show Blocked until it is restarted. Off: they are cancelled.')}
+          value={v.blockDependentsOfFailedStages}
+          onChange={(x) => draft.set({ blockDependentsOfFailedStages: x })}
+          disabled={locked}
+          testID="settings-block-dependents"
+        />
+      )}
       <SaveRow
         label={t('Save Agent Settings')}
         saving={saving}
@@ -139,6 +153,7 @@ export function AgentSettingsSection({ settings, locked, onSaved }: SectionProps
             stallThresholdMinutes: intOr(v.stallThresholdMinutes, 1),
             idleCaptainTimeoutSeconds: intOr(v.idleCaptainTimeoutSeconds, 0),
             landingMode: v.landingMode || DEFAULT_GLOBAL_LANDING_MODE,
+            ...(blockingSupported ? { blockDependentsOfFailedStages: v.blockDependentsOfFailedStages } : {}),
           }, t('Agent settings saved'));
           if (ok) draft.reset();
         }}

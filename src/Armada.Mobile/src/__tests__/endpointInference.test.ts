@@ -21,3 +21,12 @@ test('editing an empty allowlist cannot accidentally enable all tools', () => {
 test.each<Record<string, string>>([{ maxIterations: '0' }, { maxIterations: '1.5' }, { temperature: 'oops' }, { topP: '2' }, { allowedTools: 'read_file\nread_file' }])('mobile rejects invalid inference options %o', patch => {
   expect(endpointValidate(t, { ...endpointValues(viewer, null), ...patch }, null)).not.toBeNull();
 });
+
+test('editing an endpoint keeps streaming, the context window, the concurrency cap and the first-response timeout', () => {
+  const stored = { ...defaultInferenceOptions, streaming: true, contextLength: 32768, maxConcurrentMissions: 2, firstResponseTimeoutMs: 300000 };
+  const endpoint = { kind: 'Inference', inferenceOptions: stored, headers: [] } as unknown as ModelEndpoint;
+  const values = endpointValues(viewer, endpoint);
+  expect(endpointPayload(viewer, values, endpoint).inferenceOptions).toEqual(expect.objectContaining({ streaming: true, contextLength: 32768, maxConcurrentMissions: 2, firstResponseTimeoutMs: 300000 }));
+  expect(endpointFields(t, viewer, values, endpoint).map(field => field.key)).toEqual(expect.arrayContaining(['streaming', 'firstResponseTimeoutMs', 'contextLength', 'maxConcurrentMissions']));
+  expect(endpointValidate(t, { ...values, contextLength: '100' }, endpoint)).toContain('Context window');
+});

@@ -38,6 +38,7 @@ const TONES: Record<string, StatusTone> = {
   error: 'failed',
   fail: 'failed',
   cancelled: 'cancelled',
+  blocked: 'warning',
   inactive: 'cancelled',
   skipped: 'skipped',
   notrun: 'skipped',
