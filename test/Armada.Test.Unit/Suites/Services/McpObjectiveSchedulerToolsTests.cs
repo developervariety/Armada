@@ -314,6 +314,76 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("error", json.ToLowerInvariant());
             }).ConfigureAwait(false);
 
+            await RunTest("ArmadaMarkObjectiveAutoDispatchable_MissingEnabled_RejectsAndLeavesStateUnchanged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(
+                    Constants.DefaultTenantId,
+                    Constants.DefaultUserId,
+                    false,
+                    true,
+                    "ApiKey");
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                // The objective is already opted in. A call that omits enabled must not flip it.
+                Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Already Opted In",
+                    AutoDispatchEnabled = true
+                }).ConfigureAwait(false);
+                AssertTrue(objective.AutoDispatchEnabled, "Objective starts opted in.");
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new ArmadaSettings());
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler, objectives);
+
+                JsonElement args = JsonSerializer.SerializeToElement(new
+                {
+                    objectiveId = objective.Id
+                });
+
+                object result = await handlers["armada_mark_objective_auto_dispatchable"](args).ConfigureAwait(false);
+                string json = JsonSerializer.Serialize(result, _JsonOptions);
+
+                AssertContains("missing_enabled", json);
+
+                Objective? updated = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertNotNull(updated);
+                AssertTrue(updated!.AutoDispatchEnabled, "A call that omits enabled must not silently disable the objective.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ArmadaMarkObjectiveAutoDispatchable_UnknownField_RejectsAndLeavesStateUnchanged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(
+                    Constants.DefaultTenantId,
+                    Constants.DefaultUserId,
+                    false,
+                    true,
+                    "ApiKey");
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+
+                Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Already Opted In",
+                    AutoDispatchEnabled = true
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new ArmadaSettings());
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler, objectives);
+
+                // A misnamed field instead of enabled must be reported, not silently dropped.
+                JsonElement args = Args("{\"objectiveId\":\"" + objective.Id + "\",\"autoDispatchable\":true}");
+
+                object result = await handlers["armada_mark_objective_auto_dispatchable"](args).ConfigureAwait(false);
+                string json = JsonSerializer.Serialize(result, _JsonOptions);
+
+                AssertContains("unexpected_field", json);
+
+                Objective? updated = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertNotNull(updated);
+                AssertTrue(updated!.AutoDispatchEnabled, "An unknown field must not cause a silent opt-out.");
+            }).ConfigureAwait(false);
+
             await RunTest("OnGetSchedulerStatus_PopulatesArmadaStatusScheduler", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

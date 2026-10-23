@@ -9,8 +9,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 - SQLite write operations share one cancellable FIFO gate per open database file.
   The gate covers direct and shared persistence, migrations, expiry deletes
-  and live restore. Expiry keeps verified export and trace recording before deletion. Reads stay independent; transactions retain their turn
+  and live restore. Expiry keeps verified export and trace recording before deletion.
+  Reads stay independent; transactions retain their turn
   through commit or rollback. Existing durability settings remain in effect.
+
+- Marking an objective auto-dispatchable requires the enabled flag. A call that
+  omits it is rejected with a named missing-parameter error instead of defaulting
+  to opt-out, so a caller can no longer disable an objective by accident while the
+  response reports success. An unknown or misnamed argument field is reported the
+  same way rather than ignored. A well-formed enabled=true or enabled=false call
+  is unchanged.
 
 - Consumer verification rebases absolute workflow environment paths from each
   host checkout into its provisioned candidate worktree. Build, tests and retries
