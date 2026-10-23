@@ -1281,14 +1281,82 @@ namespace Armada.Test.Unit.Suites.Services
                 Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
                 Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
 
-                // Create a dock with a distinct worktree path so DiffCalls can be inspected.
+                // The dock worktree must exist on disk: the drain diffs a real directory, so a test that
+                // asserts the diff path must present one that is actually present.
+                string worktreePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_dock_worktree_" + Guid.NewGuid().ToString("N"));
+                System.IO.Directory.CreateDirectory(worktreePath);
+                try
+                {
+                    // Create a dock with a distinct worktree path so DiffCalls can be inspected.
+                    Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock
+                    {
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        VesselId = vessel.Id,
+                        WorktreePath = worktreePath,
+                        BranchName = "armada/worker-dock-diff",
+                        Active = true
+                    }).ConfigureAwait(false);
+
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
+                    {
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Worker",
+                        Title = "Worker mission",
+                        BranchName = "armada/worker-dock-diff",
+                        DockId = dock.Id,
+                        Status = MissionStatusEnum.WorkProduced,
+                        LastUpdateUtc = DateTime.UtcNow
+                    }).ConfigureAwait(false);
+
+                    await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService { DiffResult = "+++ b/src/A.cs\n+line1\n" };
+                    RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                    AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, git: git);
+
+                    await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                    AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
+                    AssertTrue(
+                        git.DiffCalls.Contains(worktreePath),
+                        "Diff must use the dock worktree path, not the vessel working directory.");
+                    AssertFalse(
+                        git.DiffCalls.Contains(vessel.WorkingDirectory ?? String.Empty),
+                        "Diff must not fall back to vessel WorkingDirectory when dock worktree is available.");
+                }
+                finally
+                {
+                    try { System.IO.Directory.Delete(worktreePath, true); } catch { }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("TryLoadSafetyNetDiff_DockWorktreeMissingOnDisk_ReportsNoDockWithoutDiffing", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+
+                // The dock row still names a worktree, but the directory is gone: a reviewer landing that
+                // merged this branch reclaimed the dock the instant its PASS released. The drain must not run
+                // git against a working directory that no longer exists (that only spawns a process that
+                // fails "no such file or directory"); it reports the branch unmeasured, exactly as it does
+                // for a dock with no worktree at all.
+                string missingWorktree = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_missing_worktree_" + Guid.NewGuid().ToString("N"));
+                AssertFalse(System.IO.Directory.Exists(missingWorktree), "The worktree path must not exist for this test.");
+
                 Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock
                 {
                     TenantId = vessel.TenantId,
                     UserId = vessel.UserId,
                     VesselId = vessel.Id,
-                    WorktreePath = "C:\\tmp\\dock-worktree-diff-test",
-                    BranchName = "armada/worker-dock-diff",
+                    WorktreePath = missingWorktree,
+                    BranchName = "armada/worker-torn-down-dock",
                     Active = true
                 }).ConfigureAwait(false);
 
@@ -1300,12 +1368,11 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageId = voyage.Id,
                     Persona = "Worker",
                     Title = "Worker mission",
-                    BranchName = "armada/worker-dock-diff",
+                    BranchName = "armada/worker-torn-down-dock",
                     DockId = dock.Id,
                     Status = MissionStatusEnum.WorkProduced,
                     LastUpdateUtc = DateTime.UtcNow
                 }).ConfigureAwait(false);
-
                 await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
 
                 StubGitService git = new StubGitService { DiffResult = "+++ b/src/A.cs\n+line1\n" };
@@ -1314,13 +1381,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
-                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
-                AssertTrue(
-                    git.DiffCalls.Contains("C:\\tmp\\dock-worktree-diff-test"),
-                    "Diff must use the dock worktree path, not the vessel working directory.");
-                AssertFalse(
-                    git.DiffCalls.Contains(vessel.WorkingDirectory ?? String.Empty),
-                    "Diff must not fall back to vessel WorkingDirectory when dock worktree is available.");
+                AssertEqual(0, git.DiffCalls.Count, "A worktree that no longer exists on disk must not be diffed.");
+                AssertEqual(1, orchestrator.LastLandingDrainNoDockCount, "A torn-down dock worktree is counted as no-dock.");
+                AssertEqual(0, orchestrator.LastLandingDrainDiffFailedCount, "The drain must not attempt the diff and record a diff failure.");
             }).ConfigureAwait(false);
 
             await RunTest("TryLoadSafetyNetDiff_NoDock_ReportsNoDockInsteadOfDiffingVesselPath", async () =>
@@ -1501,9 +1564,10 @@ namespace Armada.Test.Unit.Suites.Services
 
         private sealed class VoyageCompletionCase
         {
-            public VoyageCompletionCase(string name, VoyageStatusEnum start, MissionStatusEnum[] missions, CheckRunStatusEnum? check, VoyageStatusEnum expected, bool lastHeldForOperatorReview = false)
+            public VoyageCompletionCase(string name, VoyageStatusEnum start, MissionStatusEnum[] missions, CheckRunStatusEnum? check, VoyageStatusEnum expected, bool lastHeldForOperatorReview = false, bool lastHasActiveMergeEntry = false)
             {
                 LastHeldForOperatorReview = lastHeldForOperatorReview;
+                LastHasActiveMergeEntry = lastHasActiveMergeEntry;
                 Name = name;
                 Start = start;
                 Missions = missions;
@@ -1517,6 +1581,7 @@ namespace Armada.Test.Unit.Suites.Services
             public CheckRunStatusEnum? Check { get; }
             public VoyageStatusEnum Expected { get; }
             public bool LastHeldForOperatorReview { get; }
+            public bool LastHasActiveMergeEntry { get; }
         }
 
         private static List<VoyageCompletionCase> BuildVoyageCompletionTable()
@@ -1533,6 +1598,10 @@ namespace Armada.Test.Unit.Suites.Services
                 new VoyageCompletionCase("work produced and complete", live, new[] { MissionStatusEnum.WorkProduced, done }, null, VoyageStatusEnum.Complete),
                 new VoyageCompletionCase("work produced, held for operator review", live, new[] { MissionStatusEnum.WorkProduced, MissionStatusEnum.WorkProduced }, null, live, lastHeldForOperatorReview: true),
                 new VoyageCompletionCase("one failed", live, new[] { done, MissionStatusEnum.Failed }, null, VoyageStatusEnum.Failed),
+                // A reopened voyage whose earlier stage is still Failed from a prior terminal pass, while the
+                // restarted work is landing: the non-terminal merge entry keeps it live until the landing
+                // resolves, so it is not re-failed mid-landing and the landing stage is not cascaded unlanded.
+                new VoyageCompletionCase("failed sibling but landing in flight", live, new[] { done, MissionStatusEnum.Failed, MissionStatusEnum.WorkProduced }, null, live, lastHasActiveMergeEntry: true),
                 new VoyageCompletionCase("one landing failed", live, new[] { done, MissionStatusEnum.LandingFailed }, null, VoyageStatusEnum.Failed),
                 new VoyageCompletionCase("one failed, pending Check", live, new[] { done, MissionStatusEnum.Failed }, CheckRunStatusEnum.Pending, VoyageStatusEnum.Failed),
                 new VoyageCompletionCase("one cancelled", live, new[] { done, MissionStatusEnum.Cancelled }, null, VoyageStatusEnum.Complete),
@@ -1599,6 +1668,19 @@ namespace Armada.Test.Unit.Suites.Services
                 last.HeldForOperatorReview = true;
                 last.HeldForOperatorReviewReason = "held for the parity table";
                 await testDb.Driver.Missions.UpdateAsync(last).ConfigureAwait(false);
+            }
+            if (row.LastHasActiveMergeEntry && last != null)
+            {
+                // A non-terminal merge entry for one of the voyage's missions means its branch is still being
+                // landed, so no writer may end the voyage yet, even when a sibling stage is Failed.
+                await testDb.Driver.MergeEntries.CreateAsync(new MergeEntry("armada/landing-in-flight", "main")
+                {
+                    TenantId = last.TenantId,
+                    UserId = last.UserId,
+                    VesselId = last.VesselId,
+                    MissionId = last.Id,
+                    Status = MergeStatusEnum.Queued
+                }).ConfigureAwait(false);
             }
             if (row.Check.HasValue)
                 await AddVoyageCheckAsync(testDb, voyage.Id, row.Check.Value).ConfigureAwait(false);

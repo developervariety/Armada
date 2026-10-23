@@ -914,11 +914,16 @@ namespace Armada.Server
             // Only the captain's dock worktree is checked out on the mission branch. The vessel
             // WorkingDirectory/LocalPath is the default-branch checkout and always diffs empty, so it is
             // never used as a stand-in: an unmeasured branch is reported as such and flagged for review.
+            // The worktree must still exist on disk. A reviewer landing that merges this branch reclaims
+            // the dock the instant its PASS releases, so a sweep racing that landing can read a dock row
+            // whose directory is already gone. Running git against a missing working directory only starts
+            // a process that fails with "no such file or directory"; treat the absent worktree as no dock
+            // and flag the branch unmeasured instead of diffing it.
             string? repoPath = null;
             if (!String.IsNullOrWhiteSpace(mission.DockId))
             {
                 Dock? dock = await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
-                if (dock != null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
+                if (dock != null && !String.IsNullOrWhiteSpace(dock.WorktreePath) && System.IO.Directory.Exists(dock.WorktreePath))
                     repoPath = dock.WorktreePath;
             }
 

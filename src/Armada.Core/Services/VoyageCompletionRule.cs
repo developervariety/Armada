@@ -48,7 +48,9 @@ namespace Armada.Core.Services
     /// Mission-state evaluation. A voyage with no missions is kept. A voyage with any mission that is
     /// not done (<see cref="IsMissionDone"/>) is kept. A voyage with produced work held for an operator
     /// decision is kept: the held mission lands or fails only when the operator clears or fails the
-    /// hold. When every mission is done, the voyage is Failed if any mission failed
+    /// hold. A voyage whose every mission is done but one of whose missions still has a non-terminal merge
+    /// entry is kept while that landing is in flight, so a voyage is never terminalized mid-landing. When
+    /// every mission is done and no landing is in flight, the voyage is Failed if any mission failed
     /// (<see cref="IsMissionFailed"/>). A voyage whose every mission was cancelled is Cancelled. A voyage
     /// with a cancelled stage and no Complete mission is Failed: its pipeline was cut short and nothing
     /// landed. Otherwise it is a completion candidate.
@@ -83,6 +85,9 @@ namespace Armada.Core.Services
 
         /// <summary>Kept: a landing retry of one of the voyage's missions is still running, so its work is not landed yet.</summary>
         public const string ReasonLandingRetryInFlight = "landing_retry_in_flight";
+
+        /// <summary>Kept: a merge entry for one of the voyage's missions is still moving through the landing pipeline, so its work is still being landed.</summary>
+        public const string ReasonMergeInFlight = "merge_in_flight";
 
         /// <summary>Kept: at least one mission is still active.</summary>
         public const string ReasonMissionActive = "mission_active";
@@ -345,6 +350,17 @@ namespace Armada.Core.Services
             if (missions.Any(IsHeldForOperatorReview))
                 return VoyageCompletionVerdict.Keep(ReasonOperatorReviewHold);
 
+            // Every mission is done, so the voyage is about to take a terminal status. A Judge PASS puts its
+            // work on the merge queue, which builds and verifies an integration candidate after the release
+            // returns, so the work is still being landed while its merge entry is non-terminal. Ending the
+            // voyage now would terminalize it mid-landing -- and on a reopened voyage whose earlier stages were
+            // reconciled Failed by a prior terminal pass, it would re-fail the voyage and cascade an unlanded
+            // outcome onto the stage that is in fact landing. Keep it until the merge entry resolves, the same
+            // way the completion-handling and landing-retry guards keep it. Scanned only here, once every
+            // mission is done, so an active voyage never pays for it.
+            if (await HasMergeLandingInFlightAsync(database, missions, token).ConfigureAwait(false))
+                return VoyageCompletionVerdict.Keep(ReasonMergeInFlight);
+
             if (missions.Any(m => IsMissionFailed(m.Status)))
                 return VoyageCompletionVerdict.Finish(VoyageStatusEnum.Failed, ReasonMissionFailed);
 
@@ -372,6 +388,30 @@ namespace Armada.Core.Services
         private static bool IsHeldForOperatorReview(Mission mission)
         {
             return mission.Status == MissionStatusEnum.WorkProduced && mission.HeldForOperatorReview;
+        }
+
+        // True when a merge entry for one of the voyage's missions is still moving through the landing
+        // pipeline (any non-terminal merge status). While such an entry is in flight the branch is being
+        // landed, so no writer may end the voyage yet. The in-flight test is the one TerminalVoyageMissionRule
+        // already uses for a single mission, so a mission-level keep and a voyage-level keep share one rule.
+        private static async Task<bool> HasMergeLandingInFlightAsync(
+            DatabaseDriver database, IReadOnlyList<Mission> missions, CancellationToken token)
+        {
+            if (missions.Count == 0) return false;
+
+            HashSet<string> missionIds = new HashSet<string>(missions.Select(m => m.Id), StringComparer.Ordinal);
+            List<MergeEntry> entries = await database.MergeEntries.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (MergeEntry entry in entries)
+            {
+                if (!String.IsNullOrEmpty(entry.MissionId)
+                    && missionIds.Contains(entry.MissionId!)
+                    && TerminalVoyageMissionRule.IsLandingInFlight(entry.Status))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private enum CheckGate

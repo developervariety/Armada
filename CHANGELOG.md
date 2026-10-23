@@ -689,6 +689,23 @@ upstream integrations and excludes changes already present at that baseline.
   character count; `output_unavailable` still means genuinely no output was
   captured, distinct from `mission_not_finalized`.
 
+- The landing-drain safety net no longer races a reviewer landing that is
+  tearing down the reviewed branch's dock. When a Judge PASS releases, its own
+  landing reclaims the dock the instant the hold clears, so a drain sweep running
+  at the same moment could read a dock row whose worktree directory was already
+  gone and start a git diff against a missing working directory. The drain now
+  treats a worktree that is absent on disk as no dock and flags the branch
+  unmeasured, the same as a dock with no worktree at all, instead of spawning a
+  git process that fails.
+- A voyage is no longer given a terminal status while a merge entry for one of
+  its missions is still landing. Every voyage-completion writer now keeps the
+  voyage open while such an entry is non-terminal (reason `merge_in_flight`),
+  alongside the existing holds for an in-flight mission completion and a running
+  landing retry. Before, a reopened voyage whose earlier stages had been
+  reconciled `Failed` by a prior terminal pass was re-failed the instant its
+  restarted Judge PASS released, mid-landing, which cascaded an unlanded-work
+  outcome onto the stage that was in fact landing. The landing now resolves the
+  voyage once its entry reaches a terminal status.
 - The background-job stale reaper no longer fails a landing-retry job while its
   landing is still running. The reaper reaped any job past a flat 30-minute limit,
   but a landing serializes its integration candidate's Build and UnitTest checks

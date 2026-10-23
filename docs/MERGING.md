@@ -216,6 +216,17 @@ These are observed behaviors that the entry status alone does not make obvious.
   alone too. When the retry ends it decides the voyage: a landed retry completes
   it, and a failed retry returns the mission to `LandingFailed` and the voyage
   ends `Failed`.
+- **A voyage is not given a terminal status while a merge entry for one of its
+  missions is still landing.** A Judge PASS puts its work on the merge queue,
+  which builds and verifies an integration candidate after the release returns,
+  so the work is still being landed while its entry is non-terminal. Every
+  completion writer keeps the voyage open for that time (reason
+  `merge_in_flight`), so a voyage is never terminalized mid-landing. This matters
+  most for a reopened voyage whose earlier stages were reconciled `Failed` by a
+  prior terminal pass: without the hold the completion rule would re-fail the
+  voyage on those stages and cascade an unlanded outcome onto the stage that is
+  in fact landing. When the entry reaches a terminal status the landing decides
+  the voyage.
 - **`retry_check_run` / `run_check` build the bare repo's target ref, not
   the working checkout.** After a direct push to `origin`, sync the bare
   repo (`git fetch origin` then `git update-ref refs/heads/<target>
