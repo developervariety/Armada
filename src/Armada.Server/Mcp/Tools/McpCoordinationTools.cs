@@ -252,13 +252,13 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_claim",
-                "Reserve work so other operator sessions do not dispatch the same thing. Claims are visible to everyone, expire after a few hours unless your heartbeats keep them alive, and dispatches against a claimed vessel or objective announce the overlap on the board. Actions: claim (subjectType + subjectId required), release (claimId), list (optional subjectType + subjectId).",
+                "Reserve work so other operator sessions do not dispatch the same thing. Claims are visible to everyone, expire after a few hours unless your heartbeats keep them alive, and dispatches against a claimed vessel or objective announce the overlap on the board. Actions: claim (subjectType + subjectId required), release (claimId), list (optional subjectType + subjectId). action is required: a missing or unknown action returns an error (missing_action for a blank one), never a silent empty claim list.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        action = new { type = "string", description = "claim | release | list" },
+                        action = new { type = "string", description = "claim | release | list. Required: a missing or unknown value returns an error, never a silent empty claim list." },
                         subjectType = new { type = "string", description = "vessel | objective. Required for claim." },
                         subjectId = new { type = "string", description = "The vsl_ or obj_ identifier to reserve. Required for claim." },
                         note = new { type = "string", description = "What you intend to do with the subject." },
@@ -273,7 +273,12 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     ClaimArgs request = JsonSerializer.Deserialize<ClaimArgs>(args!.Value, _JsonOptions)!;
-                    string action = String.IsNullOrWhiteSpace(request.Action) ? "list" : request.Action!.Trim().ToLowerInvariant();
+                    // A missing or blank action is an explicit error, never a silent default to a read.
+                    // The action argument is required; a caller who sends subject fields but omits the action
+                    // means to claim, and must not read an empty claim list as a successful reservation.
+                    if (String.IsNullOrWhiteSpace(request.Action))
+                        return (object)new { Error = "missing_action: action is required - pass claim, release, or list" };
+                    string action = request.Action!.Trim().ToLowerInvariant();
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
 
                     try

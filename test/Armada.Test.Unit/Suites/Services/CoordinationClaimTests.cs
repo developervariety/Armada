@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -170,6 +171,42 @@ namespace Armada.Test.Unit.Suites.Services
                     string readJson = JsonSerializer.Serialize(result);
                     AssertContains("activeClaims", readJson.Replace("ActiveClaims", "activeClaims"));
                     AssertContains("[claim]", readJson);
+                }
+            });
+
+            await RunTest("MCP tool claim with no action returns a named error and creates no claim", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    CoordinationService coordination = new CoordinationService(logging, testDb.Driver);
+
+                    Func<JsonElement?, Task<object>>? claimHandler = null;
+                    McpCoordinationTools.Register(
+                        (name, _, _, h) => { if (name == "armada_coordination_claim") claimHandler = h; },
+                        testDb.Driver,
+                        coordination);
+                    AssertNotNull(claimHandler, "armada_coordination_claim handler must be registered");
+
+                    // Subject fields and a note but no action: the caller means to claim. The tool must say so
+                    // with a named error, never return an empty claim list that reads as a successful reservation
+                    // while creating nothing.
+                    JsonElement noAction = JsonSerializer.SerializeToElement(new
+                    {
+                        subjectType = "objective",
+                        subjectId = "obj_example",
+                        note = "refining scope",
+                        participantKey = "session-a",
+                        displayName = "Session A"
+                    }, _JsonOpts);
+                    object result = await claimHandler!(noAction).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertContains("missing_action", resultJson);
+                    AssertTrue(!resultJson.Contains("\"Claims\":[]"), "a no-action call must not return an empty claim list that reads as success: " + resultJson);
+
+                    List<CoordinationClaim> active = await coordination.EnumerateActiveClaimsAsync();
+                    AssertEqual(0, active.Count);
                 }
             });
         }

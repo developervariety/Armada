@@ -633,6 +633,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The coordination claim tool rejects a missing action instead of silently
+  listing. A call that sends subject fields but no action returns a
+  `missing_action` error rather than defaulting to a read that returns an empty
+  claim list and creates nothing, so a caller can no longer read a silent no-op
+  as a successful reservation. A valid `claim`, `release`, or `list` action is
+  unchanged, and an unknown action still returns an error naming the valid values.
+
 - A disk-lifecycle history-archive run no longer floods the log and board when
   the object store's download or transaction cap is exceeded. A read-back verify
   that returns HTTP 403 with a body naming a cap stops the run's verify loop

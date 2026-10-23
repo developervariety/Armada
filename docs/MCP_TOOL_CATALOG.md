@@ -435,7 +435,10 @@ every tool.
   `authorName`.
 - `armada_coordination_claim` — claim a vessel or objective before non-trivial
   work so peers see who owns it; heartbeats keep the claim alive, and a claim
-  expires unless refreshed. The header key stands in for `participantKey`, and
+  expires unless refreshed. `action` is required: a missing action returns a
+  `missing_action` error and an unknown action returns an error naming the valid
+  values, so a claim call that omits the action never reads back an empty claim
+  list as a successful reservation. The header key stands in for `participantKey`, and
   `displayName` defaults the same way as a post's `authorName`. A voyage
   dispatched on a claimed vessel or objective posts a `[claims]` overlap note
   that names each other holder. `armada_dispatch` sends the request's
