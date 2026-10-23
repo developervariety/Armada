@@ -7,6 +7,7 @@ namespace Armada.Core.Database
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>Creates the first-boot identity in one transaction. Server callers hold the schema lock.</summary>
     internal static class DefaultDatabaseIdentity
@@ -39,7 +40,7 @@ namespace Armada.Core.Database
                         Add(command, "@id", Constants.DefaultUserId);
                         Add(command, "@tenant", Constants.DefaultTenantId);
                         Add(command, "@email", Constants.DefaultUserEmail);
-                        Add(command, "@password", UserMaster.ComputePasswordHash(Constants.DefaultUserPassword));
+                        Add(command, "@password", PasswordHasher.HashPassword(Constants.DefaultUserPassword));
                         AddCommon(command, provider);
                         await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }

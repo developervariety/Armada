@@ -10,6 +10,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Settings;
+    using Armada.Core.Services;
 
     /// <summary>
     /// PostgreSQL implementation of user database operations.
@@ -50,6 +51,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         public async Task<UserMaster> CreateAsync(UserMaster user, CancellationToken token = default)
         {
             if (user == null) throw new ArgumentNullException(nameof(user));
+            user.PasswordSha256 = PasswordHasher.ToStorageFormat(user.PasswordSha256);
             user.LastUpdateUtc = DateTime.UtcNow;
 
             using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
@@ -175,6 +177,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         public async Task<UserMaster> UpdateAsync(UserMaster user, CancellationToken token = default)
         {
             if (user == null) throw new ArgumentNullException(nameof(user));
+            user.PasswordSha256 = PasswordHasher.ToStorageFormat(user.PasswordSha256);
             user.LastUpdateUtc = DateTime.UtcNow;
 
             using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
@@ -202,6 +205,28 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
 
             return user;
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> UpgradePasswordAsync(string tenantId, string id, string expectedHash, string replacementHash, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+            if (string.IsNullOrEmpty(expectedHash)) throw new ArgumentNullException(nameof(expectedHash));
+            if (!PasswordHasher.IsAdaptiveHash(replacementHash)) throw new ArgumentException("An adaptive password hash is required.", nameof(replacementHash));
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE users SET password_sha256 = @replacement WHERE tenant_id = @tenantId AND id = @id AND password_sha256 = @expected;";
+                    StoredValueBinder.Value(cmd, "@replacement", replacementHash);
+                    StoredValueBinder.Value(cmd, "@tenantId", tenantId);
+                    StoredValueBinder.Value(cmd, "@id", id);
+                    StoredValueBinder.Value(cmd, "@expected", expectedHash);
+                    return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                }
+            }
         }
 
         /// <inheritdoc />

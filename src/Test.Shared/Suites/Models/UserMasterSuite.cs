@@ -215,6 +215,18 @@ namespace Test.Shared.Suites.Models
                 AssertEqual(user.IsAdmin, deserialized.IsAdmin);
             }));
 
+            cases.Add(Case("adaptive_password_protocol", "Adaptive password protocol accepts fixed vector and rejects malformed values", TestTags.Positive, () =>
+            {
+                UserMaster user = new UserMaster { PasswordSha256 = "pbkdf2-sha256$1000$AAECAwQFBgcICQoLDA0ODw==$NedrEPsA6P26l5HbZRqSL9XqX3zohCzIW8vp02p+0pY=" };
+                AssertTrue(user.VerifyPassword("protocol-contract"));
+                AssertFalse(user.VerifyPassword("wrong-password"));
+                foreach (string malformed in new[] { "pbkdf2-sha256$0$AA==$AA==", "pbkdf2-sha256$600000$invalid$invalid", "pbkdf2-sha256$10000001$AA==$AA==" })
+                {
+                    user.PasswordSha256 = malformed;
+                    AssertFalse(user.VerifyPassword("protocol-contract"));
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Models.UserMaster",
                 displayName: "UserMaster Model",

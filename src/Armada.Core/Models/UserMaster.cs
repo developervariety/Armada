@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System.Security.Cryptography;
     using System.Text;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Represents a user in the multi-tenant system.
@@ -50,7 +51,7 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// SHA256 hash of the user's password (hex, lowercase).
+        /// Password hash. Accepts SHA-256 hex input; database writes store salted PBKDF2.
         /// </summary>
         public string PasswordSha256
         {
@@ -159,7 +160,7 @@ namespace Armada.Core.Models
         public bool VerifyPassword(string plainText)
         {
             if (string.IsNullOrEmpty(plainText)) return false;
-            return ComputePasswordHash(plainText) == PasswordSha256;
+            return PasswordHasher.Verify(plainText, PasswordSha256);
         }
 
         /// <summary>

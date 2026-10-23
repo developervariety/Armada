@@ -9,6 +9,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- User passwords use salted PBKDF2-HMAC-SHA256 storage on all four database
+  providers. Startup upgrades legacy SHA-256 rows; login also upgrades weaker
+  hashes. Password-only conditional updates preserve concurrent account changes.
+  The `PasswordSha256` API input remains compatible.
+
 - A Build or UnitTest Check that passes because a definition-of-done gate
   already ran the same command in full on the same commit records that gate as
   structured evidence: `satisfiedBy` holds the kind

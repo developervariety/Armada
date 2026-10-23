@@ -64,6 +64,10 @@ features rather than merging, because a blanket merge would collide with, and in
 places regress, deliberate fork choices. The capability-by-capability map is the list below; the incremental cherry-pick
 sync procedure and its baseline live in [`CLAUDE.md`](CLAUDE.md).
 
+Both versions use salted PBKDF2-HMAC-SHA256 password storage. The fork keeps
+the SHA-256 API input and upgrades legacy rows with conditional password-only
+writes, so a concurrent password reset is preserved.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the

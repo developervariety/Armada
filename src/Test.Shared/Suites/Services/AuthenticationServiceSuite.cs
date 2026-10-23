@@ -246,6 +246,26 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("credential_login_upgrades_weak_hash", "Credential login upgrades weak hash only after successful verification", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    AuthFixtureResult fixture = await CreateTestEntitiesAsync(db);
+                    UserMaster? user = await db.Users.ReadAsync(fixture.TenantId, fixture.UserId);
+                    string weakHash = "pbkdf2-sha256$1000$AAECAwQFBgcICQoLDA0ODw==$NKMienv6Wl/g/5VTXoyckILVyiMlEmmpgJygKOSDUNM=";
+                    user!.PasswordSha256 = weakHash;
+                    await db.Users.UpdateAsync(user);
+                    AuthenticationService service = CreateService(db);
+                    AssertFalse((await service.AuthenticateWithCredentialsAsync(fixture.TenantId, user.Email, "wrong-password")).IsAuthenticated);
+                    AssertEqual(weakHash, (await db.Users.ReadAsync(fixture.TenantId, fixture.UserId))!.PasswordSha256);
+                    AssertTrue((await service.AuthenticateWithCredentialsAsync(fixture.TenantId, user.Email, "password")).IsAuthenticated);
+                    UserMaster? upgraded = await db.Users.ReadAsync(fixture.TenantId, fixture.UserId);
+                    AssertFalse(PasswordHasher.NeedsRehash(upgraded!.PasswordSha256));
+                    AssertTrue(upgraded.VerifyPassword("password"));
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.AuthenticationService",
                 displayName: "AuthenticationService",

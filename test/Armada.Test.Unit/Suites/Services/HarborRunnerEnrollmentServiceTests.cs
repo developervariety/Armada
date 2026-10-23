@@ -571,6 +571,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<UserMaster?> ReadByEmailAsync(string tenantId, string email, CancellationToken token = default) => throw new NotSupportedException();
             public Task<List<UserMaster>> ReadByEmailAnyTenantAsync(string email, CancellationToken token = default) => throw new NotSupportedException();
             public Task<UserMaster> UpdateAsync(UserMaster user, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<bool> UpgradePasswordAsync(string tenantId, string id, string expectedHash, string replacementHash, CancellationToken token = default) => throw new NotSupportedException();
             public Task DeleteAsync(string tenantId, string id, CancellationToken token = default) => throw new NotSupportedException();
             public Task<List<UserMaster>> EnumerateAsync(string tenantId, CancellationToken token = default) => throw new NotSupportedException();
             public Task<EnumerationResult<UserMaster>> EnumerateAsync(string tenantId, EnumerationQuery query, CancellationToken token = default) => throw new NotSupportedException();

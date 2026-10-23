@@ -74,8 +74,7 @@ namespace Test.Shared.Suites.Database
                     UserMaster? user = await db.Users.ReadAsync(Constants.DefaultTenantId, Constants.DefaultUserId);
                     AssertNotNull(user);
 
-                    string expectedHash = UserMaster.ComputePasswordHash(Constants.DefaultUserPassword);
-                    AssertEqual(expectedHash, user!.PasswordSha256);
+                    AssertTrue(user!.PasswordSha256.StartsWith("pbkdf2-sha256$", StringComparison.Ordinal));
                     AssertTrue(user.VerifyPassword(Constants.DefaultUserPassword));
                 }
             }));

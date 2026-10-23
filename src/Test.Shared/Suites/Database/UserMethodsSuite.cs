@@ -1,5 +1,8 @@
 namespace Test.Shared.Suites.Database
 {
+    using System.Data.Common;
+    using Armada.Core.Services;
+    using SyslogLogging;
     using System;
     using System.Collections.Generic;
     using System.Threading;
@@ -246,6 +249,71 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("password_storage_is_salted_and_preserves_verification", "Password storage is salted and preserves verification", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    string tenantId = await CreateTestTenantAsync(db);
+                    UserMaster first = await db.Users.CreateAsync(new UserMaster(tenantId, "salt-one@example.com", "storage-contract"));
+                    UserMaster second = await db.Users.CreateAsync(new UserMaster(tenantId, "salt-two@example.com", "storage-contract"));
+                    UserMaster? stored = await db.Users.ReadAsync(tenantId, first.Id);
+                    AssertTrue(stored!.PasswordSha256.StartsWith("pbkdf2-sha256$", StringComparison.Ordinal));
+                    AssertFalse(stored.PasswordSha256 == second.PasswordSha256);
+                    AssertTrue(stored.VerifyPassword("storage-contract"));
+                    AssertFalse(stored.VerifyPassword("wrong-password"));
+                    string original = stored.PasswordSha256;
+                    stored.FirstName = "Renamed";
+                    await db.Users.UpdateAsync(stored);
+                    AssertEqual(original, (await db.Users.ReadAsync(tenantId, first.Id))!.PasswordSha256);
+                    stored.PasswordSha256 = UserMaster.ComputePasswordHash("replacement-contract");
+                    await db.Users.UpdateAsync(stored);
+                    stored = await db.Users.ReadAsync(tenantId, first.Id);
+                    AssertTrue(stored!.VerifyPassword("replacement-contract"));
+                    AssertFalse(stored.VerifyPassword("storage-contract"));
+                }
+            }));
+
+            cases.Add(CaseAsync("legacy_password_upgrade_preserves_concurrent_changes", "Legacy password upgrade preserves concurrent changes", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    string tenantId = await CreateTestTenantAsync(db);
+                    UserMaster user = await db.Users.CreateAsync(new UserMaster(tenantId, "legacy@example.com", "legacy-contract"));
+                    string legacy = UserMaster.ComputePasswordHash("legacy-contract");
+                    using (DbConnection connection = CreateConnection(testDb.ConnectionString))
+                    {
+                        await connection.OpenAsync();
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.CommandText = "UPDATE users SET password_sha256 = @hash WHERE id = @id";
+                            DbParameter hash = command.CreateParameter(); hash.ParameterName = "@hash"; hash.Value = legacy; command.Parameters.Add(hash);
+                            DbParameter id = command.CreateParameter(); id.ParameterName = "@id"; id.Value = user.Id; command.Parameters.Add(id);
+                            await command.ExecuteNonQueryAsync();
+                        }
+                    }
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    AssertEqual(1, await PasswordHashUpgradeService.UpgradeLegacyHashesAsync(db, logging));
+                    UserMaster? upgraded = await db.Users.ReadAsync(tenantId, user.Id);
+                    AssertTrue(upgraded!.VerifyPassword("legacy-contract"));
+                    AssertFalse(upgraded.PasswordSha256 == legacy);
+                    AssertEqual(0, await PasswordHashUpgradeService.UpgradeLegacyHashesAsync(db, logging));
+                    string replacement = PasswordHasher.HashPassword("reset-contract");
+                    AssertFalse(await db.Users.UpgradePasswordAsync(tenantId, user.Id, legacy, replacement));
+                    AssertFalse(await db.Users.UpgradePasswordAsync("other-tenant", user.Id, upgraded.PasswordSha256, replacement));
+                    upgraded.FirstName = "Concurrent profile";
+                    await db.Users.UpdateAsync(upgraded);
+                    AssertTrue(await db.Users.UpgradePasswordAsync(tenantId, user.Id, upgraded.PasswordSha256, replacement));
+                    UserMaster? reset = await db.Users.ReadAsync(tenantId, user.Id);
+                    AssertEqual("Concurrent profile", reset!.FirstName);
+                    AssertTrue(reset.VerifyPassword("reset-contract"));
+                    AssertFalse(await db.Users.UpgradePasswordAsync(tenantId, user.Id, upgraded.PasswordSha256, PasswordHasher.HashPassword("stale-contract")));
+                    AssertTrue((await db.Users.ReadAsync(tenantId, user.Id))!.VerifyPassword("reset-contract"));
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "User Database Methods",
@@ -255,6 +323,17 @@ namespace Test.Shared.Suites.Database
         #endregion
 
         #region Private-Methods
+
+        private static DbConnection CreateConnection(string connectionString)
+        {
+            switch (TestDatabaseConfig.Type)
+            {
+                case Armada.Core.Enums.DatabaseTypeEnum.Postgresql: return new Npgsql.NpgsqlConnection(connectionString);
+                case Armada.Core.Enums.DatabaseTypeEnum.Mysql: return new MySqlConnector.MySqlConnection(connectionString);
+                case Armada.Core.Enums.DatabaseTypeEnum.SqlServer: return new Microsoft.Data.SqlClient.SqlConnection(connectionString);
+                default: return new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
+            }
+        }
 
         private static async Task<string> CreateTestTenantAsync(DatabaseDriver db, string name = "Test Tenant")
         {

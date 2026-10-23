@@ -126,6 +126,12 @@ namespace Armada.Core.Services
                 TenantMetadata? tenant = await _Database.Tenants.ReadAsync(tenantId, token).ConfigureAwait(false);
                 if (tenant == null || !tenant.Active) return new AuthContext();
 
+                if (PasswordHasher.NeedsRehash(user.PasswordSha256))
+                {
+                    string replacement = PasswordHasher.HashPassword(password);
+                    await _Database.Users.UpgradePasswordAsync(tenantId, user.Id, user.PasswordSha256, replacement, token).ConfigureAwait(false);
+                }
+
                 return AuthContext.Authenticated(
                     tenantId,
                     user.Id,

@@ -273,6 +273,7 @@ namespace Armada.Server
             _Database = DatabaseDriverFactory.Create(_Settings.Database, _Logging);
             await _Database.InitializeAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "database initialized");
+            await PasswordHashUpgradeService.UpgradeLegacyHashesAsync(_Database, _Logging).ConfigureAwait(false);
 
             // One reload path for the manual endpoint and the file watcher: both read the bound
             // settings file and validate the candidate against the live captain roster.

@@ -85,6 +85,21 @@ X-Api-Key: your-api-key-here
 
 > **Deprecation notice:** `X-Api-Key` will be removed in a future version. Migrate to bearer tokens for new integrations.
 
+### Password Storage
+
+`PasswordSha256` accepts the lowercase SHA-256 hex of a password for user create
+and password reset requests. Database writes store
+`pbkdf2-sha256$<iterations>$<base64 salt>$<base64 hash>` with 600,000 iterations,
+a random 16-byte salt and a 32-byte derived key. PBKDF2 stretches the SHA-256 hex
+input. Clients must not stretch the input themselves. Responses redact the hash.
+
+Startup upgrades legacy SHA-256 rows without a password reset. Successful login
+also upgrades a legacy hash or a PBKDF2 hash with fewer iterations. Verification
+accepts both formats and compares derived values in constant time. Upgrades
+change only the password column and require the stored hash to match the value
+read, so concurrent account changes are preserved. Bearer tokens and session
+tokens use their existing authentication paths.
+
 ### Authorization Tiers
 
 All endpoints fall into one of three authorization levels:

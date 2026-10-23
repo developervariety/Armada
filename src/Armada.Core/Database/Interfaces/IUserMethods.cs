@@ -38,6 +38,11 @@ namespace Armada.Core.Database.Interfaces
         Task<UserMaster> UpdateAsync(UserMaster user, CancellationToken token = default);
 
         /// <summary>
+        /// Replace only the password when the stored hash still matches the expected value.
+        /// </summary>
+        Task<bool> UpgradePasswordAsync(string tenantId, string id, string expectedHash, string replacementHash, CancellationToken token = default);
+
+        /// <summary>
         /// Delete a user by tenant and identifier.
         /// </summary>
         Task DeleteAsync(string tenantId, string id, CancellationToken token = default);
