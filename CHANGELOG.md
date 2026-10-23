@@ -667,6 +667,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A stage that exits non-zero after producing some output keeps that captured
+  output on its mission. The successful-completion path drained the partial
+  stdout/stderr onto the mission, but the terminal process-exit failure path did
+  not, so a failed stage finalized with no output and its artifact reported a
+  zero-character page with truncation `output_unavailable`. A downstream stage or
+  rescue then fell back to the weaker stored description for scope. The failure
+  path now drains the same capture and keeps it when the mission has none yet and
+  the capture is non-empty, so the artifact reports the real content and
+  character count; `output_unavailable` still means genuinely no output was
+  captured, distinct from `mission_not_finalized`.
+
 - The background-job stale reaper no longer fails a landing-retry job while its
   landing is still running. The reaper reaped any job past a flat 30-minute limit,
   but a landing serializes its integration candidate's Build and UnitTest checks
