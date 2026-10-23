@@ -386,6 +386,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpCheckRunToolsTests());
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());
+            runner.AddSuite(new IntegrationCandidateValidatorSignalTests());
             runner.AddSuite(new SiblingLeaseRegistryTests());
             runner.AddSuite(new ConsumerVesselResolverTests());
             runner.AddSuite(new VoyageCheckArmingPlanTests());

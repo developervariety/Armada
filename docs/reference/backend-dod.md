@@ -191,6 +191,14 @@ failed. A consumer's suite that fails this way carries the command label
 `consumer_post_test_step_failed: <consumer>`, never
 `consumer_tests_failed: <consumer>`.
 
+**After a command the OS terminated by a signal.** A process the OS kills exits
+with `128 + signal` on a POSIX shell, so `143` is SIGTERM, `137` is SIGKILL,
+`130` is SIGINT. When a command exits in that range and no line names a failing
+test, it did not finish on its own -- a stray kill from another process sharing
+the host, a host eviction -- so the class is `Infra`, the environment-fault
+class, not `TestFail` or `PostTestStep`. A run that still named a failing test
+is a genuine failure whatever signal ended it, so it keeps `TestFail`.
+
 **Consumer worktrees are locked while they are in use.** The gate provisions
 each consumer and its siblings as worktrees of the vessels' repositories under
 a scratch directory that only the admiral's own file system shows. It locks each

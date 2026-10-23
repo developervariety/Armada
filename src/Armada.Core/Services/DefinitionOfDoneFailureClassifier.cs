@@ -110,6 +110,16 @@ namespace Armada.Core.Services
         /// </summary>
         public const string HostLoadTimeoutMarker = "host_load_timeout";
 
+        /// <summary>
+        /// Exit code a shell adds a terminating signal's number to: a process the OS killed by signal N exits
+        /// with 128 + N on every POSIX shell, so 143 is SIGTERM (128 + 15), 137 is SIGKILL, 130 is SIGINT.
+        /// </summary>
+        public const int SignalExitBase = 128;
+
+        // Signal numbers run 1..64 (the real-time signals included), so an exit code in 129..192 is a
+        // termination by signal rather than a program's own chosen status.
+        private const int _MaxSignalNumber = 64;
+
         #endregion
 
         #region Public-Methods
@@ -244,6 +254,14 @@ namespace Armada.Core.Services
             if (HasTestFailureEvidence(combined))
                 return DefinitionOfDoneFailureClassEnum.TestFail;
 
+            // A process the OS terminated by a signal (128 + signal; SIGTERM is 143) with no failing test
+            // named did not finish on its own -- a stray kill from another process, a host eviction -- so it
+            // is an environment interruption, not a code fault. It is read after the test-failure branch, so a
+            // run that still named a failing test fails as a test; with none named, it joins the environment
+            // faults, which the caller re-runs rather than recording as a red result.
+            if (IsSignalTermination(exitCode))
+                return DefinitionOfDoneFailureClassEnum.Infra;
+
             // Every test run the command reported passed with zero failures, yet the command
             // exited non-zero: a step after the tests failed, not a test.
             if (CountZeroFailureSummaries(combined) > 0)
@@ -313,6 +331,33 @@ namespace Armada.Core.Services
             else
                 description += " The failing step printed nothing.";
             return description;
+        }
+
+        /// <summary>
+        /// Whether an exit code is a termination by an OS signal (128 + signal number). A process the kernel
+        /// or another process killed exits this way; a program that chose its own status does not.
+        /// </summary>
+        /// <param name="exitCode">Exit code the command reported.</param>
+        /// <returns>True for a signal termination.</returns>
+        public static bool IsSignalTermination(int exitCode)
+        {
+            return exitCode > SignalExitBase && exitCode <= SignalExitBase + _MaxSignalNumber;
+        }
+
+        /// <summary>
+        /// Whether a command was interrupted by an OS signal rather than failing on its own: it was terminated
+        /// by a signal (128 + signal; SIGTERM is 143) and named no failing test. Such a run did not finish, so
+        /// its non-zero exit is an environment fault to re-run, not a red result to report. A run that named a
+        /// failing test is a genuine failure whatever signal ended it, so it is not read as an interruption.
+        /// </summary>
+        /// <param name="exitCode">Exit code the command reported; null when none was captured.</param>
+        /// <param name="output">Combined standard output and standard error.</param>
+        /// <returns>True when the run was interrupted by a signal with no failing test.</returns>
+        public static bool WasSignalInterruption(int? exitCode, string? output)
+        {
+            return exitCode.HasValue
+                && IsSignalTermination(exitCode.Value)
+                && !HasTestFailureEvidence(output ?? String.Empty);
         }
 
         #endregion

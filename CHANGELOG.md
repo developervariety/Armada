@@ -9,6 +9,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A check or gate command the OS terminates by a signal (`128 + signal`; `143`
+  is SIGTERM, `137` is SIGKILL) with no failing test named is read as an
+  environment interruption, not a code failure. The definition-of-done
+  classifier returns `Infra` for such a run rather than `TestFail` or
+  `PostTestStep`, and the integration-candidate validator re-runs an interrupted
+  required check once; when it is still interrupted, the candidate is
+  `Unavailable` with reason `integration_validation_interrupted` instead of
+  `Failed`, so a stray kill refuses publication without failing a landing or
+  firing a false code-failure rescue. A run that still names a failing test, or
+  exits non-zero without a signal, fails exactly as before.
+
 - An unknown shared test database provider is rejected instead of selecting
   SQLite. The shared console runner validates `ARMADA_TEST_DB_TYPE` and its
   `--db-type` input before suite discovery, prints the supported providers, and

@@ -134,6 +134,44 @@ namespace Armada.Test.Unit.Suites.Services
                     "a test host that exited mid-run makes its failed tests victims, not evidence");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            await RunTest("A signal termination with no failing test is Infra, not TestFail or PostTestStep", () =>
+            {
+                DefinitionOfDoneFailureClassifier classifier = new DefinitionOfDoneFailureClassifier();
+                // 944 tests passed, none failed, then the process was killed by SIGTERM (exit 143). No test
+                // failed, so this must not read as a red code result; it is an environment interruption.
+                string killed = "Passed!  - Failed:     0, Passed:   944, Skipped:     0, Total:   944, Duration: 2 s - Example.Tests.dll (net10.0)\n";
+                AssertEqual(DefinitionOfDoneFailureClassEnum.Infra, classifier.Classify("unit-test", 143, killed),
+                    "a SIGTERM with no failing test is an interruption, not a code failure");
+                AssertEqual(DefinitionOfDoneFailureClassEnum.Infra, classifier.Classify("unit-test", 137, "running tests..."),
+                    "a SIGKILL with no test summary at all is still an interruption");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A failing test still fails even when the process was also signalled", () =>
+            {
+                DefinitionOfDoneFailureClassifier classifier = new DefinitionOfDoneFailureClassifier();
+                // A named failing test is a genuine failure whatever signal ended the run.
+                string failedThenKilled = "  Failed Example.Tests.ParserTests.Parse_ReadsHeader [3 ms]\nFailed!  - Failed: 1, Passed: 10, Total: 11\n";
+                AssertEqual(DefinitionOfDoneFailureClassEnum.TestFail, classifier.Classify("unit-test", 143, failedThenKilled),
+                    "a named failing test is a test failure even at a signal exit code");
+                AssertFalse(DefinitionOfDoneFailureClassifier.WasSignalInterruption(143, failedThenKilled),
+                    "a signal exit with a failing test named is not an interruption");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("WasSignalInterruption reads the signal range and a non-signal exit", () =>
+            {
+                AssertTrue(DefinitionOfDoneFailureClassifier.IsSignalTermination(143), "143 is SIGTERM (128 + 15)");
+                AssertTrue(DefinitionOfDoneFailureClassifier.IsSignalTermination(137), "137 is SIGKILL (128 + 9)");
+                AssertFalse(DefinitionOfDoneFailureClassifier.IsSignalTermination(1), "1 is a program's own status, not a signal");
+                AssertFalse(DefinitionOfDoneFailureClassifier.IsSignalTermination(0), "0 is success");
+                AssertFalse(DefinitionOfDoneFailureClassifier.IsSignalTermination(255), "255 is past the signal range");
+                AssertTrue(DefinitionOfDoneFailureClassifier.WasSignalInterruption(143, "Passed: 944"), "a SIGTERM with no failing test is an interruption");
+                AssertFalse(DefinitionOfDoneFailureClassifier.WasSignalInterruption(1, "running"), "a non-signal non-zero exit is not an interruption");
+                AssertFalse(DefinitionOfDoneFailureClassifier.WasSignalInterruption(null, "running"), "no exit code is not an interruption");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
         }
     }
 }

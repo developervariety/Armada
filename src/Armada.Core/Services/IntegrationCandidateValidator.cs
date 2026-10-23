@@ -191,10 +191,9 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                CheckRun run;
-                try
+                CheckRunRequest BuildRequest()
                 {
-                    run = await _CheckRuns.RunAsync(auth, new CheckRunRequest
+                    return new CheckRunRequest
                     {
                         VesselId = vessel.Id,
                         WorkflowProfileId = profile!.Id,
@@ -202,7 +201,27 @@ namespace Armada.Core.Services
                         CommitHash = candidate.IntegrationCommit,
                         DiffBaseCommit = candidate.TargetBaseCommit,
                         Label = "Integration candidate " + ShortCommit(candidate.IntegrationCommit) + " for " + candidate.TargetBranch
-                    }, token).ConfigureAwait(false);
+                    };
+                }
+
+                CheckRun run;
+                try
+                {
+                    run = await _CheckRuns.RunAsync(auth, BuildRequest(), token).ConfigureAwait(false);
+
+                    // A check the OS killed by a signal (128 + signal; SIGTERM is 143) with no failing test named
+                    // did not finish on its own: a stray kill from another process sharing the host, or a host
+                    // eviction, not the merged tree. Re-run it once before trusting a non-pass; a genuine break
+                    // fails again, an interruption clears. The interrupted record is kept as evidence.
+                    if (run.Status != CheckRunStatusEnum.Passed
+                        && DefinitionOfDoneFailureClassifier.WasSignalInterruption(run.ExitCode, run.Output))
+                    {
+                        _Logging.Warn(_Header + "the " + type + " check " + run.Id + " was terminated by a signal (exit "
+                            + (run.ExitCode.HasValue ? run.ExitCode.Value.ToString() : "unknown") + ") with no failing test against merged commit "
+                            + candidate.IntegrationCommit + "; re-running it once.");
+                        passed.CheckRunIds.Add(run.Id);
+                        run = await _CheckRuns.RunAsync(auth, BuildRequest(), token).ConfigureAwait(false);
+                    }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
@@ -221,6 +240,21 @@ namespace Armada.Core.Services
                 passed.CheckRunIds.Add(run.Id);
                 if (run.Status != CheckRunStatusEnum.Passed)
                 {
+                    // An interruption that survived the re-run is an environment fault, not a code failure of
+                    // the merged tree. Report it as Unavailable, the same outcome as a check that could not run
+                    // at all: publication is refused, but no rescue is fired and no red code-check result is
+                    // recorded against the candidate. Anything else is a genuine failure the branch alone hides.
+                    if (DefinitionOfDoneFailureClassifier.WasSignalInterruption(run.ExitCode, run.Output))
+                    {
+                        IntegrationValidationResult interrupted = Verdict(IntegrationValidationOutcomeEnum.Unavailable,
+                            "integration_validation_interrupted: the " + type + " check " + run.Id + " was terminated by a signal (exit "
+                            + (run.ExitCode.HasValue ? run.ExitCode.Value.ToString() : "unknown") + ") with no failing test, on the run and its re-run, "
+                            + "against merged commit " + candidate.IntegrationCommit + ". The check did not finish, so the combined tree was not measured.");
+                        interrupted.CheckRunIds.AddRange(passed.CheckRunIds);
+                        interrupted.ReusedCheckRunIds.AddRange(passed.ReusedCheckRunIds);
+                        return interrupted;
+                    }
+
                     IntegrationValidationResult failed = Verdict(IntegrationValidationOutcomeEnum.Failed,
                         "integration_validation_failed: the " + type + " check " + run.Id + " ended " + run.Status
                         + (run.ExitCode.HasValue ? " (exit " + run.ExitCode.Value + ")" : "")

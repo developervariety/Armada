@@ -114,7 +114,16 @@ use one shared validator.
 | `Disabled` | yes | `integrationValidation.enabled` is `false`. |
 | `CommandMissing` | no | The profile has no `BuildCommand` and no `UnitTestCommand`, or no profile resolves. Reason `integration_validation_command_missing`. |
 | `Failed` | no | A required check did not pass. Reason `integration_validation_failed`. |
-| `Unavailable` | no | The profile or a check could not run. Reason `integration_validation_unavailable`. |
+| `Unavailable` | no | The profile or a check could not run, or a check was interrupted by a signal on both the run and its re-run. Reason `integration_validation_unavailable` or `integration_validation_interrupted`. |
+
+A required check that the OS terminates by a signal (`128 + signal`; `143` is
+SIGTERM) with no failing test named did not finish on its own -- a stray kill
+from another process sharing the host, not the merged tree. The validator
+re-runs that check once; a genuine break fails again, an interruption clears.
+When it is still interrupted, the candidate is `Unavailable` with the reason
+`integration_validation_interrupted`, not `Failed`: an interruption is an
+environment fault, so publication is refused without a false code-failure
+rescue.
 
 A refusal leaves the target branch, its remote and the source branch unchanged.
 A direct landing records the reason as the mission's failure reason. The queue
