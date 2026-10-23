@@ -175,6 +175,55 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(joined.Contains(agreed, StringComparison.Ordinal), agreed + " sits under a lead-in that reports agreement, so it is not a finding");
             });
 
+            await RunTest("Counterexample steps and passing test counts are not findings of their own", () =>
+            {
+                string review = String.Join("\n", new[]
+                {
+                    "## Correctness",
+                    "",
+                    "**Required revision: order persistence does not take the resume lock.**",
+                    "",
+                    "`src/Desk/Operations.cs:639-658` holds the gate, but `src/Orders.cs:71` writes under a separate lock.",
+                    "",
+                    "Concrete counterexample using the existing `GuardOrder(Start, \"Unknown\")` fixture:",
+                    "",
+                    "1. Both halt states are set and no unresolved order exists.",
+                    "2. Resume finishes its order check.",
+                    "3. Another thread saves the Unknown order.",
+                    "4. Resume clears both halt states without seeing that order.",
+                    "",
+                    "## Tests",
+                    "",
+                    "`sh scripts/check.sh` completed in the foreground with **exit code 0**:",
+                    "",
+                    "- C#: 1,389 passed, 0 failed.",
+                    "- JavaScript: 138 passed, 0 failed.",
+                    "- Python: 112 passed.",
+                    "- Lint: 0 issues.",
+                    "",
+                    "The Test Engineer report names concurrent saves as untested. Its assumption that the gate provides exclusion is incorrect.",
+                    "",
+                    "## Verdict",
+                    "",
+                    "NEEDS_REVISION. Close the order-save race and add a deterministic regression test.",
+                    "",
+                    "[ARMADA:VERDICT] NEEDS_REVISION"
+                });
+
+                List<string> findings = JudgeChallenge.ExtractFindings(review, out bool complete);
+                string joined = String.Join("\n", findings);
+
+                AssertTrue(complete, "the review fits the bound");
+                AssertContains("order persistence does not take the resume lock", joined, "the required revision is a finding");
+                AssertContains("assumption that the gate provides exclusion is incorrect", joined, "the Tests paragraph that names a defect is a finding");
+                AssertContains("Close the order-save race", joined, "the verdict's required change is a finding");
+                foreach (string step in new[] { "Both halt states are set", "Resume finishes its order check", "Another thread saves", "Resume clears both halt states" })
+                    AssertFalse(joined.Contains(step, StringComparison.Ordinal), "the counterexample step '" + step + "' is evidence for the finding, not a finding");
+                foreach (string count in new[] { "1,389 passed", "138 passed", "112 passed", "0 issues" })
+                    AssertFalse(joined.Contains(count, StringComparison.Ordinal), "the passing count '" + count + "' is not a finding");
+                AssertEqual(3, findings.Count, "only the three real findings are numbered (findings: " + joined + ")");
+            });
+
             await RunTest("The round is off by default, and an excluded vessel is never challenged", () =>
             {
                 JudgeChallengeSettings settings = new JudgeChallengeSettings();

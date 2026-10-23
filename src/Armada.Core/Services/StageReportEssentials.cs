@@ -80,6 +80,12 @@ namespace Armada.Core.Services
             @"\b(?:sound|correct(?:ly)?|agree(?:s|d)?|pass(?:es|ed)?|exit(?:ed|s)?\s+0|cover(?:s|ed)?|fails?\s+closed|reviewed|checked|inspected|delivers?|match(?:es)?|acceptable|verified|holds?|fine)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // A lead-in that introduces the steps of a reproduction or counterexample: its items are evidence for
+        // the finding they follow, not findings of their own.
+        private static readonly Regex _EvidenceLeadIn = new Regex(
+            @"\b(?:counter-?examples?|reproductions?|repros?|steps\s+to\s+reproduce|reproduce\s+(?:it|this|the\s+\w+)\s+(?:with|by)|interleavings?)\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         private static readonly Regex _NonBlockingParenthetical = new Regex(
             @"\([^)]*\b(?:not\s+a\s+blocker|non-?blocking)\b[^)]*\)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -315,6 +321,7 @@ namespace Armada.Core.Services
                 bool lesserLead = underLead && _LesserLeadIn.IsMatch(leadClause) && !_RequiredLeadIn.IsMatch(leadClause);
                 bool defectLead = underLead && !lesserLead && _DefectLeadIn.IsMatch(leadClause);
                 bool passingLead = underLead && !lesserLead && !defectLead && _PassingLeadIn.IsMatch(leadClause);
+                bool evidenceLead = underLead && !lesserLead && _EvidenceLeadIn.IsMatch(leadClause) && !_RequiredLeadIn.IsMatch(leadClause);
                 if (lesserLead && !explicitBlocking && !notMetCriterion) continue;
 
                 // A paragraph that follows a lead-in naming defects ("Confirmed defect:") is one of those defects.
@@ -339,7 +346,7 @@ namespace Armada.Core.Services
                     }
                 }
 
-                bool listFinding = listItem && (!passingLead || itemNamesDefect);
+                bool listFinding = listItem && (!(passingLead || evidenceLead) || itemNamesDefect);
                 bool sectionFinding = findingSectionItem && (listFinding || labeledFinding || paragraphFinding || underDefectParagraphLead || IsUnmarkedTestGap(item, section))
                     || section == "Verdict"
                         && (verdictRequired || ContainsAny(raw, "NEEDS_REVISION", "REQUIRED CHANGE", "MUST ") || (listItem && !ContainsAny(raw, "PASS")));
@@ -731,13 +738,16 @@ namespace Armada.Core.Services
                 || IsPassingTestSummary(normalized);
         }
 
+        // A count may carry thousands separators ("1,389 passed"). A tool summary may give only its issue count
+        // ("Lint: 0 issues.").
         private static bool IsPassingTestSummary(string item)
         {
+            const string count = @"(?:\d{1,3}(?:,\d{3})+|\d+)";
             return Regex.IsMatch(
                     item,
-                    @"^[^:]+:\s*\d+\s+passed,\s*0\s+failed(?:;\s*baseline\s+\d+,\s*with\s+(?:all\s+)?\d+\s+added\s+cases?\s+executed)?[.!]?$",
+                    @"^[^:]+:\s*" + count + @"\s+passed,\s*0\s+failed(?:;\s*baseline\s+\d+,\s*with\s+(?:all\s+)?\d+\s+added\s+cases?\s+executed)?[.!]?$",
                     RegexOptions.IgnoreCase)
-                || Regex.IsMatch(item, @"^[^:]+:\s*\d+\s+scripts?,\s*0\s+issues?[.!]?$", RegexOptions.IgnoreCase);
+                || Regex.IsMatch(item, @"^[^:]+:\s*(?:" + count + @"\s+scripts?,\s*)?0\s+issues?[.!]?$", RegexOptions.IgnoreCase);
         }
 
         private static bool IsExplicitSuccess(string item, string section)

@@ -622,6 +622,12 @@ upstream integrations and excludes changes already present at that baseline.
   expired history is recorded `deferred` and left for the next pass; the report
   sets `ArchiveCapped` and `ArchiveDeferredItems`, the report event names the
   deferred count, and its payload carries the archive counts.
+- The Judge-finding extraction that numbers findings for the Challenger and
+  the rescue brief no longer splits evidence into findings. Items under a
+  lead-in that introduces a counterexample or reproduction are context unless
+  an item names a defect itself, and a passing count with thousands separators
+  (`C#: 1,389 passed, 0 failed.`) or a bare issue count (`Lint: 0 issues.`) is a
+  passing test summary.
 - A captain's file search lists the files Armada stages in its dock. Git
   excludes `_briefing/`, `.armada/instructions/` and `.armada/playbooks/`, and
   ripgrep-based glob and grep tools read git's exclude file, so a glob found no
