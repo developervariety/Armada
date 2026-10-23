@@ -644,6 +644,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- `resolve_check` (and its `armada_resolve_check` alias) returns the bounded
+  check-run view by default instead of the resolved record whole. A check whose
+  stored log is megabytes returned a response past the tool output limit, so the
+  client refused the whole result. The tool now mirrors `get_check_run`: it
+  returns status, exit code, parsed totals, and the tail of the log by default,
+  names the complete log's size and the call that fetches it, and takes the same
+  `includeOutput=true` opt-in to return the complete log and `outputTailLines` to
+  widen the tail.
+
 - The Judge-PASS acceptance-criteria walk measures the linked objective's live
   criteria at check time, not the dispatch-time snapshot. When an operator
   narrows an objective's acceptance criteria after its voyage is dispatched, a

@@ -264,6 +264,55 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            // resolve_check once returned the resolved record whole, so a check whose stored log was megabytes
+            // returned a response past the tool output limit and the client refused it. It now mirrors
+            // get_check_run: the bounded view by default, the complete log only when includeOutput=true.
+            await RunTest("resolve_check omits the complete log by default and returns it with includeOutput=true", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string largeOutput = String.Join("\n", Enumerable.Range(0, 20000).Select(i => "log line " + i + " of a large build log")) + "\n";
+                    CheckRun run = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        Type = CheckRunTypeEnum.Build,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Running,
+                        Output = largeOutput
+                    }).ConfigureAwait(false);
+
+                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver);
+
+                    object defaultResult = await handlers["resolve_check"](JsonSerializer.SerializeToElement(new
+                    {
+                        checkRunId = run.Id,
+                        status = "Passed"
+                    })).ConfigureAwait(false);
+
+                    CheckRunSummaryView? view = defaultResult as CheckRunSummaryView;
+                    AssertNotNull(view, "resolve_check returns the bounded view by default, not the whole record: " + JsonSerializer.Serialize(defaultResult));
+                    AssertEqual(run.Id, view!.Id, "the bounded view is of the resolved check");
+                    AssertEqual(CheckRunStatusEnum.Passed, view.Status, "the resolved status is reported");
+                    AssertEqual(largeOutput.Length, view.OutputLength, "the bounded view reports the complete log length");
+                    AssertTrue(view.OutputTruncated, "the bounded view marks the log truncated");
+                    AssertNotNull(view.OutputTail, "the bounded view carries the tail of the log");
+                    AssertContains("includeOutput=true", view.OutputRetrieval ?? String.Empty, "the bounded view names the opt-in for the complete log");
+
+                    string defaultJson = JsonSerializer.Serialize(defaultResult);
+                    AssertTrue(defaultJson.Length < largeOutput.Length, "the default response is far smaller than the complete log (" + defaultJson.Length + " < " + largeOutput.Length + ")");
+
+                    object fullResult = await handlers["resolve_check"](JsonSerializer.SerializeToElement(new
+                    {
+                        checkRunId = run.Id,
+                        status = "Passed",
+                        includeOutput = true
+                    })).ConfigureAwait(false);
+
+                    CheckRun? fullRun = fullResult as CheckRun;
+                    AssertNotNull(fullRun, "includeOutput=true returns the whole record: " + JsonSerializer.Serialize(fullResult));
+                    AssertEqual(largeOutput, fullRun!.Output ?? String.Empty, "includeOutput=true returns the complete log as before");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("armada_resolve_check validation returns structured failure instead of Error object", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

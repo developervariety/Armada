@@ -287,12 +287,13 @@ campaign quality and handle work outside the scheduler.
 
 `armada_resolve_check` is a compatibility alias for `resolve_check`.
 
-`run_check`, `retry_check_run`, and `get_check_run` return a BOUNDED view of a
-check run, not the complete command log. A build or test log is routinely one
-to several megabytes; returning it overran the tool output limit, so the caller
-received a truncation error instead of the verdict and had to parse the record
-out of band on every call - including the common case where the only question
-was whether the check passed.
+`run_check`, `retry_check_run`, `get_check_run`, and `resolve_check` (with its
+`armada_resolve_check` alias) return a BOUNDED view of a check run, not the
+complete command log. A build or test log is routinely one to several
+megabytes; returning it overran the tool output limit, so the caller received a
+truncation error instead of the verdict and had to parse the record out of band
+on every call - including the common case where the only question was whether
+the check passed.
 
 The bounded view carries what answers that question:
 
@@ -308,7 +309,10 @@ The bounded view carries what answers that question:
 
 Nothing is silently withheld: a truncated view states the full log's size and
 names the call that fetches it. Use `get_check_run` with `includeOutput=true`
-for the complete record, or `outputTailLines` to widen the tail.
+for the complete record, or `outputTailLines` to widen the tail. `resolve_check`
+takes the same `includeOutput` and `outputTailLines` arguments, so resolving a
+check with a large log returns the verdict by default and the complete log only
+on request.
 
 ### 8.8 Merge Queue And Audit
 

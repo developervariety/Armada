@@ -178,7 +178,9 @@ namespace Armada.Server.Mcp.Tools
                     status = new { type = "string", description = "Pending, Running, Passed, Failed, or Canceled" },
                     output = new { type = "string", description = "Optional output/details" },
                     summary = new { type = "string", description = "Optional human-readable summary" },
-                    exitCode = new { type = "integer", description = "Optional exit code" }
+                    exitCode = new { type = "integer", description = "Optional exit code" },
+                    includeOutput = new { type = "boolean", description = "Return the complete command log instead of a bounded tail. Defaults to false." },
+                    outputTailLines = new { type = "integer", description = "How many trailing output lines to include when includeOutput is false. Defaults to 40." }
                 },
                 required = new[] { "checkRunId", "status" }
             };
@@ -214,12 +216,18 @@ namespace Armada.Server.Mcp.Tools
                         checkRunId: request.CheckRunId);
                 }
 
-                return (object)run;
+                // The resolved record carries the check's complete command log, which for a build or test
+                // run is routinely megabytes and overruns the tool output limit, so the caller gets a
+                // truncation error in place of the record it just resolved. The bounded view is returned by
+                // default, exactly as get_check_run does; the complete log is returned only when asked for.
+                if (request.IncludeOutput) return (object)run;
+                string? runPattern = await ReadFailedTestLinePatternAsync(database, run).ConfigureAwait(false);
+                return (object)CheckRunSummaryView.From(run, request.OutputTailLines ?? _DefaultOutputTailLines, HostWideCommandLock.Snapshot(), runPattern);
             };
 
             // resolve_check is the family-consistent name (matches run_check / get_check_run / retry_check_run).
             // armada_resolve_check is kept as a back-compat alias (2026-07-26 prefix normalization).
-            register("resolve_check", "Update a structured check run status and optional output (no re-execution, unlike run_check/retry_check_run).", resolveCheckSchema, resolveCheckHandler);
+            register("resolve_check", "Update a structured check run status and optional output (no re-execution, unlike run_check/retry_check_run). Returns the bounded view (status, exit code, parsed totals, and the tail of the log); pass includeOutput=true for the complete log, which for a build or test run is routinely megabytes and can exceed the tool output limit.", resolveCheckSchema, resolveCheckHandler);
             register("armada_resolve_check", "Alias of resolve_check (back-compat).", resolveCheckSchema, resolveCheckHandler);
         }
 
@@ -281,6 +289,10 @@ namespace Armada.Server.Mcp.Tools
             public string? Summary { get; set; } = null;
 
             public int? ExitCode { get; set; } = null;
+
+            public bool IncludeOutput { get; set; } = false;
+
+            public int? OutputTailLines { get; set; } = null;
         }
 
         private sealed class CheckRunToolFailure
