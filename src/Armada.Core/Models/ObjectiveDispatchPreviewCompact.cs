@@ -6,7 +6,8 @@ namespace Armada.Core.Models
     using Armada.Core.Enums;
 
     /// <summary>
-    /// The blocking part of a dispatch preview: readiness, the Error issues and the failed preflight facts. An
+    /// The blocking part of a dispatch preview: readiness, the Error issues, the failed preflight facts, and the
+    /// codes and count of the Warning issues, so a ready preview that still warns does not read as clean. An
     /// audit that previews many objectives reads this shape instead of the full preview.
     /// </summary>
     public class ObjectiveDispatchPreviewCompact
@@ -33,6 +34,16 @@ namespace Armada.Core.Models
         /// </summary>
         public List<ObjectiveDispatchPreflightFact> FailedFacts { get; set; } = new List<ObjectiveDispatchPreflightFact>();
 
+        /// <summary>
+        /// The number of Warning issues in the full preview. A warning does not block dispatch.
+        /// </summary>
+        public int WarningCount { get; set; } = 0;
+
+        /// <summary>
+        /// The distinct codes of the Warning issues, in the order they first appear in the full preview.
+        /// </summary>
+        public List<string> WarningCodes { get; set; } = new List<string>();
+
         #endregion
 
         #region Constructors-and-Factories
@@ -45,6 +56,9 @@ namespace Armada.Core.Models
         public static ObjectiveDispatchPreviewCompact From(ObjectiveDispatchPreview preview)
         {
             if (preview == null) throw new ArgumentNullException(nameof(preview));
+            List<ObjectiveDispatchPreviewIssue> warnings = (preview.Issues ?? new List<ObjectiveDispatchPreviewIssue>())
+                .Where(issue => issue != null && issue.Severity == ReadinessSeverityEnum.Warning)
+                .ToList();
             return new ObjectiveDispatchPreviewCompact
             {
                 ObjectiveId = preview.ObjectiveId,
@@ -54,6 +68,11 @@ namespace Armada.Core.Models
                     .ToList(),
                 FailedFacts = (preview.Preflight?.Facts ?? new List<ObjectiveDispatchPreflightFact>())
                     .Where(fact => fact != null && fact.Status == PreflightFactStatusEnum.Fail)
+                    .ToList(),
+                WarningCount = warnings.Count,
+                WarningCodes = warnings
+                    .Select(issue => issue.Code)
+                    .Distinct(StringComparer.Ordinal)
                     .ToList()
             };
         }

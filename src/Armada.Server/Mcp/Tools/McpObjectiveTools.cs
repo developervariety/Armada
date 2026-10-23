@@ -183,7 +183,7 @@ namespace Armada.Server.Mcp.Tools
                             objectiveId = new { type = "string", description = "Objective or backlog item ID (obj_ prefix)" },
                             vesselId = new { type = "string", description = "Optional target vessel override" },
                             pipelineId = new { type = "string", description = "Optional pipeline ID or name override" },
-                            compact = new { type = "boolean", description = "Optional. When true, return only isReady, the Error issues and the failed preflight facts. Default false returns the full preview." },
+                            compact = new { type = "boolean", description = "Optional. When true, return only isReady, the Error issues, the failed preflight facts, and the Warning count and codes. Default false returns the full preview." },
                             captainAssignments = new
                             {
                                 type = "array",
@@ -243,13 +243,13 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "update_objective",
-                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. Set confirmStageSkip=true to explicitly confirm the supplied or existing stage skip; the server records the authenticated operator and time. Without the flag, unchanged skips retain their proof and changed skips remain unconfirmed. An empty string clears a clearable text field.",
+                "Update one objective/backlog entry, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. Set confirmStageSkip=true to explicitly confirm the supplied or existing stage skip; the server records the authenticated operator and time. Without the flag, unchanged skips retain their proof; a changed skip is unconfirmed, and the returned stageSkip.confirmationNotice says so; writing back the confirmed stages and reason restores that confirmation. An empty string clears a clearable text field.",
                 ObjectiveWriteSchema("objective", true),
                 async (args) => await UpdateAsync(objectiveService, args, "objective_update_failed", "objectiveId is required", null).ConfigureAwait(false));
 
             register(
                 "update_backlog_item",
-                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. Set confirmStageSkip=true to explicitly confirm the supplied or existing stage skip; the server records the authenticated operator and time. Without the flag, unchanged skips retain their proof and changed skips remain unconfirmed. An empty string clears a clearable text field.",
+                "Update one backlog item, including prioritization, category, linked entities, and refinement metadata. Requires one of objectiveId, backlogItemId, or id. Only supplied top-level fields change. When supplied, preparation replaces the complete nested value; omitted preparation members reset to their defaults or null. Set confirmStageSkip=true to explicitly confirm the supplied or existing stage skip; the server records the authenticated operator and time. Without the flag, unchanged skips retain their proof; a changed skip is unconfirmed, and the returned stageSkip.confirmationNotice says so; writing back the confirmed stages and reason restores that confirmation. An empty string clears a clearable text field.",
                 ObjectiveWriteSchema("backlog item", true),
                 async (args) => await UpdateAsync(objectiveService, args, "backlog_update_failed", "objectiveId is required", "backlog_item_id_required").ConfigureAwait(false));
 
@@ -1189,7 +1189,9 @@ namespace Armada.Server.Mcp.Tools
                             stages = new { type = "array", items = new { type = "string" }, description = "Pipeline persona names to omit" },
                             reason = new { type = "string", description = "Why the stages are not needed" },
                             confirmedBy = new { type = "string", description = "Read-only confirmation identity returned by Armada; request values are ignored" },
-                            confirmedUtc = new { type = "string", format = "date-time", description = "Read-only server confirmation time returned by Armada; request values are ignored" }
+                            confirmedUtc = new { type = "string", format = "date-time", description = "Read-only server confirmation time returned by Armada; request values are ignored" },
+                            confirmationNotice = new { type = "string", description = "Read-only. Set when a write without confirmStageSkip changed a confirmed skip: names what changed and how to confirm again. Request values are ignored" },
+                            droppedConfirmation = new { type = "object", description = "Read-only server copy of the last confirmed stages, reason and proof. A write that returns the skip to exactly those stages and that reason restores that confirmation. Request values are ignored" }
                         },
                         required = new[] { "stages" }
                     }

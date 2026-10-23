@@ -566,7 +566,7 @@ namespace Armada.Server
             // committed, so the Check measures the work under review and not the default branch.
             await ArmVoyageChecksAsync(voyage, dispatchVessel, token).ConfigureAwait(false);
 
-            await WarnOnCoordinationClaimConflictsAsync(voyage, dispatchVessel, request.ObjectiveId, token).ConfigureAwait(false);
+            await WarnOnCoordinationClaimConflictsAsync(voyage, dispatchVessel, request.ObjectiveId, request.DispatcherParticipantKey, token).ConfigureAwait(false);
 
             LogDispatchInfo("dispatch complete voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds);
             return VoyageDispatchResult.Success(new VoyageDispatchResponse(voyage,
@@ -577,15 +577,16 @@ namespace Armada.Server
         /// When another participant holds an active claim on this vessel or objective,
         /// announce the overlap on the coordination board. The dispatch proceeds -
         /// claims are reservations with a named holder, not locks - so both parties
-        /// see the collision while there is still time to cancel one side.
+        /// see the collision while there is still time to cancel one side. A claim the
+        /// dispatching participant holds itself is not an overlap and is not announced.
         /// </summary>
-        private async Task WarnOnCoordinationClaimConflictsAsync(Voyage voyage, Vessel vessel, string? objectiveId, CancellationToken token)
+        private async Task WarnOnCoordinationClaimConflictsAsync(Voyage voyage, Vessel vessel, string? objectiveId, string? dispatcherParticipantKey, CancellationToken token)
         {
             List<CoordinationClaim> conflicts;
             try
             {
                 CoordinationService coordination = new CoordinationService(_Logging ?? new LoggingModule(), _Database);
-                conflicts = await coordination.FindDispatchConflictsAsync(vessel.Id, objectiveId, null, token).ConfigureAwait(false);
+                conflicts = await coordination.FindDispatchConflictsAsync(vessel.Id, objectiveId, dispatcherParticipantKey, token).ConfigureAwait(false);
                 if (conflicts.Count == 0) return;
 
                 List<string> parts = new List<string>();

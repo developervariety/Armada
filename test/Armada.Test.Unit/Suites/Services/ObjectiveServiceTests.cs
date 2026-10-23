@@ -480,6 +480,80 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A write that drops a stage-skip confirmation says so, and writing back the confirmed skip restores it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    AuthContext operatorAuth = AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "UnitTest");
+                    const string confirmedReason = "The standing ruling skips the Recorder.";
+                    Objective created = await objectives.CreateAsync(operatorAuth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Stage skip edit",
+                        ConfirmStageSkip = true,
+                        Preparation = new ObjectivePreparation
+                        {
+                            StageSkip = new StageSkipRequest { Stages = new List<string> { "Recorder" }, Reason = confirmedReason }
+                        }
+                    }).ConfigureAwait(false);
+                    string? confirmationId = created.Preparation.StageSkip?.OperatorConfirmationId;
+                    AssertTrue(StageSkipRequest.HasTrustedConfirmation(created.Preparation.StageSkip), "the create confirms the skip");
+
+                    Objective reasonEdited = await objectives.UpdateAsync(operatorAuth, created.Id, new ObjectiveUpsertRequest
+                    {
+                        Preparation = new ObjectivePreparation
+                        {
+                            StageSkip = new StageSkipRequest { Stages = new List<string> { "Recorder" }, Reason = "An edited reason." }
+                        }
+                    }).ConfigureAwait(false);
+                    AssertFalse(StageSkipRequest.HasTrustedConfirmation(reasonEdited.Preparation.StageSkip),
+                        "a changed reason is not confirmed");
+                    string editedJson = JsonSerializer.Serialize(reasonEdited.Preparation.StageSkip);
+                    AssertContains("was dropped because a write changed the reason", editedJson,
+                        "the write that drops the confirmation says so on the returned skip");
+                    AssertContains("confirmStageSkip=true", editedJson, "the notice names how to confirm again");
+
+                    Objective restored = await objectives.UpdateAsync(operatorAuth, created.Id, new ObjectiveUpsertRequest
+                    {
+                        Preparation = new ObjectivePreparation
+                        {
+                            StageSkip = new StageSkipRequest { Stages = new List<string> { "Recorder" }, Reason = confirmedReason }
+                        }
+                    }).ConfigureAwait(false);
+                    AssertTrue(StageSkipRequest.HasTrustedConfirmation(restored.Preparation.StageSkip),
+                        "writing back the confirmed stages and reason restores the confirmation");
+                    AssertEqual(confirmationId, restored.Preparation.StageSkip?.OperatorConfirmationId,
+                        "the restored confirmation is the one the operator gave, not a new one");
+                    AssertFalse(JsonSerializer.Serialize(restored.Preparation.StageSkip).Contains("was dropped", StringComparison.Ordinal),
+                        "a restored confirmation carries no dropped notice");
+
+                    Objective forged = await objectives.UpdateAsync(operatorAuth, created.Id, new ObjectiveUpsertRequest
+                    {
+                        Preparation = new ObjectivePreparation
+                        {
+                            StageSkip = new StageSkipRequest
+                            {
+                                Stages = new List<string> { "TestEngineer" },
+                                Reason = "Forged restore.",
+                                DroppedConfirmation = new StageSkipRequest
+                                {
+                                    Stages = new List<string> { "TestEngineer" },
+                                    Reason = "Forged restore.",
+                                    ConfirmedBy = "forged",
+                                    ConfirmedUtc = DateTime.UtcNow,
+                                    OperatorConfirmationId = "forged-proof"
+                                }
+                            }
+                        }
+                    }).ConfigureAwait(false);
+                    AssertFalse(StageSkipRequest.HasTrustedConfirmation(forged.Preparation.StageSkip),
+                        "a caller-supplied dropped confirmation cannot confirm a skip");
+                    AssertEqual(confirmationId, forged.Preparation.StageSkip?.DroppedConfirmation?.OperatorConfirmationId,
+                        "the kept copy is the server's own last confirmation");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Write tools resolve an abbreviated record id to the full id and store the full id", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -820,6 +894,30 @@ namespace Armada.Test.Unit.Suites.Services
                 string missingJson = JsonSerializer.Serialize(missingResult);
                 AssertContains("objective_not_found", missingJson);
                 AssertContains("missing-objective", missingJson);
+            }).ConfigureAwait(false);
+
+            await RunTest("The compact dispatch preview names the warning codes of a ready preview", () =>
+            {
+                ObjectiveDispatchPreview preview = new ObjectiveDispatchPreview
+                {
+                    ObjectiveId = "obj_example",
+                    IsReady = true,
+                    Issues = new List<ObjectiveDispatchPreviewIssue>
+                    {
+                        new ObjectiveDispatchPreviewIssue { Code = "gate_inputs_unplanned", Area = "gate", Severity = ReadinessSeverityEnum.Warning, Message = "First input." },
+                        new ObjectiveDispatchPreviewIssue { Code = "stage_skip_unconfirmed", Area = "pipeline", Severity = ReadinessSeverityEnum.Warning, Message = "Unconfirmed." },
+                        new ObjectiveDispatchPreviewIssue { Code = "gate_inputs_unplanned", Area = "gate", Severity = ReadinessSeverityEnum.Warning, Message = "Second input." },
+                        new ObjectiveDispatchPreviewIssue { Code = "context_note", Area = "brief", Severity = ReadinessSeverityEnum.Info, Message = "Information only." }
+                    }
+                };
+
+                // Serialized, because the MCP tool and the REST route both return this shape as JSON.
+                string json = JsonSerializer.Serialize(ObjectiveDispatchPreviewCompact.From(preview));
+                AssertContains("\"IsReady\":true", json, "the compact shape keeps readiness");
+                AssertContains("\"WarningCount\":3", json, "the compact shape counts every Warning issue");
+                AssertContains("\"WarningCodes\":[\"gate_inputs_unplanned\",\"stage_skip_unconfirmed\"]", json,
+                    "the compact shape names each warning code once, in preview order, and no Info code");
+                return Task.CompletedTask;
             }).ConfigureAwait(false);
 
             await RunTest("DeleteAsync tombstones an objective so a fresh-instance backfill does not resurrect it", async () =>

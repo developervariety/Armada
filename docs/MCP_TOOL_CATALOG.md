@@ -431,7 +431,12 @@ every tool.
 - `armada_coordination_claim` — claim a vessel or objective before non-trivial
   work so peers see who owns it; heartbeats keep the claim alive, and a claim
   expires unless refreshed. The header key stands in for `participantKey`, and
-  `displayName` defaults the same way as a post's `authorName`.
+  `displayName` defaults the same way as a post's `authorName`. A voyage
+  dispatched on a claimed vessel or objective posts a `[claims]` overlap note
+  that names each other holder. `armada_dispatch` sends the request's
+  participant key with the dispatch, so a claim that key holds is the
+  dispatcher's own and is not announced. A dispatch with no participant key
+  (the scheduler, REST) announces every active claim.
 - `armada_campaign_status` — return a campaign's whole matrix (lanes, slices,
   status, evidence) in one call, with recent fleet notes and, under
   `CampaignRooms`, recent notes from each root's campaign room. Reading it does

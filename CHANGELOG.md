@@ -603,6 +603,23 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- An objective write that changes a confirmed stage skip without
+  `confirmStageSkip` says that it dropped the confirmation: the returned
+  `stageSkip.confirmationNotice` names what changed (the stages or the reason)
+  and how to confirm again, and `stageSkip.droppedConfirmation` keeps the
+  server's copy of the last confirmed stages, reason and proof. A later write
+  that returns the skip to exactly those stages and that reason restores that
+  confirmation, with its original confirmer, time and proof. Both fields are
+  server-owned and ignore request values. A write with `confirmStageSkip: true`
+  issues a new proof and time even for an unchanged skip.
+- The compact dispatch preview (`preview_objective_dispatch` with
+  `compact: true`, and the REST `compact=true` query) carries `warningCount` and
+  `warningCodes`, so a ready preview that still warns, for example
+  `gate_inputs_unplanned`, no longer reads as clean.
+- The `[claims]` overlap note no longer fires when the dispatcher holds the
+  claim. `armada_dispatch` passes the request's participant key to the dispatch,
+  and a claim that key holds is not announced; a claim another participant holds
+  still is.
 - Coordination writes take the caller's identity when the name is omitted.
   `armada_coordination_post` without `authorName`, the heartbeat and claim
   without `displayName`, and `armada_dispatch_hold` engage without `setBy` use

@@ -431,8 +431,12 @@ It performs the same read-only preflight that operator and autonomous objective
 dispatch enforce. It reports all structural blockers, a complete typed
 dependency graph, and bounded diagnostic chains. A busy compatible captain remains valid configured coverage; its idle
 count is capacity information only. With `compact: true` it returns only
-`objectiveId`, `isReady`, `errors` (the Error issues) and `failedFacts` (the
-preflight facts that fail), for an audit that previews many objectives; the
+`objectiveId`, `isReady`, `errors` (the Error issues), `failedFacts` (the
+preflight facts that fail), `warningCount` (the number of Warning issues) and
+`warningCodes` (each Warning code once, in preview order), for an audit that
+previews many objectives. A ready preview can still warn, for example
+`gate_inputs_unplanned` or `stage_skip_unconfirmed`, so read `warningCodes`
+before reading `isReady: true` as clean; the
 REST route takes the same `compact=true` query parameter. The default returns
 the full preview.
 
@@ -504,9 +508,17 @@ create or update, send top-level `confirmStageSkip: true` with the skip in
 `preparation.stageSkip`. On update, omit `preparation` to confirm the existing
 skip again without changing its stage list. Armada ignores inbound confirmer,
 timestamp, and proof values and records the authenticated operator and server
-time. Without the flag, an unchanged full-preparation replacement preserves
-the stored proof, while a changed skip remains unconfirmed. A refinement
-summary never confirms or writes this field.
+time. Every write with the flag issues a new proof and a new time, even when
+the skip is unchanged, so a batch write that sends the flag re-stamps each
+skip it touches. Without the flag, an unchanged full-preparation replacement
+preserves the stored proof, while a changed stage list or reason leaves the
+skip unconfirmed. The write that drops a confirmation says so: the returned
+`stageSkip.confirmationNotice` names what changed and how to confirm again,
+and `stageSkip.droppedConfirmation` keeps the server's copy of the last
+confirmed stages, reason and proof. A later write that returns the skip to
+exactly those stages and that reason restores that confirmation, with its
+original confirmer, time and proof. Both fields are server-owned; inbound
+values are ignored. A refinement summary never confirms or writes this field.
 An autonomous rescue carries the skips recorded on the voyage it rescues: it
 reads that voyage's `voyage.stage_skipped` events, drops the same stages from
 the rescue chain through the same rule, and records one `voyage.stage_skipped`
@@ -1734,7 +1746,9 @@ or the existing skip when preparation is omitted. Armada records the authenticat
 operator, server time, and a server-issued proof; inbound `confirmedBy`,
 `confirmedUtc`, and `operatorConfirmationId` values do not authorize a skip.
 Without the flag, unchanged preparation preserves its proof and changed
-preparation leaves the skip unconfirmed. Legacy skips remain stored but require
+preparation leaves the skip unconfirmed; the returned skip then carries
+`confirmationNotice` and `droppedConfirmation`, and writing back the confirmed
+stages and reason restores the confirmation. Legacy skips remain stored but require
 explicit reconfirmation. The clearable text fields (`description`, `category`,
 `owner`, `targetVersion`, `parentObjectiveId`, `refinementSummary`,
 `suggestedPipelineId`,

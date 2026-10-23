@@ -2600,6 +2600,8 @@ namespace Armada.Core.Services
                 EnsureMaximumLength(skip.ConfirmedBy, _MaxPreparationIdChars, "Objective stage skip confirmed-by");
                 skip.ConfirmedUtc = DateTime.UtcNow;
                 skip.OperatorConfirmationId = Guid.NewGuid().ToString("N");
+                skip.ConfirmationNotice = null;
+                skip.DroppedConfirmation = null;
                 return;
             }
 
@@ -2609,17 +2611,70 @@ namespace Armada.Core.Services
             {
                 // A full-preparation round trip, including refinement's preserved value, carries no new
                 // confirmation. Restore the persisted proof so inbound fields cannot forge or erase it.
-                skip!.ConfirmedBy = prior.ConfirmedBy;
-                skip.ConfirmedUtc = prior.ConfirmedUtc;
-                skip.OperatorConfirmationId = prior.OperatorConfirmationId;
+                CopyConfirmationProof(prior, skip!);
+                skip!.ConfirmationNotice = prior.ConfirmationNotice;
+                skip.DroppedConfirmation = CopyConfirmedSkip(prior.DroppedConfirmation);
+                return;
+            }
+
+            // The last confirmation an operator gave: the prior skip's own proof, or the copy kept when an
+            // earlier write dropped it. Only persisted state is read, so inbound fields cannot forge it.
+            StageSkipRequest? lastConfirmed = StageSkipRequest.HasTrustedConfirmation(prior)
+                ? CopyConfirmedSkip(prior)
+                : CopyConfirmedSkip(prior?.DroppedConfirmation);
+
+            if (lastConfirmed != null && SameSemanticStageSkip(skip!, lastConfirmed))
+            {
+                // The write returns the skip to exactly what the operator confirmed, so that proof holds.
+                CopyConfirmationProof(lastConfirmed, skip!);
+                skip!.ConfirmationNotice = null;
+                skip.DroppedConfirmation = null;
                 return;
             }
 
             // A changed or new skip remains stored for review but cannot authorize dispatch until the
-            // operator explicitly confirms it through confirmStageSkip.
+            // operator explicitly confirms it through confirmStageSkip. A dropped confirmation is named on
+            // the stored skip, so the write that dropped it says so.
             skip!.ConfirmedBy = null;
             skip.ConfirmedUtc = null;
             skip.OperatorConfirmationId = null;
+            skip.DroppedConfirmation = lastConfirmed;
+            skip.ConfirmationNotice = lastConfirmed == null ? null : DescribeDroppedConfirmation(skip, lastConfirmed);
+        }
+
+        private static string DescribeDroppedConfirmation(StageSkipRequest skip, StageSkipRequest lastConfirmed)
+        {
+            HashSet<string> stages = (skip.Stages ?? new List<string>()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool stagesChanged = !stages.SetEquals(lastConfirmed.Stages ?? new List<string>());
+            string changed = stagesChanged ? "the skipped stages" : "the reason";
+            return "The operator confirmation of this stage skip ("
+                + lastConfirmed.ConfirmedBy + ", "
+                + lastConfirmed.ConfirmedUtc.GetValueOrDefault().ToString("u")
+                + ") was dropped because a write changed " + changed
+                + ". Dispatch does not apply the skip until it is confirmed again: write confirmStageSkip=true,"
+                + " or write back the confirmed stages ["
+                + String.Join(", ", lastConfirmed.Stages ?? new List<string>())
+                + "] and reason, which restores that confirmation.";
+        }
+
+        private static void CopyConfirmationProof(StageSkipRequest source, StageSkipRequest target)
+        {
+            target.ConfirmedBy = source.ConfirmedBy;
+            target.ConfirmedUtc = source.ConfirmedUtc;
+            target.OperatorConfirmationId = source.OperatorConfirmationId;
+        }
+
+        private static StageSkipRequest? CopyConfirmedSkip(StageSkipRequest? skip)
+        {
+            if (!StageSkipRequest.HasTrustedConfirmation(skip)) return null;
+            return new StageSkipRequest
+            {
+                Stages = skip!.Stages.ToList(),
+                Reason = skip.Reason,
+                ConfirmedBy = skip.ConfirmedBy,
+                ConfirmedUtc = skip.ConfirmedUtc,
+                OperatorConfirmationId = skip.OperatorConfirmationId
+            };
         }
 
         private static StageSkipRequest? CopyStageSkip(StageSkipRequest? skip)
@@ -2631,7 +2686,9 @@ namespace Armada.Core.Services
                 Reason = skip.Reason,
                 ConfirmedBy = skip.ConfirmedBy,
                 ConfirmedUtc = skip.ConfirmedUtc,
-                OperatorConfirmationId = skip.OperatorConfirmationId
+                OperatorConfirmationId = skip.OperatorConfirmationId,
+                ConfirmationNotice = skip.ConfirmationNotice,
+                DroppedConfirmation = CopyConfirmedSkip(skip.DroppedConfirmation)
             };
         }
 

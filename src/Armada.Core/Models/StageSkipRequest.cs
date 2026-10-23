@@ -39,6 +39,20 @@ namespace Armada.Core.Models
         public string? OperatorConfirmationId { get; set; } = null;
 
         /// <summary>
+        /// Server-written explanation, set when a write without confirmStageSkip changed a confirmed skip
+        /// and so dropped its confirmation. It names what changed and how to confirm again. Null while the
+        /// skip is confirmed or was never confirmed. Request values are ignored.
+        /// </summary>
+        public string? ConfirmationNotice { get; set; } = null;
+
+        /// <summary>
+        /// Server-held copy of the last confirmed stages, reason and proof, kept while a later write leaves
+        /// the skip unconfirmed. A write that returns the skip to exactly these stages and this reason
+        /// restores the confirmation. Request values are ignored.
+        /// </summary>
+        public StageSkipRequest? DroppedConfirmation { get; set; } = null;
+
+        /// <summary>
         /// True when this skip is an objective's stored default rather than entries a dispatch request
         /// named. A default entry that names no stage of the chosen pipeline is dropped and reported; an
         /// entry the request named is refused instead. Set only by
