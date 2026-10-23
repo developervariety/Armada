@@ -89,6 +89,6 @@ installed). Rebuild and commit it whenever dashboard source changes.
 
 ## Persona Routing
 
-Personas can carry ordered CaptainPriorities matchers and configurable availability/exhaustion policies. Preserve legacy default-captain behavior for empty lists and explicit dispatch overrides. Use relational child rows, not JSON blobs, for fixed routing contracts across all four database providers. Update the shared Touchstone, REST/MCP, and client-surface tests when changing routing. See PERSONA_PRIORITIES.md and docs/CAPTAIN_ROUTING.md.
+Personas can carry ordered CaptainPriorities matchers and configurable availability/exhaustion policies. Preserve legacy default-captain behavior for empty lists and explicit dispatch overrides. Use relational child rows, not JSON blobs, for fixed routing contracts across all four database providers. Update the shared Touchstone, REST/MCP, and client-surface tests when changing routing. See archive/PERSONA_PRIORITIES.md and docs/CAPTAIN_ROUTING.md.
 
 For new code, follow ~/Code/Agents/requirements/CODE_STYLE.md. Small files need no region blocks. System usings precede alphabetized project/third-party usings; public methods document guard exceptions, private methods need no XML documentation, and generated text must not contain em-dashes.
