@@ -630,6 +630,21 @@ upstream integrations and excludes changes already present at that baseline.
   and the `armada_coordination_read messageId=<id>` fetch, and a post that
   carries no identity at all is refused with an error naming `authorName`,
   `authorId` and the `X-Armada-Participant` header.
+- The token-usage summary (`GET /api/v1/token-usage/summary`, the dashboard
+  Activity > Token Usage tab) reads a long window in a few
+  statements. It read the mission records of each event-matched mission one
+  query at a time and paged the window's token-usage events with a count per
+  page, so a month of usage took about as long as the dashboard waits for an
+  answer. Mission records are now read in batches and the events in one
+  statement. The event read applies the query's tenant and user scope, so an
+  administrator's `tenantId` filter also narrows the events.
+- The Token Usage tab shows a failed load as an error with a Retry button, not
+  as "No token usage for this time range", and keeps the figures on screen with
+  an error line when a refresh fails. An auto-refresh tick while a load is in
+  flight waits for that load instead of starting another request, so a slow
+  answer no longer leaves the tab loading forever; changing the range cancels
+  the request for the old range.
+
 - Coordination writes take the caller's identity when the name is omitted.
   `armada_coordination_post` without `authorName`, the heartbeat and claim
   without `displayName`, and `armada_dispatch_hold` engage without `setBy` use

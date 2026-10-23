@@ -2820,6 +2820,12 @@ Filter with `model`, `runtime`, `source`, `vesselId`, `captainId`, `fromUtc`, `t
 The summary, every bucket and every model entry carry the fields in
 [Token usage input buckets](#token-usage-input-buckets).
 
+The summary also counts `mission.token_usage` events in the window that have no table record. An event matches
+its table record by mission and token counts at any creation time, so usage split across a window edge is counted
+once, where its table record lies. The route reads the window's records and events in one statement each and the
+matching mission records in batches of 400 missions, so a month-long window costs about the same number of
+statements as an hour.
+
 #### GET /api/v1/token-usage
 
 Page through token-usage records. Each record carries `usageRule`, `uncachedInputTokens`,

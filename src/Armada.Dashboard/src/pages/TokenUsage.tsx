@@ -111,23 +111,53 @@ export default function TokenUsage() {
   const [refreshTick, setRefreshTick] = useState(0);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('token-usage', () => setRefreshTick((tick) => tick + 1));
   const loadedRangeRef = useRef<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // The request in flight. Only the newest request may change the page, so a superseded answer is ignored.
+  const inFlightRef = useRef<{ range: TimeRangeValue; controller: AbortController } | null>(null);
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    const pending = inFlightRef.current;
+    // A refresh tick or retry for the range already loading waits for that answer instead of starting another.
+    if (pending && pending.range === timeRange) return;
+    // A new range supersedes the request for the old one.
+    if (pending) pending.controller.abort();
+
+    const seq = ++requestSeqRef.current;
+    const controller = new AbortController();
+    inFlightRef.current = { range: timeRange, controller };
     const end = new Date();
     const start = new Date(end.getTime() - range.hours * 3600000);
     // Show the loading state for a new time range, not for a refresh of the one on screen.
     if (loadedRangeRef.current !== timeRange) setLoading(true);
-    getTokenUsageSummary({ fromUtc: start.toISOString(), toUtc: end.toISOString(), bucketMinutes: range.stepMinutes })
+    getTokenUsageSummary({ fromUtc: start.toISOString(), toUtc: end.toISOString(), bucketMinutes: range.stepMinutes }, { signal: controller.signal })
       .then((result) => {
-        if (cancelled) return;
+        if (seq !== requestSeqRef.current) return;
         setData(result);
+        setError(null);
         loadedRangeRef.current = timeRange;
       })
-      .catch(() => { if (!cancelled) setData(null); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .catch((err: unknown) => {
+        if (seq !== requestSeqRef.current || controller.signal.aborted) return;
+        // A failure is shown, never read as an empty window. A failed refresh keeps the figures on screen.
+        setError(err instanceof Error && err.message ? err.message : String(err));
+        if (loadedRangeRef.current !== timeRange) setData(null);
+      })
+      .finally(() => {
+        if (seq !== requestSeqRef.current) return;
+        inFlightRef.current = null;
+        setLoading(false);
+      });
   }, [range.hours, range.stepMinutes, timeRange, refreshTick]);
+
+  useEffect(() => () => {
+    // Leaving the page cancels its request; a remount starts a fresh one.
+    inFlightRef.current?.controller.abort();
+    inFlightRef.current = null;
+  }, []);
+
+  const retry = () => setRefreshTick((tick) => tick + 1);
+  const failedRange = error !== null && loadedRangeRef.current !== timeRange;
 
   const bucketTimestamps = useMemo<number[]>(
     () => (data?.buckets || []).map(b => new Date(b.bucketStartUtc).getTime()),
@@ -235,6 +265,13 @@ export default function TokenUsage() {
         )}
       </div>
 
+      {error !== null && !failedRange && (
+        <div className="token-usage-error" role="alert">
+          {t('Token usage did not refresh: {{error}}', { error })}{' '}
+          <button className="token-usage-copy-btn" onClick={retry}>{t('Retry')}</button>
+        </div>
+      )}
+
       {/* Chart 1 -- Usage over time. Title + axis labels live inside the SVG so the copied image includes them. */}
       <div className="token-usage-chart-card">
         <div className="token-usage-chart-header">
@@ -242,6 +279,11 @@ export default function TokenUsage() {
         </div>
         {loading ? (
           <div className="mission-history-empty">{t('Loading token usage...')}</div>
+        ) : failedRange ? (
+          <div className="mission-history-empty token-usage-error" role="alert">
+            {t('Token usage did not load: {{error}}', { error: error ?? '' })}{' '}
+            <button className="token-usage-copy-btn" onClick={retry}>{t('Retry')}</button>
+          </div>
         ) : !hasTimeData ? (
           <div className="mission-history-empty">{t('No token usage for this time range')}</div>
         ) : (
@@ -313,6 +355,8 @@ export default function TokenUsage() {
         </div>
         {loading ? (
           <div className="mission-history-empty">{t('Loading token usage...')}</div>
+        ) : failedRange ? (
+          <div className="mission-history-empty">{t('Token usage did not load')}</div>
         ) : !hasModelData ? (
           <div className="mission-history-empty">{t('No token usage for this time range')}</div>
         ) : (

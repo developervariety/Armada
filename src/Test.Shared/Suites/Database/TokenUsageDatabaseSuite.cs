@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -220,6 +221,56 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            // The summary reads the token-usage store a fixed number of times for any number of missions. A read per
+            // mission made a month of usage take as long as the dashboard waits for an answer.
+            cases.Add(CaseAsync("summary_reads_a_fixed_number_of_times_for_many_missions", "Summary of many missions counts each use once and reads the store a fixed number of times", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    JsonSerializerOptions jsonOptions = new JsonSerializerOptions();
+                    const int missionCount = 450;
+
+                    // Each mission has a table record and the event the capture path writes beside it.
+                    for (int i = 0; i < missionCount; i++)
+                    {
+                        string missionId = "msn_many_" + i;
+                        DateTime created = _BaseTime.AddMinutes(1 + (i % 50));
+                        TokenUsageRecord record = Record("tku_many_" + i, "claude-sonnet-4", "mission", 100, 20, 5, 120, false, created);
+                        record.TenantId = null;
+                        record.SourceId = missionId;
+                        await db.TokenUsage.CreateAsync(record);
+                        await db.Events.CreateAsync(UsageEvent(missionId, 100, 20, 5, created.AddMilliseconds(30), jsonOptions));
+                    }
+
+                    // Usage that only the event stream recorded.
+                    for (int i = 0; i < 3; i++)
+                        await db.Events.CreateAsync(UsageEvent("msn_event_only_" + i, 7, 3, 0, _BaseTime.AddMinutes(2), jsonOptions));
+
+                    // A table record before the window whose event falls inside it is counted in the earlier window only.
+                    TokenUsageRecord edge = Record("tku_edge", "claude-sonnet-4", "mission", 100, 20, 5, 120, false, _BaseTime.AddMilliseconds(-10));
+                    edge.TenantId = null;
+                    edge.SourceId = "msn_edge";
+                    await db.TokenUsage.CreateAsync(edge);
+                    await db.Events.CreateAsync(UsageEvent("msn_edge", 100, 20, 5, _BaseTime.AddMilliseconds(20), jsonOptions));
+
+                    CountingTokenUsageMethods counting = new CountingTokenUsageMethods(db.TokenUsage);
+                    TokenUsageSummaryService service = new TokenUsageSummaryService(counting, jsonOptions);
+                    TokenUsageQuery query = new TokenUsageQuery
+                    {
+                        FromUtc = _BaseTime,
+                        ToUtc = _BaseTime.AddMinutes(60),
+                        BucketMinutes = 15
+                    };
+
+                    TokenUsageSummaryResult summary = await service.SummarizeAsync(query);
+
+                    AssertEqual(missionCount + 3, summary.RecordCount, "every table record and every event-only use is counted once");
+                    AssertEqual(missionCount * 120L + 3 * 10L, summary.TotalTokens, "no event is counted beside its table record");
+                    AssertTrue(counting.Reads <= 3, "the store is read a fixed number of times, not once per mission; reads=" + counting.Reads);
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Token Usage Database",
@@ -245,6 +296,24 @@ namespace Test.Shared.Suites.Database
                 TotalTokens = total,
                 Estimated = estimated,
                 CreatedUtc = createdUtc
+            };
+        }
+
+        private static ArmadaEvent UsageEvent(string missionId, long input, long output, long cached, DateTime createdUtc, JsonSerializerOptions jsonOptions)
+        {
+            return new ArmadaEvent("mission.token_usage", "token usage")
+            {
+                MissionId = missionId,
+                EntityId = missionId,
+                CreatedUtc = createdUtc,
+                Payload = JsonSerializer.Serialize(new RuntimeTokenUsage
+                {
+                    Runtime = "claudecode",
+                    Model = "claude-sonnet-4",
+                    InputTokens = input,
+                    OutputTokens = output,
+                    CacheReadTokens = cached
+                }, jsonOptions)
             };
         }
 

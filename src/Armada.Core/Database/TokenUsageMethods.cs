@@ -2,6 +2,7 @@ namespace Armada.Core.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
@@ -30,6 +31,31 @@ namespace Armada.Core.Database
             TokenUsageColumns.Write);
 
         /// <summary>
+        /// The events table, read for the token-usage events the summary folds in.
+        /// </summary>
+        internal static readonly StoredTable<ArmadaEvent> EventTable = new StoredTable<ArmadaEvent>(
+            "events",
+            new[]
+            {
+                "id", "tenant_id", "user_id", "event_type", "entity_type", "entity_id", "captain_id", "mission_id",
+                "vessel_id", "voyage_id", "message", "payload", "created_utc"
+            },
+            Array.Empty<string>(),
+            EventColumns.Read,
+            EventColumns.Write);
+
+        /// <summary>
+        /// Event type of the token usage a mission reports on the event stream.
+        /// </summary>
+        internal const string MissionTokenUsageEventType = "mission.token_usage";
+
+        /// <summary>
+        /// Most source identifiers one statement binds. Every provider accepts this many parameters in one command,
+        /// with room for the scope conditions.
+        /// </summary>
+        internal const int SourceIdBatchSize = 400;
+
+        /// <summary>
         /// Newest first.
         /// </summary>
         internal const string Order = "created_utc DESC";
@@ -39,6 +65,7 @@ namespace Armada.Core.Database
         #region Private-Members
 
         private readonly StoredMethods<TokenUsageRecord> _Rows;
+        private readonly StoredMethods<ArmadaEvent> _Events;
 
         #endregion
 
@@ -51,6 +78,7 @@ namespace Armada.Core.Database
         internal TokenUsageMethods(StoredDialect dialect)
         {
             _Rows = new StoredMethods<TokenUsageRecord>(dialect, Table);
+            _Events = new StoredMethods<ArmadaEvent>(dialect, EventTable);
         }
 
         #endregion
@@ -88,6 +116,50 @@ namespace Armada.Core.Database
         {
             query ??= new TokenUsageQuery();
             return _Rows.ListAsync(Scope(Table.Filter(), query), Order, token);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<TokenUsageRecord>> EnumerateBySourceIdsAsync(TokenUsageQuery scope, string source, IReadOnlyCollection<string> sourceIds, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(source)) throw new ArgumentNullException(nameof(source));
+            if (sourceIds == null) throw new ArgumentNullException(nameof(sourceIds));
+
+            List<string> distinct = sourceIds
+                .Where(id => !String.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            List<TokenUsageRecord> records = new List<TokenUsageRecord>();
+            for (int start = 0; start < distinct.Count; start += SourceIdBatchSize)
+            {
+                List<string> batch = distinct.GetRange(start, Math.Min(SourceIdBatchSize, distinct.Count - start));
+                List<string> names = new List<string>(batch.Count);
+                for (int i = 0; i < batch.Count; i++) names.Add("@source_id_" + i);
+
+                StoredFilter filter = Table.Filter()
+                    .Text("tenant_id", scope?.TenantId)
+                    .Text("user_id", scope?.UserId)
+                    .Key("source", source)
+                    .Condition("source_id IN (" + String.Join(", ", names) + ")", p =>
+                    {
+                        for (int i = 0; i < batch.Count; i++) p.Text(names[i], "source_id", batch[i]);
+                    });
+                records.AddRange(await _Rows.ListAsync(filter, Order, token).ConfigureAwait(false));
+            }
+
+            return records;
+        }
+
+        /// <inheritdoc />
+        public Task<List<ArmadaEvent>> EnumerateLegacyEventsAsync(TokenUsageQuery query, CancellationToken token = default)
+        {
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            StoredFilter filter = EventTable.Filter()
+                .Key("event_type", MissionTokenUsageEventType)
+                .Text("tenant_id", query.TenantId)
+                .Text("user_id", query.UserId)
+                .Time("created_utc", ">=", "@from_utc", query.FromUtc)
+                .Time("created_utc", "<", "@to_utc", query.ToUtc);
+            return _Events.ListAsync(filter, Order, token);
         }
 
         /// <inheritdoc />

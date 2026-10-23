@@ -1205,7 +1205,7 @@ export const listJobs = () => get<LongRunningJobList>('/api/v1/jobs');
 export const getJob = (id: string) => get<LongRunningJob>(`/api/v1/jobs/${encodeURIComponent(id)}`);
 
 /** Bucketed token-usage summary used by the Activity token-usage view. */
-export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery) => {
+export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery, opts?: RequestOptions) => {
   const search = new URLSearchParams();
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -1213,7 +1213,7 @@ export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery) => {
     }
   }
   const query = search.toString();
-  return get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${query ? `?${query}` : ''}`);
+  return get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${query ? `?${query}` : ''}`, opts);
 };
 
 // ==================== Captain Chat and Vessel Context ====================

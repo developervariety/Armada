@@ -882,6 +882,7 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 .token-usage-copy-btn { background: none; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; padding: 0.2rem 0.55rem; color: var(--text-dim); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; }
 .token-usage-copy-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
 .token-usage-copy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.token-usage-error { color: var(--red); font-size: 0.8rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; flex-wrap: wrap; }
 .token-usage-copy-btn.failed { color: var(--red); border-color: var(--red); }
 .token-usage-tooltip { position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; font-size: 0.8rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); pointer-events: none; z-index: 1000; white-space: nowrap; max-width: min(360px, 90vw); }
 .token-usage-tooltip-title { font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; }

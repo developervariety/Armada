@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 
 vi.mock('../context/LocaleContext', () => {
@@ -26,8 +26,21 @@ function breakdown(runtime: string, totalTokens: number) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.mocked(getTokenUsageSummary).mockReset();
 });
+
+function summary(totalTokens: number) {
+  return {
+    inputTokens: totalTokens, outputTokens: 0, cachedTokens: 0, totalTokens, recordCount: 1, estimatedCount: 0,
+    byModel: [breakdown('ClaudeCode', totalTokens)],
+    buckets: [{
+      bucketStartUtc: '2026-01-01T00:00:00Z', inputTokens: totalTokens, outputTokens: 0, cachedTokens: 0, totalTokens,
+      models: [breakdown('ClaudeCode', totalTokens)],
+    }],
+  };
+}
 
 test('keeps one model under two runtimes as two distinct series', async () => {
   const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -69,4 +82,39 @@ test('reports input buckets and says when totals include legacy-rule records', a
   expect(screen.getByText('Cache-read input')).toBeInTheDocument();
   expect(screen.getByText('Cache-write input')).toBeInTheDocument();
   expect(screen.getByText(/1 of 2 records predate the input buckets/)).toBeInTheDocument();
+});
+
+test('a failed load says so and offers a retry instead of an empty chart', async () => {
+  vi.mocked(getTokenUsageSummary)
+    .mockRejectedValueOnce(new Error('Request timed out'))
+    .mockResolvedValue(summary(300) as never);
+
+  render(<TokenUsage />);
+
+  expect(await screen.findByText(/Token usage did not load: Request timed out/)).toBeInTheDocument();
+  expect(screen.queryByText('No token usage for this time range')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+  expect((await screen.findAllByText('shared-model (ClaudeCode)')).length).toBeGreaterThan(0);
+  expect(screen.queryByText(/did not load/)).not.toBeInTheDocument();
+});
+
+test('a refresh tick during a slow load waits for it, and the load still finishes', async () => {
+  vi.useFakeTimers();
+  let resolveFirst: (value: unknown) => void = () => undefined;
+  vi.mocked(getTokenUsageSummary)
+    .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }) as never)
+    .mockResolvedValue(summary(300) as never);
+
+  render(<TokenUsage />);
+  expect(screen.getAllByText('Loading token usage...').length).toBeGreaterThan(0);
+
+  // The default auto-refresh fires every 15 seconds; a slow answer outlives several ticks.
+  await act(async () => { vi.advanceTimersByTime(46000); });
+  expect(vi.mocked(getTokenUsageSummary)).toHaveBeenCalledTimes(1);
+
+  await act(async () => { resolveFirst(summary(300)); });
+  expect(screen.queryByText('Loading token usage...')).not.toBeInTheDocument();
+  expect(screen.getAllByText('shared-model (ClaudeCode)').length).toBeGreaterThan(0);
 });
