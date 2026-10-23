@@ -77,6 +77,7 @@ namespace Armada.Core.Services
                 DefinitionOfDoneFailureClassEnum.TestFail => "dod_test_fail",
                 DefinitionOfDoneFailureClassEnum.Timeout => "dod_timeout",
                 DefinitionOfDoneFailureClassEnum.Infra => "dod_infra",
+                DefinitionOfDoneFailureClassEnum.PostTestStep => "dod_post_test_step",
                 _ => null
             };
         }

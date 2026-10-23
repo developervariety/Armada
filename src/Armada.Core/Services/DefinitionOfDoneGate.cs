@@ -67,6 +67,10 @@ namespace Armada.Core.Services
         private const int _MAX_LINE_CHARS = 2000;
         private const string _FullGateOutputPointer = "armada_get_mission_log with the captureId from the definition-of-done report";
 
+        // Lock reason on every consumer-verification worktree, so an operator listing the repository's
+        // worktrees can tell whose lock it is.
+        private const string ConsumerVerifyLockReason = "armada consumer verification in progress";
+
         private static readonly Regex _SecretLikePattern = new Regex(
             @"(?:password|passwd|secret|token|key|credential|auth|api_key|apikey|access_key|private_key)\s*[=:]\s*\S+",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -680,6 +684,7 @@ namespace Armada.Core.Services
                 string effectiveTest = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
                 Regex? failedTestLinePattern = ResolveFailedTestLinePattern(profile, "vessel");
                 DefinitionOfDoneResult testResult = await RunCommandAsync(testLabel, effectiveTest, worktreePath, token, failedTestLinePattern).ConfigureAwait(false);
+                testResult = await RetryPostTestStepOnceAsync("vessel", testLabel, effectiveTest, worktreePath, testResult, failedTestLinePattern, token).ConfigureAwait(false);
                 if (testResult.Passed)
                 {
                     // Only a first-run pass is a full-suite pass; a pass from the isolated re-run below is not.
@@ -899,6 +904,7 @@ namespace Armada.Core.Services
                 await _Git.CreateWorktreeAsync(
                     consumerRepo, consumerWorktree, consumerBranch, consumerBranch, true, token).ConfigureAwait(false);
                 createdWorktrees.Add(consumerWorktree);
+                await LockConsumerWorktreeAsync(consumerWorktree, token).ConfigureAwait(false);
 
                 // Materialize every sibling the consumer declares. The producer takes the mission
                 // ref; the rest take their declared defaults, because only the producer is under
@@ -937,6 +943,7 @@ namespace Armada.Core.Services
                     await _Git.CreateWorktreeAsync(
                         siblingRepo, siblingPath, siblingRef, siblingRef, true, token).ConfigureAwait(false);
                     createdWorktrees.Add(siblingPath);
+                    await LockConsumerWorktreeAsync(siblingPath, token).ConfigureAwait(false);
                     LinkSiblingArtifacts(sibling, siblingVessel, siblingPath, artifactLinks);
                 }
 
@@ -979,12 +986,39 @@ namespace Armada.Core.Services
 
                 foreach (string worktree in createdWorktrees)
                 {
+                    // A locked worktree refuses removal, so the lock taken at provisioning is released first.
+                    try { await _Git!.UnlockWorktreeAsync(worktree, token).ConfigureAwait(false); }
+                    catch (Exception ex) { _Logging.Debug(_Header + "consumer worktree unlock failed for " + worktree + ": " + ex.Message); }
                     try { await _Git!.RemoveWorktreeAsync(worktree, token).ConfigureAwait(false); }
                     catch (Exception ex) { _Logging.Debug(_Header + "consumer worktree cleanup failed for " + worktree + ": " + ex.Message); }
                 }
 
                 try { if (Directory.Exists(scratchRoot)) Directory.Delete(scratchRoot, true); }
                 catch (Exception ex) { _Logging.Debug(_Header + "consumer scratch cleanup failed for " + scratchRoot + ": " + ex.Message); }
+            }
+        }
+
+        /// <summary>
+        /// Lock a provisioned consumer-verification worktree for the length of the verification. The
+        /// repositories these worktrees belong to are shared with docks, Checks and processes outside this
+        /// one, and the scratch directory is visible only where the admiral runs: a <c>git worktree prune</c>
+        /// run anywhere that cannot see it would otherwise delete the registration mid-run, and every git
+        /// call inside the worktree, the consumer's own source checks among them, would then fail. A lock
+        /// that cannot be taken is logged and the verification goes on unlocked.
+        /// </summary>
+        private async Task LockConsumerWorktreeAsync(string worktreePath, CancellationToken token)
+        {
+            try
+            {
+                await _Git!.LockWorktreeAsync(worktreePath, ConsumerVerifyLockReason, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not lock consumer verification worktree " + worktreePath + "; it stays unlocked: " + ex.Message);
             }
         }
 
@@ -1220,6 +1254,16 @@ namespace Armada.Core.Services
             string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
             Regex? failedTestLinePattern = ResolveFailedTestLinePattern(consumerProfile, "consumer " + consumer.Name);
             DefinitionOfDoneResult result = await RunCommandAsync(logLabel, effective, consumerWorktree, token, failedTestLinePattern).ConfigureAwait(false);
+            result = await RetryPostTestStepOnceAsync("consumer " + consumer.Name, logLabel, effective, consumerWorktree, result, failedTestLinePattern, token).ConfigureAwait(false);
+
+            if (!result.Passed && result.FailureClass == DefinitionOfDoneFailureClassEnum.PostTestStep)
+            {
+                // Every consumer test passed; only a step after them failed, twice. The label names that,
+                // so neither recovery nor an operator reads it as a failing test in the consumer repository.
+                _Logging.Warn(_Header + "consumer " + consumer.Name + " tests passed but a step after them failed twice");
+                result.CommandLabel = DefinitionOfDoneFailureClassifier.ConsumerPostTestStepFailedLabelPrefix + consumer.Name;
+                return result;
+            }
 
             if (!result.Passed)
             {
@@ -1245,6 +1289,44 @@ namespace Armada.Core.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Run a test command once more when its first run failed as
+        /// <see cref="DefinitionOfDoneFailureClassEnum.PostTestStep"/>: every test passed and a step after
+        /// them (a wrapper's verification, a cleanup) failed. That step reads the host, not the change, so
+        /// one transient fault there must not fail the gate. The second run is the result; any other
+        /// failure class is returned unchanged.
+        /// </summary>
+        /// <param name="subject">Whose suite ran, for the log: "vessel" or "consumer &lt;name&gt;".</param>
+        /// <param name="label">Command label of the first run.</param>
+        /// <param name="command">The test command that ran.</param>
+        /// <param name="workingDir">Directory the command ran in.</param>
+        /// <param name="first">Result of the first run.</param>
+        /// <param name="failedTestLinePattern">The profile's failing-test line pattern, if any.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task<DefinitionOfDoneResult> RetryPostTestStepOnceAsync(
+            string subject,
+            string label,
+            string command,
+            string workingDir,
+            DefinitionOfDoneResult first,
+            Regex? failedTestLinePattern,
+            CancellationToken token)
+        {
+            if (first.Passed || first.FailureClass != DefinitionOfDoneFailureClassEnum.PostTestStep) return first;
+
+            _Logging.Warn(_Header + subject + " tests passed but the command failed after them (exit " + first.ExitCode
+                + "); running it once more");
+            DefinitionOfDoneResult retry = await RunCommandAsync(label + " (post-test step retry)", command, workingDir, token, failedTestLinePattern).ConfigureAwait(false);
+            _Logging.Info(_Header + subject + " post-test step retry passed=" + retry.Passed);
+            if (!retry.Passed && retry.FailureClass == DefinitionOfDoneFailureClassEnum.PostTestStep)
+            {
+                retry.CommandLabel = label;
+                retry.OutputTail = "The command was run twice; both runs passed every test and failed in the step after them."
+                    + (String.IsNullOrEmpty(retry.OutputTail) ? String.Empty : "\n" + retry.OutputTail);
+            }
+            return retry;
         }
 
         /// <summary>
@@ -1852,10 +1934,15 @@ namespace Armada.Core.Services
                 label,
                 exitCode,
                 combined);
+            string diagnosticText = BuildDiagnosticText(combined, failedTestLinePattern);
+            // No test failed, so the reason leads with that and with the step that did fail; a reader of
+            // the test digest alone would otherwise look for a failing test that does not exist.
+            if (failureClass == DefinitionOfDoneFailureClassEnum.PostTestStep)
+                diagnosticText = RedactAndBoundLine(DefinitionOfDoneFailureClassifier.DescribePostTestStepFailure(combined, exitCode)) + "\n" + diagnosticText;
             DefinitionOfDoneResult failResult = DefinitionOfDoneResult.Fail(
                 label,
                 exitCode,
-                BuildDiagnosticText(combined, failedTestLinePattern),
+                diagnosticText,
                 failureClass);
             AttachCommandOutput(failResult, combined, result);
 

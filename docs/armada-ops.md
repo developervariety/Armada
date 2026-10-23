@@ -106,6 +106,15 @@ when the host was overloaded), and records
 `host_slot_shared` (see `docs/reference/backend-dod.md`). A `Timeout` that
 reaches this block with that event beside it timed out on both runs.
 
+A `PostTestStep` failure keeps the rescue. Every test passed and only a step
+after the tests failed, on the gate's run and on its one retry (see
+`docs/reference/backend-dod.md`), so neither this vessel nor a consumer has a
+test to fix. The rescue decision reason is `post_test_step_retry:`, and the
+rescue carries the same work through a fresh gate run. A rescue that fails the
+same way is not rescued again. A consumer suite that fails this way carries the
+command label `consumer_post_test_step_failed: <consumer>` and never reads as
+`consumer_test_failure_not_rescuable:`.
+
 A `TestFail` on a declared consumer's test suite (command label
 `consumer_tests_failed: <consumer>`) also blocks the rescue. The gate runs a
 consumer's suite only after the vessel's own build and tests pass, so the

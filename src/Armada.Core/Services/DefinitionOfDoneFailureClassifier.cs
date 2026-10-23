@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Text.RegularExpressions;
     using Armada.Core.Enums;
 
@@ -28,6 +29,25 @@ namespace Armada.Core.Services
         private static readonly Regex _InfrastructurePattern = new Regex(
             @"(?:\brestore failed\b|\bfailed to restore\b|\bunable to load the service index\b|\berror\s+NU\d{4}\b|\bpackage\s+[^\r\n]+\s+not found\b|\bcould not resolve\b|\bcommand not found\b|\bis not recognized as an internal or external command\b|\bSDK\s+[^\r\n]+\s+not found\b|\bMSB4236\b|\bYou must install (?:or update )?\.NET to run this application\b|\bframework\s+'[^'\r\n]+',\s*version\s+'[^'\r\n]+'[^\r\n]*\bwas not found\b)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // A test-run summary that reports zero failed tests ("Passed!  - Failed:     0, Passed: 12, ..."
+        // or "Tests: 0 failed, 12 passed"). Such a line names the word "failed" but is evidence that the
+        // run's tests passed, so it never counts as test-failure evidence.
+        private static readonly Regex _ZeroFailureSummaryPattern = new Regex(
+            @"(?:\bfailed:\s*0+\b|\b0+\s+failed\b)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // A summary line also names a passing count, which tells a summary from a stray "Failed: 0".
+        private static readonly Regex _PassedCountPattern = new Regex(
+            @"(?:\bpassed:\s*\d+\b|\b\d+\s+passed\b)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        // A failure count above zero on a summary line ("Failed: 2", "3 failed").
+        private static readonly Regex _NonZeroFailureCountPattern = new Regex(
+            @"(?:\bfailed:\s*0*[1-9]\d*\b|\b0*[1-9]\d*\s+failed\b|\bfailures?:\s*0*[1-9]\d*\b)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private const string _StderrMarker = "--- STDERR ---";
 
         private static readonly Regex _RecordedClassPattern = new Regex(
             @"\Aclassification=(?<class>[A-Za-z]+)(?:;|\s|\z)",
@@ -74,6 +94,14 @@ namespace Armada.Core.Services
         /// the consumer's repository.
         /// </summary>
         public const string ConsumerTestsFailedLabelPrefix = "consumer_tests_failed: ";
+
+        /// <summary>
+        /// Opening of the command label the gate records when every test of a declared consumer's suite
+        /// passed but its command failed in a step after the tests, on the run and on its one retry. The
+        /// consumer vessel's name follows it. No consumer test failed, so this never reads as
+        /// <see cref="ConsumerTestsFailedLabelPrefix"/>.
+        /// </summary>
+        public const string ConsumerPostTestStepFailedLabelPrefix = "consumer_post_test_step_failed: ";
 
         #endregion
 
@@ -147,7 +175,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Classify a failed definition-of-done command. An explicit timeout takes
-        /// precedence, followed by compiler, infrastructure, and test-failure evidence.
+        /// precedence, followed by compiler, infrastructure, and test-failure evidence. A run whose
+        /// test summaries all report zero failed tests, with no failing test named, is a
+        /// <see cref="DefinitionOfDoneFailureClassEnum.PostTestStep"/> failure.
         /// </summary>
         /// <param name="commandLabel">Generic label for the command that failed.</param>
         /// <param name="exitCode">Exit code reported by the command.</param>
@@ -186,8 +216,13 @@ namespace Armada.Core.Services
 
             // Test evidence outranks a weak environment word: a run that names its failed tests
             // failed on those tests, whatever else it printed on the way.
-            if (IsTestFailureDiagnosticLine(combined))
+            if (HasTestFailureEvidence(combined))
                 return DefinitionOfDoneFailureClassEnum.TestFail;
+
+            // Every test run the command reported passed with zero failures, yet the command
+            // exited non-zero: a step after the tests failed, not a test.
+            if (CountZeroFailureSummaries(combined) > 0)
+                return DefinitionOfDoneFailureClassEnum.PostTestStep;
 
             if (_WeakInfrastructurePattern.IsMatch(combined))
                 return DefinitionOfDoneFailureClassEnum.Infra;
@@ -196,6 +231,63 @@ namespace Armada.Core.Services
                 return DefinitionOfDoneFailureClassEnum.TestFail;
 
             return DefinitionOfDoneFailureClassEnum.Infra;
+        }
+
+        /// <summary>
+        /// Describe a <see cref="DefinitionOfDoneFailureClassEnum.PostTestStep"/> failure: how many test
+        /// runs reported zero failed tests, how many tests passed, and the step that failed after them.
+        /// The failing step is read from the last lines the command wrote to standard error, or, when it
+        /// wrote none, from the last lines after its final test summary.
+        /// </summary>
+        /// <param name="output">Combined command output, with standard error after the stderr marker.</param>
+        /// <param name="exitCode">Exit code the command reported.</param>
+        /// <returns>One or two sentences an operator can act on.</returns>
+        public static string DescribePostTestStepFailure(string? output, int exitCode)
+        {
+            string text = output ?? String.Empty;
+            string[] lines = text.Split('\n');
+            int summaries = 0;
+            long passed = 0;
+            int lastSummaryLine = -1;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!IsZeroFailureSummaryLine(lines[i])) continue;
+                summaries++;
+                lastSummaryLine = i;
+                Match count = Regex.Match(lines[i], @"\bpassed:\s*(?<n>\d+)\b|\b(?<n>\d+)\s+passed\b", RegexOptions.IgnoreCase);
+                if (count.Success && Int64.TryParse(count.Groups["n"].Value, out long n)) passed += n;
+            }
+
+            List<string> stepLines = new List<string>();
+            int stderrAt = text.LastIndexOf(_StderrMarker, StringComparison.Ordinal);
+            if (stderrAt >= 0)
+            {
+                foreach (string line in text.Substring(stderrAt + _StderrMarker.Length).Split('\n'))
+                {
+                    string trimmed = line.Trim();
+                    if (trimmed.Length > 0) stepLines.Add(trimmed);
+                }
+            }
+            else
+            {
+                for (int i = lastSummaryLine + 1; i < lines.Length; i++)
+                {
+                    string trimmed = lines[i].Trim();
+                    if (trimmed.Length > 0) stepLines.Add(trimmed);
+                }
+            }
+
+            const int maxStepLines = 3;
+            if (stepLines.Count > maxStepLines) stepLines = stepLines.GetRange(stepLines.Count - maxStepLines, maxStepLines);
+
+            string description = "0 tests failed: " + summaries + " test run(s) reported 0 failed tests ("
+                + passed.ToString(System.Globalization.CultureInfo.InvariantCulture) + " passed), but the command exited "
+                + exitCode.ToString(System.Globalization.CultureInfo.InvariantCulture) + " because a step after the tests failed.";
+            if (stepLines.Count > 0)
+                description += " The failing step reported: " + String.Join(" | ", stepLines);
+            else
+                description += " The failing step printed nothing.";
+            return description;
         }
 
         #endregion
@@ -219,6 +311,37 @@ namespace Armada.Core.Services
         private static bool IsTestFailureDiagnosticLine(string? line)
         {
             return !String.IsNullOrWhiteSpace(line) && _TestFailurePattern.IsMatch(line);
+        }
+
+        // Read line by line, so a zero-failure summary on one line cannot hide a failing test named on
+        // another, and a summary that reports zero failures is never read as a failure.
+        private static bool HasTestFailureEvidence(string output)
+        {
+            foreach (string line in output.Split('\n'))
+            {
+                if (!IsTestFailureDiagnosticLine(line)) continue;
+                if (IsZeroFailureSummaryLine(line)) continue;
+                return true;
+            }
+            return false;
+        }
+
+        private static int CountZeroFailureSummaries(string output)
+        {
+            int count = 0;
+            foreach (string line in output.Split('\n'))
+            {
+                if (IsZeroFailureSummaryLine(line)) count++;
+            }
+            return count;
+        }
+
+        private static bool IsZeroFailureSummaryLine(string? line)
+        {
+            return !String.IsNullOrWhiteSpace(line)
+                && _ZeroFailureSummaryPattern.IsMatch(line)
+                && _PassedCountPattern.IsMatch(line)
+                && !_NonZeroFailureCountPattern.IsMatch(line);
         }
 
         private static bool IsTestCommand(string? commandLabel)

@@ -147,6 +147,35 @@ defect. An unknown load average says a load-related failure cannot be ruled
 out. A quiet host says load is an unlikely cause, which leaves a defect or an
 ordering race in the tests. The same sentence is in the gate log.
 
+**After a step that fails once every test has passed.** A test command (the
+vessel's own or a consumer's) can exit non-zero after every test it ran passed:
+a wrapper verifies its workspace after the tests, a cleanup step fails. When the
+output has at least one test-run summary, every summary reports zero failed
+tests (`Failed: 0` or `0 failed`, beside a passed count), and no line names a
+failing test, the class is `PostTestStep`, not `TestFail`. A summary that
+reports zero failures is never read as test-failure evidence. The gate runs the
+same command once more in the same worktree, and that run is the result. When
+the second run also fails as `PostTestStep`, the failure reason opens with `0
+tests failed`, the number of test runs and passing tests, the exit code, and
+the last lines the command wrote to standard error (the step that failed), and
+says the command ran twice. Nothing is re-run in isolation, because no test
+failed. A consumer's suite that fails this way carries the command label
+`consumer_post_test_step_failed: <consumer>`, never
+`consumer_tests_failed: <consumer>`.
+
+**Consumer worktrees are locked while they are in use.** The gate provisions
+each consumer and its siblings as worktrees of the vessels' repositories under
+a scratch directory that only the admiral's own file system shows. It locks each
+one (`git worktree lock`, reason `armada consumer verification in progress`)
+right after it creates it, and unlocks it before it removes it. A `git worktree
+prune` run by any process that cannot see the scratch directory skips a locked
+worktree. Unlocked, the registration would be deleted mid-run, and every git
+call inside the worktree, a consumer's own source checks among them, would fail
+with `not a git repository`. A lock that cannot be taken is logged and the
+verification goes on unlocked. A gate stopped before its cleanup leaves its
+registrations locked; `git worktree unlock` and `git worktree prune`, run where
+the admiral runs, clear them.
+
 Each gate command (build, unit tests, each consumer build and test) waits for a
 host-wide command slot, which it shares with check runs and merge-queue test
 runs. `DefinitionOfDone.HostCommandSlots` (`definitionOfDone.hostCommandSlots`

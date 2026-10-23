@@ -28,6 +28,13 @@ namespace Armada.Core.Enums
         /// Command launch, setup, restore, dependency resolution, or another
         /// unclassified infrastructure operation failed.
         /// </summary>
-        Infra
+        Infra,
+
+        /// <summary>
+        /// Every test run the command reported finished with zero failed tests, but the
+        /// command still exited non-zero: a step after the tests (a wrapper's verification,
+        /// a cleanup, a teardown) failed. No test failed, so it is not a test failure.
+        /// </summary>
+        PostTestStep
     }
 }

@@ -45,6 +45,12 @@ namespace Armada.Server
         internal const string ConsumerTestFailureReason = "consumer_test_failure_not_rescuable";
 
         /// <summary>
+        /// Reason of the rescue decision for a gate that failed as
+        /// <see cref="DefinitionOfDoneFailureClassEnum.PostTestStep"/>: no test failed, only a step after them.
+        /// </summary>
+        internal const string PostTestStepRetryReason = "post_test_step_retry";
+
+        /// <summary>
         /// Decision reason recorded when the failed stage ended with <c>[ARMADA:RESULT] BLOCKED</c>: it waits on
         /// an owner answer, and a rescue would re-run it without one.
         /// </summary>
@@ -1416,7 +1422,15 @@ namespace Armada.Server
             // Infra and Timeout name the host, not the work: a rescue re-runs the same gate commands on
             // the same host and fails the same way. Compile and TestFail keep the rescue, and a reason
             // with no recorded class keeps the marker rules below.
-            if (DefinitionOfDoneFailureClassifier.TryReadRecordedClass(reason, out DefinitionOfDoneFailureClassEnum gateClass)
+            bool hasGateClass = DefinitionOfDoneFailureClassifier.TryReadRecordedClass(reason, out DefinitionOfDoneFailureClassEnum gateClass);
+            // Every test passed and only a step after the tests failed, on the gate's run and its retry.
+            // Nothing in this vessel or a consumer needs fixing, so the rescue goes ahead: it carries the
+            // same work through a fresh gate run. The output tail is the failing step's own text, which
+            // the marker rules below would misread as a fault in the work.
+            if (hasGateClass && gateClass == DefinitionOfDoneFailureClassEnum.PostTestStep)
+                return RecoveryDecision.Rescue(PostTestStepRetryReason
+                    + ": every test passed and only the step after the tests failed, so the work is re-run through a fresh gate");
+            if (hasGateClass
                 && (gateClass == DefinitionOfDoneFailureClassEnum.Infra || gateClass == DefinitionOfDoneFailureClassEnum.Timeout))
                 return RecoveryDecision.Blocked("gate_class_not_rescuable: definition-of-done gate failure class " + gateClass
                     + " is a host fault that a rescue on the same host would repeat. Correct the host or workflow configuration and rerun the gate: " + reason);

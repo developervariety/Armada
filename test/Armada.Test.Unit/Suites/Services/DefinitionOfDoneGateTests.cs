@@ -1829,6 +1829,59 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A consumer suite whose tests all pass but whose command fails after them is retried once and fails as a post-test step, not a test failure", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                string runLogDir = CreateTempDir();
+                try
+                {
+                    // Every test run reports zero failures; a verification step after the tests then fails.
+                    string runLog = Path.Combine(runLogDir, "consumer-runs.log");
+                    string consumerTest = "echo run >> '" + runLog + "'; "
+                        + "echo 'Passed!  - Failed:     0, Passed:     7, Skipped:     0, Total:     7 - Example.Core.Tests.dll'; "
+                        + "echo 'Passed!  - Failed:     0, Passed:    83, Skipped:     1, Total:    84 - Example.Api.Tests.dll'; "
+                        + "echo 'example: workspace no longer verifies after command' >&2; exit 125";
+                    await EnsureVesselWithProfileAsync(testDb, "ten_pts", "vsl_pts_producer",
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_pts", "vsl_pts_consumer",
+                        "ExampleConsumer", "vsl_pts_producer", SuccessCommand(), consumerTest, null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Foo.cs" }
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateWorkerMission("ten_pts", "vsl_pts_producer");
+                    mission.BranchName = "feat/pts";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+
+                    string tail = result.OutputTail ?? String.Empty;
+                    AssertFalse(result.Passed, "a step that fails on both runs still fails the gate");
+                    AssertEqual("PostTestStep", result.FailureClass?.ToString(), "no test failed, so the class is not TestFail. Tail: " + tail);
+                    AssertFalse((result.CommandLabel ?? String.Empty).StartsWith("consumer_tests_failed: ", StringComparison.Ordinal),
+                        "the label must not say the consumer's tests failed: " + result.CommandLabel);
+                    AssertContains("0 tests failed", tail, "the reason says no test failed");
+                    AssertContains("example: workspace no longer verifies after command", tail, "the reason names the step that failed");
+                    AssertFalse(tail.Contains("failing test names could not be read in full", StringComparison.Ordinal),
+                        "there are no failing test names to read. Tail: " + tail);
+                    AssertEqual(2, File.ReadAllLines(runLog).Length, "the command is retried exactly once");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                    TryDeleteDirectory(runLogDir);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Consumer tests do NOT run when no producer change reaches a triggering path", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

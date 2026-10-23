@@ -35,6 +35,35 @@ namespace Armada.Core.Services.Interfaces
         Task RemoveWorktreeAsync(string worktreePath, CancellationToken token = default);
 
         /// <summary>
+        /// Lock a worktree so no <c>git worktree prune</c> removes its registration while it is in use,
+        /// including a prune run from a process that cannot see the worktree's directory.
+        /// Executes: git worktree lock --reason {reason} {worktreePath}
+        /// </summary>
+        /// <remarks>
+        /// The default implementation does nothing, so test doubles that provision no real worktree need
+        /// no change.
+        /// </remarks>
+        /// <param name="worktreePath">Path to the worktree to lock.</param>
+        /// <param name="reason">Reason recorded with the lock.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task LockWorktreeAsync(string worktreePath, string reason, CancellationToken token = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Release a lock taken with <see cref="LockWorktreeAsync"/>, so the worktree can be removed.
+        /// Executes: git worktree unlock {worktreePath}
+        /// </summary>
+        /// <remarks>The default implementation does nothing.</remarks>
+        /// <param name="worktreePath">Path to the worktree to unlock.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task UnlockWorktreeAsync(string worktreePath, CancellationToken token = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
         /// Fetch latest changes from remote.
         /// </summary>
         /// <param name="repoPath">Path to the repository.</param>

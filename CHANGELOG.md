@@ -9,6 +9,21 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A definition-of-done test command whose test runs all report zero failed
+  tests but that still exits non-zero fails as the new class `PostTestStep`,
+  not `TestFail`. A `Failed: 0` summary is no longer read as test-failure
+  evidence. The gate runs such a command once more and takes that result; a
+  second `PostTestStep` failure says `0 tests failed`, names the step that
+  failed from the command's standard error, and is not re-run in isolation. A
+  consumer suite that fails this way carries the label
+  `consumer_post_test_step_failed: <consumer>`, and autonomous recovery
+  dispatches a rescue with reason `post_test_step_retry:` instead of telling
+  the operator to fix the consumer repository.
+
+- The gate locks each consumer-verification worktree while it uses it and
+  unlocks it before removal, so a `git worktree prune` run where the scratch
+  directory is not visible can no longer delete its registration mid-run.
+
 - A `skipStages` entry names one stage of the effective pipeline by persona, by
   stage order (`"5"` or `"#5"`), or by persona and occurrence in stage order
   (`"Worker#2"` is the second Worker), on every dispatch surface (MCP

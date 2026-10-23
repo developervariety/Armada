@@ -236,6 +236,26 @@ namespace Armada.Core.Services
             await RunGitAsync(repoPath, token, "worktree", "remove", "--force", worktreePath).ConfigureAwait(false);
         }
 
+        /// <inheritdoc />
+        public async Task LockWorktreeAsync(string worktreePath, string reason, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentNullException(nameof(reason));
+
+            string repoPath = await ResolveWorktreeRepoPathAsync(worktreePath).ConfigureAwait(false);
+            await RunGitAsync(repoPath, token, "worktree", "lock", "--reason", reason, worktreePath).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task UnlockWorktreeAsync(string worktreePath, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (!Directory.Exists(worktreePath)) return;
+
+            string repoPath = await ResolveWorktreeRepoPathAsync(worktreePath).ConfigureAwait(false);
+            await RunGitAsync(repoPath, token, "worktree", "unlock", worktreePath).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Fetch latest changes from remote. The whole call, including the worktree prune before the fetch, is
         /// recorded in <see cref="ArmadaMetrics.FetchDuration"/>; a full fetch refused by a checked-out worktree
