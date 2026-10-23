@@ -707,7 +707,12 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(111, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.MysqlStatements),
                 new SchemaMigration(112, "Persist trace records, trace links and trace cursors", TraceRecordSchema.MysqlStatements),
                 new SchemaMigration(113, "Persist the workflow profile definition-of-done command time limit", WorkflowProfileGateTimeoutPersistence.MysqlStatements),
-                new SchemaMigration(114, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.MysqlStatements)
+                new SchemaMigration(114, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.MysqlStatements),
+                new SchemaMigration(
+                    115,
+                    "Add preserved_run_output column to missions so an in-place Judge re-run keeps the prior run's review output and verdict",
+                    TableQueries.MigrationPreservedRunOutputStatements
+                )
             };
         }
 

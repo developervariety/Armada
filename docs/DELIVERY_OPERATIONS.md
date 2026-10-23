@@ -441,10 +441,17 @@ not a code defect or an owner question. A Judge PASS given while a Check is
 unresolved is held until the Check passes at the reviewed commit, so a stage
 never needs to fail or block because a Check has not finished. A Judge
 NEEDS_REVISION given while a Check is unresolved is not recorded either: it
-waits in its own hold, and once the Checks resolve (or the wait budget ends)
-the Judge runs again and decides with their result. That re-run happens once
-per mission and spends no recovery budget; a NEEDS_REVISION after it is
-recorded as usual. The automatic
+waits in its own hold, and once the Checks resolve the verdict is decided by
+what they say. A Check that failed at the reviewed commit proves the work is
+broken, so the held NEEDS_REVISION is recorded and a revision Worker runs, not
+a Judge re-run on the same commit. A Check that passed (or no Check gates the
+verdict) re-runs the Judge once with the Checks' result, because the revision
+may have been asked only because the Checks were pending; the wait budget
+ending re-runs it too. The re-run happens once per mission and spends no
+recovery budget; a NEEDS_REVISION after it is recorded as usual. Every Judge
+run a mission goes through keeps its output and verdict: an in-place re-run
+preserves the run it replaces, so the persisted mission output read path shows
+every run and the first run's requested revisions, never only the last. The automatic
 Check runner logs how many started Checks run and how many wait for a slot,
 what holds each slot, and how many of the slots are in use when there is more
 than one.

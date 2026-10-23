@@ -967,6 +967,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Statements adding the per-mission preserved-run-output column so an in-place Judge re-run
+        /// keeps the prior run's review output and verdict instead of overwriting it.
+        /// </summary>
+        public static readonly string[] MigrationPreservedRunOutputStatements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN preserved_run_output LONGTEXT;"
+        };
+
+        /// <summary>
         /// Migration v61 statements for adding skills directory.
         /// </summary>
         public static readonly string[] MigrationV61Statements = new string[]

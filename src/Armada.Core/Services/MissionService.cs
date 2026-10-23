@@ -1772,6 +1772,22 @@ namespace Armada.Core.Services
                     if (_UtcNow() - sinceUtc < _JudgeCheckWaitBudget) return false;
                     why = "Checks still unresolved after " + FormatWaitBudget(_JudgeCheckWaitBudget);
                 }
+                else if (gate == JudgeCheckGate.HasFailed)
+                {
+                    // A failed Check at the reviewed commit corroborates the revision the Judge asked for:
+                    // the work is demonstrably broken and a Judge re-run on the SAME commit cannot clear it.
+                    // Record the held NEEDS_REVISION so autonomous recovery routes it to a revision Worker,
+                    // instead of spending the one re-run on a Judge that must reach the same verdict.
+                    string failedChecks = BuildFailedCheckRejectionReason(_LastJudgeGateChecks, _LastJudgeGatePatterns);
+                    await RecordHeldRevisionAsync(mission,
+                        "an independent Check failed at the reviewed commit " + (mission.CommitHash ?? "(none)")
+                        + "; the held NEEDS_REVISION is recorded so a revision Worker runs instead of a Judge re-run. " + failedChecks,
+                        token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "judge mission " + mission.Id
+                        + " held NEEDS_REVISION routed to a revision Worker: an independent Check failed at the reviewed commit "
+                        + mission.CommitHash);
+                    return true;
+                }
                 else
                 {
                     why = "Checks resolved (" + gate + ") at " + mission.CommitHash;
@@ -1784,6 +1800,40 @@ namespace Armada.Core.Services
             if (heldDock != null) await ReclaimMissionDockAsync(heldDock.Id, token).ConfigureAwait(false);
             _Logging.Info(_Header + "judge mission " + mission.Id + " re-run after a held NEEDS_REVISION: " + why);
             return true;
+        }
+
+        /// <summary>
+        /// Record a held NEEDS_REVISION as a terminal failure so autonomous recovery dispatches a revision
+        /// Worker. Used when the Checks the verdict waited on resolved to a FAILURE at the reviewed commit:
+        /// the work is demonstrably broken and a Judge re-run on the same commit cannot clear it. This
+        /// mirrors the inline NEEDS_REVISION terminal path (the review is kept as the review comment, the
+        /// follow-up is captured, and the revision-kind decision runs), so the failed-mission recovery
+        /// sweep routes it exactly as a NEEDS_REVISION recorded at completion.
+        /// </summary>
+        private async Task RecordHeldRevisionAsync(Mission mission, string why, CancellationToken token)
+        {
+            Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+
+            ClearOperatorReviewHold(mission);
+            mission.Status = MissionStatusEnum.Failed;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.FailureReason = "Judge verdict: NEEDS_REVISION";
+            // Persist the Judge's written review as the review comment, so the Worker rescue brief carries
+            // the revisions to address rather than an empty feedback block (rescue_produced_no_commits).
+            mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
+            mission.ProcessId = null;
+            mission.DockId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await RecordCheckWaitDecisionAsync(mission, "revision_worker", why, token).ConfigureAwait(false);
+
+            // D21 revision_kind runs exactly as in the inline path; it is a no-op while the decision is Off.
+            await ApplyRevisionKindDecisionAsync(mission, token).ConfigureAwait(false);
+            await CaptureJudgeFollowUpAsync(mission, JudgeVerdict.NeedsRevision, ExtractSuggestedFollowUps(mission.AgentOutput), token).ConfigureAwait(false);
+
+            if (dock != null) await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            await ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
         }
 
         private async Task<bool> ReleaseCheckWaitPassAsync(Mission mission, string? operatorReview, CancellationToken token)
@@ -10949,6 +10999,36 @@ namespace Armada.Core.Services
         /// path so an intermittent provider (a Judge that exits with empty output) never blocks the
         /// rescue that a genuinely failed mission still needs.
         /// </summary>
+        /// <summary>
+        /// Marker that heads each preserved earlier run in <see cref="Mission.PreservedRunOutput"/>. It
+        /// names the run's verdict and the reason the run was re-done, so a reader can tell the runs apart.
+        /// </summary>
+        internal const string PreservedRunMarker = "[ARMADA:PRIOR-RUN]";
+
+        /// <summary>
+        /// Append the output of a run that is about to be re-done to the mission's preserved-run text,
+        /// headed by a marker that names the run's verdict and the reason it was re-run. Returns the
+        /// existing value unchanged when there is no output to keep.
+        /// </summary>
+        /// <param name="existing">Already-preserved earlier runs, or null.</param>
+        /// <param name="runOutput">The output of the run about to be discarded, or null.</param>
+        /// <param name="reasonCode">The reason the run is being re-done.</param>
+        /// <returns>The updated preserved-run text.</returns>
+        private static string? AppendPreservedRun(string? existing, string? runOutput, string reasonCode)
+        {
+            if (String.IsNullOrEmpty(runOutput)) return existing;
+            string verdict = ParseJudgeVerdict(runOutput) switch
+            {
+                JudgeVerdict.Pass => "PASS",
+                JudgeVerdict.Fail => "FAIL",
+                JudgeVerdict.NeedsRevision => "NEEDS_REVISION",
+                _ => "none"
+            };
+            string header = PreservedRunMarker + " verdict=" + verdict + " rerun_reason=" + reasonCode;
+            string block = header + Environment.NewLine + runOutput;
+            return String.IsNullOrEmpty(existing) ? block : existing + Environment.NewLine + Environment.NewLine + block;
+        }
+
         private async Task ResetMissionForReRunAsync(Mission mission, string reasonCode, CancellationToken token, bool countRecoveryBudget = true)
         {
             await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, reasonCode, _Logging, token).ConfigureAwait(false);
@@ -10960,6 +11040,10 @@ namespace Armada.Core.Services
             mission.CaptainId = null;
             mission.DockId = null;
             mission.ProcessId = null;
+            // Keep the run that is about to be re-done, so a check-hold or in-place re-run does not lose
+            // its verdict or the revisions it requested. The mission-output artifact surfaces this before
+            // the next run, so an operator can read every run of a mission through the same read path.
+            mission.PreservedRunOutput = AppendPreservedRun(mission.PreservedRunOutput, mission.AgentOutput, reasonCode);
             mission.AgentOutput = null;
             mission.DiffSnapshot = null;
             mission.FailureReason = null;

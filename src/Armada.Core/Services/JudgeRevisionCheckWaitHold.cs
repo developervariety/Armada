@@ -14,9 +14,11 @@ namespace Armada.Core.Services
     /// A Judge that cannot see finished Checks may ask for a revision only because they are not done,
     /// and a revision spends a rescue on work that may be correct. So a NEEDS_REVISION given while the
     /// Checks are unresolved is not recorded yet: the mission stays WorkProduced with the operator-review
-    /// hold flag set, and once the Checks resolve (or the wait budget ends) the Judge runs again and
-    /// decides with their result. That re-run happens at most once per mission; a NEEDS_REVISION after
-    /// it is recorded as usual.
+    /// hold flag set, and the verdict is decided once the Checks resolve. A Check that failed at the
+    /// reviewed commit proves the work is broken, so the held NEEDS_REVISION is recorded and a revision
+    /// Worker runs; a Judge re-run on the same commit could not clear it. A Check that passed, no gating
+    /// Check, or the wait budget ending re-runs the Judge once with the Checks' result. That re-run
+    /// happens at most once per mission; a NEEDS_REVISION after it is recorded as usual.
     /// </remarks>
     public static class JudgeRevisionCheckWaitHold
     {

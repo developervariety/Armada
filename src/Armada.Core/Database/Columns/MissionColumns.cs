@@ -79,6 +79,7 @@ namespace Armada.Core.Database
             mission.LandingRetryCount = row.Int("landing_retry_count");
             mission.StartFromRef = row.TextOrNull("start_from_ref");
             mission.RetrySkipCaptainIds = row.NullableText("retry_skip_captain_ids");
+            mission.PreservedRunOutput = row.NullableText("preserved_run_output");
             mission.LastRecoveryActionUtc = row.NullableUtc("last_recovery_action_utc");
             return mission;
         }
@@ -137,6 +138,7 @@ namespace Armada.Core.Database
                 .Text("start_from_ref", mission.StartFromRef)
                 .Utc("last_recovery_action_utc", mission.LastRecoveryActionUtc)
                 .Text("retry_skip_captain_ids", mission.RetrySkipCaptainIds)
+                .Text("preserved_run_output", mission.PreservedRunOutput)
                 .Text("tier", mission.Tier?.ToString())
                 .Text("requested_captain_id", mission.RequestedCaptainId)
                 .Bool(MissionOperatorHoldPersistence.HeldColumn, mission.HeldForOperatorReview)

@@ -297,6 +297,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A failed Check at the reviewed commit proves the work is broken, so a Judge re-run on the
+            // same commit cannot clear the revision. The held NEEDS_REVISION is recorded so autonomous
+            // recovery dispatches a revision Worker instead of spending the one re-run on the Judge.
+            await RunTest("A held Judge NEEDS_REVISION whose Check fails at the reviewed commit routes to a revision Worker, not a Judge re-run", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb, "NEEDS_REVISION").ConfigureAwait(false);
+                    AssertTrue(JudgeRevisionCheckWaitHold.IsHeld(await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false)),
+                        "Fixture: the revision waits on its Check");
+
+                    await SetCheckAsync(testDb, held.UnitTest.Id, CheckRunStatusEnum.Failed, _JudgeReviewedCommit).ConfigureAwait(false);
+                    AssertEqual(1, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "The held revision is decided once the Check fails");
+
+                    Mission? recorded = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Failed, recorded!.Status,
+                        "A failed Check records the NEEDS_REVISION (routing a revision Worker), it does not reset the Judge to Pending for a re-run on the same commit");
+                    AssertContains("NEEDS_REVISION", recorded.FailureReason ?? String.Empty,
+                        "The recorded failure is the NEEDS_REVISION a revision Worker recovers");
+                    AssertFalse(JudgeRevisionCheckWaitHold.IsHeld(recorded), "The hold is cleared");
+                    AssertNotNull(recorded.ReviewComment, "The Judge review is kept as the review comment for the Worker rescue brief");
+                    AssertEqual(0, held.Landed.LandedMissionIds.Count, "Nothing lands");
+
+                    EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                    {
+                        EventType = MissionService.CheckWaitHoldDecidedEventType, PageNumber = 1, PageSize = 10
+                    }).ConfigureAwait(false);
+                    AssertEqual(1, events.Objects.Count, "One decision event is recorded");
+                    AssertContains("revision_worker", events.Objects[0].Message ?? String.Empty, "The event says the revision was routed to a Worker");
+                }
+            });
+
+            // A check-hold re-run must not erase the run it replaces. The first run's verdict and the
+            // revisions it requested stay readable through the same mission-output read path.
+            await RunTest("A held Judge NEEDS_REVISION re-run keeps the first run's verdict and requested revisions readable", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CheckHeldJudgeScenario held = await CompleteJudgeWaitingOnChecksAsync(testDb, "NEEDS_REVISION").ConfigureAwait(false);
+                    Mission? waiting = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertContains("[ARMADA:VERDICT] NEEDS_REVISION", waiting!.AgentOutput ?? String.Empty, "Fixture: the first run asked for a revision");
+
+                    // A green Check re-runs the Judge (the revision may have been asked only because the
+                    // Checks were pending), which resets the mission and clears its live output buffer.
+                    await SetCheckAsync(testDb, held.UnitTest.Id, CheckRunStatusEnum.Passed, _JudgeReviewedCommit).ConfigureAwait(false);
+                    AssertEqual(1, await held.Landed.Scenario.Missions.ReleaseJudgeCheckWaitHoldsAsync().ConfigureAwait(false),
+                        "The held revision is decided once the Checks resolve");
+
+                    Mission? rerun = await testDb.Driver.Missions.ReadAsync(held.Judge.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, rerun!.Status, "A green Check re-runs the Judge");
+                    AssertNull(rerun.AgentOutput, "The re-run starts with a clean live output buffer");
+
+                    // The first run's verdict and requested revisions survive the re-run and are readable
+                    // through the mission-output artifact, so no run of a mission is lost to a re-run.
+                    MissionOutputArtifactPage page = MissionOutputArtifact.Build(rerun);
+                    AssertContains("[ARMADA:VERDICT] NEEDS_REVISION", page.Content,
+                        "The first run's verdict is preserved and readable after the re-run");
+                    AssertContains(MissionService.PreservedRunMarker, page.Content,
+                        "The preserved first run is marked so a reader can tell the runs apart");
+                    AssertTrue(page.TotalLength > 0, "The output read path no longer returns empty after a re-run");
+                }
+            });
+
             await RunTest("A second Judge NEEDS_REVISION with Checks still running is recorded as usual", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

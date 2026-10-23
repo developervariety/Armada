@@ -164,6 +164,15 @@ namespace Armada.Core.Models
         public string? AgentOutput { get; set; } = null;
 
         /// <summary>
+        /// Output of this mission's earlier runs, kept across an in-place re-run so no run's verdict or
+        /// requested revisions is lost when <see cref="AgentOutput"/> is cleared for the next run. Each
+        /// preserved run is headed by a marker naming its verdict and the reason it was re-run. The
+        /// mission-output artifact surfaces this content before the current run, so an operator can read
+        /// every run of a mission through the same read path. Null until the first re-run preserves a run.
+        /// </summary>
+        public string? PreservedRunOutput { get; set; } = null;
+
+        /// <summary>
         /// Persona assigned to this mission (e.g. "Worker", "Architect", "Judge").
         /// Null defaults to "Worker" for backward compatibility.
         /// </summary>

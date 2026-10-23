@@ -1670,7 +1670,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(118, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.SqliteStatements),
                 new SchemaMigration(119, "Persist trace records, trace links and trace cursors", TraceRecordSchema.SqliteStatements),
                 new SchemaMigration(120, "Persist the workflow profile definition-of-done command time limit", WorkflowProfileGateTimeoutPersistence.SqliteStatements),
-                new SchemaMigration(121, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.SqliteStatements)
+                new SchemaMigration(121, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.SqliteStatements),
+                new SchemaMigration(122, "Add preserved_run_output column to missions so an in-place Judge re-run keeps the prior run's review output and verdict",
+                    @"ALTER TABLE missions ADD COLUMN preserved_run_output TEXT;"
+                )
             };
         }
 

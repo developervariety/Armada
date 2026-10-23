@@ -19,6 +19,7 @@ namespace Armada.Core.Database
             "capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, " +
             "review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, start_from_ref, " +
             "last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, retry_skip_captain_ids, " +
+            "NULL AS preserved_run_output, " +
             "tier, requested_captain_id, held_for_operator_review, held_for_operator_review_reason, " +
             "assignment_hold_reason, assignment_hold_entity_id, " +
             "last_admission_json, admission_revision";

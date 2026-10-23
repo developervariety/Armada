@@ -21,7 +21,14 @@ namespace Armada.Core.Services
         public static MissionOutputArtifactPage Build(Mission mission, int offset = 0, int length = DefaultPageLength)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            string output = RuntimeLogFormatter.RedactSecrets(mission.AgentOutput);
+            // The current run is what the report-contract and verdict checks measure. Earlier runs that an
+            // in-place re-run preserved are shown before it, so an operator reads every run of a mission
+            // through this one read path and a re-run never erases the first run's verdict or revisions.
+            string current = RuntimeLogFormatter.RedactSecrets(mission.AgentOutput);
+            string preserved = RuntimeLogFormatter.RedactSecrets(mission.PreservedRunOutput);
+            string output = preserved.Length == 0
+                ? current
+                : current.Length == 0 ? preserved : preserved + Environment.NewLine + Environment.NewLine + current;
             if (offset < 0 || offset > output.Length) throw new ArgumentOutOfRangeException(nameof(offset));
             if (length <= 0) throw new ArgumentOutOfRangeException(nameof(length));
             int safeOffset = offset;
@@ -40,16 +47,16 @@ namespace Armada.Core.Services
 
             int pageLength = pageEnd - safeOffset;
             bool finalized = IsTerminal(mission.Status);
-            bool captureTruncated = String.Equals(output, StreamTruncationMarker, StringComparison.Ordinal)
-                || (output.StartsWith(StreamTruncationMarker, StringComparison.Ordinal)
-                    && output.Length > StreamTruncationMarker.Length
-                    && (output[StreamTruncationMarker.Length] == '\n' || output[StreamTruncationMarker.Length] == '\r'));
+            bool captureTruncated = String.Equals(current, StreamTruncationMarker, StringComparison.Ordinal)
+                || (current.StartsWith(StreamTruncationMarker, StringComparison.Ordinal)
+                    && current.Length > StreamTruncationMarker.Length
+                    && (current[StreamTruncationMarker.Length] == '\n' || current[StreamTruncationMarker.Length] == '\r'));
             string? reason = captureTruncated
                 ? "stream_capture_limit"
                 : mission.AgentOutput == null
                     ? (finalized ? "output_unavailable" : "mission_not_finalized")
                     : finalized ? null : "mission_not_finalized";
-            List<string> missingSections = MissingReportSections(mission, output, finalized && reason == null);
+            List<string> missingSections = MissingReportSections(mission, current, finalized && reason == null);
             if (missingSections.Count > 0) reason = "report_contract_missing";
             bool hasMore = safeOffset + pageLength < output.Length;
             string content = pageLength == 0 ? String.Empty : output.Substring(safeOffset, pageLength);

@@ -633,6 +633,22 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A Judge check-wait re-run no longer loses the run it replaces. When a held
+  NEEDS_REVISION (or any in-place Judge re-run) resets the mission for a new
+  run, the prior run's review output and verdict are preserved and shown before
+  the current run in the persisted mission-output read path, each headed by a
+  marker that names its verdict. An operator can read every run of a mission and
+  the first run's requested revisions, where a re-run previously overwrote them
+  and the mission-output read returned empty.
+- A held Judge NEEDS_REVISION whose independent Check fails at the reviewed
+  commit now routes to a revision Worker instead of re-running the Judge. A
+  failed Check proves the work is broken, so a Judge re-run on the same commit
+  cannot clear the revision; the held NEEDS_REVISION is recorded (keeping the
+  review as the Worker rescue feedback) so autonomous recovery dispatches the
+  revision. A held NEEDS_REVISION whose Checks pass, or that no Check gates,
+  still re-runs the Judge once, because that revision may have been asked only
+  because the Checks were pending.
+
 - A build or test command that only waits on its vessel's suite lock no longer
   holds a host command slot another vessel's command could use. A gate, check
   run or merge-queue test names the vessel whose suite it runs, takes an

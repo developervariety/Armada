@@ -1219,7 +1219,10 @@ $convert$;"),
                 new SchemaMigration(122, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.PostgresqlStatements),
                 new SchemaMigration(123, "Persist trace records, trace links and trace cursors", TraceRecordSchema.PostgresqlStatements),
                 new SchemaMigration(124, "Persist the workflow profile definition-of-done command time limit", WorkflowProfileGateTimeoutPersistence.PostgresqlStatements),
-                new SchemaMigration(125, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.PostgresqlStatements)
+                new SchemaMigration(125, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.PostgresqlStatements),
+                new SchemaMigration(126, "Add preserved_run_output column to missions so an in-place Judge re-run keeps the prior run's review output and verdict",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS preserved_run_output TEXT;"
+                )
             };
         }
 
