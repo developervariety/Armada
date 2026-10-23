@@ -1986,6 +1986,16 @@ upstream integrations and excludes changes already present at that baseline.
   `armada_coordination_heartbeat` refuse a `participantKey` that differs from
   the session's participant header instead of reading the header key silently.
 
+- A mission failure reason is never scraped from a sub-tool's activity record.
+  When a captain's process exits, the failure-reason extractor skips every
+  `[ARMADA:ACTIVITY]` line that is a tool record or carries a runtime label other
+  than the captain's own runtime, so a credential or HTTP error from a tool the
+  captain invoked (for example an `opencode` call made by a Cursor captain) no
+  longer becomes the mission failure reason and no longer benches the captain or
+  reroutes the mission as a provider auth or quota failure. The captain's own
+  provider telemetry is still read, and the stored failure reason never contains
+  the `[ARMADA:ACTIVITY]` marker.
+
 ## Added
 
 - **Typed decisions:** provider-neutral closed-question classification behind

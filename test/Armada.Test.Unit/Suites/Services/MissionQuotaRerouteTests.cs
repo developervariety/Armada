@@ -30,6 +30,12 @@ namespace Armada.Test.Unit.Suites.Services
         private const string BalanceLine =
             "[stderr] {\"type\":\"error\",\"error\":{\"name\":\"APIError\",\"data\":{\"message\":\"Insufficient balance. Manage your billing here: https://opencode.ai/workspace/x/billing\"}}}";
 
+        // A sub-tool activity record: a running captain on one runtime invoked a different tool, and that
+        // tool reported a credential/HTTP error. The tool's failure is not the captain's provider failure,
+        // so it must neither bench the captain nor become the mission failure reason.
+        private const string SubToolAuthActivityLine =
+            "[ARMADA:ACTIVITY] opencode error Upstream request failed: Invalid credential (status 401)";
+
         private static LoggingModule CreateLogging()
         {
             LoggingModule logging = new LoggingModule();
@@ -184,6 +190,37 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(m.FailureReason!.Contains("top up balance", StringComparison.OrdinalIgnoreCase)
                         || m.FailureReason.Contains("remaining quota", StringComparison.OrdinalIgnoreCase),
                         "the failure surfaces an operator-actionable quota/balance action, not a generic error");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("SubToolActivityAuthError_DoesNotBenchCaptainOrLeakIntoFailureReason", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
+                    AdmiralService admiral = CreateAdmiralService(db, settings, quarantine);
+
+                    // The captain runs on Cursor; the 401 belongs to an opencode sub-tool it invoked, so the
+                    // credential error is the sub-tool's, never the mission's provider failure.
+                    (Voyage voyage, Mission mission, Captain captain) =
+                        await SeedAsync(db, 9310, recoveryAttempts: 0, runtime: AgentRuntimeEnum.Cursor).ConfigureAwait(false);
+                    await WriteMissionLogAsync(settings, mission.Id, SubToolAuthActivityLine).ConfigureAwait(false);
+
+                    await admiral.HandleProcessExitAsync(9310, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? m = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? c = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+
+                    AssertNotEqual(CaptainStateEnum.Quarantined, c!.State,
+                        "a sub-tool credential error must not bench the captain running a different runtime");
+                    AssertEqual(MissionStatusEnum.Failed, m!.Status,
+                        "a sub-tool credential error is not a recoverable provider auth failure, so the mission is not requeued/rerouted");
+                    AssertTrue(!(m.FailureReason ?? String.Empty).Contains("[ARMADA:ACTIVITY]", StringComparison.Ordinal),
+                        "an activity record must never be written into the failure reason: " + m.FailureReason);
+                    AssertTrue(!(m.FailureReason ?? String.Empty).Contains("Invalid credential", StringComparison.OrdinalIgnoreCase),
+                        "the sub-tool's credential error must not become the mission failure reason: " + m.FailureReason);
                 }
             }).ConfigureAwait(false);
         }

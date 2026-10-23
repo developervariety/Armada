@@ -1759,7 +1759,7 @@ namespace Armada.Core.Services
                 // Fail the mission deterministically. Process exits should not bounce between
                 // recovery paths; preserve the captured runtime error, halt the voyage, and only
                 // stall the captain when the failure indicates the runtime itself is unavailable.
-                string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
+                string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, captain.Runtime, token).ConfigureAwait(false);
                 RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason);
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, failureKind, token).ConfigureAwait(false);
                 failureKind = await RefineRuntimeFailureAsync(mission, captain, exitCode, failureReason, failureKind, token).ConfigureAwait(false);
@@ -2213,7 +2213,7 @@ namespace Armada.Core.Services
                         entityType: "captain", entityId: captain.Id,
                         captainId: captain.Id, missionId: missionId, token: token).ConfigureAwait(false);
 
-                    string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
+                    string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, captain.Runtime, token).ConfigureAwait(false);
                     await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, RuntimeFailureClassifier.Classify(exitCode, failureReason), token).ConfigureAwait(false);
                 }
             }
@@ -3204,6 +3204,57 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Whether a mission-log line is an <c>[ARMADA:ACTIVITY]</c> record that does NOT speak for the
+        /// captain's own runtime. An activity record is runtime telemetry, not the captain's declared
+        /// failure. A <c>tool</c> record reports a tool the captain invoked, and a record whose runtime
+        /// label is not the captain's own runtime is a SUB-TOOL line (e.g. an <c>opencode</c> call made
+        /// by a Cursor captain); neither is the mission's failure, so an error it carries -- a credential
+        /// rejection, an HTTP status -- must never become the mission failure reason or bench the captain.
+        /// A record whose label matches the captain's own runtime is kept: that is the captain's own
+        /// provider telemetry.
+        /// </summary>
+        /// <param name="line">Trimmed mission-log line.</param>
+        /// <param name="ownRuntimeLabel">The captain runtime's activity label, or null when unknown.</param>
+        /// <returns>True when the line is a foreign-runtime or tool activity record.</returns>
+        internal static bool IsForeignRuntimeActivityLine(string line, string? ownRuntimeLabel)
+        {
+            if (String.IsNullOrEmpty(line)) return false;
+            const string prefix = "[ARMADA:ACTIVITY] ";
+            if (!line.StartsWith(prefix, StringComparison.Ordinal)) return false;
+
+            string rest = line.Substring(prefix.Length);
+            int space = rest.IndexOf(' ');
+            string label = space < 0 ? rest : rest.Substring(0, space);
+            if (String.Equals(label, "tool", StringComparison.Ordinal)) return true;
+            return String.IsNullOrEmpty(ownRuntimeLabel)
+                || !String.Equals(label, ownRuntimeLabel, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// The activity-record runtime label for a captain runtime. The labels are written by the runtime
+        /// adapters in Armada.Runtimes (ClaudeCode "claude", Codex "codex", OpenCode "opencode",
+        /// ApiEndpoint "api", Cursor "cursor", Gemini "gemini", Mux "mux"), so a sub-tool's activity line
+        /// carries a different label and is told apart from the captain's own provider telemetry. A runtime
+        /// with no fixed label returns null, which treats every activity record as foreign (conservative).
+        /// </summary>
+        /// <param name="runtime">Captain runtime.</param>
+        /// <returns>The lower-case runtime label, or null when the runtime has none.</returns>
+        private static string? ActivityRuntimeLabel(AgentRuntimeEnum runtime)
+        {
+            switch (runtime)
+            {
+                case AgentRuntimeEnum.ClaudeCode: return "claude";
+                case AgentRuntimeEnum.Codex: return "codex";
+                case AgentRuntimeEnum.Gemini: return "gemini";
+                case AgentRuntimeEnum.Cursor: return "cursor";
+                case AgentRuntimeEnum.OpenCode: return "opencode";
+                case AgentRuntimeEnum.ApiEndpoint: return "api";
+                case AgentRuntimeEnum.Mux: return "mux";
+                default: return null;
+            }
+        }
+
+        /// <summary>
         /// Whether the agent output declared an explicit terminal success verdict: a Worker's
         /// <c>[ARMADA:RESULT] COMPLETE</c> or a reviewer's <c>[ARMADA:VERDICT] PASS</c>. Scans the tail
         /// of the output (where the terminal marker appears). Pure/testable core of
@@ -3282,8 +3333,15 @@ namespace Armada.Core.Services
                 + "), consistent with host OOM/resource pressure; mission requeued and retry deferred until resource capacity returns.";
         }
 
-        private async Task<string> BuildProcessExitFailureReasonAsync(string missionId, int? exitCode, CancellationToken token)
+        private async Task<string> BuildProcessExitFailureReasonAsync(string missionId, int? exitCode, AgentRuntimeEnum captainRuntime, CancellationToken token)
         {
+            // Telemetry a SUB-TOOL wrote (a tool the captain invoked, e.g. an opencode call made by a
+            // Cursor captain) is never the mission's failure: its errors, including a credential or HTTP
+            // status, are the sub-tool's. Only the captain's own-runtime provider-failure telemetry may
+            // stand in for the mission's failure reason, so a foreign-runtime activity record is skipped
+            // in every pass below.
+            string? ownRuntimeLabel = ActivityRuntimeLabel(captainRuntime);
+
             string logPath = Path.Combine(_Settings.LogDirectory, "missions", missionId + ".log");
             if (File.Exists(logPath))
             {
@@ -3306,6 +3364,7 @@ namespace Armada.Core.Services
                     {
                         string line = lines[i].Trim();
                         if (String.IsNullOrEmpty(line)) continue;
+                        if (IsForeignRuntimeActivityLine(line, ownRuntimeLabel)) continue;
                         if (ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(line))
                         {
                             return NormalizeProcessExitFailureReason(line);
@@ -3319,6 +3378,7 @@ namespace Armada.Core.Services
                     {
                         string line = lines[i].Trim();
                         if (String.IsNullOrEmpty(line)) continue;
+                        if (IsForeignRuntimeActivityLine(line, ownRuntimeLabel)) continue;
                         if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(line))
                         {
                             return NormalizeProcessExitFailureReason(line);
@@ -3329,6 +3389,7 @@ namespace Armada.Core.Services
                     {
                         string line = lines[i].Trim();
                         if (String.IsNullOrEmpty(line)) continue;
+                        if (IsForeignRuntimeActivityLine(line, ownRuntimeLabel)) continue;
                         if (IsGenuineErrorSignal(line))
                         {
                             return NormalizeProcessExitFailureReason(line);
@@ -4334,6 +4395,16 @@ namespace Armada.Core.Services
                 return String.Empty;
 
             string normalized = failureReason.Trim();
+
+            // An [ARMADA:ACTIVITY] marker is log framing, not failure prose. The captain's own-runtime
+            // provider telemetry that reaches here keeps its text, but the marker itself must never be
+            // stored in a mission failure reason.
+            const string activityMarker = "[ARMADA:ACTIVITY]";
+            if (normalized.StartsWith(activityMarker, StringComparison.Ordinal))
+            {
+                normalized = normalized.Substring(activityMarker.Length).Trim();
+            }
+
             if (normalized.StartsWith("[stderr]", StringComparison.OrdinalIgnoreCase))
             {
                 normalized = normalized.Substring("[stderr]".Length).Trim();
