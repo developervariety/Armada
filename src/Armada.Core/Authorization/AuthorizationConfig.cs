@@ -69,6 +69,11 @@ namespace Armada.Core.Authorization
             if (path == "/api/v1/status" || path == "/api/v1/status/") return PermissionLevel.AdminOnly;
             if (path.StartsWith("/api/v1/server")) return PermissionLevel.AdminOnly;
             if (path.StartsWith("/api/v1/settings")) return PermissionLevel.AdminOnly;
+            // These routes manage global decision settings and subscription account credentials.
+            if (path == "/api/v1/typed-decisions" || path.StartsWith("/api/v1/typed-decisions/")) return PermissionLevel.AdminOnly;
+            if (path == "/api/v1/usage-accounts" || path.StartsWith("/api/v1/usage-accounts/")) return PermissionLevel.AdminOnly;
+            // A health sweep probes endpoints across all tenants; individual validation stays caller-scoped.
+            if (method == "POST" && path.TrimEnd('/') == "/api/v1/model-endpoints/health-check") return PermissionLevel.AdminOnly;
             if (path.StartsWith("/api/v1/backup")) return PermissionLevel.AdminOnly;
             if (path.StartsWith("/api/v1/restore")) return PermissionLevel.AdminOnly;
             if (path.EndsWith("/tenants") && method == "GET") return PermissionLevel.AdminOnly;
@@ -147,6 +152,8 @@ namespace Armada.Core.Authorization
 
             // Personas and pipelines belong to a tenant. Their handlers find the record inside the
             // caller's tenant.
+            if ((path == "/api/v1/project-profiles" || path.StartsWith("/api/v1/project-profiles/")) && method != "GET") return PermissionLevel.TenantAdmin;
+            if ((path == "/api/v1/skills" || path.StartsWith("/api/v1/skills/")) && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/personas") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/pipelines") && method != "GET") return PermissionLevel.TenantAdmin;
 

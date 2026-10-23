@@ -28,6 +28,49 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(Case("typed_decisions_require_global_admin", "Typed decision administration requires global admin", TestTags.Negative, () =>
+            {
+                foreach (string method in new[] { "GET", "PUT", "DELETE", "POST" })
+                    foreach (string path in new[] { "/api/v1/typed-decisions", "/api/v1/typed-decisions/key", "/api/v1/typed-decisions/custom/example" })
+                        AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel(method, path));
+            }));
+
+            cases.Add(Case("usage_accounts_require_global_admin", "Usage account administration requires global admin", TestTags.Negative, () =>
+            {
+                foreach (string method in new[] { "GET", "POST", "DELETE" })
+                    foreach (string path in new[] { "/api/v1/usage-accounts/example/login/status", "/api/v1/usage-accounts/example/login/start", "/api/v1/usage-accounts/example" })
+                        AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel(method, path));
+            }));
+
+            cases.Add(Case("model_endpoint_health_sweep_requires_global_admin", "Model endpoint health sweep requires global admin", TestTags.Negative, () =>
+            {
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/model-endpoints/health-check"));
+            }));
+
+            cases.Add(Case("project_profile_management_requires_tenant_admin", "Project profile management requires tenant admin", TestTags.Negative, () =>
+            {
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/project-profiles"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/project-profiles/validate"));
+                foreach (string method in new[] { "PUT", "DELETE" })
+                    AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel(method, "/api/v1/project-profiles/example"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/project-profiles/enumerate"));
+            }));
+
+            cases.Add(Case("skill_management_requires_tenant_admin", "Skill management requires tenant admin", TestTags.Negative, () =>
+            {
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/skills"));
+                foreach (string method in new[] { "PUT", "DELETE" })
+                    AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel(method, "/api/v1/skills/example"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/skills/enumerate"));
+            }));
+
+            cases.Add(Case("caller_owned_endpoints_keep_authenticated_policy", "Caller-owned endpoint operations keep authenticated policy", TestTags.Positive, () =>
+            {
+                foreach (string method in new[] { "GET", "POST", "PUT", "DELETE" })
+                    AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel(method, "/api/v1/model-endpoints/example"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/model-endpoints/example/validate"));
+            }));
+
             // --- NoAuthRequired endpoints ---
 
             cases.Add(Case("health_endpoint_is_no_auth_required", "HealthEndpoint IsNoAuthRequired", TestTags.Positive, () =>

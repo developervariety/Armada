@@ -135,6 +135,11 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/settings` | GET | AdminOnly | Server configuration and remote-control settings |
 | `/api/v1/settings` | PUT | AdminOnly | Partial update of server configuration and remote-control settings |
 | `/api/v1/settings/reload` | POST | AdminOnly | Validate and apply runtime-tunable values from the bound settings file |
+| `/api/v1/typed-decisions`, `/api/v1/typed-decisions/...` | All | AdminOnly | Global decision modes, keys and custom-decision administration |
+| `/api/v1/usage-accounts/...` | All | AdminOnly | Server subscription account credentials, login state and usage refresh |
+| `/api/v1/model-endpoints/health-check` | POST | AdminOnly | Probes endpoints across all tenants. Individual endpoint CRUD and validation remain caller-scoped |
+| `/api/v1/project-profiles`, `/api/v1/project-profiles/...` | Writes | TenantAdmin | Includes validation. POST enumeration uses the authenticated read policy |
+| `/api/v1/skills`, `/api/v1/skills/...` | Writes | TenantAdmin | POST enumeration uses the authenticated read policy |
 | `/api/v1/fleets` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/vessels` | ALL | Authenticated | Tenant-scoped. `LocalPath`, `WorkingDirectory` and a local-path `RepoUrl` are server paths only a global admin sets; see [POST /api/v1/vessels](#post-apiv1vessels) |
 | `/api/v1/captains` | ALL | Authenticated | Tenant-scoped |

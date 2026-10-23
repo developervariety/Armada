@@ -6,12 +6,16 @@ namespace Test.Shared.Suites.E2E
     using System.Linq;
     using System.Net;
     using System.Net.Http;
+    using System.Net.Http.Headers;
+    using System.Reflection;
     using System.Text;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Server.Mcp;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -35,6 +39,106 @@ namespace Test.Shared.Suites.E2E
         public TestSuiteDescriptor Build()
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
+
+            cases.Add(CaseAsync("authenticated_user_sees_only_scoped_tools_and_cannot_restore", "AuthenticatedUser_SeesOnlyScopedToolsAndCannotRestore", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                TenantMetadata tenant;
+                using (HttpResponseMessage tenantResponse = await fx.AuthClient.PostAsync("/api/v1/tenants",
+                    JsonHelper.ToJsonContent(new { Name = "mcp-user-" + Guid.NewGuid().ToString("N") })).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, tenantResponse.StatusCode);
+                    tenant = await JsonHelper.DeserializeAsync<TenantMetadata>(tenantResponse).ConfigureAwait(false);
+                }
+
+                UserMaster user;
+                using (HttpResponseMessage userResponse = await fx.AuthClient.PostAsync("/api/v1/users",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        TenantId = tenant.Id,
+                        Email = "mcp-user-" + Guid.NewGuid().ToString("N") + "@armada.test",
+                        PasswordSha256 = UserMaster.ComputePasswordHash("testpass"),
+                        IsTenantAdmin = false
+                    })).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, userResponse.StatusCode);
+                    user = await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false);
+                }
+
+                Credential credential;
+                using (HttpResponseMessage credentialResponse = await fx.AuthClient.PostAsync("/api/v1/credentials",
+                    JsonHelper.ToJsonContent(new { TenantId = tenant.Id, UserId = user.Id, Name = "mcp-user-credential" })).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, credentialResponse.StatusCode);
+                    credential = await JsonHelper.DeserializeAsync<Credential>(credentialResponse).ConfigureAwait(false);
+                }
+
+                string adminSession = await InitMcpSessionAsync(fx.McpClient).ConfigureAwait(false);
+                McpToolCatalog adminCatalog = JsonSerializer.Deserialize<McpToolCatalog>(
+                    (await SendMcpRequestAsync(fx.McpClient, adminSession, "tools/list", new { }).ConfigureAwait(false)).GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidOperationException("admin MCP catalog is unreadable");
+                HashSet<string> registeredNames = new HashSet<string>(adminCatalog.Tools.Select(tool => tool.Name), StringComparer.Ordinal);
+                HashSet<string> expectedNames = new HashSet<string>(McpToolAccessPolicy.CallerScopedTools.Intersect(registeredNames), StringComparer.Ordinal);
+
+                using (HttpClient regularMcpClient = new HttpClient())
+                {
+                    regularMcpClient.BaseAddress = fx.McpClient.BaseAddress;
+                    regularMcpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", credential.BearerToken);
+                    string userSession = await InitMcpSessionAsync(regularMcpClient).ConfigureAwait(false);
+                    McpToolCatalog userCatalog = JsonSerializer.Deserialize<McpToolCatalog>(
+                        (await SendMcpRequestAsync(regularMcpClient, userSession, "tools/list", new { }).ConfigureAwait(false)).GetRawText(),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidOperationException("user MCP catalog is unreadable");
+                    HashSet<string> userNames = new HashSet<string>(userCatalog.Tools.Select(tool => tool.Name), StringComparer.Ordinal);
+                    AssertTrue(expectedNames.SetEquals(userNames), "regular user catalog matches registered caller-scoped tools");
+                    AssertTrue(userNames.Count < registeredNames.Count, "regular user catalog excludes operator tools");
+                    AssertTrue(expectedNames.Count > 0, "production catalog has caller-scoped tools");
+                    foreach (string operatorTool in new[] { "armada_backup", "armada_restore", "armada_stop_server", "armada_dispatch" })
+                        AssertTrue(registeredNames.Contains(operatorTool), "production catalog includes " + operatorTool);
+                    Console.WriteLine("Authorization catalog coverage: " + registeredNames.Count + " registered tools, " + userNames.Count + " regular-user tools");
+                    AssertFalse(userNames.Contains("armada_backup"), "backup is global-only");
+                    AssertFalse(userNames.Contains("armada_restore"), "restore is global-only");
+                    AssertFalse(userNames.Contains("armada_stop_server"), "server stop is global-only");
+                    AssertFalse(userNames.Contains("armada_dispatch"), "dispatch is global-only");
+
+                    JsonElement readResult = await CallToolAsync(regularMcpClient, userSession, "list_prompt_templates", new { }).ConfigureAwait(false);
+                    AssertToolResultValid(readResult);
+
+                    McpRpcResponse denied = await SendMcpEnvelopeAsync(regularMcpClient, userSession, "tools/call", new
+                    {
+                        name = "armada_restore",
+                        arguments = new { filePath = Path.Combine(Path.GetTempPath(), "missing-mcp-restore-" + Guid.NewGuid().ToString("N") + ".zip") }
+                    }).ConfigureAwait(false);
+                    AssertNotNull(denied.Error, "regular user restore attempt is refused as a JSON-RPC error");
+                    AssertContains("may not use tool", denied.Error!.Message, "authorization rejects before restore arguments are handled");
+                }
+            }));
+
+            cases.Add(CaseAsync("mcp_http_rejects_legacy_process_launch_token", "McpHttp_RejectsLegacyProcessLaunchToken", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                PropertyInfo? tokenProperty = typeof(McpLaunchCredential).GetProperty("Token", BindingFlags.Public | BindingFlags.Static);
+                string token = tokenProperty?.GetValue(null) as string ?? "armada-launch-" + new String('0', 64);
+                using (HttpClient client = new HttpClient())
+                {
+                    client.BaseAddress = fx.McpClient.BaseAddress;
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    string sessionId = Guid.NewGuid().ToString("N");
+                    using (HttpResponseMessage initializeResponse = await SendMcpHttpRequestAsync(client, sessionId, "initialize", new
+                    {
+                        protocolVersion = "2024-11-05",
+                        capabilities = new { },
+                        clientInfo = new { name = "legacy-token-test", version = "1.0" }
+                    }).ConfigureAwait(false))
+                    {
+                        AssertEqual(HttpStatusCode.Unauthorized, initializeResponse.StatusCode, "legacy launch token cannot initialize an MCP session");
+                    }
+
+                    using (HttpResponseMessage listResponse = await SendMcpHttpRequestAsync(client, sessionId, "tools/list", new { }).ConfigureAwait(false))
+                    {
+                        AssertEqual(HttpStatusCode.Unauthorized, listResponse.StatusCode, "legacy launch token cannot list MCP tools");
+                    }
+                }
+            }));
 
             cases.Add(CaseAsync("check_run_tools_run_inspect_and_retry", "CheckRunTools_RunInspectAndRetry", TestTags.Positive, async () =>
             {
@@ -357,6 +461,38 @@ namespace Test.Shared.Suites.E2E
             return responseJson.GetProperty("result");
         }
 
+        private static async Task<McpRpcResponse> SendMcpEnvelopeAsync(HttpClient mcpClient, string sessionId, string method, object parameters)
+        {
+            using (HttpResponseMessage response = await SendMcpHttpRequestAsync(mcpClient, sessionId, method, parameters).ConfigureAwait(false))
+            {
+                string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                Assert(response.IsSuccessStatusCode, "MCP request failed with " + response.StatusCode + ": " + responseBody);
+                string json = ExtractJsonRpcResponse(responseBody, response.Content.Headers.ContentType?.MediaType);
+                return JsonSerializer.Deserialize<McpRpcResponse>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }) ?? throw new InvalidOperationException("MCP response is unreadable");
+            }
+        }
+
+        private static async Task<HttpResponseMessage> SendMcpHttpRequestAsync(HttpClient mcpClient, string sessionId, string method, object parameters)
+        {
+            object request = new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = method,
+                @params = parameters
+            };
+            using (HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/mcp"))
+            {
+                httpRequest.Content = JsonHelper.ToJsonContent(request);
+                httpRequest.Headers.Add("X-Session-Id", sessionId);
+                httpRequest.Headers.Add("Accept", "application/json, text/event-stream");
+                return await mcpClient.SendAsync(httpRequest).ConfigureAwait(false);
+            }
+        }
+
         /// <summary>
         /// Invoke an MCP tool by name with the supplied arguments.
         /// </summary>
@@ -478,6 +614,30 @@ namespace Test.Shared.Suites.E2E
                     }
                 },
                 tags: new List<string> { tag });
+        }
+
+        private sealed class McpToolCatalog
+        {
+            /// <summary>Tool definitions in a catalog response.</summary>
+            public List<McpToolDefinition> Tools { get; set; } = new List<McpToolDefinition>();
+        }
+
+        private sealed class McpToolDefinition
+        {
+            /// <summary>Registered tool name.</summary>
+            public string Name { get; set; } = String.Empty;
+        }
+
+        private sealed class McpRpcResponse
+        {
+            /// <summary>Protocol refusal, if any.</summary>
+            public McpRpcError? Error { get; set; }
+        }
+
+        private sealed class McpRpcError
+        {
+            /// <summary>Protocol refusal message.</summary>
+            public string Message { get; set; } = String.Empty;
         }
 
         #endregion

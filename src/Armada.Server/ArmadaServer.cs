@@ -1389,29 +1389,11 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Resolve the credentials of an MCP request. The launch credential this admiral gives its
-        /// captain processes maps to a named captain identity with operator tool access, because
-        /// captains use the operator catalog; every other credential goes through the REST
-        /// authentication service.
+        /// Resolve each MCP request through the shared authentication service, including scoped
+        /// session credentials supplied to captain processes.
         /// </summary>
         private async Task<AuthContext> AuthenticateMcpRequestAsync(McpRequestCredentials credentials, CancellationToken token)
         {
-            const string bearerPrefix = "Bearer ";
-            string? authorization = credentials.Authorization;
-            if (!String.IsNullOrEmpty(authorization)
-                && authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase)
-                && McpLaunchCredential.Matches(authorization.Substring(bearerPrefix.Length)))
-            {
-                return AuthContext.Authenticated(
-                    ArmadaConstants.DefaultTenantId,
-                    ArmadaConstants.DefaultUserId,
-                    true,
-                    true,
-                    "CaptainLaunch",
-                    null,
-                    "Captain launch credential");
-            }
-
             return await _AuthenticationService.AuthenticateAsync(credentials.Authorization, credentials.SessionToken, credentials.ApiKey, token).ConfigureAwait(false);
         }
 

@@ -9,6 +9,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- REST authorization contracts cover the registered normal and Harbor API
+  inventories. Central policy names the administrator requirements already
+  enforced by typed-decision, subscription account, model health sweep,
+  project-profile and skill handlers. Live MCP tests verify the regular-user
+  catalog and reject operator calls before arguments are handled.
+- MCP authenticates every credential through the shared authentication service.
+  The obsolete random process token and its global administrator bypass are
+  removed. Captain launches keep the `ARMADA_MCP_TOKEN` name and use scoped
+  mission or user session tokens.
+
 - Startup and `--validate-database` retain a verified native backup before
   upgrading an existing versioned database. The backup must pass an isolated
   restore check before any migration starts. Backup failure stops startup

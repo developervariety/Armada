@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -34,6 +35,7 @@ namespace Test.Shared.Suites.Services
             // mission launch carries the mission owner's own session token; this stand-in stands for one, and
             // uses the launch variable so the dock and scoped MCP configurations keep referencing it by name.
             const string missionSessionToken = "armada-mission-scoped-test-token";
+            const string retiredLaunchTokenPrefix = "armada-launch-";
             McpCredentialReference missionCredential = McpCredentialReference.ForMission(missionSessionToken);
 
             // ---- MCP config builder ----
@@ -155,24 +157,23 @@ namespace Test.Shared.Suites.Services
             cases.Add(Case("plan_carries_scoped_credential_by_reference", "A mission plan carries the mission owner's scoped session token, never the launch credential, and a chat plan carries the caller session token, each by name", TestTags.Positive, () =>
             {
                 // A MISSION launch carries the mission owner's own scoped session token in the launch variable,
-                // which the endpoint scopes to that owner. The admiral launch credential (global admin) is
-                // never carried in the environment, files or arguments, so a mission never gains global admin.
-                string launchToken = McpLaunchCredential.Token;
+                // which the endpoint scopes to that owner. The environment, files and arguments never carry
+                // a process-wide credential, and the mission token cannot reach operator control.
                 foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Mux })
                 {
                     CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(runtime, 7891, scoped, missionCredential);
                     AssertTrue(plan.EnvironmentOverrides.TryGetValue(McpLaunchCredential.EnvironmentVariable, out string? carried), runtime + " carries the mission credential in the launch variable");
                     AssertEqual(missionSessionToken, carried, runtime + " carries the mission owner's scoped session token");
-                    AssertFalse(plan.EnvironmentOverrides.ContainsValue(launchToken), runtime + " never carries the admiral launch credential value");
+                    AssertFalse(plan.EnvironmentOverrides.Values.Any(value => value.StartsWith(retiredLaunchTokenPrefix, StringComparison.Ordinal)), runtime + " never carries the retired global-token format");
                     foreach (IsolationConfigFile file in plan.FilesToWrite)
                     {
                         AssertFalse(file.Contents.Contains(missionSessionToken, StringComparison.Ordinal), runtime + " never writes the credential value into " + file.RelativePath);
-                        AssertFalse(file.Contents.Contains(launchToken, StringComparison.Ordinal), runtime + " never writes the launch credential value into " + file.RelativePath);
+                        AssertFalse(file.Contents.Contains(retiredLaunchTokenPrefix, StringComparison.Ordinal), runtime + " never writes the retired global-token format into " + file.RelativePath);
                     }
                     foreach (string argument in plan.ExtraArguments)
                     {
                         AssertFalse(argument.Contains(missionSessionToken, StringComparison.Ordinal), runtime + " never passes the credential value as an argument");
-                        AssertFalse(argument.Contains(launchToken, StringComparison.Ordinal), runtime + " never passes the launch credential value as an argument");
+                        AssertFalse(argument.Contains(retiredLaunchTokenPrefix, StringComparison.Ordinal), runtime + " never passes the retired global-token format as an argument");
                     }
                 }
 
@@ -185,7 +186,7 @@ namespace Test.Shared.Suites.Services
                     AssertTrue(chatPlan.EnvironmentOverrides.TryGetValue(McpCredentialReference.ChatEnvironmentVariable, out string? chatCarried), runtime + " carries the caller session token in the chat variable");
                     AssertEqual(callerSessionToken, chatCarried, runtime + " carries the caller's own session token");
                     AssertFalse(chatPlan.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable), runtime + " never sets the launch credential variable for chat");
-                    AssertFalse(chatPlan.EnvironmentOverrides.ContainsValue(launchToken), runtime + " never carries the launch credential value for chat");
+                    AssertFalse(chatPlan.EnvironmentOverrides.Values.Any(value => value.StartsWith(retiredLaunchTokenPrefix, StringComparison.Ordinal)), runtime + " never carries the retired global-token format for chat");
                     foreach (IsolationConfigFile file in chatPlan.FilesToWrite)
                     {
                         AssertFalse(file.Contents.Contains(McpLaunchCredential.EnvironmentVariable, StringComparison.Ordinal), runtime + " never references the launch variable in " + file.RelativePath);
@@ -227,7 +228,7 @@ namespace Test.Shared.Suites.Services
                     CaptainLaunchIsolationPlan seeded = CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, true, 7891, scoped, missionCredential);
                     AssertTrue(seeded.EnvironmentOverrides.TryGetValue(McpLaunchCredential.EnvironmentVariable, out string? value) && value == missionSessionToken,
                         runtime + " launches with the mission credential its dock configuration references");
-                    AssertFalse(seeded.EnvironmentOverrides.ContainsValue(McpLaunchCredential.Token), runtime + " never carries the admiral launch credential value");
+                    AssertFalse(seeded.EnvironmentOverrides.Values.Any(value => value.StartsWith(retiredLaunchTokenPrefix, StringComparison.Ordinal)), runtime + " never carries the retired global-token format");
                     AssertEqual(0, seeded.FilesToWrite.Count, runtime + " keeps its dock configuration instead of a scoped one");
                     AssertEqual(0, seeded.ExtraArguments.Count, runtime + " gets no scoped arguments");
                     AssertFalse(seeded.EnvironmentOverrides.ContainsKey("HOME"), runtime + " keeps its own home");
@@ -241,7 +242,7 @@ namespace Test.Shared.Suites.Services
                     CaptainLaunchIsolationPlan seeded = CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, true, 7891, scoped, missionCredential);
                     AssertTrue(seeded.ExtraArguments.Count > 0, runtime + " keeps its scoped MCP arguments");
                     AssertEqual(missionSessionToken, seeded.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable], runtime + " carries the mission scoped credential");
-                    AssertFalse(seeded.EnvironmentOverrides.ContainsValue(McpLaunchCredential.Token), runtime + " never carries the admiral launch credential value");
+                    AssertFalse(seeded.EnvironmentOverrides.Values.Any(value => value.StartsWith(retiredLaunchTokenPrefix, StringComparison.Ordinal)), runtime + " never carries the retired global-token format");
                     AssertTrue(CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, false, 7891, scoped, missionCredential).IsEmpty, runtime + " gets an empty plan when MCP delivery is disabled");
                 }
 
@@ -251,17 +252,8 @@ namespace Test.Shared.Suites.Services
                 {
                     CaptainLaunchIsolationPlan unresolved = CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, true, 7891, scoped, McpCredentialReference.MissionUnresolvedOwner);
                     AssertFalse(unresolved.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable), runtime + " sets no credential value for an unresolved mission owner");
-                    AssertFalse(unresolved.EnvironmentOverrides.ContainsValue(McpLaunchCredential.Token), runtime + " never falls back to the admiral launch credential");
+                    AssertFalse(unresolved.EnvironmentOverrides.Values.Any(value => value.StartsWith(retiredLaunchTokenPrefix, StringComparison.Ordinal)), runtime + " never falls back to the retired global-token format");
                 }
-            }));
-
-            cases.Add(Case("launch_credential_matches_only_itself", "The launch credential matches only its own value", TestTags.Negative, () =>
-            {
-                AssertTrue(McpLaunchCredential.Matches(McpLaunchCredential.Token), "own token");
-                AssertFalse(McpLaunchCredential.Matches(null), "missing");
-                AssertFalse(McpLaunchCredential.Matches(""), "empty");
-                AssertFalse(McpLaunchCredential.Matches(McpLaunchCredential.Token + "x"), "longer");
-                AssertFalse(McpLaunchCredential.Matches("armada-launch-" + new string('0', 64)), "same shape, different value");
             }));
 
             // ---- Negative cases ----

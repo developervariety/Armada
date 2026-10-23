@@ -507,7 +507,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(launch.Environment.ContainsKey(McpLaunchCredential.EnvironmentVariable), "the Admiral launch credential never travels");
                         foreach (string key in launch.Environment.Keys)
                             AssertTrue(HarborLaunchEnvironment.ForwardedVariables.Contains(key), "only named variables travel: " + key);
-                        AssertFalse(String.Join(" ", launch.Arguments).Contains(McpLaunchCredential.Token), "the launch credential is not in the arguments");
+                        AssertFalse(String.Join(" ", launch.Arguments).Contains("armada-launch-", StringComparison.Ordinal), "the retired global-token format is not in the arguments");
                         AssertTrue(launch.Arguments.Count > 0, "the runtime's own arguments travel");
 
                         HarborJobRecord? pending = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);

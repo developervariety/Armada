@@ -1,5 +1,3 @@
-// TODO: MCP is currently unauthenticated and uses the default tenant context for all operations.
-// MCP authentication and per-tenant scoping is planned for a future phase.
 namespace Armada.Server.Mcp
 {
     using System;

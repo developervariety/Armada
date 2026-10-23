@@ -166,8 +166,8 @@ namespace Armada.Test.Unit.Suites.Services
                 foreach (McpRequestCredentials credentials in seen)
                 {
                     AssertFalse(
-                        credentials.Authorization != null && credentials.Authorization.Contains(McpLaunchCredential.Token, StringComparison.Ordinal),
-                        "The admiral launch credential is never presented by the preflight.");
+                        credentials.Authorization != null && credentials.Authorization.Contains("armada-launch-", StringComparison.Ordinal),
+                        "The retired global-token format is never presented by the preflight.");
                 }
             });
 

@@ -850,11 +850,11 @@ names the reason and does not report tool calling as enabled.
 
 Because the token is caller-scoped, a mission reaches only its owner's records
 and the captain tools listed above. The endpoint applies the same limit to tool
-discovery and calls, regardless of the owner's administrator role. The admiral
-also holds a random launch credential (recognised at the endpoint for its own
-internal use), but no mission or chat captain is ever launched with it. Captain
-prompts must still keep dispatch, administration, deployment, restore, purge and
-server-control actions outside mission scope.
+discovery and calls, regardless of the owner's administrator role. Every MCP
+credential goes through the shared authentication service. The environment
+variable name carries a scoped session token; it grants no process-wide
+administrator identity. Captain prompts must still keep dispatch, administration,
+deployment, restore, purge and server-control actions outside mission scope.
 
 ### Captain evidence reads
 

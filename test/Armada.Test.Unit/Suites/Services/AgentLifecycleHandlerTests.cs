@@ -66,8 +66,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     McpCredentialReference credential = await handler.ResolveMissionMcpCredentialAsync(mission).ConfigureAwait(false);
                     AssertTrue(credential.HasToken, "the mission carries a scoped MCP credential");
-                    AssertFalse(string.Equals(credential.Token, McpLaunchCredential.Token, StringComparison.Ordinal),
-                        "the mission credential is never the admiral launch credential value");
+                    AssertFalse(credential.Token!.StartsWith("armada-launch-", StringComparison.Ordinal),
+                        "the mission credential never uses the retired launch-token format");
 
                     AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
                     AuthContext ctx = await auth.AuthenticateAsync("Bearer " + credential.Token, null, null).ConfigureAwait(false);
@@ -114,8 +114,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     McpCredentialReference credential = await handler.ResolveMissionMcpCredentialAsync(mission).ConfigureAwait(false);
                     AssertTrue(credential.HasToken, "the autonomous mission carries a scoped MCP credential");
-                    AssertFalse(string.Equals(credential.Token, McpLaunchCredential.Token, StringComparison.Ordinal),
-                        "the autonomous mission credential is never the admiral launch credential value");
+                    AssertFalse(credential.Token!.StartsWith("armada-launch-", StringComparison.Ordinal),
+                        "the autonomous mission credential never uses the retired launch-token format");
 
                     AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
                     AuthContext ctx = await auth.AuthenticateAsync("Bearer " + credential.Token, null, null).ConfigureAwait(false);
@@ -144,8 +144,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     McpCredentialReference credential = await handler.ResolveMissionMcpCredentialAsync(mission).ConfigureAwait(false);
                     AssertTrue(credential.HasToken, "a mission on a tenant-owned vessel carries an MCP credential");
-                    AssertFalse(string.Equals(credential.Token, McpLaunchCredential.Token, StringComparison.Ordinal),
-                        "the credential is never the admiral launch credential value");
+                    AssertFalse(credential.Token!.StartsWith("armada-launch-", StringComparison.Ordinal),
+                        "the credential never uses the retired launch-token format");
 
                     AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
                     AuthContext ctx = await auth.AuthenticateAsync("Bearer " + credential.Token, null, null).ConfigureAwait(false);
@@ -390,16 +390,18 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(plan != null, "a seeded mission launch produces a plan");
                     AssertTrue(plan!.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable),
                         "the launch variable carries the mission credential so the dock configuration resolves");
-                    AssertFalse(plan.EnvironmentOverrides.ContainsValue(McpLaunchCredential.Token),
-                        "the admiral launch credential value never appears in a mission captain's environment");
-                    // The value present is a scoped session token, not the launch credential.
+                    // The value present is a scoped session token, not the retired global-token format.
                     AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
                     string carried = plan.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable];
-                    // A default-tenant, default-user mission needs the default tenant present to authenticate;
-                    // proving the value is not the launch token is enough here.
-                    AssertFalse(string.Equals(carried, McpLaunchCredential.Token, StringComparison.Ordinal),
-                        "the launch variable holds a scoped session token, not the launch credential");
-                    _ = auth;
+                    AssertFalse(carried.StartsWith("armada-launch-", StringComparison.Ordinal),
+                        "the launch variable never holds the retired global-token format");
+                    AuthContext carriedContext = await auth.AuthenticateAsync("Bearer " + carried, null, null).ConfigureAwait(false);
+                    AssertTrue(carriedContext.IsAuthenticated, "the carried value authenticates as a scoped session token");
+                    AssertEqual(Armada.Core.Constants.DefaultTenantId, carriedContext.TenantId, "the carried session token remains in the mission tenant");
+                    AssertEqual(Armada.Core.Constants.DefaultUserId, carriedContext.UserId, "the carried session token remains with the mission user");
+                    AssertEqual(mission.Id, carriedContext.MissionId, "the carried session token remains bound to this mission");
+                    AssertFalse(Armada.Server.Mcp.McpToolAccessPolicy.IsAllowed(carriedContext, "armada_stop_server"),
+                        "the mission token cannot use operator control even when its owner is an administrator");
                 }
             });
 

@@ -278,7 +278,7 @@ namespace Armada.Test.Unit.Suites.Services
                             AssertTrue(String.IsNullOrEmpty(credentials.Authorization), "The runtime never presents an Authorization header, so the launch credential cannot reach MCP");
                             AssertTrue(String.IsNullOrEmpty(credentials.ApiKey), "The runtime never presents an API key");
                             AssertFalse(String.IsNullOrEmpty(credentials.SessionToken), "Every MCP request carries the caller's session token");
-                            AssertFalse(McpLaunchCredential.Matches(credentials.SessionToken), "The session token is not the admiral launch credential");
+                            AssertFalse(credentials.SessionToken!.StartsWith("armada-launch-", StringComparison.Ordinal), "The session token never uses the retired global-token format");
                         }
                     }
                 }
@@ -380,7 +380,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(plan.EnvironmentOverrides.TryGetValue(McpCredentialReference.ChatEnvironmentVariable, out string? carried), runtime + " carries the caller token in the chat variable");
                         AssertFalse(String.IsNullOrEmpty(carried), runtime + " carries a non-empty caller token");
                         AssertFalse(plan.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable), runtime + " never sets the launch credential variable");
-                        AssertFalse(plan.EnvironmentOverrides.Values.Any(value => McpLaunchCredential.Matches(value)), runtime + " never carries the launch credential value");
+                        AssertFalse(plan.EnvironmentOverrides.Values.Any(value => value.StartsWith("armada-launch-", StringComparison.Ordinal)), runtime + " never carries the retired global-token format");
 
                         // The carried token authenticates as the caller, so the endpoint scopes the turn to it.
                         AuthContext? validated = sessionTokens.ValidateToken(carried!);
@@ -420,7 +420,10 @@ namespace Armada.Test.Unit.Suites.Services
                         CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(
                             AgentRuntimeEnum.ClaudeCode, fixture.Settings.McpPort, "/tmp/cli-chat-scope", McpCredentialReference.ForChat(issued.Token!));
                         string bearerCredential = plan.EnvironmentOverrides[McpCredentialReference.ChatEnvironmentVariable];
-                        AssertFalse(McpLaunchCredential.Matches(bearerCredential), "The plan credential is not the admiral launch credential");
+                        AuthContext? validatedCredential = fixture.SessionTokens.ValidateToken(bearerCredential);
+                        AssertNotNull(validatedCredential, "The plan credential validates as a session token");
+                        AssertEqual(fixture.TenantAId, validatedCredential!.TenantId, "The plan credential belongs to the caller's tenant");
+                        AssertEqual(fixture.UserAId, validatedCredential.UserId, "The plan credential belongs to the caller");
 
                         using (BearerMcpProbe probe = new BearerMcpProbe(url, bearerCredential))
                         {

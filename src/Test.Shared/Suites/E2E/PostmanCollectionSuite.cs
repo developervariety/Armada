@@ -12,6 +12,7 @@ namespace Test.Shared.Suites.E2E
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Authorization;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -117,6 +118,52 @@ namespace Test.Shared.Suites.E2E
 
                     AssertTrue(failures.Count == 0, String.Join("\n", failures));
                 }),
+                CaseAsync("registered_api_routes_match_the_public_authorization_allowlist", "Registered Admiral API routes match the public authorization allowlist", TestTags.Positive, async () =>
+                {
+                    ServedRouteTable admiral = await ServedRouteTable.ReadAdmiralAsync(this).ConfigureAwait(false);
+                    ServedRouteTable harbor = await ServedRouteTable.ReadHarborAdmiralAsync().ConfigureAwait(false);
+                    HashSet<string> expectedPublic = new HashSet<string>(StringComparer.Ordinal)
+                    {
+                        RouteKey("GET", "/api/v1/status/health"),
+                        RouteKey("POST", "/api/v1/authenticate"),
+                        RouteKey("POST", "/api/v1/tenants/lookup"),
+                        RouteKey("POST", "/api/v1/onboarding")
+                    };
+                    HashSet<string> actualPublic = new HashSet<string>(StringComparer.Ordinal);
+                    List<string> failures = new List<string>();
+
+                    foreach (ServedRouteTable table in new[] { admiral, harbor })
+                    {
+                        foreach (ServedRoute route in table.Routes.Where(route => route.Path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            string path = Regex.Replace(route.Path, @"\{[^/{}]+\}", "sample");
+                            if (AuthorizationConfig.GetPermissionLevel(route.Method, path) == PermissionLevel.NoAuthRequired)
+                            {
+                                actualPublic.Add(RouteKey(route.Method, path));
+                            }
+                        }
+                    }
+
+                    foreach (string route in expectedPublic.Except(actualPublic))
+                    {
+                        failures.Add(route + ": expected a registered route with NoAuthRequired permission");
+                    }
+
+                    foreach (string route in actualPublic.Except(expectedPublic))
+                    {
+                        failures.Add(route + ": registered API route is NoAuthRequired but is not in the public allowlist");
+                    }
+
+                    E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                    using (HttpResponseMessage health = await fx.UnauthClient.GetAsync("/api/v1/status/health").ConfigureAwait(false))
+                    {
+                        if (!health.IsSuccessStatusCode)
+                            failures.Add("GET /api/v1/status/health: anonymous request returned " + (int)health.StatusCode);
+                    }
+
+
+                    AssertTrue(failures.Count == 0, String.Join("\n", failures));
+                }),
                 CaseAsync("request_bodies_are_json_and_proxy_relays_carry_a_session", "Postman bodies parse and proxy relays send the proxy session", TestTags.Positive, async () =>
                 {
                     List<string> failures = new List<string>();
@@ -217,6 +264,11 @@ namespace Test.Shared.Suites.E2E
 
                 if (!covered) missing.Add(route.ToString());
             }
+        }
+
+        private static string RouteKey(string method, string path)
+        {
+            return method.ToUpperInvariant() + " " + path.ToLowerInvariant();
         }
 
         private static ServedRouteTable? SelectTable(CollectionRequest request, ServedRouteTable admiral, ServedRouteTable proxy, out string path)

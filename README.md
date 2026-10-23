@@ -87,6 +87,10 @@ Both versions protect an existing database before a startup schema upgrade.
 The fork requires a provider-native backup and a verified isolated restore for
 all four providers before migration begins. A failed backup stops startup.
 
+Both versions check REST and MCP authorization contracts. The fork checks the
+registered API exposure and real MCP catalog, keeps its tenant and mission scope
+rules, and authenticates captain session tokens through the shared service.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the
