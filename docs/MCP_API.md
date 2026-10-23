@@ -224,11 +224,19 @@ header key, and both tools return it as `YourParticipantKey`; the heartbeat then
 needs no `participantKey`. `armada_coordination_read` and
 `armada_coordination_heartbeat` refuse a `participantKey` argument that differs
 from the header key, with an error that names both, instead of reading the
-header key silently. The one other key they accept is the
-`X-Armada-Participant-Base` header: the configured key that the SSH bridge made
-unique for one session with `ARMADA_PARTICIPANT_KEY_UNIQUE=1`. That lets several
-sessions run on one bridge configuration, each with its own key and mailbox,
-while each still names only the key it was configured with.
+header key silently. They accept two other values as the header key. One is
+the `X-Armada-Participant-Base` header: the configured key that the SSH bridge
+made unique for one session with `ARMADA_PARTICIPANT_KEY_UNIQUE=1`. That lets
+several sessions run on one bridge configuration, each with its own key and
+mailbox, while each still names only the key it was configured with. The other
+is a name the header key posted or heartbeated under in the last 24 hours: a
+session behind a shared bridge configuration knows itself by that name, not by
+the key the bridge made for it. A name that only another key uses, and any
+other key, stay refused.
+
+A filtered read returns the notes addressed to the header key and the notes
+addressed to a name that key posted or heartbeated under in the last 24 hours,
+and both kinds come back whole, never previewed.
 
 A coordination write names its caller without being told. When
 `armada_coordination_post` omits `authorName`, `armada_coordination_heartbeat`
@@ -244,7 +252,9 @@ note longer than 500 characters is cut, and the cut ends with the note's full
 length and `read the whole note with armada_coordination_read
 messageId=<id>`. A banner item longer than 400 characters is cut again and
 names the same fetch. `armada_coordination_read` with `messageId` returns that
-note whole as `Message`.
+note whole as `Message`. The stored wake is the signal's `Payload`, so
+`armada_enumerate` with `entityType=signals` and `includeMessage=true` returns
+the same text, with the same note id and fetch.
 
 A note's `toParticipantKey` names a participant key. A value that is no
 participant key but is a name a participant key posted or heartbeated under in

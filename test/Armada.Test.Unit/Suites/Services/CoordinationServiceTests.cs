@@ -423,6 +423,13 @@ namespace Armada.Test.Unit.Suites.Services
                 JsonElement anonymous = ReadResult(await handlers["armada_dispatch_hold"](
                     Args(new { action = "engage", reason = "redeploy" })).ConfigureAwait(false));
                 AssertContains("setBy is required", anonymous.GetProperty("Error").GetString()!);
+
+                JsonElement anonymousPost = ReadResult(await handlers["armada_coordination_post"](
+                    Args(new { content = "no identity at all" })).ConfigureAwait(false));
+                string postRefusal = anonymousPost.GetProperty("Error").GetString()!;
+                AssertContains("pass authorName", postRefusal);
+                AssertContains("authorId", postRefusal);
+                AssertContains(ArmadaMcpHttpServer.ParticipantHeaderName, postRefusal);
             }).ConfigureAwait(false);
 
             await RunTest("A short note is returned whole and is not marked truncated", async () =>

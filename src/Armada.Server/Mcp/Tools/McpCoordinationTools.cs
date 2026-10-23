@@ -67,7 +67,7 @@ namespace Armada.Server.Mcp.Tools
                         !String.IsNullOrWhiteSpace(authenticatedParticipant) ? authenticatedParticipant : request.AuthorId,
                         McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
                     if (String.IsNullOrWhiteSpace(authorName))
-                        return (object)new { Error = "authorName is required when the call carries no participant key or named credential" };
+                        return (object)new { Error = "authorName is required: pass authorName (the name to post under) or authorId, or send the " + ArmadaMcpHttpServer.ParticipantHeaderName + " header. This call carries no participant key and its credential has no name." };
 
                     string roomKey = await coordination.ResolveRoomKeyAsync(request.RoomKey, request.ObjectiveId).ConfigureAwait(false);
                     string authorId = !String.IsNullOrWhiteSpace(authenticatedParticipant)
@@ -98,7 +98,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_read",
-                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read. Long BROADCAST notes come back previewed at 600 characters, each carrying ContentLength and Truncated, with TruncatedMessageCount and a TruncationHint on the response; notes addressed to you are always whole. An UnreadWake carries the note's id as [msg=<id>] and at most the first 500 characters of the note. Pass messageId to read one note whole, or includeFullContent=true, ideally with a smaller limit or an afterUtc, to read every note whole. SharedParticipantKeys lists participant keys that posted or heartbeated under several names within the presence window and switched back and forth: several sessions share each such key, so an addressed note or wake to it reaches all of them and its presence row shows only the last name. Give each session its own key.",
+                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read. Long BROADCAST notes come back previewed at 600 characters, each carrying ContentLength and Truncated, with TruncatedMessageCount and a TruncationHint on the response; notes addressed to you (your participant key, or a name you posted or heartbeated under in the last 24 hours) are always whole. An UnreadWake carries the note's id as [msg=<id>] and at most the first 500 characters of the note. Pass messageId to read one note whole, or includeFullContent=true, ideally with a smaller limit or an afterUtc, to read every note whole. SharedParticipantKeys lists participant keys that posted or heartbeated under several names within the presence window and switched back and forth: several sessions share each such key, so an addressed note or wake to it reaches all of them and its presence row shows only the last name. Give each session its own key.",
                 new
                 {
                     type = "object",
@@ -108,7 +108,7 @@ namespace Armada.Server.Mcp.Tools
                         limit = new { type = "integer", description = "Maximum number of notes to return (default 50)." },
                         afterUtc = new { type = "string", description = "Optional ISO 8601 timestamp; returns only notes created after it." },
                         activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." },
-                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it. A session that sends the X-Armada-Participant header reads as that key, and the result names it as YourParticipantKey; passing a different key is refused rather than silently read as the header key. The configured key a bridge made unique for this session is accepted as the header key." },
+                        participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it. A session that sends the X-Armada-Participant header reads as that key, and the result names it as YourParticipantKey; passing a different key is refused rather than silently read as the header key. The configured key a bridge made unique for this session, and a name this session posted or heartbeated under in the last 24 hours, are accepted as the header key. Notes addressed to such a name are your mail: the read returns them, whole." },
                         includeFullContent = new { type = "boolean", description = "Return every note whole instead of previewing long broadcast notes (default false). Notes addressed to you are always whole either way." },
                         messageId = new { type = "string", description = "Optional note id (the Id of a board note, or the [msg=<id>] a wake names). Returns that one note whole as Message, with your UnreadWakes; the other filters are ignored." }
                     }
@@ -122,13 +122,14 @@ namespace Armada.Server.Mcp.Tools
                     string roomKey = String.IsNullOrWhiteSpace(request.RoomKey) ? CoordinationService.DefaultRoomKey : request.RoomKey!;
                     int limit = request.Limit.HasValue && request.Limit.Value > 0 ? request.Limit.Value : 50;
                     int activeWithinMinutes = request.ActiveWithinMinutes.HasValue && request.ActiveWithinMinutes.Value > 0 ? request.ActiveWithinMinutes.Value : 15;
-                    string? keyRefusal = ParticipantKeyRefusal(ArmadaMcpHttpServer.CurrentParticipantKey, request.ParticipantKey, ArmadaMcpHttpServer.CurrentParticipantBaseKey);
+                    string? keyRefusal = await HeaderParticipantKeyRefusalAsync(coordination, request.ParticipantKey).ConfigureAwait(false);
                     if (keyRefusal != null)
                         return (object)new { Error = keyRefusal };
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
 
                     try
                     {
+                        HashSet<string> callerAddresses = await CallerAddressesAsync(coordination, participantKey).ConfigureAwait(false);
                         if (!String.IsNullOrWhiteSpace(request.MessageId))
                         {
                             CoordinationMessage? single = await database.CoordinationMessages.ReadAsync(request.MessageId!.Trim()).ConfigureAwait(false);
@@ -143,7 +144,7 @@ namespace Armada.Server.Mcp.Tools
                             return (object)new
                             {
                                 YourParticipantKey = String.IsNullOrWhiteSpace(participantKey) ? null : participantKey,
-                                Message = BuildMessageViews(new List<CoordinationMessage> { single }, participantKey, true)[0],
+                                Message = BuildMessageViews(new List<CoordinationMessage> { single }, callerAddresses, true)[0],
                                 UnreadWakes = singleWakes
                             };
                         }
@@ -171,7 +172,7 @@ namespace Armada.Server.Mcp.Tools
                         }
 
                         List<CoordinationMessageView> views = BuildMessageViews(
-                            messages, participantKey, request.IncludeFullContent == true);
+                            messages, callerAddresses, request.IncludeFullContent == true);
                         int truncatedCount = views.Count(view => view.Truncated);
 
                         // D11 inbox_triage: annotate each note with attention and kind and sort by
@@ -210,7 +211,7 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        participantKey = new { type = "string", description = "Stable identifier for your session. Omit it when the session sends the X-Armada-Participant header: the header key is used, and the result names it as YourParticipantKey. When given with the header it must equal the header key or the configured key the bridge made unique." },
+                        participantKey = new { type = "string", description = "Stable identifier for your session. Omit it when the session sends the X-Armada-Participant header: the header key is used, and the result names it as YourParticipantKey. When given with the header it must equal the header key, the configured key the bridge made unique, or a name this session posted or heartbeated under in the last 24 hours." },
                         displayName = new { type = "string", description = "Display name shown to other sessions. Omit it to keep your participant's last board name, else the name of the credential you authenticated with, else the participant key." },
                         roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." }
                     }
@@ -218,7 +219,7 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     CoordinationHeartbeatArgs request = JsonSerializer.Deserialize<CoordinationHeartbeatArgs>(args!.Value, _JsonOptions)!;
-                    string? keyRefusal = ParticipantKeyRefusal(ArmadaMcpHttpServer.CurrentParticipantKey, request.ParticipantKey, ArmadaMcpHttpServer.CurrentParticipantBaseKey);
+                    string? keyRefusal = await HeaderParticipantKeyRefusalAsync(coordination, request.ParticipantKey).ConfigureAwait(false);
                     if (keyRefusal != null)
                         return (object)new { Error = keyRefusal };
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
@@ -733,8 +734,8 @@ namespace Armada.Server.Mcp.Tools
         private const int _BOARD_PREVIEW_CHARS = 600;
 
         /// <summary>
-        /// Project board notes for the read tool. A note addressed to
-        /// <paramref name="participantKey"/> is never previewed, whatever
+        /// Project board notes for the read tool. A note addressed to one of
+        /// <paramref name="callerAddresses"/> (the caller's key or a name it posts under) is never previewed, whatever
         /// <paramref name="includeFullContent"/> says; broadcast notes are previewed
         /// unless the caller asked for everything.
         /// </summary>
@@ -749,30 +750,74 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="requestedKey">Participant key the caller passed.</param>
         /// <param name="baseKey">Configured key the bridge made unique for this session; the
         /// session knows only this key, so passing it means the header key.</param>
+        /// <param name="headerKeyNames">Names the header key posted or heartbeated under within the
+        /// address window; passing one of them means the header key.</param>
         /// <returns>The refusal text, or null.</returns>
-        internal static string? ParticipantKeyRefusal(string? authenticatedKey, string? requestedKey, string? baseKey = null)
+        internal static string? ParticipantKeyRefusal(string? authenticatedKey, string? requestedKey, string? baseKey = null, IEnumerable<string>? headerKeyNames = null)
         {
             if (String.IsNullOrWhiteSpace(authenticatedKey) || String.IsNullOrWhiteSpace(requestedKey)) return null;
             if (String.Equals(authenticatedKey.Trim(), requestedKey.Trim(), StringComparison.Ordinal)) return null;
             if (!String.IsNullOrWhiteSpace(baseKey)
                 && String.Equals(baseKey.Trim(), requestedKey.Trim(), StringComparison.Ordinal)) return null;
+            if (headerKeyNames != null
+                && headerKeyNames.Any(name => String.Equals(name, requestedKey.Trim(), StringComparison.OrdinalIgnoreCase))) return null;
             return "participantKey '" + requestedKey.Trim() + "' differs from this session's participant key '" + authenticatedKey.Trim()
                 + "' (the " + ArmadaMcpHttpServer.ParticipantHeaderName + " header). The session reads and acknowledges wakes as '"
                 + authenticatedKey.Trim() + "' only. Omit participantKey or pass '" + authenticatedKey.Trim()
                 + "'; a note addressed to a name this session posts under is delivered to its participant key.";
         }
 
+        /// <summary>
+        /// Refusal for the current call's participant key, or null. A session behind a shared bridge
+        /// configuration knows itself by the name it posts under, not by the key the bridge made for
+        /// it, so a name the header key posted or heartbeated under within the address window means
+        /// the header key. A name another key uses, and any other key, stays refused.
+        /// </summary>
+        private static async Task<string?> HeaderParticipantKeyRefusalAsync(CoordinationService coordination, string? requestedKey)
+        {
+            string? headerKey = ArmadaMcpHttpServer.CurrentParticipantKey;
+            string? baseKey = ArmadaMcpHttpServer.CurrentParticipantBaseKey;
+            string? refusal = ParticipantKeyRefusal(headerKey, requestedKey, baseKey);
+            if (refusal == null) return null;
+
+            List<string> names;
+            try { names = await coordination.NamesDeliveredToAsync(headerKey!).ConfigureAwait(false); }
+            catch (NotSupportedException) { return refusal; }
+            return ParticipantKeyRefusal(headerKey, requestedKey, baseKey, names);
+        }
+
+        /// <summary>
+        /// Every address whose notes are the caller's mail: its participant key and the names that key
+        /// posted or heartbeated under within the address window. Empty for an anonymous read.
+        /// </summary>
+        private static async Task<HashSet<string>> CallerAddressesAsync(CoordinationService coordination, string? participantKey)
+        {
+            HashSet<string> addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (String.IsNullOrWhiteSpace(participantKey)) return addresses;
+            addresses.Add(participantKey.Trim());
+            try
+            {
+                foreach (string name in await coordination.NamesDeliveredToAsync(participantKey).ConfigureAwait(false))
+                    addresses.Add(name);
+            }
+            catch (NotSupportedException)
+            {
+                // A backend without presence knows the key alone.
+            }
+            return addresses;
+        }
+
         private static List<CoordinationMessageView> BuildMessageViews(
             List<CoordinationMessage> messages,
-            string? participantKey,
+            HashSet<string> callerAddresses,
             bool includeFullContent)
         {
             List<CoordinationMessageView> views = new List<CoordinationMessageView>(messages.Count);
             foreach (CoordinationMessage message in messages)
             {
                 string content = message.Content ?? String.Empty;
-                bool addressedToCaller = !String.IsNullOrWhiteSpace(participantKey)
-                    && String.Equals(message.ToParticipantKey, participantKey, StringComparison.Ordinal);
+                bool addressedToCaller = !String.IsNullOrWhiteSpace(message.ToParticipantKey)
+                    && callerAddresses.Contains(message.ToParticipantKey!.Trim());
                 bool keepWhole = includeFullContent
                     || addressedToCaller
                     || content.Length <= _BOARD_PREVIEW_CHARS;

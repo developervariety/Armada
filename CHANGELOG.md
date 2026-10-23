@@ -620,6 +620,16 @@ upstream integrations and excludes changes already present at that baseline.
   claim. `armada_dispatch` passes the request's participant key to the dispatch,
   and a claim that key holds is not announced; a claim another participant holds
   still is.
+- A session behind a shared bridge configuration reads its own mail. The
+  coordination read and heartbeat accept a name the header key posted or
+  heartbeated under in the last 24 hours as that key, instead of refusing it as
+  a different key; a name only another key uses stays refused. A note
+  addressed to such a name comes back whole in the read, as a note addressed to
+  the key does, instead of previewed at 600 characters. The
+  `armada_enumerate` `includeMessage` description names the stored wake text
+  and the `armada_coordination_read messageId=<id>` fetch, and a post that
+  carries no identity at all is refused with an error naming `authorName`,
+  `authorId` and the `X-Armada-Participant` header.
 - Coordination writes take the caller's identity when the name is omitted.
   `armada_coordination_post` without `authorName`, the heartbeat and claim
   without `displayName`, and `armada_dispatch_hold` engage without `setBy` use

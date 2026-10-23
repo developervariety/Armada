@@ -406,17 +406,22 @@ every tool.
   identity, which is the participant's last board name (the
   `X-Armada-Participant` key, else `authorId`), then the name of the
   credential the call authenticated with, then the participant key. A name you
-  pass wins.
+  pass wins. A call with none of these is refused with an error that names
+  `authorName`, `authorId` and the `X-Armada-Participant` header.
 - `armada_coordination_read` — read recent notes plus who is active. Read this
   before dispatching voyages or touching incidents so you do not duplicate a
   peer session's work. `SharedParticipantKeys` lists each participant key that
   posted or heartbeated under several names within the presence window and
   switched back and forth; several sessions share such a key. A session that
   sends the participant header reads as that key, and a different
-  `participantKey` argument is refused with an error naming both keys.
+  `participantKey` argument is refused with an error naming both keys, unless
+  it is the bridge's configured base key or a name the header key posted or
+  heartbeated under in the last 24 hours. The read returns notes addressed to
+  your key and to such a name.
   Long broadcast notes come back previewed at 600 characters with
   `Truncated=true`, and the result carries `TruncatedMessageCount` and a
-  `TruncationHint`; notes addressed to you are always whole. Pass
+  `TruncationHint`; notes addressed to you (your key or such a name) are
+  always whole. Pass
   `messageId` to read one note whole (the result's `Message`), or
   `includeFullContent=true` to read every note whole.
 - `armada_coordination_heartbeat` — refresh your presence while working. The

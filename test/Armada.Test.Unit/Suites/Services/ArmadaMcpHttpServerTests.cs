@@ -379,13 +379,13 @@ namespace Armada.Test.Unit.Suites.Services
                     };
 
                     JsonElement withoutKey = await CallToolAsync(
-                        client, 1, "armada_coordination_heartbeat", "operator-ab12cd", new { displayName = "operator" }, "operator").ConfigureAwait(false);
+                        client, 1, "armada_coordination_heartbeat", "operator-ab12cd", new { displayName = "operator session" }, "operator").ConfigureAwait(false);
                     string heartbeat = ResultText(withoutKey);
                     AssertFalse(heartbeat.Contains("\"Error\"", StringComparison.Ordinal), "a heartbeat with no participantKey uses the header key: " + heartbeat);
                     AssertContains("\"YourParticipantKey\":\"operator-ab12cd\"", heartbeat);
 
                     JsonElement baseKeyHeartbeat = await CallToolAsync(
-                        client, 2, "armada_coordination_heartbeat", "operator-ab12cd", new { participantKey = "operator", displayName = "operator" }, "operator").ConfigureAwait(false);
+                        client, 2, "armada_coordination_heartbeat", "operator-ab12cd", new { participantKey = "operator", displayName = "operator session" }, "operator").ConfigureAwait(false);
                     string baseHeartbeat = ResultText(baseKeyHeartbeat);
                     AssertFalse(baseHeartbeat.Contains("differs from", StringComparison.Ordinal), "the configured base key means the header key: " + baseHeartbeat);
                     AssertContains("\"YourParticipantKey\":\"operator-ab12cd\"", baseHeartbeat);
@@ -403,6 +403,59 @@ namespace Armada.Test.Unit.Suites.Services
                     JsonElement baseWithoutUniqueKey = await CallToolAsync(
                         client, 5, "armada_coordination_read", "operator-ab12cd", new { participantKey = "operator" }).ConfigureAwait(false);
                     AssertContains("differs from this session", ResultText(baseWithoutUniqueKey));
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("CoordinationRead_ASessionBehindASharedBridgeReadsMailAddressedToItsName", async () =>
+            {
+                // A bridge made the shared configured key unique for this session, so the session
+                // knows itself only by the name it posts under. Naming that name must read its own
+                // mail, whole; a name only another session uses must stay refused.
+                using (Armada.Test.Unit.TestHelpers.TestDatabase testDb = await Armada.Test.Unit.TestHelpers.TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    Armada.Server.CoordinationService coordination = new Armada.Server.CoordinationService(logging, testDb.Driver);
+                    int port = GetAvailablePort();
+                    await using ArmadaMcpHttpServer server = CreateServer(port);
+                    Armada.Server.Mcp.Tools.McpCoordinationTools.Register(
+                        (name, description, schema, handler) => server.RegisterTool(name, description, schema, handler),
+                        testDb.Driver,
+                        coordination);
+                    await server.StartAsync().ConfigureAwait(false);
+
+                    using HttpClient client = new HttpClient
+                    {
+                        BaseAddress = new Uri("http://127.0.0.1:" + port)
+                    };
+
+                    // The note is sent before the session first posts under its name, so it is stored
+                    // under the name rather than resolved to the key.
+                    string task = "task detail " + new string('t', 900);
+                    await coordination.PostMessageAsync(
+                        Armada.Server.CoordinationService.DefaultRoomKey, Armada.Core.Enums.CoordinationAuthorTypeEnum.Operator,
+                        "peer-key", "peer-name", task, toParticipantKey: "helper-one").ConfigureAwait(false);
+                    await CallToolAsync(
+                        client, 1, "armada_coordination_heartbeat", "bridge-ab12cd", new { displayName = "helper-one" }, "bridge").ConfigureAwait(false);
+
+                    JsonElement byName = await CallToolAsync(
+                        client, 2, "armada_coordination_read", "bridge-ab12cd", new { participantKey = "helper-one" }, "bridge").ConfigureAwait(false);
+                    string byNameText = ResultText(byName);
+                    using (JsonDocument read = JsonDocument.Parse(byNameText))
+                    {
+                        JsonElement root = read.RootElement;
+                        AssertFalse(root.TryGetProperty("Error", out _), "the session's own name is not refused: " + byNameText);
+                        AssertEqual("bridge-ab12cd", root.GetProperty("YourParticipantKey").GetString());
+                        JsonElement[] mail = root.GetProperty("Messages").EnumerateArray()
+                            .Where(m => m.GetProperty("ToParticipantKey").GetString() == "helper-one").ToArray();
+                        AssertEqual(1, mail.Length, "the note addressed to the session's name is in its read");
+                        AssertFalse(mail[0].GetProperty("Truncated").GetBoolean(), "mail addressed to the session's name is not previewed");
+                        AssertEqual(task, mail[0].GetProperty("Content").GetString());
+                    }
+
+                    JsonElement otherName = await CallToolAsync(
+                        client, 3, "armada_coordination_read", "bridge-ab12cd", new { participantKey = "peer-name" }, "bridge").ConfigureAwait(false);
+                    AssertContains("differs from this session", ResultText(otherName));
                 }
             }).ConfigureAwait(false);
 
