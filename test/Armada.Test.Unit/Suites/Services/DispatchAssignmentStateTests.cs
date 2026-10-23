@@ -969,10 +969,11 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            // NEGATIVE: an INACTIVE retained dock does not authorize continuation. A root mission with a
-            // stale branch name but no active dock gets a fresh captain branch, exactly as a first
-            // assignment would -- the fix must not broaden to every present branch name.
-            await RunTest("TryAssign_ReassignedRootMissionWithInactiveDock_CutsFreshCaptainBranch", async () =>
+            // NEGATIVE: an INACTIVE retained dock does not authorize continuation, but the committed branch
+            // still carries work. The mission must HOLD, never cut a fresh branch from the default branch,
+            // which would orphan the committed work. A failed provision that left no live dock reaches the
+            // same state on a retry.
+            await RunTest("TryAssign_ReassignedRootMissionWithInactiveDock_HoldsInsteadOfCuttingFromMain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -985,7 +986,6 @@ namespace Armada.Test.Unit.Suites.Services
                     IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     string bareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
-                    string mainHead = RunGitProcess(bareRepo, "rev-parse", "main").Trim();
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("inactive-dock-vessel", bareRepo)).ConfigureAwait(false);
 
                     Mission root = new Mission("Root worker", "Implements the first slice.");
@@ -1015,9 +1015,84 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission? readBack = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
                     AssertNotNull(readBack, "The root mission must still exist");
-                    AssertTrue(assigned, "With no active dock the mission assigns normally; state=" + readBack!.AssignmentState);
-                    AssertTrue(!String.Equals(readBack!.BranchName, savedBranch, StringComparison.Ordinal), "An inactive dock must not authorize branch continuation; was " + readBack.BranchName);
-                    AssertTrue(!String.IsNullOrEmpty(readBack.BranchName) && readBack.BranchName!.Contains(captainB.Name), "The fresh branch is the replacement captain's own");
+                    AssertFalse(assigned, "A root mission with committed work and no active dock must not be assigned onto a fresh branch");
+                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "The held mission stays Pending");
+                    AssertEqual(MissionAssignmentHold.RootContinuationDockMissing, readBack.AssignmentHoldReason ?? "(null)", "The hold names the dock-missing reason");
+                    AssertEqual(savedBranch, readBack.BranchName ?? "(null)", "The committed branch name is retained, never replaced by a fresh one");
+                    AssertTrue(String.IsNullOrEmpty(readBack.CaptainId), "No captain is assigned to the held mission");
+                }
+            });
+
+            // RETRY: the FIRST assignment of a reassigned root mission fails in launch (an I/O error, an
+            // out-of-memory brief build), which clears the mission's dock pointer but keeps the committed
+            // branch. The retry must re-authorize continuation from the still-active retained dock and sit
+            // on the committed head -- never cut a fresh branch from the default branch because the pointer
+            // was cleared. This is the retry gap: authority is a property of the live dock, not the pointer.
+            await RunTest("TryAssign_ReassignedRootMissionLaunchFailsThenRetries_ContinuesCommittedBranchNotFreshFromMain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    GitService git = new GitService(logging);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    bool failLaunch = true;
+                    captainService.OnLaunchAgent = (_, _, _) =>
+                    {
+                        if (failLaunch) throw new InvalidOperationException("simulated launch failure");
+                        return Task.FromResult(12345);
+                    };
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string bareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                    string mainHead = RunGitProcess(bareRepo, "rev-parse", "main").Trim();
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("retry-continuation-vessel", bareRepo)).ConfigureAwait(false);
+
+                    Mission root = new Mission("Root worker", "Implements the first slice.");
+                    root.VesselId = vessel.Id;
+                    root.Persona = "Worker";
+                    root.Status = MissionStatusEnum.Pending;
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+
+                    string savedBranch = "armada/captain-a/" + root.Id;
+                    string savedHead = CommitAheadOnBranch(bareRepo, savedBranch, "Captain A committed work");
+                    AssertTrue(!String.Equals(savedHead, mainHead, StringComparison.Ordinal), "precondition: the saved branch head is ahead of main");
+
+                    Dock retained = new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId,
+                        BranchName = savedBranch,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_olddock_" + Guid.NewGuid().ToString("N")),
+                        Active = true,
+                    };
+                    retained = await testDb.Driver.Docks.CreateAsync(retained).ConfigureAwait(false);
+                    root.BranchName = savedBranch;
+                    root.DockId = retained.Id;
+                    await testDb.Driver.Missions.UpdateAsync(root).ConfigureAwait(false);
+
+                    Captain captainB = await testDb.Driver.Captains.CreateAsync(new Captain("captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    // Attempt 1: launch fails. The failure path clears the dock pointer and keeps the branch.
+                    bool firstAssigned = await missionService.TryAssignAsync(root, vessel).ConfigureAwait(false);
+                    Mission? afterFail = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(afterFail, "The root mission must still exist after a failed launch");
+                    AssertFalse(firstAssigned, "The first assignment fails in launch");
+                    AssertTrue(String.IsNullOrEmpty(afterFail!.DockId), "The failed launch clears the dock pointer; was " + (afterFail.DockId ?? "(null)"));
+                    AssertEqual(savedBranch, afterFail.BranchName ?? "(null)", "The failed launch keeps the committed branch, never a fresh one");
+
+                    // Attempt 2: launch succeeds. The still-active retained dock re-authorizes continuation.
+                    failLaunch = false;
+                    bool secondAssigned = await missionService.TryAssignAsync(afterFail, vessel).ConfigureAwait(false);
+                    Mission? afterRetry = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(afterRetry, "The root mission must still exist after the retry");
+                    AssertTrue(secondAssigned, "The retry must assign; state=" + afterRetry!.AssignmentState + " reason: " + (afterRetry.FailureReason ?? "(none)"));
+                    AssertEqual(savedBranch, afterRetry!.BranchName ?? "(null)", "The retry must continue the committed branch, not a fresh captain branch cut from main");
+
+                    Dock? newDock = await testDb.Driver.Docks.ReadAsync(afterRetry.DockId ?? "").ConfigureAwait(false);
+                    AssertNotNull(newDock, "A dock must be provisioned for the retried mission");
+                    string? provisionedHead = await git.GetHeadCommitHashAsync(newDock!.WorktreePath!).ConfigureAwait(false);
+                    AssertEqual(savedHead, provisionedHead ?? "(null)", "The retried checkout must sit on the committed branch head, not on main (" + mainHead + ")");
                 }
             });
 

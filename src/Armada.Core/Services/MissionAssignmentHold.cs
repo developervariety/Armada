@@ -61,6 +61,13 @@ namespace Armada.Core.Services
         /// </summary>
         public const string RootContinuationRefMissing = "root_continuation_ref_missing";
 
+        /// <summary>
+        /// A reassigned root (stage-1) mission still carries committed work on its persisted branch, but no active dock
+        /// authorizes continuing it (a failed provision left no live dock). The mission is held rather than cut from the
+        /// default branch, which would orphan its committed work.
+        /// </summary>
+        public const string RootContinuationDockMissing = "root_continuation_dock_missing";
+
         #endregion
 
         #region Public-Methods
