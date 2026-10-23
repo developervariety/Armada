@@ -288,7 +288,11 @@ and time.
 When incident lifecycle automation is enabled, newer passing Checks,
 successful rescue missions, shipped releases, verified deployments, and
 completed rollbacks can mitigate or close linked incidents after the quiet
-period. A newer matching failure can reopen an incident. Such a close sets
+period. A newer matching failure reopens a mitigated incident and raises its
+severity to at least High. Re-observing a failure on an incident that is already
+open records the new failure evidence and keeps the incident's severity: the
+severity set at creation or by an operator is preserved, and the sweep leaves
+the incident alone once the evidence is already recorded. Such a close sets
 `ClosedAutomatically` and leaves `RootCause` unset when it holds only the
 opened text; `OpenedReason` keeps that text.
 

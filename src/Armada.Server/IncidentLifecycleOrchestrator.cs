@@ -177,10 +177,13 @@ namespace Armada.Server
                     return await UpdateIncidentAsync(auth, incident, IncidentStatusEnum.Open, MaxSeverity(incident.Severity, IncidentSeverityEnum.High), evidence.Note, "incident.lifecycle_reopened", token).ConfigureAwait(false);
                 }
 
-                if (incident.Severity != MaxSeverity(incident.Severity, IncidentSeverityEnum.High)
-                    || !ContainsNote(incident.RecoveryNotes, evidence.Note))
+                // Re-observing the failure of an incident that is already open records the new
+                // evidence but keeps the incident's severity. The severity is set at creation or by
+                // an operator; a routine re-observation must not override it. Acting only when the
+                // note is new also stops the sweep from rewriting the incident every cycle.
+                if (!ContainsNote(incident.RecoveryNotes, evidence.Note))
                 {
-                    return await UpdateIncidentAsync(auth, incident, IncidentStatusEnum.Open, MaxSeverity(incident.Severity, IncidentSeverityEnum.High), evidence.Note, "incident.lifecycle_failure_observed", token).ConfigureAwait(false);
+                    return await UpdateIncidentAsync(auth, incident, IncidentStatusEnum.Open, incident.Severity, evidence.Note, "incident.lifecycle_failure_observed", token).ConfigureAwait(false);
                 }
 
                 return false;
