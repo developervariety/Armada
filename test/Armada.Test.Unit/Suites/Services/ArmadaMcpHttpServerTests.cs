@@ -66,7 +66,8 @@ namespace Armada.Test.Unit.Suites.Services
                     new { }).ConfigureAwait(false);
                 JsonElement listResult = list.GetProperty("result");
                 AssertEqual("armada_echo", listResult.GetProperty("tools")[0].GetProperty("name").GetString());
-                AssertEqual("public", listResult.GetProperty("cacheScope").GetString());
+                AssertEqual("private", listResult.GetProperty("cacheScope").GetString(),
+                    "the authenticated tool catalog must not be cached across callers");
                 AssertTrue(listResult.GetProperty("ttlMs").GetInt64() > 0, "tools/list should be cacheable");
 
                 JsonElement call = await PostModernAsync(
@@ -573,10 +574,12 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 using HttpRequestMessage listRequest = CreateRequest("/mcp", 1, "tools/list", new { }, apiKey: UserApiKey);
-                JsonElement list = await ReadRpcAsync(await client.SendAsync(listRequest).ConfigureAwait(false)).ConfigureAwait(false);
-                List<string> names = list.GetProperty("result").GetProperty("tools").EnumerateArray()
-                    .Select(tool => tool.GetProperty("name").GetString()!).ToList();
+                McpTestToolListRpcResponse userList = await ReadToolListAsync(
+                    await client.SendAsync(listRequest).ConfigureAwait(false)).ConfigureAwait(false);
+                List<string> names = userList.Result.Tools.Select(tool => tool.Name).ToList();
                 AssertTrue(names.SequenceEqual(new[] { "get_persona" }), "a narrower role discovers only its allowed tools");
+                AssertEqual("private", userList.Result.CacheScope,
+                    "a caller-filtered tool list must not be shared with other users");
 
                 using HttpRequestMessage denied = CreateRequest(
                     "/mcp", 2, "tools/call", new { name = "armada_stop_server", arguments = new { } }, apiKey: UserApiKey);
@@ -593,8 +596,13 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(observedCaller.IsAdmin, "a narrower role is never raised to administrator");
 
                 using HttpRequestMessage adminList = CreateRequest("/mcp", 4, "tools/list", new { });
-                JsonElement adminTools = await ReadRpcAsync(await client.SendAsync(adminList).ConfigureAwait(false)).ConfigureAwait(false);
-                AssertEqual(2, adminTools.GetProperty("result").GetProperty("tools").GetArrayLength(), "a global administrator discovers the whole catalog");
+                McpTestToolListRpcResponse adminListResult = await ReadToolListAsync(
+                    await client.SendAsync(adminList).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(2, adminListResult.Result.Tools.Count, "a global administrator discovers the whole catalog");
+                AssertEqual("private", adminListResult.Result.CacheScope,
+                    "the administrator's broader catalog must not be served from a shared cache to another user");
+                AssertTrue(adminListResult.Result.Tools.Any(tool => tool.Name == "armada_stop_server"),
+                    "the administrator catalog differs from the narrower caller catalog");
             }).ConfigureAwait(false);
 
             // A captain's mission token carries its owner's roles. An administrator-owned mission must still
@@ -905,6 +913,20 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        private static async Task<McpTestToolListRpcResponse> ReadToolListAsync(HttpResponseMessage response)
+        {
+            using (response)
+            {
+                string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                    throw new Exception("MCP HTTP request failed with " + response.StatusCode + ": " + body);
+                string json = ExtractJsonRpc(body, response.Content.Headers.ContentType?.MediaType);
+                return JsonSerializer.Deserialize<McpTestToolListRpcResponse>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? throw new InvalidDataException("MCP tools/list response could not be read.");
+            }
+        }
+
         private static async Task<JsonElement> PostModernAsync(
             HttpClient client,
             string path,
@@ -1017,6 +1039,28 @@ namespace Armada.Test.Unit.Suites.Services
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             listener.Stop();
             return port;
+        }
+
+        private sealed class McpTestToolListRpcResponse
+        {
+            public McpTestToolListRpcResponse() { }
+
+            public McpTestToolListResult Result { get; set; } = new McpTestToolListResult();
+        }
+
+        private sealed class McpTestToolListResult
+        {
+            public McpTestToolListResult() { }
+
+            public List<McpTestToolDescriptor> Tools { get; set; } = new List<McpTestToolDescriptor>();
+            public string CacheScope { get; set; } = String.Empty;
+        }
+
+        private sealed class McpTestToolDescriptor
+        {
+            public McpTestToolDescriptor() { }
+
+            public string Name { get; set; } = String.Empty;
         }
 
     }

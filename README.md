@@ -91,7 +91,8 @@ and check forward migration and a fresh driver startup on all four providers.
 
 Both versions check REST and MCP authorization contracts. The fork checks the
 registered API exposure and real MCP catalog, keeps its tenant and mission scope
-rules, and authenticates captain session tokens through the shared service.
+rules, authenticates captain session tokens through the shared service, and
+marks caller-filtered tool catalogs as private cache entries.
 
 Both versions serialize SQLite writes through a FIFO gate shared by each database
 file. The fork includes shared persistence methods, migrations, expiry deletes and live restore. Reads stay independent and existing durability settings apply.

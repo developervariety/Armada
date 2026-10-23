@@ -319,7 +319,7 @@ namespace Armada.Server.Mcp
                     ? nextOffset.ToString(CultureInfo.InvariantCulture)
                     : null,
                 TimeToLive = TimeSpan.FromMinutes(5),
-                CacheScope = CacheScope.Public
+                CacheScope = CacheScope.Private
             };
 
             return ValueTask.FromResult(result);

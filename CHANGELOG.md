@@ -7,6 +7,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Caller-filtered MCP tool lists use private cache scope. Shared caches cannot
+  serve one caller's tool catalog to another caller.
+
 - SQLite write operations share one cancellable FIFO gate per open database file.
   The gate covers direct and shared persistence, migrations, expiry deletes
   and live restore. Expiry keeps verified export and trace recording before deletion.

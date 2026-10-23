@@ -4,6 +4,8 @@ This catalog groups the tool names registered in
 `src/Armada.Server/Mcp/Tools`. Some names are compatibility aliases.
 Availability depends on enabled services and the authenticated caller. Discover
 the running catalog with `tools/list` and follow every `nextCursor`.
+Tool lists use private cache scope and a five-minute lifetime. Only the
+requesting caller's client can cache its filtered catalog.
 
 Risk labels:
 
