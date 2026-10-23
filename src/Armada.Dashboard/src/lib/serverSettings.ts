@@ -80,6 +80,7 @@ export interface ServerSettings {
   rebuildSlotRetentionCount?: number;
   /** True: missions wait for a Harbor instead of running on the Admiral host. Absent on older servers. */
   requireHarborForLaunch?: boolean;
+  blockDependentsOfFailedStages?: boolean;
   remoteControl: RemoteControlSettings;
   import?: VesselImportSettingsData;
   fleetActions?: FleetActionSettingsData;

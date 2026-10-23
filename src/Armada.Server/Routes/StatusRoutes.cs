@@ -529,6 +529,9 @@ namespace Armada.Server.Routes
                 if (body.RequireHarborForLaunch.HasValue)
                     _settings.RequireHarborForLaunch = body.RequireHarborForLaunch.Value;
 
+                if (body.BlockDependentsOfFailedStages.HasValue)
+                    _settings.BlockDependentsOfFailedStages = body.BlockDependentsOfFailedStages.Value;
+
                 if (body.Import != null)
                     _settings.Import = body.Import;
                 if (body.FleetActions != null)
@@ -726,6 +729,7 @@ namespace Armada.Server.Routes
                 SelfVesselId = _settings.SelfVesselId,
                 RebuildSlotRetentionCount = _settings.RebuildSlotRetentionCount,
                 RequireHarborForLaunch = _settings.RequireHarborForLaunch,
+                BlockDependentsOfFailedStages = _settings.BlockDependentsOfFailedStages,
                 RemoteControl = RedactRemoteControl(_settings.RemoteControl),
                 Import = _settings.Import,
                 FleetActions = _settings.FleetActions,

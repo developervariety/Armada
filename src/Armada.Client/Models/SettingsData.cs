@@ -73,6 +73,12 @@ namespace Armada.Client.Models
         public bool? RequireHarborForLaunch { get; set; } = null;
 
         /// <summary>
+        /// When true, stages waiting on a failed stage show Blocked until it is restarted, instead of being cancelled.
+        /// Null when the server does not report it (or, in an update, leaves it unchanged).
+        /// </summary>
+        public bool? BlockDependentsOfFailedStages { get; set; } = null;
+
+        /// <summary>
         /// Data directory (read-only).
         /// </summary>
         public string? DataDirectory { get; set; } = null;

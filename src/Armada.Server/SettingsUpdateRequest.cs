@@ -100,6 +100,12 @@ namespace Armada.Server
         public bool? RequireHarborForLaunch { get; set; }
 
         /// <summary>
+        /// When true, stages waiting on a failed stage are marked Blocked (keeping the voyage open until the failed stage
+        /// is restarted) instead of Cancelled. Null leaves the stored value unchanged.
+        /// </summary>
+        public bool? BlockDependentsOfFailedStages { get; set; }
+
+        /// <summary>
         /// Optional remote-control tunnel settings update.
         /// When supplied, replaces the full remoteControl settings object.
         /// </summary>

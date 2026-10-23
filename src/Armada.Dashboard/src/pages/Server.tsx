@@ -233,6 +233,7 @@ export default function Server() {
         idleCaptainTimeoutSeconds: settings.idleCaptainTimeoutSeconds,
         landingMode: settings.landingMode || DEFAULT_GLOBAL_LANDING_MODE,
         ...(settings.requireHarborForLaunch !== undefined ? { requireHarborForLaunch: settings.requireHarborForLaunch } : {}),
+        ...(settings.blockDependentsOfFailedStages !== undefined ? { blockDependentsOfFailedStages: settings.blockDependentsOfFailedStages } : {}),
       });
       setSettings(mergeServerSettings(updated as unknown as ServerSettings));
       showToast('success', t('Agent settings saved'));
@@ -775,11 +776,25 @@ export default function Server() {
                   <small className="text-dim">{t('On: missions wait for a Harbor. Off: they run on the Admiral host when no Harbor can take them.')}</small>
                 </div>
               )}
+              {settings.blockDependentsOfFailedStages !== undefined && (
+                <div className="form-group">
+                  <label className="settings-checkbox-label" title={t('When a stage fails, the stages waiting on it show Blocked and the voyage stays open until you restart the failed stage. Off (the default): they are cancelled and the voyage ends Failed; restarting the failed stage still restores them.')}>
+                    <input
+                      type="checkbox"
+                      title={t('When a stage fails, the stages waiting on it show Blocked and the voyage stays open until you restart the failed stage. Off (the default): they are cancelled and the voyage ends Failed; restarting the failed stage still restores them.')}
+                      checked={settings.blockDependentsOfFailedStages}
+                      onChange={(e) => setSettings({ ...settings, blockDependentsOfFailedStages: e.target.checked })}
+                    />
+                    <span>{t('Block Stages After a Failure')}</span>
+                  </label>
+                  <small className="text-dim">{t('On: stages after a failed one show Blocked until it is restarted. Off: they are cancelled.')}</small>
+                </div>
+              )}
             </div>
             <button
               className="btn-primary btn-sm"
               onClick={handleSaveAgentSettings}
-              title={t('Save the agent timing, default landing mode and Harbor requirement. They apply to the running Admiral immediately.')}
+              title={t('Save the agent timing, default landing mode, Harbor requirement and failure blocking. They apply to the running Admiral immediately.')}
             >
               {t('Save Agent Settings')}
             </button>

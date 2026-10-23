@@ -143,6 +143,9 @@ namespace Armada.Tui.Screens.Admin
         /// <summary>Require a Harbor for launch; hidden while the server does not report the setting.</summary>
         public ToggleField RequireHarborForLaunch { get; } = new ToggleField();
 
+        /// <summary>Agent: mark stages after a failed one Blocked instead of Cancelled.</summary>
+        public ToggleField BlockDependentsOfFailedStages { get; } = new ToggleField();
+
         /// <summary>Planning idle timeout.</summary>
         public InputField PlanningInactivity { get; } = new InputField();
 
@@ -592,6 +595,9 @@ namespace Armada.Tui.Screens.Admin
             RequireHarborForLaunch.Caption = "Require Harbor for Launch";
             RequireHarborForLaunch.Visible = false;
             AddTracked(agent, "Harbor", RequireHarborForLaunch, "When on, a mission waits for a Harbor (for example a disconnected laptop) instead of running on the Admiral host. Turn on when the Admiral (for example in Docker) has no claude, codex, or mux installed.");
+            BlockDependentsOfFailedStages.Caption = "Block Stages After a Failure";
+            BlockDependentsOfFailedStages.Visible = false;
+            AddTracked(agent, "Failure blocking", BlockDependentsOfFailedStages, "When on, the stages after a failed stage show Blocked and the voyage stays open until you restart the failed stage. Off (the default): they are cancelled and the voyage ends Failed; restarting the failed stage still restores them.");
             AddButtons(agent);
 
             // Planning Session Settings.
@@ -1000,6 +1006,8 @@ namespace Armada.Tui.Screens.Admin
                 DefaultLandingMode.SetValue((s.LandingMode ?? LandingModeEnum.MergeAndPush).ToString());
                 RequireHarborForLaunch.Visible = s.RequireHarborForLaunch.HasValue;
                 RequireHarborForLaunch.SetValue(s.RequireHarborForLaunch ?? false, false);
+                BlockDependentsOfFailedStages.Visible = s.BlockDependentsOfFailedStages.HasValue;
+                BlockDependentsOfFailedStages.SetValue(s.BlockDependentsOfFailedStages ?? false, false);
             });
             Apply("planning", force, () =>
             {
@@ -1344,6 +1352,7 @@ namespace Armada.Tui.Screens.Admin
                 d.IdleCaptainTimeoutSeconds = IntOf(IdleCaptainTimeout);
                 d.LandingMode = Enum.TryParse<LandingModeEnum>(DefaultLandingMode.Value ?? "", out LandingModeEnum landingMode) ? landingMode : (LandingModeEnum?)null;
                 d.RequireHarborForLaunch = RequireHarborForLaunch.Visible ? RequireHarborForLaunch.Value : (bool?)null;
+                d.BlockDependentsOfFailedStages = BlockDependentsOfFailedStages.Visible ? BlockDependentsOfFailedStages.Value : (bool?)null;
                 return d;
             }, "Agent settings saved");
         }
