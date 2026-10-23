@@ -22,6 +22,7 @@ export const STATUS_DESCRIPTIONS: Record<string, string> = {
   rolledback: 'Rollback completed successfully. Next: investigate the underlying issue before attempting another deployment.',
   landingfailed: 'Code was produced but the merge failed (conflict, push error, etc.). Next: retry landing, or cancel and re-dispatch.',
   cancelled: 'Mission was cancelled. Next: restart if the work is still needed.',
+  blocked: 'Held because a stage it depends on failed. Next: restart the failed stage to continue, or cancel the voyage.',
   open: 'Voyage is open and accepting missions. Next: missions will be dispatched to captains automatically.',
   idle: 'Captain is available. Next: it will pick up the next pending mission automatically.',
   working: 'Captain is actively executing a mission. Next: wait for completion, or check the mission log.',

@@ -67,7 +67,7 @@ namespace Test.Shared.Suites.Services
                 string[] expected = new[]
                 {
                     "Pending", "Assigned", "InProgress", "WorkProduced", "PullRequestOpen",
-                    "Testing", "Review", "Complete", "Failed", "LandingFailed", "Cancelled"
+                    "Testing", "Review", "Complete", "Failed", "LandingFailed", "Cancelled", "Blocked"
                 };
 
                 string[] actual = Enum.GetNames(typeof(MissionStatusEnum));

@@ -2418,11 +2418,16 @@ namespace Armada.Core.Services
 
                 bool running = (otherMission.Status == MissionStatusEnum.InProgress || otherMission.Status == MissionStatusEnum.Assigned)
                     && !String.IsNullOrEmpty(otherMission.CaptainId);
-                otherMission.Status = MissionStatusEnum.Cancelled;
-                otherMission.FailureReason = "Voyage halted after mission " + failedMissionId + " failed: " + failureReason;
+                if (otherMission.Status == MissionStatusEnum.Blocked) continue;
+                // A pipeline stage still waiting on the failed one is held as Blocked when that is configured.
+                bool block = pipelineVoyage && _Settings.BlockDependentsOfFailedStages && otherMission.Status == MissionStatusEnum.Pending;
+                otherMission.Status = block ? MissionStatusEnum.Blocked : MissionStatusEnum.Cancelled;
+                otherMission.FailureReason = block
+                    ? "Blocked by failed dependency " + failedMissionId + " (" + failureReason + "). Restart that mission to continue, or cancel the voyage."
+                    : "Voyage halted after mission " + failedMissionId + " failed: " + failureReason;
                 otherMission.FailureKind = MissionFailureKindEnum.DependencyFailed;
                 otherMission.ProcessId = null;
-                otherMission.CompletedUtc = DateTime.UtcNow;
+                otherMission.CompletedUtc = block ? null : DateTime.UtcNow;
                 otherMission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(otherMission, token).ConfigureAwait(false);
 
@@ -2446,7 +2451,7 @@ namespace Armada.Core.Services
             if (pipelineVoyage)
             {
                 List<Mission> after = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
-                bool anyActive = after.Any(m => m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned
+                bool anyActive = after.Any(m => m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Blocked || m.Status == MissionStatusEnum.Assigned
                     || m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.WorkProduced || m.Status == MissionStatusEnum.Review
                     || m.Status == MissionStatusEnum.PullRequestOpen || m.Status == MissionStatusEnum.Testing);
                 if (!anyActive)

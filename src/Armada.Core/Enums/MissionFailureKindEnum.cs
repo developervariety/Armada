@@ -50,7 +50,7 @@ namespace Armada.Core.Enums
         ScopeViolation,
 
         /// <summary>
-        /// A Judge blocked the work. Needs a human or a re-implementation, not a mechanical rescue.
+        /// A Judge (or a verifier stage) blocked the work. Needs a human or a re-implementation, not a mechanical rescue.
         /// </summary>
         JudgeRejected,
 

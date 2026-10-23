@@ -182,7 +182,7 @@ namespace Armada.Tui.Screens.Operations
 
         #region Private-Members
 
-        private static readonly string[] _RecentStatuses = new string[] { "Pending", "Assigned", "InProgress", "Testing", "Review", "Complete", "Failed", "Cancelled" };
+        private static readonly string[] _RecentStatuses = new string[] { "Pending", "Blocked", "Assigned", "InProgress", "Testing", "Review", "Complete", "Failed", "Cancelled" };
         private readonly MissionOps _Ops;
         private readonly Button _ViewAll;
         private readonly List<OpsScreenAction> _Actions = new List<OpsScreenAction>();

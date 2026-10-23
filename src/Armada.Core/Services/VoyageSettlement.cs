@@ -17,7 +17,7 @@ namespace Armada.Core.Services
     {
         /// <summary>
         /// Decide whether a voyage's missions have settled and, if so, its terminal status. A voyage is still running
-        /// while any mission is Pending, Assigned, InProgress, Testing, Review or PullRequestOpen, while a WorkProduced
+        /// while any mission is Pending, Blocked, Assigned, InProgress, Testing, Review or PullRequestOpen, while a WorkProduced
         /// mission is still being completed (its handoff, rework or landing is being decided), or while a WorkProduced
         /// mission still has an unsettled merge-queue entry. A settled voyage is Failed when any mission Failed or
         /// LandingFailed, otherwise Complete.
@@ -38,6 +38,7 @@ namespace Armada.Core.Services
 
             bool anyActive = missions.Any(m =>
                 m.Status == MissionStatusEnum.Pending ||
+                m.Status == MissionStatusEnum.Blocked ||
                 m.Status == MissionStatusEnum.Assigned ||
                 m.Status == MissionStatusEnum.InProgress ||
                 m.Status == MissionStatusEnum.Testing ||

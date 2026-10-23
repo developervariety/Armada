@@ -389,7 +389,7 @@ function applyDynamicPatterns(locale: string, text: string, catalog: I18nCatalog
     return `${translateText(locale, match[1], catalog)} "${match[2]}" \u2014 ${translateLabel(locale, match[3], catalog)}`;
   }
 
-  match = text.match(/^(Mission|Voyage|Captain) (Pending|Assigned|InProgress|WorkProduced|Testing|Review|Complete|Completed|Failed|LandingFailed|Cancelled|Idle|Working|Stalled|Stopping|Queued|Passed|Landed|Active|Inactive)$/);
+  match = text.match(/^(Mission|Voyage|Captain) (Pending|Assigned|InProgress|WorkProduced|Testing|Review|Complete|Completed|Failed|LandingFailed|Cancelled|Blocked|Idle|Working|Stalled|Stopping|Queued|Passed|Landed|Active|Inactive)$/);
   if (match) {
     return `${translateText(locale, match[1], catalog)} ${translateText(locale, match[2], catalog)}`;
   }

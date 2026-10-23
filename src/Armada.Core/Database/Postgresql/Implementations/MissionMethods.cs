@@ -60,23 +60,46 @@ namespace Armada.Core.Database.Postgresql.Implementations
             using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                using (NpgsqlCommand cmd = new NpgsqlCommand())
-                {
-                    cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, requested_captain_id, assigned_harbor_id, title, description,
-                        status, mode, priority, parent_mission_id, branch_name, dock_id, process_id,
-                        pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, failure_kind, wait_for_voyage_workers, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, redispatch_attempts, output_repair_attempts, noop_redispatch_attempts, is_rescue, rework_round, rework_escalated, tier, created_utc, started_utc, completed_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @requested_captain_id, @assigned_harbor_id, @title, @description,
-                        @status, @mode, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
-                        @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @failure_kind, @wait_for_voyage_workers, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @redispatch_attempts, @output_repair_attempts, @noop_redispatch_attempts, @is_rescue, @rework_round, @rework_escalated, @tier, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
-                    AddMissionParameters(cmd, mission);
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                await InsertMissionAsync(conn, null, mission, token).ConfigureAwait(false);
 
                 await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token).ConfigureAwait(false);
             }
 
             return mission;
+        }
+
+        /// <inheritdoc />
+        public async Task CreateChainAsync(IReadOnlyList<Mission> created, IReadOnlyList<MissionDependencyUpdate> repointed, CancellationToken token = default)
+        {
+            if (created == null) throw new ArgumentNullException(nameof(created));
+            if (repointed == null) throw new ArgumentNullException(nameof(repointed));
+            if (created.Count == 0 && repointed.Count == 0) return;
+            foreach (Mission mission in created) mission.LastUpdateUtc = DateTime.UtcNow;
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlTransaction tx = (NpgsqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
+                {
+                    foreach (Mission mission in created)
+                        await InsertMissionAsync(conn, tx, mission, token).ConfigureAwait(false);
+                    foreach (MissionDependencyUpdate update in repointed)
+                    {
+                        using (NpgsqlCommand cmd = conn.CreateCommand())
+                        {
+                            cmd.Transaction = tx;
+                            cmd.CommandText = "UPDATE missions SET depends_on_mission_id = @depends_on_mission_id, last_update_utc = @last_update_utc WHERE id = @id;";
+                            cmd.Parameters.AddWithValue("@depends_on_mission_id", update.DependsOnMissionId);
+                            cmd.Parameters.AddWithValue("@last_update_utc", DateTime.UtcNow);
+                            cmd.Parameters.AddWithValue("@id", update.MissionId);
+                            await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                    }
+                    await tx.CommitAsync(token).ConfigureAwait(false);
+                }
+
+                if (created.Count > 0) await TouchVoyageAsync(conn, created[0].VoyageId, created[0].LastUpdateUtc, token).ConfigureAwait(false);
+            }
         }
 
         /// <summary>
@@ -720,6 +743,23 @@ namespace Armada.Core.Database.Postgresql.Implementations
         #endregion
 
         #region Private-Methods
+
+        private async Task InsertMissionAsync(NpgsqlConnection conn, NpgsqlTransaction? tx, Mission mission, CancellationToken token)
+        {
+            using (NpgsqlCommand cmd = new NpgsqlCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.Connection = conn;
+                cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, requested_captain_id, assigned_harbor_id, title, description,
+                    status, mode, priority, parent_mission_id, branch_name, dock_id, process_id,
+                    pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, failure_kind, wait_for_voyage_workers, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, redispatch_attempts, output_repair_attempts, noop_redispatch_attempts, is_rescue, rework_round, rework_escalated, tier, created_utc, started_utc, completed_utc, last_update_utc)
+                    VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @requested_captain_id, @assigned_harbor_id, @title, @description,
+                    @status, @mode, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id,
+                    @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @failure_kind, @wait_for_voyage_workers, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @redispatch_attempts, @output_repair_attempts, @noop_redispatch_attempts, @is_rescue, @rework_round, @rework_escalated, @tier, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                AddMissionParameters(cmd, mission);
+                await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+        }
 
         /// <summary>
         /// Write every mission column. When <paramref name="expectedStatuses"/> is supplied the write applies only

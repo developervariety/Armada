@@ -22,12 +22,12 @@ namespace Armada.Tui.Screens.Operations
         /// <summary>
         /// Statuses offered by the Missions list (no LandingFailed; the current status is excluded).
         /// </summary>
-        public static readonly string[] ListStatuses = new string[] { "Pending", "Assigned", "InProgress", "WorkProduced", "Testing", "Review", "Complete", "Failed", "Cancelled" };
+        public static readonly string[] ListStatuses = new string[] { "Pending", "Blocked", "Assigned", "InProgress", "WorkProduced", "Testing", "Review", "Complete", "Failed", "Cancelled" };
 
         /// <summary>
         /// Statuses offered by the Mission screen.
         /// </summary>
-        public static readonly string[] DetailStatuses = new string[] { "Pending", "Assigned", "InProgress", "WorkProduced", "Testing", "Review", "Complete", "Failed", "LandingFailed", "Cancelled" };
+        public static readonly string[] DetailStatuses = new string[] { "Pending", "Assigned", "InProgress", "WorkProduced", "Testing", "Review", "Complete", "Failed", "LandingFailed", "Cancelled", "Blocked" };
 
         /// <summary>
         /// Statuses after which the log viewer reports Done (the dashboard's completed list).

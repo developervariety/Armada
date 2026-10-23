@@ -260,7 +260,7 @@ namespace Armada.Server.Mcp.Tools
                     int cancelledCount = 0;
                     foreach (Mission m in missions)
                     {
-                        if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned)
+                        if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.Blocked)
                         {
                             // Release the captain if this mission was assigned to one
                             if (!String.IsNullOrEmpty(m.CaptainId))

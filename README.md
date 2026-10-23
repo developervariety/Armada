@@ -985,6 +985,7 @@ armada config init              # Interactive setup (optional)
 | `StallThresholdMinutes` | 10 | Minutes before a captain is considered stalled |
 | `MaxRecoveryAttempts` | 3 | Stall recovery attempts before the mission fails |
 | `TransientOutageGraceMinutes` | 10 | How long transient model or endpoint failures keep resuming in place, past `MaxRecoveryAttempts`, before the mission fails (0 turns this off, maximum 120) |
+| `BlockDependentsOfFailedStages` | `false` | When on, the stages waiting on a failed stage (and a final integration slice whose sibling slice failed) show `Blocked` instead of `Cancelled`, and the voyage stays open until the failed stage is restarted (they return to Pending) or the voyage is cancelled. When off, they are cancelled and the voyage settles as Failed; restarting the failed stage restores them either way |
 | `MaxMissionRecoveryAttempts` | 2 | Rescue missions per incident for recoverable failures (0 disables, maximum 5) |
 | `LandingMode` | `MergeAndPush` | Default landing policy (vessels and voyages can override it): `MergeAndPush`, `LocalMerge` (merge, no push), `PullRequest`, `MergeQueue`, or `None`. See [docs/MERGING.md](docs/MERGING.md#landing-mode); upgrading from 1.0.0, read [the landing mode notes](docs/MERGING.md#upgrading-from-100-landing-modes-fixed-in-101) |
 | `AutoMergePullRequests` | false | Enable auto-merge on pull requests opened by the `PullRequest` landing mode |

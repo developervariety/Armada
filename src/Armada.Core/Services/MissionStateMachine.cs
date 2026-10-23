@@ -24,6 +24,11 @@ namespace Armada.Core.Services
             {
                 case MissionStatusEnum.Pending:
                     return target == MissionStatusEnum.Assigned
+                        || target == MissionStatusEnum.Blocked
+                        || target == MissionStatusEnum.Cancelled;
+
+                case MissionStatusEnum.Blocked:
+                    return target == MissionStatusEnum.Pending
                         || target == MissionStatusEnum.Cancelled;
 
                 case MissionStatusEnum.Assigned:

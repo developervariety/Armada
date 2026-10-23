@@ -42,7 +42,7 @@ export interface DashboardAlert {
 }
 
 /** Statuses offered by the Home recent-missions status filter. */
-export const RECENT_MISSION_STATUSES = ['Pending', 'Assigned', 'InProgress', 'Testing', 'Review', 'Complete', 'Failed', 'Cancelled'];
+export const RECENT_MISSION_STATUSES = ['Pending', 'Blocked', 'Assigned', 'InProgress', 'Testing', 'Review', 'Complete', 'Failed', 'Cancelled'];
 
 /** Completed share of a voyage's missions, as a whole percentage. */
 export function voyagePercent(vp: VoyageProgress): number {

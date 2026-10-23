@@ -448,6 +448,7 @@ namespace Armada.Server
             admiralService.OnIsRemoteProcessTracked = _HarborConnectionManager.IsProcessTracked;
             admiralService.OnIsProcessAwaitingReconnect = _HarborConnectionManager.IsProcessAwaitingReconnect;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;
+            missionService.OnPeekMissionOutput = _AgentLifecycle.PeekMissionOutput;
             missionService.OnTakeMissionTelemetry = _AgentLifecycle.TakeMissionTelemetry;
 
             // When RequireHarborForLaunch is set, defer a mission until an eligible Harbor owned by the

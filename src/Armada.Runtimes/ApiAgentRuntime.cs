@@ -1010,8 +1010,9 @@ namespace Armada.Runtimes
             if (String.IsNullOrWhiteSpace(text) || IsTokenLimit(finishReason)) return false;
             if (!requiresCompletion) return true;
             string[] lines = text.Replace("\r", "").Split('\n');
-            return lines.Any(line => line.Trim() == "[ARMADA:RESULT] COMPLETE")
-                && lines.Any(line => !String.IsNullOrWhiteSpace(line) && line.Trim() != "[ARMADA:RESULT] COMPLETE");
+            // A verifier that found a blocking product defect ends with the blocked outcome instead; that is also a finished reply.
+            bool IsEnding(string line) => line.Trim() == "[ARMADA:RESULT] COMPLETE" || line.Trim() == VerifierContract.BlockedMarker;
+            return lines.Any(IsEnding) && lines.Any(line => !String.IsNullOrWhiteSpace(line) && !IsEnding(line));
         }
 
         private void WriteFinalMessage(string? finalMessageFilePath, string finalText)

@@ -115,7 +115,7 @@ namespace Armada.Core.Services
             List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
             foreach (Mission mission in missions)
             {
-                if (mission.Status != MissionStatusEnum.Pending && mission.Status != MissionStatusEnum.Assigned) continue;
+                if (mission.Status != MissionStatusEnum.Pending && mission.Status != MissionStatusEnum.Assigned && mission.Status != MissionStatusEnum.Blocked) continue;
 
                 if (!String.IsNullOrEmpty(mission.CaptainId))
                 {

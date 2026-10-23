@@ -199,7 +199,8 @@ export type MissionStatus =
   | 'Complete'
   | 'Failed'
   | 'LandingFailed'
-  | 'Cancelled';
+  | 'Cancelled'
+  | 'Blocked';
 
 /** Wire values of VoyageStatusEnum. */
 export type VoyageStatus = 'Open' | 'InProgress' | 'Complete' | 'Failed' | 'Cancelled';

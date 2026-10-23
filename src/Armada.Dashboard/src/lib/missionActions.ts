@@ -6,11 +6,11 @@
 import type { LandingPreviewResult, Mission, MissionAssignmentBlockerReason, MissionSummary } from '../types/models';
 
 /** Statuses offered by the Missions list's status filter and row Transition Status modal. */
-export const MISSION_LIST_STATUSES = ['Pending', 'Assigned', 'InProgress', 'WorkProduced', 'Testing', 'Review', 'Complete', 'Failed', 'Cancelled'];
+export const MISSION_LIST_STATUSES = ['Pending', 'Blocked', 'Assigned', 'InProgress', 'WorkProduced', 'Testing', 'Review', 'Complete', 'Failed', 'Cancelled'];
 
 /** Statuses offered by the mission detail's Transition Status modal. */
 export const MISSION_TRANSITION_STATUSES = [
-  'Pending', 'Assigned', 'InProgress', 'WorkProduced', 'Testing', 'Review', 'Complete', 'Failed', 'LandingFailed', 'Cancelled',
+  'Pending', 'Assigned', 'InProgress', 'WorkProduced', 'Testing', 'Review', 'Complete', 'Failed', 'LandingFailed', 'Cancelled', 'Blocked',
 ];
 
 /** Statuses in which a mission log no longer grows (the log viewer stops following). */

@@ -301,7 +301,7 @@ namespace Armada.Server.WebSocket
                         List<Mission> delVesselMissions = await _Database.Missions.EnumerateByVesselAsync(delVesselId).ConfigureAwait(false);
                         foreach (Mission dvm in delVesselMissions)
                         {
-                            if (dvm.Status == MissionStatusEnum.Pending || dvm.Status == MissionStatusEnum.Assigned || dvm.Status == MissionStatusEnum.InProgress)
+                            if (dvm.Status == MissionStatusEnum.Pending || dvm.Status == MissionStatusEnum.Blocked || dvm.Status == MissionStatusEnum.Assigned || dvm.Status == MissionStatusEnum.InProgress)
                             {
                                 dvm.Status = MissionStatusEnum.Cancelled;
                                 dvm.CompletedUtc = DateTime.UtcNow;
@@ -395,7 +395,7 @@ namespace Armada.Server.WebSocket
                         List<Mission> cvMissions = await _Database.Missions.EnumerateByVoyageAsync(cvId).ConfigureAwait(false);
                         foreach (Mission m in cvMissions)
                         {
-                            if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned)
+                            if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.Blocked)
                             {
                                 if (!String.IsNullOrEmpty(m.CaptainId))
                                 {

@@ -3290,7 +3290,8 @@ Transition a mission to a new status. Only valid transitions are allowed.
 
 | From | Allowed Targets |
 |---|---|
-| `Pending` | `Assigned`, `Cancelled` |
+| `Pending` | `Assigned`, `Blocked`, `Cancelled` |
+| `Blocked` | `Pending`, `Cancelled` |
 | `Assigned` | `InProgress`, `Cancelled` |
 | `InProgress` | `WorkProduced`, `Testing`, `Review`, `Complete`, `Failed`, `Cancelled` |
 | `WorkProduced` | `PullRequestOpen`, `Complete`, `LandingFailed`, `Cancelled` |

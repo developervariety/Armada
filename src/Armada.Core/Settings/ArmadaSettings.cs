@@ -314,6 +314,14 @@ namespace Armada.Core.Settings
         public bool VerifyAllStageRuntimes { get; set; } = true;
 
         /// <summary>
+        /// When true, the stages waiting on a stage that failed (and a final integration slice whose sibling slice
+        /// failed) are marked Blocked instead of Cancelled. Blocked stages keep the voyage open until the failed stage is
+        /// restarted, which returns them to Pending, or the voyage is cancelled. When false (the default), they are
+        /// cancelled, the voyage settles as Failed, and restarting the failed stage still restores them.
+        /// </summary>
+        public bool BlockDependentsOfFailedStages { get; set; } = false;
+
+        /// <summary>
         /// Base delay, in seconds, before a captain is resumed in place after a transient model or endpoint failure. Each
         /// further attempt doubles it (with jitter), up to 60 seconds, so a struggling local model server is not hit with
         /// an immediate retry storm. 0 resumes immediately. Must be in range [0, 60].

@@ -326,7 +326,13 @@ Approving a stage whose handoff then fails (for example an Architect whose outpu
 
 ### Restarting a stage
 
-`restart_mission` (MCP), `POST /api/v1/missions/{id}/restart`, and the WebSocket `restart_mission` command share one implementation. A Failed, LandingFailed, or Cancelled mission returns to Pending. A later pipeline stage keeps the previous stage's branch, so a restarted Judge reviews the Worker's commits; a first stage starts on a fresh branch. A finished voyage is reopened, and the stages after the restarted one that were cancelled because it failed are restored to Pending.
+`restart_mission` (MCP), `POST /api/v1/missions/{id}/restart`, and the WebSocket `restart_mission` command share one implementation. A Failed, LandingFailed, or Cancelled mission returns to Pending. A later pipeline stage keeps the previous stage's branch, so a restarted Judge reviews the Worker's commits; a first stage starts on a fresh branch. A finished voyage is reopened, and the stages after the restarted one that were cancelled (or Blocked) because it failed are restored to Pending.
+
+**Blocked stages (opt-in).** By default the stages waiting on a stage that failed are cancelled (`DependencyFailed`) and the voyage settles as Failed. With `BlockDependentsOfFailedStages` set to true, they are marked `Blocked` instead, with the failed mission named in their reason, and the voyage stays open: a Blocked stage is never dispatched, restarting the failed stage returns it to Pending, and cancelling the voyage cancels it. This applies to the stages chained after the failed one and to a final integration slice whose sibling slice failed.
+
+### When a verifier finds a product defect
+
+A Test Engineer, Linter, or Usability Engineer that finds a defect in the product code its role may not fix does not report COMPLETE. It adds an `## Affected Case` section (a `File: <path>[:line]` or `Scenario: <inputs and wrong result>` line, the violated requirement, expected and actual behavior, and the correction), and ends with the standalone line `[ARMADA:STAGE-OUTCOME] BLOCKED`. Armada then sends the work back to the Worker on the same branch with that finding, as it does for a Judge's NEEDS_REVISION: the stages between the Worker and the verifier run again, a new verifier checks the rework, and the later stages (the Judge, the Recorder) wait for it, so a known defect never reaches them. The stage's build and test check is skipped for a blocked verifier, since a failing test can be its evidence. The rework budget and early escalation are the Judge's. A BLOCKED line without a concrete affected case gets one output repair turn; a review-gated verifier, or one whose rework cannot be scheduled, fails with the reason instead.
 
 ### When a stage crashes
 
@@ -423,14 +429,14 @@ Customized templates can still emit an unversioned fenced `armada-plan` JSON blo
 ```
 ````
 
-`dependsOn` is the 1-based number of an earlier mission in the plan whose whole Worker chain must finish before this one starts (null when it can start immediately), and `waitForOtherMissions` defers the mission until the voyage's other workers settle.
+`dependsOn` is the 1-based number of an earlier mission in the plan whose whole Worker chain must finish before this one starts (null when it can start immediately), and `waitForOtherMissions` defers the mission until the voyage's other workers settle. When the output has several plan blocks, the final block must be valid; missions without a title, with a placeholder title such as `<title>`, or with a repeated title are dropped.
 
 **The final integration slice** (the mission with `waitForOtherMissions: true`) follows these rules against the voyage's other slices. A slice is a Worker that is not a rework, plus every stage and rework hanging off it.
 
 - **It waits** while any of their missions is still running, while a WorkProduced mission's handoff, rework or landing is still being decided, or while one has an unsettled merge-queue entry. A WorkProduced mission with no merge-queue entry counts as settled, so manual landing and landing mode `None` never hold it forever.
 - **It starts from their work.** Before the integration Worker launches, Armada merges each settled commit from the other slices into its branch (merge commits named after the slice). A merge that conflicts is aborted, so the dock is never left mid-merge, and the integration Worker is told which commit to merge and which files conflict. A commit that is not in the dock's repository, and cannot be fetched from the vessel's remote, refuses the stage with the reason instead of integrating without it.
-- **It does not run when a slice failed.** A mission in another slice that ended Failed or LandingFailed cancels the integration and its stages (`DependencyFailed`, naming that mission). Restarting the failed mission brings the integration back; restarting the integration itself works once the slice is resolved.
-- **It leaves out a slice an operator cancelled.** That slice's commits are not merged, and the integration Worker is told the slice is out of scope. A stage cancelled because something it depended on failed is not a decision to drop it. When the output has several plan blocks, the final block must be valid; missions without a title, with a placeholder title such as `<title>`, or with a repeated title are dropped.
+- **It does not run when a slice failed.** A mission in another slice that ended Failed or LandingFailed cancels the integration and its stages (`DependencyFailed`, naming that mission), or marks them Blocked when `BlockDependentsOfFailedStages` is on. Restarting the failed mission brings the integration back; restarting the integration itself works once the slice is resolved.
+- **It leaves out a slice an operator cancelled.** That slice's commits are not merged, and the integration Worker is told the slice is out of scope. A stage cancelled because something it depended on failed is not a decision to drop it.
 
 When there is no plan block, Armada falls back to the legacy `[ARMADA:MISSION]` markers (optionally closed with `[/ARMADA:MISSION]`, with a `Depends on:` line for sequencing), and then to numbered summary lines:
 

@@ -2893,7 +2893,8 @@ generated from the same source.
 
 | From | To |
 |---|---|
-| Pending | Assigned, Cancelled |
+| Pending | Assigned, Blocked, Cancelled |
+| Blocked | Pending, Cancelled |
 | Assigned | InProgress, Cancelled |
 | InProgress | WorkProduced, Testing, Review, Complete, Failed, Cancelled |
 | WorkProduced | PullRequestOpen, Complete, LandingFailed, Cancelled |

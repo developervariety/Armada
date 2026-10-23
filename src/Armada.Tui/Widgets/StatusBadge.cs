@@ -214,6 +214,7 @@ namespace Armada.Tui.Widgets
                 case MissionStatusEnum.Failed:
                 case MissionStatusEnum.LandingFailed: return StatusSeverityEnum.Error;
                 case MissionStatusEnum.Cancelled:
+                case MissionStatusEnum.Blocked:
                 case MissionStatusEnum.Review: return StatusSeverityEnum.Warning;
                 case MissionStatusEnum.Assigned:
                 case MissionStatusEnum.InProgress:
@@ -302,7 +303,7 @@ namespace Armada.Tui.Widgets
                 map[name] = StatusSeverityEnum.Success;
             foreach (string name in new string[] { "Failed", "Fail", "Error", "Unhealthy", "LandingFailed", "VerificationFailed", "DependencyFailed", "MissionFailed", "TimedOut" })
                 map[name] = StatusSeverityEnum.Error;
-            foreach (string name in new string[] { "Cancelled", "Canceled", "Stalled", "Stopping", "RolledBack", "RollingBack", "Denied", "ReviewDenied", "AccessDenied", "Warn", "Warning", "Review", "Pending", "PendingApproval", "CompletedWithFailures", "Partial" })
+            foreach (string name in new string[] { "Cancelled", "Canceled", "Blocked", "Stalled", "Stopping", "RolledBack", "RollingBack", "Denied", "ReviewDenied", "AccessDenied", "Warn", "Warning", "Review", "Pending", "PendingApproval", "CompletedWithFailures", "Partial" })
                 map[name] = StatusSeverityEnum.Warning;
             foreach (string name in new string[] { "InProgress", "Running", "Working", "Active", "Assigned", "Testing", "Queued" })
                 map[name] = StatusSeverityEnum.Running;

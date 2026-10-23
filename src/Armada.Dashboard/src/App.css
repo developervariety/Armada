@@ -954,7 +954,7 @@ h3 { font-size: 1.1rem; margin-bottom: 0.5rem; font-weight: 600; margin-top: 1re
 .tag.degraded { background: var(--tag-review-bg); color: var(--tag-review-fg); }
 .tag.failed, .tag.error, .tag.stalled, .tag.landingfailed { background: var(--tag-failed-bg); color: var(--tag-failed-fg); }
 .tag.fail { background: #dc2626; color: #fff; }
-.tag.review, .tag.warn { background: var(--tag-review-bg); color: var(--tag-review-fg); }
+.tag.review, .tag.warn, .tag.blocked { background: var(--tag-review-bg); color: var(--tag-review-fg); }
 .tag.cancelled, .tag.stopping { background: var(--tag-cancelled-bg); color: var(--tag-cancelled-fg); }
 .tag.assignment { background: var(--tag-working-bg); color: var(--tag-working-fg); }
 .tag.completion { background: var(--tag-complete-bg); color: var(--tag-complete-fg); }

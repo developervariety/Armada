@@ -55,62 +55,46 @@ namespace Armada.Core.Database.SqlServer.Implementations
             using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, requested_captain_id, assigned_harbor_id, title, description, status, mode, priority, redispatch_attempts, output_repair_attempts, noop_redispatch_attempts, is_rescue, rework_round, rework_escalated, tier, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, failure_kind, wait_for_voyage_workers, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @requested_captain_id, @assigned_harbor_id, @title, @description, @status, @mode, @priority, @redispatch_attempts, @output_repair_attempts, @noop_redispatch_attempts, @is_rescue, @rework_round, @rework_escalated, @tier, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @failure_kind, @wait_for_voyage_workers, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
-                    cmd.Parameters.AddWithValue("@id", mission.Id);
-                    cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@requested_captain_id", (object?)mission.RequestedCaptainId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@assigned_harbor_id", (object?)mission.AssignedHarborId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@title", mission.Title);
-                    cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
-                    cmd.Parameters.AddWithValue("@mode", mission.Mode.ToString());
-                    cmd.Parameters.AddWithValue("@priority", mission.Priority);
-                    cmd.Parameters.AddWithValue("@redispatch_attempts", mission.RedispatchAttempts);
-                    cmd.Parameters.AddWithValue("@output_repair_attempts", mission.OutputRepairAttempts);
-                    cmd.Parameters.AddWithValue("@noop_redispatch_attempts", mission.NoOpRedispatchAttempts);
-                    cmd.Parameters.AddWithValue("@is_rescue", mission.IsRescue);
-                    cmd.Parameters.AddWithValue("@rework_round", mission.ReworkRound);
-                    cmd.Parameters.AddWithValue("@rework_escalated", mission.ReworkEscalated);
-                    cmd.Parameters.AddWithValue("@tier", (object?)mission.Tier?.ToString() ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@process_id", mission.ProcessId.HasValue ? (object)mission.ProcessId.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@pr_url", (object?)mission.PrUrl ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@commit_hash", (object?)mission.CommitHash ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@diff_snapshot", (object?)mission.DiffSnapshot ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@agent_output", (object?)mission.AgentOutput ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@persona", (object?)mission.Persona ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@failure_kind", MissionFailureKindColumn.ToDbValue(mission.FailureKind));
-                    cmd.Parameters.AddWithValue("@wait_for_voyage_workers", mission.WaitForVoyageWorkers);
-                    cmd.Parameters.AddWithValue("@requires_review", mission.RequiresReview);
-                    cmd.Parameters.AddWithValue("@review_deny_action", mission.ReviewDenyAction.ToString());
-                    cmd.Parameters.AddWithValue("@review_comment", (object?)mission.ReviewComment ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewRequestedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@review_deadline_utc", mission.ReviewDeadlineUtc.HasValue ? (object)mission.ReviewDeadlineUtc.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(mission.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(mission.LastUpdateUtc));
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                await InsertMissionAsync(conn, null, mission, token).ConfigureAwait(false);
 
                 await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token).ConfigureAwait(false);
             }
 
             return mission;
+        }
+
+        /// <inheritdoc />
+        public async Task CreateChainAsync(IReadOnlyList<Mission> created, IReadOnlyList<MissionDependencyUpdate> repointed, CancellationToken token = default)
+        {
+            if (created == null) throw new ArgumentNullException(nameof(created));
+            if (repointed == null) throw new ArgumentNullException(nameof(repointed));
+            if (created.Count == 0 && repointed.Count == 0) return;
+            foreach (Mission mission in created) mission.LastUpdateUtc = DateTime.UtcNow;
+
+            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqlTransaction tx = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
+                {
+                    foreach (Mission mission in created)
+                        await InsertMissionAsync(conn, tx, mission, token).ConfigureAwait(false);
+                    foreach (MissionDependencyUpdate update in repointed)
+                    {
+                        using (SqlCommand cmd = conn.CreateCommand())
+                        {
+                            cmd.Transaction = tx;
+                            cmd.CommandText = "UPDATE missions SET depends_on_mission_id = @depends_on_mission_id, last_update_utc = @last_update_utc WHERE id = @id;";
+                            cmd.Parameters.AddWithValue("@depends_on_mission_id", update.DependsOnMissionId);
+                            cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(DateTime.UtcNow));
+                            cmd.Parameters.AddWithValue("@id", update.MissionId);
+                            await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                    }
+                    await tx.CommitAsync(token).ConfigureAwait(false);
+                }
+
+                if (created.Count > 0) await TouchVoyageAsync(conn, created[0].VoyageId, created[0].LastUpdateUtc, token).ConfigureAwait(false);
+            }
         }
 
         /// <inheritdoc />
@@ -977,6 +961,66 @@ namespace Armada.Core.Database.SqlServer.Implementations
             }
 
             return " AND status IN (" + String.Join(", ", placeholders) + ")";
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task InsertMissionAsync(SqlConnection conn, SqlTransaction? tx, Mission mission, CancellationToken token)
+        {
+            using (SqlCommand cmd = conn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, requested_captain_id, assigned_harbor_id, title, description, status, mode, priority, redispatch_attempts, output_repair_attempts, noop_redispatch_attempts, is_rescue, rework_round, rework_escalated, tier, parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, failure_reason, failure_kind, wait_for_voyage_workers, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, review_deadline_utc, total_runtime_ms, created_utc, started_utc, completed_utc, last_update_utc)
+                    VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @requested_captain_id, @assigned_harbor_id, @title, @description, @status, @mode, @priority, @redispatch_attempts, @output_repair_attempts, @noop_redispatch_attempts, @is_rescue, @rework_round, @rework_escalated, @tier, @parent_mission_id, @branch_name, @dock_id, @process_id, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @failure_reason, @failure_kind, @wait_for_voyage_workers, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @review_deadline_utc, @total_runtime_ms, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                cmd.Parameters.AddWithValue("@id", mission.Id);
+                cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@voyage_id", (object?)mission.VoyageId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@vessel_id", (object?)mission.VesselId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@captain_id", (object?)mission.CaptainId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@requested_captain_id", (object?)mission.RequestedCaptainId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@assigned_harbor_id", (object?)mission.AssignedHarborId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@title", mission.Title);
+                cmd.Parameters.AddWithValue("@description", (object?)mission.Description ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@status", mission.Status.ToString());
+                cmd.Parameters.AddWithValue("@mode", mission.Mode.ToString());
+                cmd.Parameters.AddWithValue("@priority", mission.Priority);
+                cmd.Parameters.AddWithValue("@redispatch_attempts", mission.RedispatchAttempts);
+                cmd.Parameters.AddWithValue("@output_repair_attempts", mission.OutputRepairAttempts);
+                cmd.Parameters.AddWithValue("@noop_redispatch_attempts", mission.NoOpRedispatchAttempts);
+                cmd.Parameters.AddWithValue("@is_rescue", mission.IsRescue);
+                cmd.Parameters.AddWithValue("@rework_round", mission.ReworkRound);
+                cmd.Parameters.AddWithValue("@rework_escalated", mission.ReworkEscalated);
+                cmd.Parameters.AddWithValue("@tier", (object?)mission.Tier?.ToString() ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@parent_mission_id", (object?)mission.ParentMissionId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@branch_name", (object?)mission.BranchName ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@dock_id", (object?)mission.DockId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@process_id", mission.ProcessId.HasValue ? (object)mission.ProcessId.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@pr_url", (object?)mission.PrUrl ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@commit_hash", (object?)mission.CommitHash ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@diff_snapshot", (object?)mission.DiffSnapshot ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@agent_output", (object?)mission.AgentOutput ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@persona", (object?)mission.Persona ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@depends_on_mission_id", (object?)mission.DependsOnMissionId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@failure_reason", (object?)mission.FailureReason ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@failure_kind", MissionFailureKindColumn.ToDbValue(mission.FailureKind));
+                cmd.Parameters.AddWithValue("@wait_for_voyage_workers", mission.WaitForVoyageWorkers);
+                cmd.Parameters.AddWithValue("@requires_review", mission.RequiresReview);
+                cmd.Parameters.AddWithValue("@review_deny_action", mission.ReviewDenyAction.ToString());
+                cmd.Parameters.AddWithValue("@review_comment", (object?)mission.ReviewComment ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@reviewed_by_user_id", (object?)mission.ReviewedByUserId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@review_requested_utc", mission.ReviewRequestedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewRequestedUtc.Value) : DBNull.Value);
+                cmd.Parameters.AddWithValue("@reviewed_utc", mission.ReviewedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.ReviewedUtc.Value) : DBNull.Value);
+                cmd.Parameters.AddWithValue("@review_deadline_utc", mission.ReviewDeadlineUtc.HasValue ? (object)mission.ReviewDeadlineUtc.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@total_runtime_ms", mission.TotalRuntimeMs.HasValue ? (object)mission.TotalRuntimeMs.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(mission.CreatedUtc));
+                cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
+                cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);
+                cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(mission.LastUpdateUtc));
+                await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
         }
 
         #endregion

@@ -30,7 +30,7 @@ administrator).
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 200 | 12 |
+| Settings keys | 201 | 12 |
 
 ## REST API
 
@@ -794,6 +794,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `ask.trackerIntervalSeconds` | int | `5` |  |
 | `ask.turnTimeoutMinutes` | int | `15` |  |
 | `autoMergePullRequests` | bool | `false` |  |
+| `blockDependentsOfFailedStages` | bool | `false` |  |
 | `branchCleanupPolicy` | enum BranchCleanupPolicyEnum (LocalOnly\|LocalAndRemote\|None) | `"LocalOnly"` |  |
 | `captainCrashLoopThreshold` | int | `3` |  |
 | `captainCrashLoopWindowMinutes` | int | `15` |  |

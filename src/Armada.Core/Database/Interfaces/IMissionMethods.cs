@@ -14,6 +14,17 @@ namespace Armada.Core.Database.Interfaces
         Task<Mission> CreateAsync(Mission mission, CancellationToken token = default);
 
         /// <summary>
+        /// Create several missions and move other missions' dependencies onto them in one transaction, so a multi-row
+        /// change (a Judge rework chain: the rework, its repeated stages, the new reviewer, and the re-pointed later
+        /// stages) is either written completely or not at all.
+        /// </summary>
+        /// <param name="created">Missions to create, in order.</param>
+        /// <param name="repointed">Dependency changes to apply after the missions are created.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A task.</returns>
+        Task CreateChainAsync(IReadOnlyList<Mission> created, IReadOnlyList<MissionDependencyUpdate> repointed, CancellationToken token = default);
+
+        /// <summary>
         /// Read a mission by identifier.
         /// </summary>
         Task<Mission?> ReadAsync(string id, CancellationToken token = default);

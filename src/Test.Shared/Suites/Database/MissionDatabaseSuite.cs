@@ -97,6 +97,41 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("mission_create_chain_is_atomic", "CreateChainAsync writes new missions and re-pointed dependencies together, and a chain that fails part-way leaves nothing behind", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+                    Mission judge = await db.Missions.CreateAsync(new Mission("Judge", "r") { VesselId = prereqs.Vessel.Id, VoyageId = prereqs.Voyage.Id });
+                    Mission recorder = await db.Missions.CreateAsync(new Mission("Recorder", "r") { VesselId = prereqs.Vessel.Id, VoyageId = prereqs.Voyage.Id, DependsOnMissionId = judge.Id });
+
+                    Mission rework = new Mission("Rework", "w") { VesselId = prereqs.Vessel.Id, VoyageId = prereqs.Voyage.Id, DependsOnMissionId = judge.Id, ReworkRound = 1 };
+                    Mission nextJudge = new Mission("Judge again", "r") { VesselId = prereqs.Vessel.Id, VoyageId = prereqs.Voyage.Id, DependsOnMissionId = rework.Id };
+                    await db.Missions.CreateChainAsync(new List<Mission> { rework, nextJudge }, new List<MissionDependencyUpdate> { new MissionDependencyUpdate(recorder.Id, nextJudge.Id) });
+                    AssertEqual(1, (await db.Missions.ReadAsync(rework.Id))!.ReworkRound, "the rework was written");
+                    AssertEqual(rework.Id, (await db.Missions.ReadAsync(nextJudge.Id))!.DependsOnMissionId, "the new reviewer follows the rework");
+                    AssertEqual(nextJudge.Id, (await db.Missions.ReadAsync(recorder.Id))!.DependsOnMissionId, "the later stage follows the new reviewer");
+
+                    // The second insert collides with an existing id, so the whole chain must roll back.
+                    Mission orphan = new Mission("Would be orphaned", "w") { VesselId = prereqs.Vessel.Id, VoyageId = prereqs.Voyage.Id, DependsOnMissionId = judge.Id };
+                    Mission duplicate = new Mission("Duplicate", "w") { VesselId = prereqs.Vessel.Id, VoyageId = prereqs.Voyage.Id };
+                    duplicate.Id = rework.Id;
+                    bool threw = false;
+                    try
+                    {
+                        await db.Missions.CreateChainAsync(new List<Mission> { orphan, duplicate }, new List<MissionDependencyUpdate> { new MissionDependencyUpdate(recorder.Id, orphan.Id) });
+                    }
+                    catch (Exception)
+                    {
+                        threw = true;
+                    }
+                    AssertTrue(threw, "a failing insert fails the chain");
+                    AssertNull(await db.Missions.ReadAsync(orphan.Id), "no part of a failed chain is written");
+                    AssertEqual(nextJudge.Id, (await db.Missions.ReadAsync(recorder.Id))!.DependsOnMissionId, "the re-point of a failed chain is rolled back");
+                }
+            }));
+
             cases.Add(CaseAsync("mission_create", "Mission_Create", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

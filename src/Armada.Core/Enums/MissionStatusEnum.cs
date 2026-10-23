@@ -76,6 +76,13 @@ namespace Armada.Core.Enums
         /// Mission cancelled.
         /// </summary>
         [EnumMember(Value = "Cancelled")]
-        Cancelled
+        Cancelled,
+
+        /// <summary>
+        /// Held because a stage it depends on failed (only with <c>BlockDependentsOfFailedStages</c> on). It waits, keeping
+        /// the voyage open, until the failed stage is restarted (it then returns to Pending) or the voyage is cancelled.
+        /// </summary>
+        [EnumMember(Value = "Blocked")]
+        Blocked
     }
 }

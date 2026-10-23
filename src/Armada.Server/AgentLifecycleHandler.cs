@@ -428,6 +428,41 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Read a mission's output without consuming it: the final-message artifact when present, otherwise the
+        /// accumulated stdout. Used before completion (the stage check) to see the stage's reported outcome.
+        /// </summary>
+        /// <param name="missionId">The mission.</param>
+        /// <returns>The output, or null.</returns>
+        public string? PeekMissionOutput(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return null;
+            if (_MissionFinalMessageFiles.TryGetValue(missionId, out string? finalMessageFilePath) && !String.IsNullOrEmpty(finalMessageFilePath))
+            {
+                try
+                {
+                    if (File.Exists(finalMessageFilePath))
+                    {
+                        string finalMessage = File.ReadAllText(finalMessageFilePath).Trim();
+                        if (!String.IsNullOrEmpty(finalMessage)) return finalMessage;
+                    }
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    _Logging.Debug(_Header + "could not read the final message artifact for mission " + missionId + ": " + ex.Message);
+                }
+            }
+            if (_MissionOutput.TryGetValue(missionId, out System.Text.StringBuilder? sb))
+            {
+                lock (sb)
+                {
+                    string text = sb.ToString().Trim();
+                    return text.Length > 0 ? text : null;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Retrieve and clear accumulated stdout output for a mission.
         /// Used by pipeline handoff to pass agent output to the next stage.
         /// </summary>

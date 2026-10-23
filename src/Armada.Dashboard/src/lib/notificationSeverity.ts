@@ -22,6 +22,7 @@ const MISSION_SEVERITY: Partial<Record<MissionStatus, Severity>> = {
   Failed: 'error',
   LandingFailed: 'error',
   Cancelled: 'warning',
+  Blocked: 'warning',
 };
 
 const VOYAGE_SEVERITY: Partial<Record<VoyageStatus, Severity>> = {

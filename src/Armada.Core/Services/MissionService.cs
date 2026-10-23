@@ -32,6 +32,11 @@ namespace Armada.Core.Services
         public Func<string, string?>? OnGetMissionOutput { get; set; }
 
         /// <summary>
+        /// Read a mission's output without consuming it (the stage check uses it to see a verifier's reported outcome).
+        /// </summary>
+        public Func<string, string?>? OnPeekMissionOutput { get; set; }
+
+        /// <summary>
         /// Optional callback invoked when a mission enters an approval-required review state.
         /// </summary>
         public Action<Mission>? OnReviewRequested { get; set; }
@@ -1075,7 +1080,7 @@ namespace Armada.Core.Services
                 // slice stopped because of it, which keeps its branch: its own dependency was not restarted.
                 List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId!, token).ConfigureAwait(false);
                 HashSet<string> chain = new HashSet<string>(StringComparer.Ordinal) { mission.Id };
-                foreach (Mission integration in voyageMissions.Where(m => m.Status == MissionStatusEnum.Cancelled
+                foreach (Mission integration in voyageMissions.Where(m => (m.Status == MissionStatusEnum.Cancelled || m.Status == MissionStatusEnum.Blocked)
                     && m.FailureKind == MissionFailureKindEnum.DependencyFailed && m.FailureReason != null
                     && m.FailureReason.StartsWith(_IntegrationBlockedPrefix, StringComparison.Ordinal)
                     && m.FailureReason.Contains("(" + mission.Id + ")", StringComparison.Ordinal)).ToList())
@@ -1093,7 +1098,8 @@ namespace Armada.Core.Services
                     foreach (Mission candidate in voyageMissions)
                     {
                         if (chain.Contains(candidate.Id) || String.IsNullOrEmpty(candidate.DependsOnMissionId) || !chain.Contains(candidate.DependsOnMissionId!)) continue;
-                        if (candidate.Status != MissionStatusEnum.Cancelled || candidate.FailureKind != MissionFailureKindEnum.DependencyFailed) continue;
+                        if ((candidate.Status != MissionStatusEnum.Cancelled && candidate.Status != MissionStatusEnum.Blocked)
+                            || candidate.FailureKind != MissionFailureKindEnum.DependencyFailed) continue;
                         chain.Add(candidate.Id);
                         ResetForRestart(candidate, null);
                         await _Database.Missions.UpdateAsync(candidate, token).ConfigureAwait(false);
@@ -1714,7 +1720,7 @@ namespace Armada.Core.Services
 
                     string? reworkUnavailableReason = null;
                     if (!mission.RequiresReview && !rejectedPass && isBlockingVerdict && exhibitsAffectedCase
-                        && await TryScheduleJudgeReworkAsync(mission, token, reason => reworkUnavailableReason = reason).ConfigureAwait(false))
+                        && await TryScheduleReworkAsync(mission, token, reason => reworkUnavailableReason = reason).ConfigureAwait(false))
                     {
                         // The Judge asked for concrete changes: the work goes back to a Worker on the same branch with
                         // the review, then to a new Judge. The rest of the pipeline now waits on that Judge.
@@ -1749,6 +1755,41 @@ namespace Armada.Core.Services
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                         _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing: " + blockingReason);
                     }
+                }
+            }
+
+            // A verifier stage that found a product defect it may not fix sends the work back to the Worker now, as a Judge's
+            // NEEDS_REVISION does, instead of passing a known blocker down the chain (HF-25).
+            if (!failedForScopeViolation && mission.Status == MissionStatusEnum.WorkProduced
+                && VerifierContract.Applies(mission.Persona) && VerifierContract.IsBlocked(mission.AgentOutput))
+            {
+                string? reworkUnavailableReason = null;
+                if (!JudgeContract.ExhibitsAffectedCase(mission.AgentOutput))
+                {
+                    string problem = mission.Persona + " reported " + VerifierContract.BlockedMarker + " without a concrete affected case; a block must cite a real affected file, line, or scenario";
+                    if (await TryScheduleOutputRepairAsync(mission, problem, VerifierContract.BlockingInstruction().Trim(), token).ConfigureAwait(false))
+                    {
+                        await FinishOutputRepairScheduledAsync(mission, captain, dock, token).ConfigureAwait(false);
+                        return;
+                    }
+                    reworkUnavailableReason = problem;
+                }
+                else if (!mission.RequiresReview
+                    && await TryScheduleReworkAsync(mission, token, reason => reworkUnavailableReason = reason).ConfigureAwait(false))
+                {
+                    _Logging.Info(_Header + mission.Persona + " mission " + mission.Id + " reported a blocking defect; sent back to the Worker for rework");
+                }
+                else
+                {
+                    mission.Status = MissionStatusEnum.Failed;
+                    mission.CompletedUtc = DateTime.UtcNow;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    mission.FailureReason = mission.Persona + " reported a blocking defect (see its Affected Case)."
+                        + (reworkUnavailableReason == null ? String.Empty : "\n" + reworkUnavailableReason)
+                        + "\nRemediation: read the stage's affected case, correct the product code on the preserved branch, then restart the pipeline from the Worker. Unverified work has not been approved for landing.";
+                    mission.FailureKind = MissionFailureKindEnum.JudgeRejected;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + mission.Persona + " mission " + mission.Id + " reported a blocking defect and no rework could be scheduled");
                 }
             }
 
@@ -3708,15 +3749,19 @@ namespace Armada.Core.Services
                  m.Status == MissionStatusEnum.Testing ||
                  m.Status == MissionStatusEnum.Review)).ToList();
 
+            bool block = _Settings.BlockDependentsOfFailedStages;
             foreach (Mission dependent in directDependents)
             {
-                dependent.Status = MissionStatusEnum.Cancelled;
-                dependent.FailureReason = "Blocked by failed dependency " + failedMission.Id;
+                // Blocking applies to stages still waiting; one that somehow started is cancelled either way.
+                bool blockThis = block && dependent.Status == MissionStatusEnum.Pending;
+                dependent.Status = blockThis ? MissionStatusEnum.Blocked : MissionStatusEnum.Cancelled;
+                dependent.FailureReason = "Blocked by failed dependency " + failedMission.Id
+                    + (blockThis ? ". Restart that mission to continue, or cancel the voyage." : String.Empty);
                 dependent.FailureKind = MissionFailureKindEnum.DependencyFailed;
-                dependent.CompletedUtc = DateTime.UtcNow;
+                dependent.CompletedUtc = blockThis ? null : DateTime.UtcNow;
                 dependent.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
-                _Logging.Info(_Header + "cancelled dependent mission " + dependent.Id +
+                _Logging.Info(_Header + (blockThis ? "blocked" : "cancelled") + " dependent mission " + dependent.Id +
                     " because upstream mission " + failedMission.Id + " ended in " + failedMission.Status);
                 await CancelDependentPipelineStagesAsync(dependent, token).ConfigureAwait(false);
             }
@@ -5223,15 +5268,16 @@ namespace Armada.Core.Services
         private async Task CancelIntegrationForFailedSliceAsync(Mission integration, Mission failed, CancellationToken token)
         {
             MissionStatusEnum observed = integration.Status;
-            integration.Status = MissionStatusEnum.Cancelled;
+            bool block = _Settings.BlockDependentsOfFailedStages && observed == MissionStatusEnum.Pending;
+            integration.Status = block ? MissionStatusEnum.Blocked : MissionStatusEnum.Cancelled;
             integration.FailureKind = MissionFailureKindEnum.DependencyFailed;
             integration.FailureReason = _IntegrationBlockedPrefix + "mission '" + failed.Title + "' (" + failed.Id + ") in another slice ended "
                 + failed.Status + ", so its work cannot be integrated. Restart that mission to bring this integration back, "
                 + "or restart this one once the slice is resolved.";
-            integration.CompletedUtc = DateTime.UtcNow;
+            integration.CompletedUtc = block ? null : DateTime.UtcNow;
             integration.LastUpdateUtc = DateTime.UtcNow;
             if (!await _Database.Missions.TryUpdateIfStatusAsync(integration, new MissionStatusEnum[] { observed }, token).ConfigureAwait(false)) return;
-            _Logging.Info(_Header + "cancelled integration mission " + integration.Id + " because sibling mission " + failed.Id + " ended " + failed.Status);
+            _Logging.Info(_Header + (block ? "blocked" : "cancelled") + " integration mission " + integration.Id + " because sibling mission " + failed.Id + " ended " + failed.Status);
             await CancelDependentPipelineStagesAsync(integration, token).ConfigureAwait(false);
         }
 
@@ -5410,7 +5456,7 @@ namespace Armada.Core.Services
 
         private const int _MaxJudgeReworkRounds = 2;
 
-        private async Task<bool> TryScheduleJudgeReworkAsync(Mission judge, CancellationToken token, Action<string>? onUnavailable = null)
+        private async Task<bool> TryScheduleReworkAsync(Mission judge, CancellationToken token, Action<string>? onUnavailable = null)
         {
             bool Unavailable(string reason) { onUnavailable?.Invoke(reason); return false; }
             if (String.IsNullOrEmpty(judge.VoyageId) || String.IsNullOrEmpty(judge.DependsOnMissionId))
@@ -5429,7 +5475,8 @@ namespace Armada.Core.Services
             {
                 cursor = byId.TryGetValue(cursor.DependsOnMissionId!, out Mission? up) ? up : null;
                 if (cursor == null) break;
-                if (worker != null && previousJudge == null && PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Judge)) previousJudge = cursor;
+                // The earlier review by the same kind of stage (the Judge, or the verifier that blocked), for stagnation.
+                if (worker != null && previousJudge == null && PersonaCatalog.Matches(cursor.Persona, judge.Persona)) previousJudge = cursor;
                 if (!PersonaCatalog.Matches(cursor.Persona, PersonaCatalog.Worker)) continue;
                 if (worker == null) worker = cursor;
                 workerChain.Add(cursor.Id);
@@ -5497,7 +5544,9 @@ namespace Armada.Core.Services
             rework.RequestedCaptainId = escalateTo;
             rework.DependsOnMissionId = judge.Id;
             rework.RequiresReview = false;
-            rework = await _Database.Missions.CreateAsync(rework, token).ConfigureAwait(false);
+            // The whole chain (rework, repeated stages, new reviewer, re-pointed later stages) is written in one
+            // transaction, so an interruption can never leave later stages waiting on the rejected review (L8).
+            List<Mission> chain = new List<Mission> { rework };
 
             // Repeat the actual verification stages between this slice's Worker and Judge. Rework must
             // not silently downgrade FullPipeline to Reviewed. Use the original contract, not stale excerpts.
@@ -5526,29 +5575,29 @@ namespace Armada.Core.Services
                 repeated.DependsOnMissionId = reworkParentId;
                 repeated.RequiresReview = original.RequiresReview;
                 repeated.ReviewDenyAction = original.ReviewDenyAction;
-                repeated = await _Database.Missions.CreateAsync(repeated, token).ConfigureAwait(false);
+                chain.Add(repeated);
                 reworkParentId = repeated.Id;
             }
 
-            Mission nextJudge = new Mission("[Judge] Review rework " + round + ": " + baseTitle, taskSpec);
+            bool reviewerIsJudge = PersonaCatalog.Matches(judge.Persona, PersonaCatalog.Judge);
+            Mission nextJudge = new Mission(reviewerIsJudge
+                ? "[Judge] Review rework " + round + ": " + baseTitle
+                : "[" + judge.Persona + "] Rework " + round + ": " + baseTitle, taskSpec);
             nextJudge.TenantId = judge.TenantId;
             nextJudge.UserId = judge.UserId;
             nextJudge.VoyageId = judge.VoyageId;
             nextJudge.VesselId = judge.VesselId;
-            nextJudge.Persona = PersonaCatalog.Judge;
+            nextJudge.Persona = reviewerIsJudge ? PersonaCatalog.Judge : judge.Persona;
             nextJudge.Tier = judge.Tier;
             nextJudge.DependsOnMissionId = reworkParentId;
             nextJudge.RequiresReview = judge.RequiresReview;
             nextJudge.ReviewDenyAction = judge.ReviewDenyAction;
-            nextJudge = await _Database.Missions.CreateAsync(nextJudge, token).ConfigureAwait(false);
+            chain.Add(nextJudge);
 
-            // The stages after this Judge (Recorder, landing) now follow the new Judge.
-            foreach (Mission dependent in voyageMissions.Where(m => m.DependsOnMissionId == judge.Id))
-            {
-                dependent.DependsOnMissionId = nextJudge.Id;
-                dependent.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
-            }
+            // The stages after this reviewer (Recorder, landing) now follow the new one.
+            List<MissionDependencyUpdate> repointed = voyageMissions.Where(m => m.DependsOnMissionId == judge.Id)
+                .Select(m => new MissionDependencyUpdate(m.Id, nextJudge.Id)).ToList();
+            await _Database.Missions.CreateChainAsync(chain, repointed, token).ConfigureAwait(false);
 
             _Logging.Info(_Header + "judge " + judge.Id + ": rework round " + round + " as Worker mission " + rework.Id + ", re-review " + nextJudge.Id
                 + (escalateTo != null ? "; escalating to " + escalateTo + (stagnant ? " after unchanged work" : " after the rework budget") : ""));
@@ -5600,6 +5649,13 @@ namespace Armada.Core.Services
                 || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.ProductManager) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Recorder))
                 return null;
             if (String.IsNullOrEmpty(mission.DockId) || String.IsNullOrEmpty(mission.VesselId)) return null;
+            // A verifier that reported a blocking product defect is not checked: a failing check is its evidence, and its
+            // outcome goes to the Worker as rework rather than back to the verifier to "fix" (HF-25).
+            if (VerifierContract.Applies(mission.Persona) && OnPeekMissionOutput != null && VerifierContract.IsBlocked(OnPeekMissionOutput(mission.Id)))
+            {
+                _Logging.Info(_Header + mission.Persona + " mission " + mission.Id + " reported a blocking defect; skipping the stage check");
+                return null;
+            }
 
             try
             {

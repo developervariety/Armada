@@ -481,6 +481,67 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("failed_stage_blocks_dependents_when_configured", "With BlockDependentsOfFailedStages on, a failed stage's dependents are Blocked, the voyage stays open, and restarting the failed stage returns them to Pending", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MaxOutputRepairAttempts = 0;
+                    settings.BlockDependentsOfFailedStages = true;
+                    DirCreatingGitStub git = new DirCreatingGitStub();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    missionService.OnMissionComplete = (Mission mission, Dock dock) => Task.CompletedTask;
+                    missionService.OnGetMissionOutput = _ => "Architect summary without mission markers";
+
+                    Vessel vessel = new Vessel("blocked-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("blocked-captain") { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("blocked-voyage")).ConfigureAwait(false);
+                    Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        CaptainId = captain.Id, WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N")), BranchName = "armada/blocked/arch", Active = true
+                    }).ConfigureAwait(false);
+                    Mission architect = await testDb.Driver.Missions.CreateAsync(new Mission("[Architect] Plan", "Plan")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, CaptainId = captain.Id, DockId = dock.Id, Persona = "Architect", Status = MissionStatusEnum.InProgress, BranchName = dock.BranchName
+                    }).ConfigureAwait(false);
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("[Worker] Placeholder", "Work")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", DependsOnMissionId = architect.Id
+                    }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("[Judge] Placeholder", "Review")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", DependsOnMissionId = worker.Id
+                    }).ConfigureAwait(false);
+                    captain.CurrentMissionId = architect.Id;
+                    captain.CurrentDockId = dock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    await missionService.HandleCompletionAsync(captain, architect.Id).ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Failed, (await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!.Status);
+                    Mission? blockedWorker = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Blocked, blockedWorker!.Status, "the waiting Worker is Blocked, not Cancelled");
+                    AssertEqual(MissionFailureKindEnum.DependencyFailed, blockedWorker.FailureKind);
+                    AssertContains("Restart that mission", blockedWorker.FailureReason ?? "");
+                    AssertNull(blockedWorker.CompletedUtc, "a Blocked mission has not finished");
+                    AssertEqual(MissionStatusEnum.Blocked, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Status, "the stage after it is Blocked too");
+                    Voyage? open = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertNotEqual(VoyageStatusEnum.Failed, open!.Status, "Blocked stages keep the voyage open");
+
+                    await missionService.RestartAsync((await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false))!).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!.Status, "restarting the failed stage unblocks the Worker");
+                    AssertEqual(MissionStatusEnum.Pending, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Status, "and the stage after it");
+                    AssertTrue(MissionStateMachine.IsValidTransition(MissionStatusEnum.Blocked, MissionStatusEnum.Cancelled), "cancelling a voyage can cancel a Blocked stage");
+                    AssertFalse(MissionStateMachine.IsValidTransition(MissionStatusEnum.Blocked, MissionStatusEnum.Assigned), "a Blocked stage is never dispatched");
+                }
+            }));
+
             cases.Add(CaseAsync("architect_failure_during_handoff_does_not_trigger_landing", "Architect failure during handoff does not trigger landing", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
