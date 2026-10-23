@@ -233,19 +233,48 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    MarkAutoDispatchableArgs? request = args.HasValue
-                        ? JsonSerializer.Deserialize<MarkAutoDispatchableArgs>(args.Value, _JsonOptions)
-                        : null;
+                    MarkAutoDispatchableArgs? request;
+                    try
+                    {
+                        request = args.HasValue
+                            ? JsonSerializer.Deserialize<MarkAutoDispatchableArgs>(args.Value, _JsonOptions)
+                            : null;
+                    }
+                    catch (JsonException)
+                    {
+                        // The argument DTO disallows unmapped members, so an unknown field (for
+                        // example a misnamed enabled flag) is rejected here rather than ignored.
+                        // Ignoring it would silently drop the caller's intent and apply the default.
+                        return (object)new
+                        {
+                            error = "armada_mark_objective_auto_dispatchable received an unexpected field.",
+                            code = "unexpected_field",
+                            reason = "The arguments carried a field the tool does not accept.",
+                            action = "Pass only objectiveId, enabled, and optionally blockedByObjectiveIds. The opt-in flag is named enabled."
+                        };
+                    }
 
                     if (request == null || String.IsNullOrWhiteSpace(request.ObjectiveId))
                         return (object)new { error = "objectiveId is required." };
+
+                    // enabled is required. Without this guard an omitted flag deserializes to its
+                    // default and silently opts the objective OUT while returning success, so a
+                    // caller who meant to opt in cannot tell the call did the opposite.
+                    if (!request.Enabled.HasValue)
+                        return (object)new
+                        {
+                            error = "armada_mark_objective_auto_dispatchable requires the enabled flag.",
+                            code = "missing_enabled",
+                            reason = "The enabled flag was absent.",
+                            action = "Pass enabled=true to opt the objective in to auto-dispatch, or enabled=false to opt it out."
+                        };
 
                     try
                     {
                         AuthContext auth = McpCallerContext.Require();
                         ObjectiveUpsertRequest upsert = new ObjectiveUpsertRequest
                         {
-                            AutoDispatchEnabled = request.Enabled,
+                            AutoDispatchEnabled = request.Enabled.Value,
                             BlockedByObjectiveIds = request.BlockedByObjectiveIds
                         };
 
@@ -364,7 +393,9 @@ namespace Armada.Server.Mcp.Tools
 
         /// <summary>
         /// Strongly-typed DTO for armada_mark_objective_auto_dispatchable arguments.
+        /// Unmapped members are disallowed so a misnamed field is reported, not ignored.
         /// </summary>
+        [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
         private sealed class MarkAutoDispatchableArgs
         {
             /// <summary>
@@ -373,9 +404,10 @@ namespace Armada.Server.Mcp.Tools
             public string ObjectiveId { get; set; } = string.Empty;
 
             /// <summary>
-            /// Whether to opt this objective in to auto-dispatch.
+            /// Whether to opt this objective in to auto-dispatch. Null means the caller omitted
+            /// the flag, which the tool rejects rather than applying a default opt-out.
             /// </summary>
-            public bool Enabled { get; set; } = false;
+            public bool? Enabled { get; set; } = null;
 
             /// <summary>
             /// Optional blocker objective IDs. Null means leave unchanged.
