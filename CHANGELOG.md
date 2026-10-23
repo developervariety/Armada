@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Armed Build and UnitTest checks recheck definition-of-done evidence after
+  the host slot wait. Gates publish passes before releasing their slot.
+  A matching pass satisfies the check without another full command run.
+- DoD build, test, consumer and isolated rerun commands use their workflow
+  environment. Reusable command passes use an unambiguous environment fingerprint.
+
 ### Added
 
 - Historical database checks restore a native v51 backup into an owned isolated

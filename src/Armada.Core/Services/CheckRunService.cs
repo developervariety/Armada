@@ -1210,6 +1210,15 @@ namespace Armada.Core.Services
 
                 using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), run.VesselId, token).ConfigureAwait(false))
                 {
+                    // A gate ahead of this check can publish its pass while the check waits. Read the
+                    // evidence again before starting the command so that wait does not cause a duplicate run.
+                    satisfied = await TryCompleteFromGatePassAsync(run, profile, token).ConfigureAwait(false);
+                    if (satisfied != null)
+                    {
+                        await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
+                        return satisfied;
+                    }
+
                     if (isolatedCheckout != null)
                     {
                         string waitedPath = isolatedCheckout.Path;

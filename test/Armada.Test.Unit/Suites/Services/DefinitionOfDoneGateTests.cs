@@ -145,20 +145,30 @@ namespace Armada.Test.Unit.Suites.Services
                 try
                 {
                     DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false };
-                    string build = "echo built";
-                    string test = "echo tested";
+                    Dictionary<string, string> environment = new Dictionary<string, string> { ["ARMADA_GATE_TEST_MODE"] = "profile-value", ["CONTEXT"] = "one\nNEXT=two" };
+                    string build = OperatingSystem.IsWindows()
+                        ? "echo %ARMADA_GATE_TEST_MODE%>build-mode.txt"
+                        : "printf '%s' \"$ARMADA_GATE_TEST_MODE\" > build-mode.txt";
+                    string test = OperatingSystem.IsWindows()
+                        ? "echo %ARMADA_GATE_TEST_MODE%>test-mode.txt"
+                        : "printf '%s' \"$ARMADA_GATE_TEST_MODE\" > test-mode.txt";
 
-                    await EnsureVesselWithProfileAsync(testDb, "ten_pass_rec", "vsl_pass_rec", passWorktree, build, test, null, "Pass Record Vessel").ConfigureAwait(false);
+                    await EnsureVesselWithProfileAsync(testDb, "ten_pass_rec", "vsl_pass_rec", passWorktree, build, test, null, "Pass Record Vessel", environmentVariables: environment).ConfigureAwait(false);
                     Mission passing = CreateWorkerMission("ten_pass_rec", "vsl_pass_rec");
                     DefinitionOfDoneGate passGate = new DefinitionOfDoneGate(settings, testDb.Driver, logging, null,
                         new StubGitService { HeadCommitHashResult = head, IsWorkingDirectoryCleanResult = true });
                     DefinitionOfDoneResult passed = await passGate.EvaluateAsync(passing, new Dock { WorktreePath = passWorktree }).ConfigureAwait(false);
                     AssertTrue(passed.Passed, "the gate passes");
+                    AssertEqual("profile-value", File.ReadAllText(Path.Combine(passWorktree, "build-mode.txt")).Trim(), "build reads the profile environment");
+                    AssertEqual("profile-value", File.ReadAllText(Path.Combine(passWorktree, "test-mode.txt")).Trim(), "tests read the profile environment");
 
-                    DefinitionOfDoneCommandPass? buildPass = DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", head, build, null);
-                    DefinitionOfDoneCommandPass? testPass = DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", head, test, null);
+                    DefinitionOfDoneCommandPass? buildPass = DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", head, build, environment);
+                    DefinitionOfDoneCommandPass? testPass = DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", head, test, environment);
                     AssertNotNull(buildPass, "the build command is recorded at the worktree HEAD");
                     AssertNotNull(testPass, "the unit-test command is recorded at the worktree HEAD");
+                    AssertNull(DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", head, test,
+                        new Dictionary<string, string> { ["ARMADA_GATE_TEST_MODE"] = "profile-value", ["CONTEXT"] = "one", ["NEXT"] = "two" }),
+                        "a newline in one value cannot impersonate a second variable");
                     AssertEqual(passing.Id, testPass!.MissionId, "the pass names the gate's mission");
                     AssertEqual("unit-test", testPass.Label);
                     AssertNull(DefinitionOfDoneCommandPasses.Find("vsl_pass_rec", new string('b', 40), test, null), "a pass is bound to its commit");
@@ -194,16 +204,33 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 string worktreePath = CreateTempDir();
+                Func<long?> memoryReaderBefore = HostWideCommandLock.MemoryReader;
+                int memoryFloorBefore = HostWideCommandLock.MemoryFloorMb;
+                int admissionReadings = 0;
+                DefinitionOfDoneCommandPass? passAtProbeAdmission = null;
+                string head = new string('c', 40);
+                string testCommand = EchoToFileCommand("tests-ran.txt", "ran");
                 try
                 {
+                    // The reader runs synchronously when each waiting command is admitted. Observe the
+                    // pass before releasing the gate can schedule either caller's continuation.
+                    HostWideCommandLock.SetMemoryReader(() =>
+                    {
+                        admissionReadings++;
+                        if (admissionReadings == 2)
+                            passAtProbeAdmission = DefinitionOfDoneCommandPasses.Find("vsl_gate_fair", head, testCommand, null);
+                        return 1024;
+                    });
+                    HostWideCommandLock.SetMemoryFloorMb(1);
                     string slowBuild = OperatingSystem.IsWindows() ? "timeout /t 2 /nobreak > nul" : "sleep 1";
                     await EnsureVesselWithProfileAsync(testDb, "ten_gate_fair", "vsl_gate_fair",
-                        worktreePath, slowBuild, EchoToFileCommand("tests-ran.txt", "ran")).ConfigureAwait(false);
+                        worktreePath, slowBuild, testCommand).ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
                         new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
                         testDb.Driver,
-                        logging);
+                        logging,
+                        gitService: new StubGitService { HeadCommitHashResult = head, IsWorkingDirectoryCleanResult = true });
                     Task<DefinitionOfDoneResult> gateRun = gate.EvaluateAsync(
                         CreateWorkerMission("ten_gate_fair", "vsl_gate_fair"),
                         new Dock { WorktreePath = worktreePath });
@@ -219,6 +246,8 @@ namespace Armada.Test.Unit.Suites.Services
                     using (await HostWideCommandLock.AcquireAsync("chk_fair_probe", "check probe", CancellationToken.None).ConfigureAwait(false))
                     {
                         testsRanFirst = File.Exists(Path.Combine(worktreePath, "tests-ran.txt"));
+                        AssertNotNull(passAtProbeAdmission, "the gate published its full pass before granting the queued command's slot");
+                        AssertNotNull(DefinitionOfDoneCommandPasses.Find("vsl_gate_fair", head, testCommand, null), "the released slot exposes the gate pass immediately");
                     }
 
                     DefinitionOfDoneResult result = await gateRun.ConfigureAwait(false);
@@ -228,6 +257,8 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally
                 {
+                    HostWideCommandLock.SetMemoryFloorMb(memoryFloorBefore);
+                    HostWideCommandLock.SetMemoryReader(memoryReaderBefore);
                     TryDeleteDirectory(worktreePath);
                 }
             }).ConfigureAwait(false);
@@ -2448,7 +2479,8 @@ namespace Armada.Test.Unit.Suites.Services
             string vesselName = "Test Vessel",
             string? failedTestLinePattern = null,
             string? isolatedTestRerunCommand = null,
-            int? gateCommandTimeoutSeconds = null)
+            int? gateCommandTimeoutSeconds = null,
+            Dictionary<string, string>? environmentVariables = null)
         {
             await EnsureVesselOnlyAsync(testDb, tenantId, vesselId, worktreePath, vesselName).ConfigureAwait(false);
 
@@ -2464,6 +2496,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FailedTestLinePattern = failedTestLinePattern,
                 IsolatedTestRerunCommand = isolatedTestRerunCommand,
                 GateCommandTimeoutSeconds = gateCommandTimeoutSeconds,
+                EnvironmentVariables = environmentVariables ?? new Dictionary<string, string>(),
                 IsDefault = true,
                 Active = true
             };

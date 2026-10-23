@@ -571,6 +571,40 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(stored.DurationMs, "a check that ran no command has no run time, not a zero one");
                     AssertNotNull(CheckRunSummaryView.From(stored).SatisfiedBy, "get_check_run shows the source run");
 
+                    string queuedCommit = new string('f', 40);
+                    CheckRun queued = await testDb.Driver.CheckRuns.CreateAsync(ArmedAt(queuedCommit)).ConfigureAwait(false);
+                    Task<CheckRun> queuedRun;
+                    IDisposable hostSlot = await HostWideCommandLock.AcquireAloneAsync("gate-pass-holder", "gate completing ahead of a check", CancellationToken.None).ConfigureAwait(false);
+                    try
+                    {
+                        queuedRun = checkRuns.RunPendingAsync(auth, queued.Id);
+                        DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                        while (!HostWideCommandLock.Snapshot().Waiters.Any(waiter => waiter.Key == queued.Id)
+                            && DateTime.UtcNow < deadline)
+                            await Task.Delay(10).ConfigureAwait(false);
+                        AssertTrue(HostWideCommandLock.Snapshot().Waiters.Any(waiter => waiter.Key == queued.Id), "the check reached the slot wait before the gate passed");
+                        DefinitionOfDoneCommandPasses.Record(new DefinitionOfDoneCommandPass
+                        {
+                            MissionId = "msn_gate_queued",
+                            VesselId = vessel.Id,
+                            CommitHash = queuedCommit,
+                            Label = "unit-test",
+                            Command = unitTest,
+                            CompletedUtc = gatePassedUtc
+                        });
+                    }
+                    finally
+                    {
+                        hostSlot.Dispose();
+                    }
+
+                    CheckRun satisfiedAfterWait = await queuedRun.ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, satisfiedAfterWait.Status, "a gate pass published during the slot wait satisfies the check: " + satisfiedAfterWait.Output);
+                    AssertNotNull(satisfiedAfterWait.SatisfiedBy);
+                    AssertEqual("msn_gate_queued", satisfiedAfterWait.SatisfiedBy!.MissionId);
+                    AssertFalse((satisfiedAfterWait.Output ?? String.Empty).Contains("suite-ran", StringComparison.Ordinal), "the queued check did not run the suite again");
+                    AssertNull(satisfiedAfterWait.DurationMs);
+
                     CheckRun other = await testDb.Driver.CheckRuns.CreateAsync(ArmedAt(new string('e', 40))).ConfigureAwait(false);
                     CheckRun ran = await checkRuns.RunPendingAsync(auth, other.Id).ConfigureAwait(false);
                     AssertEqual(CheckRunStatusEnum.Failed, ran.Status, "a check of another commit runs its command");

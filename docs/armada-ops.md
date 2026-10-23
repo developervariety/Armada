@@ -98,6 +98,14 @@ not prove delivery. A report required in a stage's final response is checked
 in that stage's mission output. The active Judge prompt defines the full
 review sections, evidence and verdict contract.
 
+## Check evidence reuse
+
+Automatic Build and UnitTest Checks reuse a full passing definition-of-done
+command on the same vessel and commit with the same command and environment.
+Gates publish this evidence before they release their host command slot. Checks
+read it before and after waiting for a slot.
+The Check records the source gate in `SatisfiedBy` and has no execution duration.
+
 ## Blocked gate recovery
 
 A recorded definition-of-done failure class of `Infra` or `Timeout` blocks
@@ -159,6 +167,11 @@ lists each conflict. Rule with `armada_review_hold`: `clear` lands the work as
 it stands, `fail` ends it `Failed` with the `criterion_conflict:` rescue block.
 Either ruling closes the incident. See [PIPELINES.md](PIPELINES.md),
 "Criterion conflicts".
+
+DoD commands use their workflow profile's environment variables. Consumer commands
+use the consumer profile. Isolated reruns keep those variables and add their failing
+test names. Reused evidence compares the configured environment with unambiguous field
+lengths, so a newline in a value cannot match another variable.
 
 ## Check rules on a split voyage
 

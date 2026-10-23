@@ -95,7 +95,7 @@ namespace Armada.Core.Services
             return String.Join("\n", environment
                 .Where(pair => !String.IsNullOrWhiteSpace(pair.Key))
                 .OrderBy(pair => pair.Key, StringComparer.Ordinal)
-                .Select(pair => pair.Key + "=" + (pair.Value ?? String.Empty)));
+                .Select(pair => pair.Key.Length + ":" + pair.Key + (pair.Value ?? String.Empty).Length + ":" + (pair.Value ?? String.Empty)));
         }
 
         /// <summary>

@@ -181,7 +181,7 @@ namespace Armada.Core.Services
                     if (ResolveSkipReason(mission) == null)
                         await WaitForHostAdmissionAsync(mission, dock, run.Token).ConfigureAwait(false);
 
-                    result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit, fullPasses).ConfigureAwait(false);
+                    result = await EvaluateAttemptAsync(mission, dock, run, stageStartCommit, fullPasses).ConfigureAwait(false);
 
                     // A whole host running several times slower than normal times out commands that pass at
                     // normal load. Such a time limit says little about the change, so the gate waits for load
@@ -204,7 +204,7 @@ namespace Armada.Core.Services
                                 ? await WaitForHostLoadToFallAsync(mission, dock, atTimeout, run.Token).ConfigureAwait(false)
                                 : atTimeout;
                             await RecordHostLoadRerunAsync(mission, result, overloaded, atTimeout, atRerun, token).ConfigureAwait(false);
-                            result = await EvaluateAttemptAsync(mission, dock, run.Token, stageStartCommit, fullPasses, alone: true).ConfigureAwait(false);
+                            result = await EvaluateAttemptAsync(mission, dock, run, stageStartCommit, fullPasses, alone: true).ConfigureAwait(false);
 
                             // A second time limit that still reads as host load is the host's, not the change's: the
                             // reason says so, and recovery may carry the work through one fresh gate.
@@ -233,13 +233,6 @@ namespace Armada.Core.Services
                 {
                     _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission was cancelled");
                     throw new DefinitionOfDoneGateCancelledException(mission.Id);
-                }
-
-                // Only a gate that passed as a whole vouches for its commands; a failed or timed-out gate
-                // records nothing, even for a command that passed before the failure.
-                if (result.Passed && String.IsNullOrEmpty(result.SkippedReason))
-                {
-                    foreach (DefinitionOfDoneCommandPass pass in fullPasses) DefinitionOfDoneCommandPasses.Record(pass);
                 }
 
                 return result;
@@ -333,17 +326,27 @@ namespace Armada.Core.Services
         private async Task<DefinitionOfDoneResult> EvaluateAttemptAsync(
             Mission mission,
             Dock dock,
-            CancellationToken token,
+            DefinitionOfDoneGateRun run,
             string? stageStartCommit,
             List<DefinitionOfDoneCommandPass> fullPasses,
             bool alone = false)
         {
+            CancellationToken token = run.Token;
             fullPasses.Clear();
             GateSlot slot = new GateSlot(mission.Id, mission.VesselId, fullPasses, alone);
             _GateSlot.Value = slot;
             try
             {
-                return await EvaluateCoreAsync(mission, dock, token, stageStartCommit).ConfigureAwait(false);
+                DefinitionOfDoneResult result = await EvaluateCoreAsync(mission, dock, token, stageStartCommit).ConfigureAwait(false);
+                if (result.Passed && String.IsNullOrEmpty(result.SkippedReason))
+                {
+                    // Publish only complete passing attempts, before a waiting check can acquire the
+                    // slot. A cancelled or failed gate cannot vouch for any command it ran.
+                    if (run.CancelledByMission) throw new OperationCanceledException(token);
+                    token.ThrowIfCancellationRequested();
+                    foreach (DefinitionOfDoneCommandPass pass in fullPasses) DefinitionOfDoneCommandPasses.Record(pass);
+                }
+                return result;
             }
             finally
             {
@@ -694,7 +697,7 @@ namespace Armada.Core.Services
                 DefinitionOfDoneResult buildResult = await RunCommandAsync("build", effectiveBuild, worktreePath, token, limitProfile: profile).ConfigureAwait(false);
                 if (!buildResult.Passed)
                     return buildResult;
-                await CollectFullPassAsync(mission, "build", buildCommand!, worktreePath, cleanHead, token).ConfigureAwait(false);
+                await CollectFullPassAsync(mission, "build", buildCommand!, worktreePath, cleanHead, profile, token).ConfigureAwait(false);
             }
 
             if (!String.IsNullOrWhiteSpace(testCommand))
@@ -721,7 +724,7 @@ namespace Armada.Core.Services
                 if (testResult.Passed)
                 {
                     // Only a first-run pass is a full-suite pass; a pass from the isolated re-run below is not.
-                    await CollectFullPassAsync(mission, testLabel, selectedTest, worktreePath, cleanHead, token).ConfigureAwait(false);
+                    await CollectFullPassAsync(mission, testLabel, selectedTest, worktreePath, cleanHead, profile, token).ConfigureAwait(false);
                 }
                 else
                 {
@@ -776,7 +779,7 @@ namespace Armada.Core.Services
         /// Keep a command that passed in full for this attempt, when the worktree was clean at the same HEAD
         /// before the gate's first command and after this one. The gate publishes it only if it passes.
         /// </summary>
-        private async Task CollectFullPassAsync(Mission mission, string label, string command, string worktreePath, string? cleanHead, CancellationToken token)
+        private async Task CollectFullPassAsync(Mission mission, string label, string command, string worktreePath, string? cleanHead, WorkflowProfile? profile, CancellationToken token)
         {
             GateSlot? slot = _GateSlot.Value;
             if (slot == null || cleanHead == null || String.IsNullOrWhiteSpace(mission.VesselId)) return;
@@ -791,7 +794,7 @@ namespace Armada.Core.Services
                 CommitHash = cleanHead,
                 Label = label,
                 Command = command,
-                EnvironmentFingerprint = String.Empty,
+                EnvironmentFingerprint = DefinitionOfDoneCommandPasses.FingerprintEnvironment(profile?.EnvironmentVariables),
                 CompletedUtc = DateTime.UtcNow
             });
         }
@@ -1433,7 +1436,7 @@ namespace Armada.Core.Services
             // The re-run reads its failing tests with the same profile pattern as the run it repeats, so its
             // failure text names them even when the runner prints them early in a long output.
             Regex? failedTestLinePattern = ResolveFailedTestLinePattern(profile, subject);
-            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", plan.Command, worktreePath, plan.Environment, failedTestLinePattern, token).ConfigureAwait(false);
+            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", plan.Command, worktreePath, MergeCommandEnvironment(profile, plan.Environment), failedTestLinePattern, token).ConfigureAwait(false);
             _Logging.Info(_Header + subject + " isolated re-run passed=" + rerun.Passed);
             if (!rerun.Passed)
             {
@@ -1578,7 +1581,7 @@ namespace Armada.Core.Services
 
             _Logging.Info(_Header + "flake_score " + verdict.Outcome + ": re-running " + plan.Count + " failing " + plan.Unit + " in isolation");
             DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync(
-                rerunLabel, plan.Command, worktreePath, plan.Environment, ResolveFailedTestLinePattern(profile, "flake re-run"), token).ConfigureAwait(false);
+                rerunLabel, plan.Command, worktreePath, MergeCommandEnvironment(profile, plan.Environment), ResolveFailedTestLinePattern(profile, "flake re-run"), token).ConfigureAwait(false);
 
             // Record BOTH results: the original red and the isolated re-run. The re-run is the truth.
             _Logging.Info(_Header + "flake_score re-run outcome passed=" + rerunResult.Passed
@@ -1858,6 +1861,24 @@ namespace Armada.Core.Services
             return null;
         }
 
+        private static Dictionary<string, string> MergeCommandEnvironment(
+            WorkflowProfile? profile,
+            IReadOnlyDictionary<string, string>? overrides)
+        {
+            Dictionary<string, string> environment = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (profile?.EnvironmentVariables != null)
+            {
+                foreach (KeyValuePair<string, string> variable in profile.EnvironmentVariables)
+                    if (!String.IsNullOrWhiteSpace(variable.Key)) environment[variable.Key] = variable.Value ?? String.Empty;
+            }
+            if (overrides != null)
+            {
+                foreach (KeyValuePair<string, string> variable in overrides)
+                    environment[variable.Key] = variable.Value;
+            }
+            return environment;
+        }
+
         private async Task<DefinitionOfDoneResult> RunCommandAsync(
             string label,
             string command,
@@ -1869,11 +1890,8 @@ namespace Armada.Core.Services
         {
             ProcessStartInfo startInfo = new ProcessStartInfo(GetShell()) { WorkingDirectory = workingDir };
             BuildServerEnvironment.Apply(startInfo);
-            if (environment != null)
-            {
-                foreach (KeyValuePair<string, string> variable in environment)
-                    startInfo.Environment[variable.Key] = variable.Value;
-            }
+            foreach (KeyValuePair<string, string> variable in MergeCommandEnvironment(limitProfile, environment))
+                startInfo.Environment[variable.Key] = variable.Value;
             if (OperatingSystem.IsWindows())
             {
                 startInfo.Arguments = "/c " + command;
