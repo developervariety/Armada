@@ -4268,8 +4268,10 @@ Every job is written to the job journal in the data directory, so a job
 outlives the admiral process that accepted it. A job that process never
 finished reads `Lost` after the next start, with `job_lost_on_restart` in its
 `FailureMessage`. Finished jobs are kept for 14 days. Jobs have no cancel
-operation; a job that stays `Accepted` or `Running` for 30 minutes is reaped
-as `Failed`.
+operation; a job that stays `Accepted` or `Running` for 30 minutes with no sign
+its work is still advancing is reaped as `Failed`. A landing-retry job whose
+integration candidate is still running a check is kept until the check finishes,
+so a healthy landing is not failed on the flat limit.
 
 #### GET /api/v1/jobs
 

@@ -90,6 +90,7 @@ namespace Armada.Server
         private readonly Func<LongRunningJob, Task>? _OnJobFailedAsync;
         private readonly Action<string>? _Warn;
         private readonly Func<string?>? _RequesterKeyProvider;
+        private readonly Func<LongRunningJob, CancellationToken, Task<bool>>? _ProgressProbeAsync;
         private int _JournalFailures = 0;
         private DateTime _LastPruneUtc = DateTime.MinValue;
 
@@ -106,18 +107,24 @@ namespace Armada.Server
         /// <param name="warn">Receives every journal or callback failure, so none is silent.</param>
         /// <param name="requesterKeyProvider">Returns the participant key of the calling session. It is read when a job
         /// is accepted, in the request that submits it, and recorded as <see cref="LongRunningJob.RequestedByParticipantKey"/>.</param>
+        /// <param name="progressProbeAsync">Asked, for a job that has passed the stale limit, whether its underlying
+        /// work is still observably advancing. A job that is still making progress is kept instead of reaped, so the
+        /// stale limit does not fail a job whose long operation is healthy. A null probe, or one that returns false,
+        /// leaves the flat stale-limit behaviour unchanged.</param>
         public LongRunningJobService(
             int maxRetainedTerminalJobs = _DefaultMaxRetainedTerminalJobs,
             string? journalDirectory = null,
             Func<LongRunningJob, Task>? onJobFailedAsync = null,
             Action<string>? warn = null,
-            Func<string?>? requesterKeyProvider = null)
+            Func<string?>? requesterKeyProvider = null,
+            Func<LongRunningJob, CancellationToken, Task<bool>>? progressProbeAsync = null)
         {
             _MaxRetainedTerminalJobs = Math.Max(1, maxRetainedTerminalJobs);
             _JournalDirectory = String.IsNullOrWhiteSpace(journalDirectory) ? null : journalDirectory;
             _OnJobFailedAsync = onJobFailedAsync;
             _Warn = warn;
             _RequesterKeyProvider = requesterKeyProvider;
+            _ProgressProbeAsync = progressProbeAsync;
             if (_JournalDirectory != null) Directory.CreateDirectory(_JournalDirectory);
         }
 
@@ -335,12 +342,14 @@ namespace Armada.Server
 
         /// <summary>
         /// Fail any job stuck in Running or Accepted past the stale threshold (its worker likely died
-        /// or hung), so it reaches a terminal status instead of reading as in-flight forever.
-        /// A reaped job's operation is cancelled, and the Failed status is final: an operation that
-        /// finishes after the reap does not change it. Invoked periodically from the Admiral health
-        /// loop.
+        /// or hung), so it reaches a terminal status instead of reading as in-flight forever. A job
+        /// past the limit whose underlying work is still observably advancing is kept, not reaped, so
+        /// the flat limit does not fail a healthy long operation; the progress probe given at
+        /// construction answers that question. A reaped job's operation is cancelled, and the Failed
+        /// status is final: an operation that finishes after the reap does not change it. Invoked
+        /// periodically from the Admiral health loop.
         /// </summary>
-        /// <param name="staleMinutes">Minutes a job may stay Running or Accepted before it is failed; clamped to a minimum of 1.</param>
+        /// <param name="staleMinutes">Minutes a job may stay Running or Accepted with no observable progress before it is failed; clamped to a minimum of 1.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The number of jobs reaped.</returns>
         public async Task<int> ReapStaleJobsAsync(int staleMinutes = 30, CancellationToken token = default)
@@ -354,12 +363,26 @@ namespace Armada.Server
             {
                 token.ThrowIfCancellationRequested();
 
+                if (!_Jobs.TryGetValue(jobId, out LongRunningJob? candidate)) continue;
+                if (LongRunningJob.IsTerminal(candidate.Status)) continue;
+
+                DateTime? startAnchor = candidate.Status == LongRunningJobStatusEnum.Accepted
+                    ? candidate.SubmittedAtUtc
+                    : candidate.StartedAtUtc;
+                if (startAnchor.HasValue && startAnchor.Value > cutoff) continue;
+
+                // Past the limit is not the same as hung. A job whose work is still advancing is kept,
+                // because reaping it reports a false failure and leaves the operation running unobserved;
+                // a job with no observable progress is reaped, so a dead or stuck worker still reaches a
+                // terminal status. The probe runs outside the transition lock, as it may read external state.
+                if (await IsMakingProgressAsync(candidate.CreateSnapshot(), token).ConfigureAwait(false)) continue;
+
                 LongRunningJob? failedJob = TryTransition(jobId, current =>
                 {
-                    DateTime? startAnchor = current.Status == LongRunningJobStatusEnum.Accepted
+                    DateTime? anchor = current.Status == LongRunningJobStatusEnum.Accepted
                         ? current.SubmittedAtUtc
                         : current.StartedAtUtc;
-                    if (startAnchor.HasValue && startAnchor.Value > cutoff)
+                    if (anchor.HasValue && anchor.Value > cutoff)
                         return null;
 
                     LongRunningJob failed = current.CreateSnapshot();
@@ -507,6 +530,22 @@ namespace Armada.Server
                 TryWriteJournal(updated);
                 _Jobs[jobId] = updated;
                 return updated;
+            }
+        }
+
+        private async Task<bool> IsMakingProgressAsync(LongRunningJob job, CancellationToken token)
+        {
+            if (_ProgressProbeAsync == null) return false;
+            try
+            {
+                return await _ProgressProbeAsync(job, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // A probe that cannot answer must never keep a job alive past the limit forever; the
+                // flat stale limit applies, and the failure is counted and reported, never swallowed.
+                ReportFailure("job " + job.JobId + " progress could not be checked before the stale reap, so the limit applies: " + ex.Message);
+                return false;
             }
         }
 

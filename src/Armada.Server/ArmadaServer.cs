@@ -292,7 +292,8 @@ namespace Armada.Server
                 journalDirectory: Path.Combine(_Settings.DataDirectory, "jobs"),
                 onJobFailedAsync: RecordBackgroundJobFailureAsync,
                 warn: message => _Logging.Warn(_Header + message),
-                requesterKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey);
+                requesterKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
+                progressProbeAsync: IsBackgroundJobMakingProgressAsync);
 
             // Initialize services
             // PR-fallback wiring: per-call factory selects the right platform CLI (gh / glab).
@@ -2185,6 +2186,45 @@ namespace Armada.Server
         /// job itself when it names none, and post a board note addressed to the session that submitted
         /// it, so the failure reaches the submitter without a poll of the job.
         /// </summary>
+        /// <summary>
+        /// Answer, for a background job past the stale limit, whether its underlying work is still
+        /// advancing, so the reaper keeps a healthy long job instead of failing it on a flat limit.
+        /// A landing retry runs its integration candidate's Build and UnitTest checks serialized behind
+        /// one host lock, which together can outlast the flat limit; while such a check is still Pending
+        /// or Running the landing is advancing, so the job is kept. A landing with no such live check is
+        /// treated as stuck and left to the reaper, so a dead or hung landing still reaches terminal.
+        /// </summary>
+        private async Task<bool> IsBackgroundJobMakingProgressAsync(LongRunningJob job, CancellationToken token)
+        {
+            if (!String.Equals(job.Operation, McpMissionTools.RetryLandingJobOperation, StringComparison.Ordinal)) return false;
+            if (String.IsNullOrWhiteSpace(job.VesselId)) return false;
+
+            // The integration candidate's checks carry the vessel but no mission id (a dispatch or Judge
+            // check carries one), so a vessel check with no mission id, created since this job began, is
+            // this landing's candidate check. Only a Pending or Running one means work is still advancing.
+            DateTime since = job.StartedAtUtc ?? job.SubmittedAtUtc;
+            foreach (CheckRunStatusEnum active in new[] { CheckRunStatusEnum.Running, CheckRunStatusEnum.Pending })
+            {
+                CheckRunQuery query = new CheckRunQuery
+                {
+                    VesselId = job.VesselId,
+                    Status = active,
+                    PageNumber = 1,
+                    PageSize = 100
+                };
+                EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+                foreach (CheckRun run in page.Objects)
+                {
+                    if (run == null) continue;
+                    if (!String.IsNullOrWhiteSpace(run.MissionId)) continue;
+                    if (run.CreatedUtc < since) continue;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private async Task RecordBackgroundJobFailureAsync(LongRunningJob job)
         {
             bool lost = job.Status == LongRunningJobStatusEnum.Lost;

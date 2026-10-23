@@ -431,10 +431,15 @@ A global administrator can also list every job, newest first, through REST
 `GET /api/v1/jobs` and the dashboard Jobs page, and read one through
 `GET /api/v1/jobs/{id}`. Jobs have no cancel operation.
 
-A job that stays `Accepted` or `Running` for 30 minutes is reaped as `Failed`
-with the reason `reaped as stale`, and its operation is cancelled. A terminal
-status is final: an operation that finishes after its job was reaped does not
-change the status in memory or in the journal.
+A job that stays `Accepted` or `Running` for 30 minutes with no sign its work is
+still advancing is reaped as `Failed` with the reason `reaped as stale`, and its
+operation is cancelled. Past the limit is not the same as hung: a landing-retry
+job whose integration candidate is still running a Build or UnitTest check is
+kept, not reaped, because those checks serialize behind one host lock and a
+healthy landing can outlast the flat limit; once no such check is advancing, the
+job is reaped like any other. A terminal status is final: an operation that
+finishes after its job was reaped does not change the status in memory or in the
+journal.
 
 For objective work, call `preview_objective_dispatch` before `armada_dispatch`.
 It performs the same read-only preflight that operator and autonomous objective

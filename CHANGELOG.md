@@ -644,6 +644,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The background-job stale reaper no longer fails a landing-retry job while its
+  landing is still running. The reaper reaped any job past a flat 30-minute limit,
+  but a landing serializes its integration candidate's Build and UnitTest checks
+  behind one host lock and routinely runs longer, so a healthy landing was marked
+  `Failed` as stale while it was about to succeed, and an operator who trusted the
+  false notice could retry or rescue a landing that was about to land. Past the
+  limit, the reaper now keeps a landing-retry job while its integration candidate
+  still has a Pending or Running check, and reaps it only once no check is
+  advancing, so a genuinely stuck job still reaches a terminal status.
+
 - `resolve_check` (and its `armada_resolve_check` alias) returns the bounded
   check-run view by default instead of the resolved record whole. A check whose
   stored log is megabytes returned a response past the tool output limit, so the

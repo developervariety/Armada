@@ -183,6 +183,34 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("ReapStaleJobsAsync keeps a landing job advancing past the limit and reaps it once it stalls", async () =>
+            {
+                // The progress probe stands in for the live landing: true while its integration candidate's
+                // checks still run, false once none does. A landing serializes Build and UnitTest behind one
+                // host lock, so a healthy landing routinely outlasts the flat limit; it must not be reaped
+                // while a check is still running, and must still be reaped once nothing is advancing.
+                bool makingProgress = true;
+                LongRunningJobService service = new LongRunningJobService(
+                    progressProbeAsync: (job, token) => Task.FromResult(makingProgress));
+
+                LongRunningJob landing = service.Start(McpMissionTools.RetryLandingJobOperation, token => HangForeverAsync(token));
+                Thread.Sleep(30);
+                BackdateJob(service, landing.JobId, TimeSpan.FromMinutes(40), backdateSubmitted: true, backdateStarted: true);
+
+                int reapedWhileAdvancing = await service.ReapStaleJobsAsync(staleMinutes: 30);
+                AssertEqual(0, reapedWhileAdvancing, "a landing still running its checks must not be reaped past the limit");
+                AssertTrue(service.TryGetStatus(landing.JobId, out LongRunningJob? kept), "the kept job stays queryable");
+                AssertTrue(kept!.Status == LongRunningJobStatusEnum.Running || kept.Status == LongRunningJobStatusEnum.Accepted,
+                    "the kept job stays in-flight, not Failed");
+
+                makingProgress = false;
+                int reapedWhenStuck = await service.ReapStaleJobsAsync(staleMinutes: 30);
+                AssertEqual(1, reapedWhenStuck, "a landing past the limit with no advancing check is reaped as stale");
+                AssertTrue(service.TryGetStatus(landing.JobId, out LongRunningJob? reapedJob), "the reaped job stays queryable");
+                AssertEqual(LongRunningJobStatusEnum.Failed, reapedJob!.Status, "the stalled job is Failed");
+                AssertContains("reaped as stale", reapedJob.FailureMessage ?? String.Empty);
+            });
+
             await RunTest("An accepted job whose process stops reads Lost after the restart, names its objective, and is reported once", async () =>
             {
                 string journal = NewJournalDirectory();
