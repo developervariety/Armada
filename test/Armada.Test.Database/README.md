@@ -15,6 +15,20 @@ For a server provider, supply `--type postgresql|mysql|sqlserver`, `--hostname`,
 `--port`, `--username`, `--password` and `--database`. Provision the database
 before running the tests. Keep credentials outside source and saved logs.
 
+### Historical restore and upgrade
+
+`upgrade-51` stops the real migration sequence before v52 and seeds explicit
+historical columns. It preserves linked tenant, user, credential and fleet rows,
+including Unicode, nulls and fractional timestamps. It restores a native backup
+into an owned isolated target and checks its v51 ledger and rows before any
+upgrade. The restored target must pass the startup migration backup gate, then
+upgrade and reopen with the same data and original history. Cleanup removes only
+the target owned by the backup provider.
+
+This scenario requires the native client tools and permissions described below,
+including SQL Server's server-visible backup directory. A missing prerequisite
+fails the scenario; it does not count as a successful historical restore.
+
 ### Native backup case
 
 `Backup_Native_Verified_Archive_Provider_Manifest_And_Restore_Contract` takes a real provider-native backup through
@@ -82,7 +96,7 @@ as soon as a later migration adds a column to a seeded table.
 | Scenario | Providers | Proof |
 | --- | --- | --- |
 | `fresh` | All four | Initial schema, repeat startup and ordinary persistence cases |
-| `upgrade-51` | All four | Preserved migrations through v51, Unicode data, remaining migrations, unchanged old history |
+| `upgrade-51` | All four | Real native backup and isolated restore at v51, linked Unicode and nullable data, verified pre-migration archive, forward upgrade, fresh-driver reopen, unchanged old history |
 | `partial-first` | All four | Failure after first DDL statement, restart and final schema |
 | `partial-52` | All four | Populated objective normalization interrupted before commit, data rollback and successful restart |
 | `concurrent-fresh` | All four | Two initializers; SQLite explicitly synchronizes both initial version reads |

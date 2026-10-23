@@ -86,6 +86,8 @@ console runner reports the configuration error before it discovers or runs tests
 Both versions protect an existing database before a startup schema upgrade.
 The fork requires a provider-native backup and a verified isolated restore for
 all four providers before migration begins. A failed backup stops startup.
+Historical upgrade checks also restore a native v51 backup, verify linked data,
+and check forward migration and a fresh driver startup on all four providers.
 
 Both versions check REST and MCP authorization contracts. The fork checks the
 registered API exposure and real MCP catalog, keeps its tenant and mission scope

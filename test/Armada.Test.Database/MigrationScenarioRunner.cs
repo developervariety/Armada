@@ -4,10 +4,14 @@ namespace Armada.Test.Database
     using System.Collections.Generic;
     using System.Data.Common;
     using System.Globalization;
+    using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
     using Microsoft.Data.Sqlite;
     using Microsoft.Data.SqlClient;
@@ -223,7 +227,11 @@ namespace Armada.Test.Database
                             Add(command, "@created", _Settings.Type == DatabaseTypeEnum.Sqlite || _Settings.Type == DatabaseTypeEnum.SqlServer ? (object)timestamp.ToString("o", CultureInfo.InvariantCulture) : timestamp);
                             await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         }
+                        await SeedHistoricalBackupRowsAsync(connection, token).ConfigureAwait(false);
+                        await AssertHistoricalBackupRowsAsync(connection, token).ConfigureAwait(false);
                     }
+
+                    await VerifyHistoricalBackupUpgradeAsync(before, token).ConfigureAwait(false);
                 }
             }
 
@@ -248,6 +256,11 @@ namespace Armada.Test.Database
                     Armada.Core.Models.TenantMetadata tenant = DatabaseAssert.NotNull(await driver.Tenants.ReadAsync("historical-tenant-雪", token).ConfigureAwait(false), "Historical tenant survives");
                     DatabaseAssert.Equal("Historical Unicode 雪 🚢", tenant.Name, "Historical Unicode content");
                     DatabaseAssert.True(tenant.Active, "Historical active state");
+                    using (DbConnection connection = CreateConnection(_Settings))
+                    {
+                        await connection.OpenAsync(token).ConfigureAwait(false);
+                        await AssertHistoricalBackupRowsAsync(connection, token).ConfigureAwait(false);
+                    }
                 }
                 if (scenario == "partial-identity")
                 {
@@ -269,6 +282,14 @@ namespace Armada.Test.Database
                 Dictionary<int, string> reopened = await ReadHistoryAsync(token).ConfigureAwait(false);
                 DatabaseAssert.Equal(after.Count, reopened.Count, "Repeated startup history count");
                 AssertHistory(after, reopened);
+                if (scenario == "upgrade-51")
+                {
+                    using (DbConnection connection = CreateConnection(_Settings))
+                    {
+                        await connection.OpenAsync(token).ConfigureAwait(false);
+                        await AssertHistoricalBackupRowsAsync(connection, token).ConfigureAwait(false);
+                    }
+                }
                 await new SchemaVerificationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
             }
             Console.WriteLine("PASS migration scenario " + scenario + ": recovery, schema and unchanged applied history");
@@ -291,6 +312,282 @@ namespace Armada.Test.Database
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return DatabaseDriverFactory.Create(_Settings, logging);
+        }
+
+        private async Task VerifyHistoricalBackupUpgradeAsync(Dictionary<int, string> expectedHistory, CancellationToken token)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "armada-historical-backup-" + Guid.NewGuid().ToString("N"));
+            string nativeDirectory = Path.Combine(root, "native");
+            string? sqlServerDirectory = Environment.GetEnvironmentVariable("ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY");
+            if (_Settings.Type == DatabaseTypeEnum.SqlServer && String.IsNullOrWhiteSpace(sqlServerDirectory))
+                throw new InvalidOperationException("ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY is required for the historical SQL Server backup proof.");
+
+            SelfDeployDatabaseBackupProvider provider = new SelfDeployDatabaseBackupProvider(
+                _Settings, nativeDirectory, sqlServerBackupDirectory: sqlServerDirectory);
+            SelfDeployDatabaseBackupResult? restored = null;
+            DatabaseSettings? restoredSettings = null;
+            int restoredVersion = 0;
+            int gateVersion = 0;
+            int upgradedVersion = 0;
+            int reopenedVersion = 0;
+            try
+            {
+                restored = await provider.CreateAndVerifyAsync(token).ConfigureAwait(false);
+                DatabaseAssert.True(restored.BackupValidated, "Historical native backup validated: " + restored.FailureReason);
+                DatabaseAssert.True(restored.RestoreVerified, "Historical isolated restore verified: " + restored.FailureReason);
+                DatabaseAssert.True(provider.OwnsTarget(restored), "Historical restore target has provider ownership");
+
+                restoredSettings = CloneSettingsForTarget(_Settings, restored.IsolatedTarget);
+                MigrationScenarioRunner restoredRunner = new MigrationScenarioRunner(restoredSettings);
+                Dictionary<int, string> restoredHistory = await restoredRunner.ReadHistoryAsync(token).ConfigureAwait(false);
+                restoredVersion = restoredHistory.Count == 0 ? 0 : System.Linq.Enumerable.Max(restoredHistory.Keys);
+                DatabaseAssert.Equal(51, restoredVersion, "Restored target is still at v51 before startup");
+                DatabaseAssert.Equal(expectedHistory.Count, restoredHistory.Count, "Restored v51 history row count");
+                AssertHistory(expectedHistory, restoredHistory);
+                using (DbConnection connection = CreateConnection(restoredSettings))
+                {
+                    await connection.OpenAsync(token).ConfigureAwait(false);
+                    await AssertHistoricalBackupRowsAsync(connection, token).ConfigureAwait(false);
+                }
+
+                ArmadaSettings migrationSettings = new ArmadaSettings
+                {
+                    DataDirectory = Path.Combine(root, "migration-data"),
+                    Database = restoredSettings
+                };
+                migrationSettings.SelfDeploy.SqlServerBackupDirectory = sqlServerDirectory;
+                LoggingModule migrationLogging = new LoggingModule();
+                migrationLogging.Settings.EnableConsole = false;
+                using (DatabaseDriver pendingDriver = restoredRunner.CreateDriver())
+                {
+                    DatabaseBackupResult? pendingBackup = await new MigrationBackupService(migrationSettings, migrationLogging)
+                        .PrepareAsync(pendingDriver, token).ConfigureAwait(false);
+                    DatabaseAssert.NotNull(pendingBackup, "Pending historical upgrade requires a native backup");
+                    DatabaseAssert.Equal(51, pendingBackup!.SchemaVersion, "Pre-migration backup reports historical v51");
+                    gateVersion = pendingBackup.SchemaVersion;
+                    DatabaseAssert.True(File.Exists(pendingBackup.Path), "Pre-migration archive retained");
+                    DatabaseAssert.Equal(51, await pendingDriver.GetSchemaVersionAsync(token).ConfigureAwait(false),
+                        "The backup gate leaves the historical ledger unchanged");
+                }
+
+                Dictionary<int, string> upgradedHistory;
+                using (DatabaseDriver upgradeDriver = restoredRunner.CreateDriver())
+                {
+                    await upgradeDriver.InitializeAsync(token).ConfigureAwait(false);
+                    upgradedHistory = await restoredRunner.ReadHistoryAsync(token).ConfigureAwait(false);
+                    upgradedVersion = System.Linq.Enumerable.Max(upgradedHistory.Keys);
+                    DatabaseAssert.Equal(LatestMigrationVersion(), upgradedVersion, "First startup applies every defined migration");
+                    AssertHistory(restoredHistory, upgradedHistory);
+                    using (DbConnection connection = CreateConnection(restoredSettings))
+                    {
+                        await connection.OpenAsync(token).ConfigureAwait(false);
+                        await AssertHistoricalBackupRowsAsync(connection, token).ConfigureAwait(false);
+                    }
+                }
+
+                using (DatabaseDriver reopenedDriver = restoredRunner.CreateDriver())
+                {
+                    await reopenedDriver.InitializeAsync(token).ConfigureAwait(false);
+                    Dictionary<int, string> reopenedHistory = await restoredRunner.ReadHistoryAsync(token).ConfigureAwait(false);
+                    reopenedVersion = reopenedHistory.Count == 0 ? 0 : System.Linq.Enumerable.Max(reopenedHistory.Keys);
+                    DatabaseAssert.Equal(upgradedHistory.Count, reopenedHistory.Count, "Second startup adds no migration history");
+                    AssertHistory(upgradedHistory, reopenedHistory);
+                    using (DbConnection connection = CreateConnection(restoredSettings))
+                    {
+                        await connection.OpenAsync(token).ConfigureAwait(false);
+                        await AssertHistoricalBackupRowsAsync(connection, token).ConfigureAwait(false);
+                    }
+                    await new SchemaVerificationTests(restoredSettings).VerifyAsync(token).ConfigureAwait(false);
+                }
+                Console.WriteLine("Historical backup proof: provider=" + _Settings.Type + " source=v51 restored=v" + restoredVersion
+                    + " gate=v" + gateVersion + " upgraded=v" + upgradedVersion + " reopened=v" + reopenedVersion);
+            }
+            finally
+            {
+                if (restoredSettings != null) ClearTargetPool(restoredSettings);
+                if (restored != null && provider.OwnsTarget(restored))
+                    DatabaseAssert.True(await provider.CleanupAsync(restored, CancellationToken.None).ConfigureAwait(false), "Owned historical restore target cleaned");
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+        }
+
+        private int LatestMigrationVersion()
+        {
+            List<SchemaMigration> migrations = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => Armada.Core.Database.Sqlite.Queries.TableQueries.GetMigrations(),
+                DatabaseTypeEnum.Postgresql => Armada.Core.Database.Postgresql.Queries.TableQueries.GetMigrations(),
+                DatabaseTypeEnum.Mysql => Armada.Core.Database.Mysql.MysqlDatabaseDriver.GetMigrations(),
+                DatabaseTypeEnum.SqlServer => Armada.Core.Database.SqlServer.Queries.TableQueries.GetMigrations(),
+                _ => throw new NotSupportedException()
+            };
+            return migrations.Max(migration => migration.Version);
+        }
+
+        private static void ClearTargetPool(DatabaseSettings settings)
+        {
+            switch (settings.Type)
+            {
+                case DatabaseTypeEnum.Sqlite:
+                    using (SqliteConnection connection = new SqliteConnection(settings.GetConnectionString())) SqliteConnection.ClearPool(connection);
+                    break;
+                case DatabaseTypeEnum.Postgresql:
+                    using (NpgsqlConnection connection = new NpgsqlConnection(settings.GetConnectionString())) NpgsqlConnection.ClearPool(connection);
+                    break;
+                case DatabaseTypeEnum.Mysql:
+                    using (MySqlConnection connection = new MySqlConnection(settings.GetConnectionString())) MySqlConnection.ClearPool(connection);
+                    break;
+                case DatabaseTypeEnum.SqlServer:
+                    using (SqlConnection connection = new SqlConnection(settings.GetConnectionString())) SqlConnection.ClearPool(connection);
+                    break;
+            }
+        }
+
+        private static DatabaseSettings CloneSettingsForTarget(DatabaseSettings source, string target)
+        {
+            DatabaseSettings clone = new DatabaseSettings
+            {
+                Type = source.Type,
+                Hostname = source.Hostname,
+                Port = source.Port,
+                Username = source.Username,
+                Password = source.Password,
+                DatabaseName = source.DatabaseName,
+                Schema = source.Schema,
+                RequireEncryption = source.RequireEncryption,
+                LogQueries = source.LogQueries,
+                MinPoolSize = source.MinPoolSize,
+                MaxPoolSize = source.MaxPoolSize,
+                ConnectionLifetimeSeconds = source.ConnectionLifetimeSeconds,
+                ConnectionIdleTimeoutSeconds = source.ConnectionIdleTimeoutSeconds
+            };
+            if (source.Type == DatabaseTypeEnum.Sqlite) clone.Filename = target;
+            else clone.DatabaseName = target;
+            return clone;
+        }
+
+        private async Task SeedHistoricalBackupRowsAsync(DbConnection connection, CancellationToken token)
+        {
+            DateTime created = HistoricalBackupTimestamp();
+            DateTime updated = created.AddMinutes(7);
+            object createdValue = StoredTimestamp(created);
+            object updatedValue = StoredTimestamp(updated);
+            object active = _Settings.Type == DatabaseTypeEnum.Postgresql ? (object)true : 1;
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "INSERT INTO tenants (id,name,active,created_utc,last_update_utc) VALUES (@tenant_id,@tenant_name,@active,@created,@updated);";
+                Add(command, "@tenant_id", "backup-tenant");
+                Add(command, "@tenant_name", "Backup tenant 雪 🚢");
+                Add(command, "@active", active);
+                Add(command, "@created", createdValue);
+                Add(command, "@updated", updatedValue);
+                await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "INSERT INTO users (id,tenant_id,email,password_sha256,first_name,last_name,is_admin,is_tenant_admin,active,created_utc,last_update_utc) VALUES (@user_id,@tenant_id,@email,@password,@first_name,NULL,@not_admin,@not_admin,@active,@created,@updated);";
+                Add(command, "@tenant_id", "backup-tenant");
+                Add(command, "@user_id", "backup-user");
+                Add(command, "@email", "backup-restore-雪@example.test");
+                Add(command, "@password", new string('a', 64));
+                Add(command, "@first_name", "Zoë 雪");
+                Add(command, "@not_admin", _Settings.Type == DatabaseTypeEnum.Postgresql ? (object)false : 0);
+                Add(command, "@active", active);
+                Add(command, "@created", createdValue);
+                Add(command, "@updated", updatedValue);
+                await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "INSERT INTO credentials (id,tenant_id,user_id,name,bearer_token,active,created_utc,last_update_utc) VALUES (@credential_id,@tenant_id,@user_id,NULL,@token,@active,@created,@updated);";
+                Add(command, "@tenant_id", "backup-tenant");
+                Add(command, "@user_id", "backup-user");
+                Add(command, "@credential_id", "backup-credential");
+                Add(command, "@token", "historical-backup-token-test-only");
+                Add(command, "@active", active);
+                Add(command, "@created", createdValue);
+                Add(command, "@updated", updatedValue);
+                await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "INSERT INTO fleets (id,tenant_id,user_id,name,description,active,created_utc,last_update_utc) VALUES (@fleet_id,@tenant_id,@user_id,@fleet_name,NULL,@active,@created,@updated);";
+                Add(command, "@tenant_id", "backup-tenant");
+                Add(command, "@user_id", "backup-user");
+                Add(command, "@fleet_id", "backup-fleet");
+                Add(command, "@fleet_name", "Backup fleet 雪");
+                Add(command, "@active", active);
+                Add(command, "@created", createdValue);
+                Add(command, "@updated", updatedValue);
+                await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task AssertHistoricalBackupRowsAsync(DbConnection connection, CancellationToken token)
+        {
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.CommandText = @"SELECT t.name,t.active,t.created_utc,t.last_update_utc,
+u.email,u.first_name,u.last_name,u.created_utc,u.last_update_utc,
+c.name,c.bearer_token,c.active,c.created_utc,c.last_update_utc,
+f.name,f.description,f.active,f.created_utc,f.last_update_utc,f.tenant_id,f.user_id,
+u.password_sha256,u.is_admin,u.is_tenant_admin,u.active
+FROM tenants t JOIN users u ON u.tenant_id=t.id
+JOIN credentials c ON c.tenant_id=t.id AND c.user_id=u.id
+JOIN fleets f ON f.tenant_id=t.id AND f.user_id=u.id
+WHERE t.id='backup-tenant' AND u.id='backup-user' AND c.id='backup-credential' AND f.id='backup-fleet';";
+                using (DbDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+                {
+                    DatabaseAssert.True(await reader.ReadAsync(token).ConfigureAwait(false), "Linked historical tenant, user, credential and fleet rows exist");
+                    DatabaseAssert.Equal("Backup tenant 雪 🚢", Convert.ToString(reader[0], CultureInfo.InvariantCulture), "Historical tenant Unicode name");
+                    DatabaseAssert.True(Convert.ToBoolean(reader[1], CultureInfo.InvariantCulture), "Historical tenant active state");
+                    AssertHistoricalTimestamp(reader[2], HistoricalBackupTimestamp(), "Tenant created timestamp");
+                    AssertHistoricalTimestamp(reader[3], HistoricalBackupTimestamp().AddMinutes(7), "Tenant update timestamp");
+                    DatabaseAssert.Equal("backup-restore-雪@example.test", Convert.ToString(reader[4], CultureInfo.InvariantCulture), "Historical user email");
+                    DatabaseAssert.Equal("Zoë 雪", Convert.ToString(reader[5], CultureInfo.InvariantCulture), "Historical user Unicode first name");
+                    DatabaseAssert.True(reader.IsDBNull(6), "Historical user nullable last name");
+                    AssertHistoricalTimestamp(reader[7], HistoricalBackupTimestamp(), "User created timestamp");
+                    AssertHistoricalTimestamp(reader[8], HistoricalBackupTimestamp().AddMinutes(7), "User update timestamp");
+                    DatabaseAssert.True(reader.IsDBNull(9), "Historical credential nullable name");
+                    DatabaseAssert.Equal("historical-backup-token-test-only", Convert.ToString(reader[10], CultureInfo.InvariantCulture), "Historical credential token");
+                    DatabaseAssert.True(Convert.ToBoolean(reader[11], CultureInfo.InvariantCulture), "Historical credential active state");
+                    AssertHistoricalTimestamp(reader[12], HistoricalBackupTimestamp(), "Credential created timestamp");
+                    AssertHistoricalTimestamp(reader[13], HistoricalBackupTimestamp().AddMinutes(7), "Credential update timestamp");
+                    DatabaseAssert.Equal("Backup fleet 雪", Convert.ToString(reader[14], CultureInfo.InvariantCulture), "Historical fleet name");
+                    DatabaseAssert.True(reader.IsDBNull(15), "Historical fleet nullable description");
+                    DatabaseAssert.True(Convert.ToBoolean(reader[16], CultureInfo.InvariantCulture), "Historical fleet active state");
+                    AssertHistoricalTimestamp(reader[17], HistoricalBackupTimestamp(), "Fleet created timestamp");
+                    AssertHistoricalTimestamp(reader[18], HistoricalBackupTimestamp().AddMinutes(7), "Fleet update timestamp");
+                    DatabaseAssert.Equal("backup-tenant", Convert.ToString(reader[19], CultureInfo.InvariantCulture), "Fleet tenant foreign key");
+                    DatabaseAssert.Equal("backup-user", Convert.ToString(reader[20], CultureInfo.InvariantCulture), "Fleet user foreign key");
+                    DatabaseAssert.Equal(new String('a', 64), Convert.ToString(reader[21], CultureInfo.InvariantCulture), "Historical password storage bytes");
+                    DatabaseAssert.True(!Convert.ToBoolean(reader[22], CultureInfo.InvariantCulture), "Historical user is not a global administrator");
+                    DatabaseAssert.True(!Convert.ToBoolean(reader[23], CultureInfo.InvariantCulture), "Historical user is not a tenant administrator");
+                    DatabaseAssert.True(Convert.ToBoolean(reader[24], CultureInfo.InvariantCulture), "Historical user active state");
+                    DatabaseAssert.True(!await reader.ReadAsync(token).ConfigureAwait(false), "Historical sentinel join has no duplicate rows");
+                }
+            }
+        }
+
+        private object StoredTimestamp(DateTime value)
+        {
+            return _Settings.Type == DatabaseTypeEnum.Sqlite || _Settings.Type == DatabaseTypeEnum.SqlServer
+                ? value.ToString("o", CultureInfo.InvariantCulture)
+                : value;
+        }
+
+        private static DateTime HistoricalBackupTimestamp()
+        {
+            return new DateTime(2024, 2, 3, 4, 5, 6, DateTimeKind.Utc).AddTicks(1234560);
+        }
+
+        private static void AssertHistoricalTimestamp(object value, DateTime expected, string label)
+        {
+            DateTime actual = value is DateTime timestamp
+                ? DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)
+                : DateTime.Parse(Convert.ToString(value, CultureInfo.InvariantCulture)!, CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
+            DatabaseAssert.Equal(expected, actual, label);
         }
 
         internal async Task<Dictionary<int, string>> ReadHistoryAsync(CancellationToken token)

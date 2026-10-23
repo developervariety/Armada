@@ -9,6 +9,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Historical database checks restore a native v51 backup into an owned isolated
+  target on each provider. They verify linked Unicode, nullable and timestamp
+  values before migration, require a verified pre-migration archive, and check
+  forward upgrade and a new driver startup with unchanged old migration history.
+
 - REST authorization contracts cover the registered normal and Harbor API
   inventories. Central policy names the administrator requirements already
   enforced by typed-decision, subscription account, model health sweep,
