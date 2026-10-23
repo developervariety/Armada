@@ -46,6 +46,30 @@ namespace Armada.Server.Mcp.Tools
                     SignalSendArgs request = JsonSerializer.Deserialize<SignalSendArgs>(args!.Value, _JsonOptions)!;
                     string captainId = request.CaptainId;
                     string message = request.Message;
+
+                    // captainId is required. Without this guard an absent target deserializes to its
+                    // default and a signal addressed to no captain is stored while returning success.
+                    if (String.IsNullOrWhiteSpace(captainId))
+                        return (object)new
+                        {
+                            error = "armada_send_signal requires the captainId argument.",
+                            code = "missing_captain",
+                            reason = "The captainId argument was absent or empty.",
+                            action = "Pass captainId naming the captain the signal is for."
+                        };
+
+                    // message is required. Without this guard an absent message deserializes to its
+                    // default empty string and an EMPTY Mail is stored while returning success, so a
+                    // caller cannot tell the signal carried nothing.
+                    if (String.IsNullOrWhiteSpace(message))
+                        return (object)new
+                        {
+                            error = "armada_send_signal requires the message argument.",
+                            code = "missing_message",
+                            reason = "The message argument was absent or empty.",
+                            action = "Pass message carrying the signal text to send to the captain."
+                        };
+
                     // The signal is owned by the authenticated caller, exactly as a REST create is.
                     AuthContext sendCaller = McpCallerContext.Require();
                     Signal signal = new Signal(SignalTypeEnum.Mail, message);
