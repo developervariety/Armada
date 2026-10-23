@@ -545,11 +545,23 @@ owns is stopped on the Harbor. Stall detection remains the backstop when a Harbo
    captain in the mission's existing dock, up to `maxRecoveryAttempts` (default 3) times. The dock is pinned to its
    Harbor, so the relaunch lands there if that Harbor has reconnected, and never on another Harbor. If it is still
    offline, the relaunch falls back to the Admiral host when `requireHarborForLaunch` is off. When it is on, the
-   relaunch is refused and spends one recovery attempt; the captain keeps the mission with no process, and the next
-   stall check (after another `stallThresholdMinutes`) tries again, so a Harbor that reconnects within the remaining
-   attempts gets the mission back.
+   relaunch is refused and spends one recovery attempt; the captain keeps the mission with no process, and the
+   relaunch runs on the first health check after that Harbor reconnects (or at the next stall check if it does not),
+   so a Harbor that reconnects within the remaining attempts gets the mission back at once.
 3. When recovery is exhausted, the mission fails with `StallRecoveryExhausted`. A recovery that cannot use the dock
    fails the mission as `Infra`. `maxMissionRuntimeMinutes` still applies throughout.
+
+**When the Harbor app itself stops** (it crashed, or was killed), a CLI captain it started (Claude Code, Codex, Mux)
+can keep running with nobody reading its output, while the Admiral relaunches the mission into the same dock. Harbor
+records the agent processes it starts in `running-agents.json` in its settings folder and, on its next start, stops
+any recorded process that is still running before it connects, so two agents never edit one worktree. A process whose
+id was reused by something unrelated (a different start time) is left alone. API-endpoint captains run inside the
+Harbor process and end with it.
+
+**When the Admiral restarts**, Harbor missions keep running and are reattached. A mission whose captain finished just
+before the restart has its recorded exit replayed once its Harbor is back (up to 10 minutes), and a stage's build
+and test check waits up to 3 minutes for a briefly disconnected Harbor, so a restart is not mistaken for a failed
+check.
 
 So a short blip costs nothing, while a Harbor that stays away holds its missions for about `stallThresholdMinutes`
 before recovery starts (and, with `requireHarborForLaunch` on, for up to `maxRecoveryAttempts` stall intervals

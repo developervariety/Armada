@@ -107,6 +107,13 @@ namespace Armada.Harbor
                 // Each job's output is also kept on this computer, so its log can be read here (Status > Logs) even when
                 // the Admiral is on another machine.
                 _JobRunner.JobLogs = new HarborLogPaths(HarborAppSettings.LogDirectory());
+                // An agent process that outlived an earlier Harbor run (a crash, a kill) would keep editing a dock the
+                // Admiral relaunches into. Stop those before taking work, and record this run's.
+                Armada.Runtimes.HarborProcessLedger ledger = new Armada.Runtimes.HarborProcessLedger(
+                    Path.Combine(HarborAppSettings.SettingsDirectory(), "running-agents.json"), _Logging);
+                int orphans = ledger.StopOrphans();
+                if (orphans > 0) Info("Stopped " + orphans + " agent process(es) left running by an earlier Harbor run", HarborLogCategoryEnum.Link, HarborLogOutcomeEnum.Failed);
+                _JobRunner.ProcessLedger = ledger;
                 // Reads the live settings on every request, so repository edits apply without reconnecting.
                 _DockManager = new HarborDockManager(() => _Settings.BuildDockSettings(), _Logging, _Executor);
                 // The Workspace's Open in Terminal opens a terminal on this desktop in a vessel's checkout.

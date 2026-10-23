@@ -39,6 +39,12 @@ namespace Armada.Runtimes
         /// </summary>
         public HarborLogPaths? JobLogs { get; set; } = null;
 
+        /// <summary>
+        /// Where each job's agent process is recorded, so a later Harbor run can stop one that outlived this one; null to
+        /// record none.
+        /// </summary>
+        public HarborProcessLedger? ProcessLedger { get; set; } = null;
+
         /// <inheritdoc />
         public event Action<string, Armada.Core.Models.RuntimeActivity>? ActivityReported;
 
@@ -205,6 +211,7 @@ namespace Armada.Runtimes
             runtime.OnProcessStarted += processId =>
             {
                 _Jobs[jobId] = new JobEntry(runtime, processId);
+                ProcessLedger?.Record(jobId, processId);
                 onStarted(processId);
             };
 
@@ -255,6 +262,7 @@ namespace Armada.Runtimes
                 }
 
                 _Jobs.TryRemove(jobId, out JobEntry? _);
+                ProcessLedger?.Remove(jobId);
                 _LogPaths.TryRemove(jobId, out string? _);
                 SendFinalMessage(finalMessageFilePath, report);
                 TryDeleteDirectory(scratchDirectory);
