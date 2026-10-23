@@ -333,6 +333,75 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains(failed.Id, updated.RecoveryNotes ?? "", "Expected latest failed check evidence.");
             }).ConfigureAwait(false);
 
+            await RunTest("Re-observed failure of an open incident records the note and keeps the incident severity", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_keep_sev", "usr_inc_life_keep_sev").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_keep_sev", "usr_inc_life_keep_sev").ConfigureAwait(false);
+
+                CheckRun failed = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Label = "unit",
+                    Command = "dotnet test",
+                    Status = CheckRunStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-2),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-2)
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Automated check failed: unit",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium,
+                    VesselId = vessel.Id,
+                    CheckRunId = failed.Id,
+                    DetectedUtc = DateTime.UtcNow.AddMinutes(-3),
+                    RootCause = "Automated check command failed or could not run."
+                }).ConfigureAwait(false);
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents);
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The sweep records the re-observed failure once.");
+
+                Incident? updated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                AssertTrue(updated != null, "Expected incident.");
+                AssertEqual(IncidentStatusEnum.Open, updated!.Status, "The incident stays open.");
+                AssertEqual(IncidentSeverityEnum.Medium, updated.Severity, "Re-observing a failure keeps the severity chosen at creation, never raising it to High.");
+                AssertContains(failed.Id, updated.RecoveryNotes ?? "", "The re-observation records the failing check as evidence.");
+
+                // An operator lowers the severity. A later re-observation must keep the operator's choice.
+                await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                {
+                    Severity = IncidentSeverityEnum.Low
+                }).ConfigureAwait(false);
+
+                CheckRun failedAgain = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Label = "unit",
+                    Command = "dotnet test",
+                    Status = CheckRunStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The newer failure is re-observed once.");
+
+                Incident? reobserved = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                AssertTrue(reobserved != null, "Expected incident.");
+                AssertEqual(IncidentStatusEnum.Open, reobserved!.Status, "The incident stays open.");
+                AssertEqual(IncidentSeverityEnum.Low, reobserved.Severity, "The operator-set severity survives a re-observation.");
+                AssertContains(failedAgain.Id, reobserved.RecoveryNotes ?? "", "The newer failing check is recorded as evidence.");
+            }).ConfigureAwait(false);
+
             await RunTest("Existing failed check does not reopen a later manual mitigation", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -14,6 +14,14 @@ upstream integrations and excludes changes already present at that baseline.
 - Caller-filtered MCP tool lists use private cache scope. Shared caches cannot
   serve one caller's tool catalog to another caller.
 
+- The incident lifecycle sweep keeps an open incident's severity when it
+  re-observes the failure. It records the new failure as a recovery note and
+  leaves the status open, but no longer raises the severity to High, so the
+  severity set at creation or by an operator is preserved. The sweep now acts
+  only when the failure evidence is new, which stops it from rewriting the same
+  open incident every cycle. The reopen of a mitigated incident on a newer
+  failure is unchanged.
+
 - SQLite write operations share one cancellable FIFO gate per open database file.
   The gate covers direct and shared persistence, migrations, expiry deletes
   and live restore. Expiry keeps verified export and trace recording before deletion.
