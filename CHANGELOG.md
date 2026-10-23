@@ -633,6 +633,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A build or test command that only waits on its vessel's suite lock no longer
+  holds a host command slot another vessel's command could use. A gate, check
+  run or merge-queue test names the vessel whose suite it runs, takes an
+  in-process per-vessel suite lock before it queues for a host slot, and
+  releases the slot before the vessel lock. One vessel's suite commands are
+  serialized before the slot queue instead of each taking a slot and blocking on
+  the vessel's own file lock, so with more than one host slot a blocked
+  same-vessel command does not starve another vessel. The per-vessel lock is
+  always taken before the host slot, so the order cannot deadlock.
+
 - The disk-lifecycle instruction category covers each mission's brief-file
   folders (`<mission>.mission` and `<mission>.memory` beside the instruction
   snapshot). Each folder is one item under `instructionRetentionDays`, aged by

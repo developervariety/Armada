@@ -339,7 +339,7 @@ namespace Armada.Core.Services
             bool alone = false)
         {
             fullPasses.Clear();
-            GateSlot slot = new GateSlot(mission.Id, fullPasses, alone);
+            GateSlot slot = new GateSlot(mission.Id, mission.VesselId, fullPasses, alone);
             _GateSlot.Value = slot;
             try
             {
@@ -2215,12 +2215,14 @@ namespace Armada.Core.Services
         private sealed class GateSlot
         {
             private readonly string _MissionId;
+            private readonly string? _VesselId;
             private readonly bool _Alone;
             private IDisposable? _Lease = null;
 
-            public GateSlot(string missionId, List<DefinitionOfDoneCommandPass> fullPasses, bool alone)
+            public GateSlot(string missionId, string? vesselId, List<DefinitionOfDoneCommandPass> fullPasses, bool alone)
             {
                 _MissionId = missionId;
+                _VesselId = vesselId;
                 FullPasses = fullPasses;
                 _Alone = alone;
             }
@@ -2238,8 +2240,8 @@ namespace Armada.Core.Services
             {
                 if (_Lease != null) return;
                 _Lease = _Alone
-                    ? await HostWideCommandLock.AcquireAloneAsync(_MissionId, "definition-of-done gate re-run, alone on the host, for mission " + _MissionId, token).ConfigureAwait(false)
-                    : await HostWideCommandLock.AcquireAsync(_MissionId, "definition-of-done gate for mission " + _MissionId, token).ConfigureAwait(false);
+                    ? await HostWideCommandLock.AcquireAloneAsync(_MissionId, "definition-of-done gate re-run, alone on the host, for mission " + _MissionId, _VesselId, token).ConfigureAwait(false)
+                    : await HostWideCommandLock.AcquireAsync(_MissionId, "definition-of-done gate for mission " + _MissionId, _VesselId, token).ConfigureAwait(false);
             }
 
             public void Release()

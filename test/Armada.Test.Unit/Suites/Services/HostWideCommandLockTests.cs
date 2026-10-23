@@ -268,6 +268,55 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A command waiting on its vessel suite lock holds no host slot another vessel can use", async () =>
+            {
+                // Two of one vessel's suite commands cannot run at once -- outside Armada a file lock the vessel's
+                // own command takes serializes them. A command that would only wait on that lock must not occupy a
+                // host slot meanwhile, or with slots to spare it starves another vessel whose command could run.
+                string vesselOne = "vsl_lane_one_" + Guid.NewGuid().ToString("N");
+                string vesselTwo = "vsl_lane_two_" + Guid.NewGuid().ToString("N");
+                Func<long?> previousReader = HostWideCommandLock.MemoryReader;
+                int previousFloor = HostWideCommandLock.MemoryFloorMb;
+                List<IDisposable> leases = new List<IDisposable>();
+                List<Task<IDisposable>> requests = new List<Task<IDisposable>>();
+                using (CancellationTokenSource cancel = new CancellationTokenSource())
+                {
+                    try
+                    {
+                        HostWideCommandLock.SetMemoryReader(() => null);
+                        HostWideCommandLock.SetMemoryFloorMb(0);
+                        HostWideCommandLock.SetSlotCount(2);
+
+                        IDisposable firstOfVesselOne = await HostWideCommandLock.AcquireAsync("vlk_one_first", "vessel one gate", vesselOne, cancel.Token).ConfigureAwait(false);
+                        leases.Add(firstOfVesselOne);
+                        AssertTrue(Holds("vlk_one_first"), "the first command of a vessel takes a host slot");
+
+                        Task<IDisposable> secondOfVesselOne = HostWideCommandLock.AcquireAsync("vlk_one_second", "vessel one check", vesselOne, cancel.Token);
+                        requests.Add(secondOfVesselOne);
+                        await Task.Delay(50).ConfigureAwait(false);
+
+                        AssertFalse(secondOfVesselOne.IsCompleted, "a second command for the same vessel waits on the vessel suite lock");
+                        HostSlotSnapshot blocked = HostWideCommandLock.Snapshot();
+                        AssertEqual(1, blocked.Holders.Count, "the command blocked on its vessel suite lock holds no host slot");
+                        AssertNull(blocked.FindWaiter("vlk_one_second"), "it does not even queue for a slot while its vessel lock is held");
+
+                        IDisposable otherVessel = await HostWideCommandLock.AcquireAsync("vlk_two_first", "vessel two gate", vesselTwo, cancel.Token).ConfigureAwait(false);
+                        leases.Add(otherVessel);
+                        AssertTrue(Holds("vlk_two_first"), "another vessel's command takes the free host slot the blocked command did not occupy");
+
+                        firstOfVesselOne.Dispose();
+                        IDisposable secondLease = await secondOfVesselOne.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                        leases.Add(secondLease);
+                        AssertTrue(Holds("vlk_one_second"), "the second command runs once the first releases the vessel suite lock");
+                    }
+                    finally
+                    {
+                        await ReleaseAllAsync(cancel, leases, requests).ConfigureAwait(false);
+                        RestoreMemory(previousReader, previousFloor);
+                    }
+                }
+            });
+
             await RunTest("With two slots waiting requests are granted in request order", async () =>
             {
                 List<IDisposable> leases = new List<IDisposable>();

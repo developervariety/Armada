@@ -445,7 +445,7 @@ namespace Armada.Core.Services
 
                     // Share the host-wide slots with DoD gates and merge-queue test runs so no more full
                     // build+test suites run on one host at once than its slot count allows. See HostWideCommandLock.
-                    using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
+                    using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), run.VesselId, token).ConfigureAwait(false))
                     {
                         if (isolatedCheckout != null)
                         {
@@ -1208,7 +1208,7 @@ namespace Armada.Core.Services
                     }
                 }
 
-                using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), token).ConfigureAwait(false))
+                using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run), run.VesselId, token).ConfigureAwait(false))
                 {
                     if (isolatedCheckout != null)
                     {
@@ -1833,7 +1833,7 @@ namespace Armada.Core.Services
             CommandExecutionResult rerun;
             try
             {
-                using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run) + " (isolated re-run)", token).ConfigureAwait(false))
+                using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run) + " (isolated re-run)", run.VesselId, token).ConfigureAwait(false))
                 {
                     rerun = await ExecuteCommandAsync(plan.Command, executionDirectory, _CommandTimeout, token, environment).ConfigureAwait(false);
                 }

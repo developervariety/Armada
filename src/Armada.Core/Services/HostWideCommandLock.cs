@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Globalization;
@@ -50,6 +51,15 @@ namespace Armada.Core.Services
     /// A request can ask to hold the host alone (<see cref="AcquireAloneAsync"/>). It keeps its place in line;
     /// when it is first, it is granted only once no slot is held, and while it holds, no other request is granted.
     /// A request behind it waits, so a request that holds the host alone cannot be starved by later requests.
+    ///
+    /// A request may name a vessel. A vessel's full suite is serialized outside Armada by a file lock the vessel's
+    /// own command takes (a <c>flock</c> around the suite), so two of one vessel's suite commands cannot run at
+    /// once however many host slots are free: the second blocks inside its command on that file lock. A request
+    /// that named its vessel first takes an in-process per-vessel lock and only then queues for a host slot, so a
+    /// command that would just block on its vessel's suite lock never occupies a host slot another vessel's command
+    /// could use. The per-vessel lock is always taken before the host slot and released after it, and a request
+    /// holds at most one, so the order never cycles into a deadlock. A request that names no vessel queues for a
+    /// slot directly.
     /// </remarks>
     public static class HostWideCommandLock
     {
@@ -148,6 +158,8 @@ namespace Armada.Core.Services
         private static long _UnderFloorGrants = 0;
         private static Timer? _RecheckTimer = null;
         private static bool _RecheckArmed = false;
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _VesselSuiteLocks =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
 
         #endregion
 
@@ -300,7 +312,23 @@ namespace Armada.Core.Services
         /// <remarks>The time from request to grant or cancellation is recorded in <see cref="ArmadaMetrics.HostSlotWait"/>.</remarks>
         public static Task<IDisposable> AcquireAsync(string? ownerKey, string? ownerDescription, CancellationToken token = default)
         {
-            return AcquireCoreAsync(ownerKey, ownerDescription, false, token);
+            return AcquireCoreAsync(ownerKey, ownerDescription, false, null, token);
+        }
+
+        /// <summary>
+        /// Acquire a host-wide execution slot for a command that runs one vessel's suite. The request takes the
+        /// vessel's in-process suite lock first and only then queues for a slot, so it never holds a slot while it
+        /// waits for another of the same vessel's suite commands to finish. Requests are granted in the order they
+        /// reach the slot queue.
+        /// </summary>
+        /// <param name="ownerKey">Stable key of the requester, such as a check run ID, used to find its place in the queue.</param>
+        /// <param name="ownerDescription">What the requester runs, shown to anyone waiting behind it.</param>
+        /// <param name="vesselKey">The vessel whose suite this command runs, or null to queue for a slot directly.</param>
+        /// <param name="token">Cancellation token. Cancelling removes a waiting request from the queue or the vessel lock.</param>
+        /// <returns>A disposable lease; dispose it to release the slot and then the vessel lock.</returns>
+        public static Task<IDisposable> AcquireAsync(string? ownerKey, string? ownerDescription, string? vesselKey, CancellationToken token)
+        {
+            return AcquireCoreAsync(ownerKey, ownerDescription, false, vesselKey, token);
         }
 
         /// <summary>
@@ -313,16 +341,50 @@ namespace Armada.Core.Services
         /// <returns>A disposable lease; dispose it to release the host.</returns>
         public static Task<IDisposable> AcquireAloneAsync(string? ownerKey, string? ownerDescription, CancellationToken token = default)
         {
-            return AcquireCoreAsync(ownerKey, ownerDescription, true, token);
+            return AcquireCoreAsync(ownerKey, ownerDescription, true, null, token);
         }
 
-        private static async Task<IDisposable> AcquireCoreAsync(string? ownerKey, string? ownerDescription, bool alone, CancellationToken token)
+        /// <summary>
+        /// Acquire the whole host for a command that runs one vessel's suite, taking the vessel's in-process suite
+        /// lock first and only then queuing for the host. See <see cref="AcquireAloneAsync(string?, string?, CancellationToken)"/>.
+        /// </summary>
+        /// <param name="ownerKey">Stable key of the requester, used to find its place in the queue.</param>
+        /// <param name="ownerDescription">What the requester runs, shown to anyone waiting behind it.</param>
+        /// <param name="vesselKey">The vessel whose suite this command runs, or null to queue for the host directly.</param>
+        /// <param name="token">Cancellation token. Cancelling removes a waiting request from the queue or the vessel lock.</param>
+        /// <returns>A disposable lease; dispose it to release the host and then the vessel lock.</returns>
+        public static Task<IDisposable> AcquireAloneAsync(string? ownerKey, string? ownerDescription, string? vesselKey, CancellationToken token)
+        {
+            return AcquireCoreAsync(ownerKey, ownerDescription, true, vesselKey, token);
+        }
+
+        private static async Task<IDisposable> AcquireCoreAsync(string? ownerKey, string? ownerDescription, bool alone, string? vesselKey, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+            Stopwatch wait = Stopwatch.StartNew();
+
+            // A command that runs a vessel's suite takes that vessel's in-process lock before it queues for a slot.
+            // A command that would then only block inside itself on the vessel's own suite file lock never occupies
+            // a host slot in the meantime. The lock is always taken here, before the slot, and released when the
+            // lease is disposed, after the slot: one per request, so the order cannot cycle into a deadlock.
+            string? vessel = String.IsNullOrWhiteSpace(vesselKey) ? null : vesselKey.Trim();
+            SemaphoreSlim? vesselLock = vessel == null ? null : _VesselSuiteLocks.GetOrAdd(vessel, _ => new SemaphoreSlim(1, 1));
+            if (vesselLock != null)
+            {
+                try
+                {
+                    await vesselLock.WaitAsync(token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, false);
+                    throw;
+                }
+            }
+
             LinkedListNode<Request>? node = null;
             Request request;
             List<Request> granted = new List<Request>();
-            Stopwatch wait = Stopwatch.StartNew();
 
             lock (_Sync)
             {
@@ -335,7 +397,7 @@ namespace Armada.Core.Services
             if (granted.Contains(request))
             {
                 ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, true);
-                return new Lease(request);
+                return new Lease(request, vesselLock);
             }
 
             try
@@ -347,12 +409,13 @@ namespace Armada.Core.Services
             }
             catch (OperationCanceledException)
             {
+                vesselLock?.Release();
                 ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, false);
                 throw;
             }
 
             ArmadaMetrics.RecordHostSlotWait(wait.Elapsed, true);
-            return new Lease(request);
+            return new Lease(request, vesselLock);
         }
 
         /// <summary>
@@ -663,11 +726,13 @@ namespace Armada.Core.Services
         private sealed class Lease : IDisposable
         {
             private readonly Request _Request;
+            private readonly SemaphoreSlim? _VesselLock;
             private int _Released = 0;
 
-            public Lease(Request request)
+            public Lease(Request request, SemaphoreSlim? vesselLock = null)
             {
                 _Request = request ?? throw new ArgumentNullException(nameof(request));
+                _VesselLock = vesselLock;
             }
 
             public Request Request
@@ -679,7 +744,10 @@ namespace Armada.Core.Services
             {
                 if (Interlocked.Exchange(ref _Released, 1) == 0)
                 {
+                    // The slot is released first and the vessel lock after it, the reverse of how they were taken,
+                    // so the next of this vessel's suite commands enters the slot queue only once this one is clear.
                     Release(_Request);
+                    _VesselLock?.Release();
                 }
             }
         }

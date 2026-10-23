@@ -104,10 +104,12 @@ its time limit read as host load rather than a hang:
   slot at the same time as the timed-out command, at any moment while it ran
   (`TimedOutOnSharedHost` on the result; the timeout message adds `Another
   build or test command held a host command slot while this command ran.`).
-  With `HostCommandSlots` above 1, two gates of one vessel can hold slots
-  together. A lock inside the vessel's own commands, such as a `flock` around
-  its suite, then makes one gate's suite wait for the other's inside its time
-  limit, at any load average.
+  With `HostCommandSlots` above 1, commands of different vessels hold slots
+  together; a command's own work, such as one vessel's suite loading the host
+  while another's runs, then counts inside the second's time limit, at any load
+  average. Two commands of one vessel never hold slots together: the per-vessel
+  suite lock below admits only one of a vessel's suite commands to the slot
+  queue at a time.
 - **It was still writing output.** The command wrote to standard output or
   standard error within a quarter of its time limit, and at most 60 seconds,
   before the limit fired (`TimedOutWhileProgressing`; the message adds `The
@@ -211,7 +213,18 @@ granted in request order. A gate takes a slot at its first command and holds
 it until the gate ends, so its commands run back to back; work that asked
 before the gate began runs first. A count above 1 lets several full suites run
 at once, which risks false `Timeout` failures on a host without the CPU, memory
-and disk to run them inside `CommandTimeoutSeconds`. A gate's one re-run after
+and disk to run them inside `CommandTimeoutSeconds`.
+
+A gate, check run or merge-queue test names the vessel whose suite it runs. One
+vessel's suite is serialized outside Armada by a file lock the vessel's own
+command takes (a `flock` around the suite), so two of a vessel's suite commands
+cannot run at once however many slots are free: the second blocks inside its
+command on that file lock. So a command that names its vessel takes an
+in-process per-vessel suite lock before it queues for a slot, and a command that
+would then only block on its vessel's file lock holds no slot meanwhile — the
+slot stays free for another vessel's command. The per-vessel lock is always
+taken before the slot and released after it, and a command holds at most one, so
+the order never deadlocks. A gate's one re-run after
 a host-load time limit holds the whole host: it is granted when no slot is
 held, no other request is granted while it runs, and the requests behind it
 keep their order. Its holder entry reads `definition-of-done gate re-run, alone
