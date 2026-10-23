@@ -759,6 +759,35 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Allocate the Admiral's process handle for a newly started Harbor job. The handle comes from a range of its own
+        /// (from 1,000,000,000), so it can never equal an operating-system process id on the Admiral host or an API
+        /// captain's in-process id (from 2,000,000,000), and the Admiral's process maps cannot confuse a Harbor job with a
+        /// local process (L6). The Harbor's own process id is not used. A job already registered keeps its handle.
+        /// </summary>
+        /// <param name="harborId">Harbor running the job.</param>
+        /// <param name="jobId">Job identifier.</param>
+        /// <returns>The Admiral process handle.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when harborId or jobId is null or empty.</exception>
+        public int RegisterLaunchedJob(string harborId, string jobId)
+        {
+            if (String.IsNullOrWhiteSpace(harborId)) throw new ArgumentNullException(nameof(harborId));
+            if (String.IsNullOrWhiteSpace(jobId)) throw new ArgumentNullException(nameof(jobId));
+            lock (_JobsByProcessId)
+            {
+                foreach (KeyValuePair<int, HarborJobHandle> existing in _JobsByProcessId)
+                    if (existing.Value.HarborId == harborId && existing.Value.JobId == jobId) return existing.Key;
+                int handle;
+                do
+                {
+                    handle = Interlocked.Increment(ref _NextProcessHandle);
+                    if (handle <= 0 || handle >= 2000000000) throw new InvalidOperationException("Remote process handle space exhausted.");
+                } while (_JobsByProcessId.ContainsKey(handle));
+                _JobsByProcessId[handle] = new HarborJobHandle(harborId, jobId);
+                return handle;
+            }
+        }
+
+        /// <summary>
         /// Forget a host process id (its job exited).
         /// </summary>
         /// <param name="processId">Host process id.</param>

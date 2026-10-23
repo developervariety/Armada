@@ -128,7 +128,9 @@ namespace Armada.Runtimes
 
         // Synthetic process ids start well above any real OS process id so a stray Process.GetProcessById does
         // not collide with an unrelated live process.
-        private static int _PidCounter = 2_000_000_000;
+        // In-process ids start at a different point on each Admiral run (seconds since the epoch, bounded), so an id a
+        // record from the previous run still holds is not handed out again after a restart (L6).
+        private static int _PidCounter = 2_000_000_000 + (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 100_000_000);
         private int _InferenceRetries = 2;
         // Outer bound on one streamed call; the idle and first-response watchdog is what normally ends a stalled stream.
         private const int StreamingTotalTimeoutMs = 3600000;

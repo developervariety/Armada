@@ -121,8 +121,9 @@ namespace Test.Shared.Suites.Runtimes
 
                 int returnedPid = await runtime.StartAsync("/repo", "do the work").ConfigureAwait(false);
 
-                AssertEqual(4242, returnedPid);
-                AssertEqual(4242, startedPid);
+                // The Admiral's handle, never the Harbor's process id (4242), which could equal a local process's (L6).
+                AssertTrue(returnedPid >= 1000000000 && returnedPid < 2000000000, "handle " + returnedPid + " is in the Harbor range");
+                AssertEqual(returnedPid, startedPid);
                 AssertTrue(output.Contains("working"), "Expected the delegated output line to surface.");
                 AssertEqual(0, exitCode ?? -1);
             }));
@@ -164,7 +165,7 @@ namespace Test.Shared.Suites.Runtimes
                     await manager.OnMessageAsync("hbr_event_other", new HarborActivity { JobId = jobId!, Activity = new RuntimeActivity { Summary = "foreign activity" } }).ConfigureAwait(false);
                     await manager.OnMessageAsync("hbr_event_other", new HarborError { JobId = jobId!, Message = "foreign failure" }).ConfigureAwait(false);
                     AssertEqual(1, starts.Count, "A foreign start must not rebind process routing.");
-                    AssertEqual(42427, starts[0]);
+                    AssertTrue(starts[0] >= 1000000000 && starts[0] < 2000000000, "the owner's start keeps its Admiral handle");
                     AssertEqual(0, output.Count, "Foreign output must not enter an owner's log.");
                     AssertEqual(0, activity.Count, "Foreign activity must not enter the owner's session.");
                     await manager.OnMessageAsync("hbr_event_other", new HarborExited { JobId = jobId!, ExitCode = 0 }).ConfigureAwait(false);
@@ -328,6 +329,20 @@ namespace Test.Shared.Suites.Runtimes
                 await second.StopAndConfirmAsync().ConfigureAwait(false);
                 AssertEqual("hbr_pid_b", kills[1]);
                 AssertFalse(manager.IsProcessTracked(secondPid));
+            }));
+
+            cases.Add(CaseAsync("launched_job_handles_never_overlap_local_ids", "A newly started Harbor job gets an Admiral handle outside the range of local process ids and API in-process ids, and keeps it on a replayed start", TestTags.Reliability, async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                HarborConnectionManager manager = new HarborConnectionManager(new HarborService(db.Driver, CreateLogging()), CreateLogging(), null);
+                int a = manager.RegisterLaunchedJob("hbr_l6_a", "job-1");
+                int b = manager.RegisterLaunchedJob("hbr_l6_b", "job-1");
+                AssertTrue(a >= 1000000000 && a < 2000000000, "handle " + a + " is in the Harbor range");
+                AssertTrue(b >= 1000000000 && b < 2000000000);
+                AssertTrue(a != b, "two Harbors' jobs never share a handle");
+                AssertEqual(a, manager.RegisterLaunchedJob("hbr_l6_a", "job-1"), "a replayed start keeps its handle");
+                manager.TryGetHarborForProcess(b, out string? owner);
+                AssertEqual("hbr_l6_b", owner);
             }));
 
             cases.Add(CaseAsync("restored_native_pid_collision_gets_unique_handles", "Restart restores identical persisted native IDs without losing either job", TestTags.Reliability, async () =>

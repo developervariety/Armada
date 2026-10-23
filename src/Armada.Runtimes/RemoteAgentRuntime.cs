@@ -342,7 +342,8 @@ namespace Armada.Runtimes
         /// <inheritdoc />
         public void OnStarted(int processId)
         {
-            _ProcessId = _Manager.RegisterProcessId(processId, _HarborId, _JobId);
+            // A handle of the Admiral's own, never the Harbor's process id, which could equal a local process's (L6).
+            _ProcessId = _Manager.RegisterLaunchedJob(_HarborId, _JobId);
             OnProcessStarted?.Invoke(_ProcessId);
             _StartedTcs?.TrySetResult(_ProcessId);
         }
