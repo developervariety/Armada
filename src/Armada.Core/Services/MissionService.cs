@@ -295,7 +295,7 @@ namespace Armada.Core.Services
                 return blocker;
             }
 
-            List<Mission> vesselMissions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            List<Mission> vesselMissions = await ActiveMissionsOnVesselAsync(vessel.Id, token).ConfigureAwait(false);
             List<Mission> activeMissions = vesselMissions
                 .Where(m => m.Id != mission.Id && (m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress))
                 .ToList();
@@ -519,7 +519,7 @@ namespace Armada.Core.Services
             }
 
             // Check for vessel-level lock (broad-scope missions block new assignments)
-            List<Mission> activeMissions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            List<Mission> activeMissions = await ActiveMissionsOnVesselAsync(vessel.Id, token).ConfigureAwait(false);
             List<Mission> broadMissions = activeMissions.Where(m =>
                 (m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Assigned) &&
                 IsBroadScope(m)).ToList();
@@ -5112,6 +5112,19 @@ namespace Armada.Core.Services
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// The vessel's Assigned and InProgress missions, the only ones the vessel lock, broad-scope and branch checks look
+        /// at. Read by status rather than as the vessel's whole history (with its stored outputs and diffs), which every
+        /// pending mission used to load on every dispatch tick (D17).
+        /// </summary>
+        private async Task<List<Mission>> ActiveMissionsOnVesselAsync(string vesselId, CancellationToken token)
+        {
+            List<Mission> active = new List<Mission>();
+            foreach (MissionStatusEnum status in new[] { MissionStatusEnum.Assigned, MissionStatusEnum.InProgress })
+                active.AddRange((await _Database.Missions.EnumerateByStatusAsync(status, token).ConfigureAwait(false)).Where(m => m.VesselId == vesselId));
+            return active;
         }
 
         private static List<Mission> BranchHolders(Mission mission, IEnumerable<Mission> vesselMissions)
