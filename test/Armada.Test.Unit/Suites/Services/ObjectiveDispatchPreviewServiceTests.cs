@@ -1776,6 +1776,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Preflight citations resolve a path under a declared sibling's directory name and a bare name the sibling tracks, so a q1 model flag does not block", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    string siblingDirectory = Path.Combine(harness.RepositoryDirectory, "reference-tree");
+                    Directory.CreateDirectory(siblingDirectory);
+                    Vessel sibling = await testDb.Driver.Vessels.CreateAsync(new Vessel("ReferenceTree", "https://example.test/reference-tree.git")
+                    {
+                        LocalPath = siblingDirectory,
+                        WorkingDirectory = siblingDirectory
+                    }).ConfigureAwait(false);
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = sibling.Id, RelativePath = "../ReferenceTree" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+
+                    // The sibling is declared on the vessel only; the objective names no required sibling input.
+                    const string siblingTip = "89abcdef0123456789abcdef0123456789abcdef";
+                    harness.Git.RevisionCommitShas[siblingDirectory + "|HEAD"] = siblingTip;
+                    harness.Git.PathsOnRevision.Add("output/src/Commands.cs");
+                    harness.Git.TrackedPathSuffixesByRepository[siblingDirectory + "|Commands.cs"] = "output/src/Commands.cs";
+                    harness.Git.PathsOnRevision.Add("Services/Foo.cs");
+
+                    Objective objective = harness.CreateReadyObjective("facts-sibling-prefix-citation-preview");
+                    objective.Description = "Services/Foo.cs:10 says the source scales by 1/128; the source divides by 1.0/128.0 "
+                        + "(sibling tree path ReferenceTree/output/src/Commands.cs:912). A committed comment cites Commands.cs:953.";
+
+                    Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["q1"] = new TypedAnswer { Type = "noul", Noul = 0.96, Confidence = 0.96 }
+                    };
+                    TypedDecisionSettings tdSettings = new TypedDecisionSettings { Mode = TypedDecisionModeEnum.Gate };
+                    tdSettings.Decisions[PreflightTextAdapter.DecisionPoint].Mode = TypedDecisionModeEnum.Gate;
+                    tdSettings.Decisions[PreflightTextAdapter.DecisionPoint].GateThreshold = 0.80;
+                    harness.Service.PreflightAdapter = new PreflightTextAdapter(tdSettings,
+                        new FakeTypedDecisionClient(new TypedDecisionResult { Available = true, Answers = answers }),
+                        new TypedDecisionRecorder(testDb.Driver, new LoggingModule()), new LoggingModule());
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact fact = result.Preflight.Facts.Single(item => item.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Pass, fact.Status,
+                        "the sibling-prefixed path and the bare sibling name both resolve in the declared sibling. Detail: " + fact.Detail);
+                    AssertTrue(harness.Git.PathExistsOnRevisionCalls.Contains(siblingDirectory + "|" + siblingTip + "|output/src/Commands.cs"),
+                        "the prefixed citation is read inside the sibling repository at its tip");
+                    AssertFalse(result.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode),
+                        "a q1 model reading does not block a premise whose citations all resolve");
+                    AssertTrue(result.IsReady, "the preview is ready");
+
+                    // A citation under the sibling's directory that the sibling does not hold still fails, named
+                    // against the sibling, and a q1 model reading on it alone stays a warning.
+                    objective.Description = "Services/Foo.cs:10 cites ReferenceTree/output/src/Gone.cs:5.";
+                    ObjectiveDispatchPreview missing = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact missingFact = missing.Preflight.Facts.Single(item => item.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Fail, missingFact.Status, "a path the declared sibling does not hold fails question 1");
+                    AssertContains("file missing in declared sibling `../ReferenceTree`", missingFact.Detail, "the miss names the sibling");
+                    AssertTrue(missingFact.FailsOnlyOutsideTarget, "the only failure lies outside the target repository");
+                    AssertFalse(missing.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode),
+                        "a q1 model reading does not block on a citation outside the target repository");
+
+                    // A target-repository citation that does not resolve keeps the model gate.
+                    objective.Description = "Change Services/Gone.cs:4 to sum the lots.";
+                    ObjectiveDispatchPreview target = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(target.Preflight.Facts.Single(item => item.QuestionNumber == 1).FailsOnlyOutsideTarget,
+                        "a missing target file is a target failure");
+                    AssertTrue(target.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode && issue.Severity == ReadinessSeverityEnum.Error),
+                        "a q1 model reading still blocks a target-repository contradiction");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preflight citations resolve declared sibling paths at the sibling tip", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1823,9 +1894,9 @@ namespace Armada.Test.Unit.Suites.Services
                         "ordinary citations continue to use the target repository revision");
 
                     objective.Preparation.RequiredSiblingInputs.Clear();
-                    ObjectiveDispatchPreview undeclared = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
-                    AssertEqual(PreflightFactStatusEnum.Fail, undeclared.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
-                        "a parent-relative citation is not admitted by a vessel declaration alone");
+                    ObjectiveDispatchPreview declaredOnly = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Pass, declaredOnly.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a parent-relative citation resolves through the vessel's declared sibling, which every dock provisions");
 
                     objective.Preparation.RequiredSiblingInputs.Add(new ObjectivePreparationSiblingInput
                     {

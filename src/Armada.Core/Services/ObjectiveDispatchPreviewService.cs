@@ -688,6 +688,9 @@ namespace Armada.Core.Services
 
             List<string> issues = new List<string>();
             List<string> notes = new List<string>();
+            // Issues raised for citations outside the target repository are counted apart, so the fact can say
+            // whether every failure lies outside it.
+            int outsideIssues = 0;
             Dictionary<string, string> trackedPaths = new Dictionary<string, string>(StringComparer.Ordinal);
             List<CitedLineRange> ranges = CitedLineRangeChecker.Parse(description);
             try
@@ -696,9 +699,19 @@ namespace Armada.Core.Services
                 {
                     if (path.StartsWith("../", StringComparison.Ordinal))
                     {
-                        bool siblingExists = await PathExistsInDeclaredSiblingAsync(
-                            auth, objective, vessel, path, token).ConfigureAwait(false);
-                        if (!siblingExists) AddUnresolved(issues, description, path, "file missing");
+                        OutsideCitation parent = await ResolveOutsideTargetAsync(auth, vessel, path, token).ConfigureAwait(false);
+                        if (parent.FoundAt != null)
+                        {
+                            notes.Add("`" + path + "` resolves in " + parent.RootLabel + ".");
+                        }
+                        else
+                        {
+                            int before = issues.Count;
+                            AddUnresolved(issues, description, path, parent.NamesRoot
+                                ? "file missing in " + parent.RootLabel
+                                : "file missing; no declared sibling checkout holds this path");
+                            outsideIssues += issues.Count - before;
+                        }
                         continue;
                     }
 
@@ -716,7 +729,23 @@ namespace Armada.Core.Services
                             repositoryPath, targetRevision, path, token).ConfigureAwait(false);
                         if (candidates.Count < 2)
                         {
-                            AddUnresolved(issues, description, path, "file missing");
+                            // A path the target does not track may name a declared sibling checkout or evidence
+                            // root, the same trees a dock provisions beside the repository.
+                            OutsideCitation outside = await ResolveOutsideTargetAsync(auth, vessel, path, token).ConfigureAwait(false);
+                            if (outside.FoundAt != null)
+                            {
+                                notes.Add("`" + path + "` resolves in " + outside.RootLabel + " as `" + outside.FoundAt + "`.");
+                            }
+                            else if (outside.NamesRoot)
+                            {
+                                int before = issues.Count;
+                                AddUnresolved(issues, description, path, "file missing in " + outside.RootLabel);
+                                outsideIssues += issues.Count - before;
+                            }
+                            else
+                            {
+                                AddUnresolved(issues, description, path, "file missing");
+                            }
                             continue;
                         }
 
@@ -788,6 +817,7 @@ namespace Armada.Core.Services
             else
             {
                 fact.Status = PreflightFactStatusEnum.Fail;
+                fact.FailsOnlyOutsideTarget = outsideIssues == issues.Count;
                 fact.Detail = String.Join(" ", issues);
             }
             return fact;
@@ -804,55 +834,126 @@ namespace Armada.Core.Services
             foreach (string text in cited) issues.Add("`" + text + "` does not resolve: " + reason + ".");
         }
 
-        private async Task<bool> PathExistsInDeclaredSiblingAsync(
+        /// <summary>
+        /// Where a citation the target repository does not track resolves among the trees a dock provisions beside
+        /// it. A path that starts with <c>../</c>, or whose first segment is the directory name of a declared
+        /// sibling checkout, is read inside that sibling at its verified tip (tracked files, then files under the
+        /// sibling's declared extraction artifact paths in its working checkout). A path whose first segment is
+        /// the directory name of an evidence root that applies to the vessel is read under that root. A bare file
+        /// name is searched in every declared sibling. A path that would climb above the root it names never
+        /// resolves.
+        /// </summary>
+        private async Task<OutsideCitation> ResolveOutsideTargetAsync(
             AuthContext auth,
-            Objective objective,
             Vessel vessel,
             string citedPath,
             CancellationToken token)
         {
-            string normalizedCitation = NormalizeRelativePath(citedPath);
-            List<SiblingRepo> declaredSiblings = vessel.GetSiblingRepos();
-            foreach (ObjectivePreparationSiblingInput required in objective.Preparation?.RequiredSiblingInputs
-                ?? new List<ObjectivePreparationSiblingInput>())
+            OutsideCitation result = new OutsideCitation();
+            List<SiblingRepo> siblings = (vessel.GetSiblingRepos() ?? new List<SiblingRepo>())
+                .Where(item => item != null && !String.IsNullOrWhiteSpace(item.VesselRef) && NormalizeRelativePath(item.RelativePath).Length > 0)
+                .ToList();
+
+            string? siblingPath = citedPath.StartsWith("../", StringComparison.Ordinal)
+                ? citedPath
+                : CitedPathPrefix.AsSiblingPath(citedPath, siblings);
+            if (siblingPath != null)
             {
-                string requiredPath = NormalizeRelativePath(required.RelativePath);
-                if (requiredPath.Length == 0
-                    || !normalizedCitation.StartsWith(requiredPath + "/", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                string siblingRelativePath = normalizedCitation.Substring(requiredPath.Length + 1);
-                if (String.IsNullOrWhiteSpace(siblingRelativePath)
-                    || siblingRelativePath.Split('/').Any(segment => segment == ".." || segment == ".")
-                    || siblingRelativePath.StartsWith("/", StringComparison.Ordinal))
-                    continue;
-
-                Vessel? requiredVessel = await ResolveVesselReferenceAsync(auth, required.VesselRef, token).ConfigureAwait(false);
-                if (requiredVessel == null) continue;
-
-                bool declared = false;
-                foreach (SiblingRepo sibling in declaredSiblings.Where(item => item != null
-                    && String.Equals(NormalizeRelativePath(item.RelativePath), requiredPath, StringComparison.OrdinalIgnoreCase)))
+                string normalized = NormalizeRelativePath(siblingPath);
+                foreach (SiblingRepo sibling in siblings)
                 {
-                    Vessel? declaredVessel = await ResolveVesselReferenceAsync(auth, sibling.VesselRef, token).ConfigureAwait(false);
-                    if (String.Equals(declaredVessel?.Id, requiredVessel.Id, StringComparison.OrdinalIgnoreCase))
+                    string declared = NormalizeRelativePath(sibling.RelativePath);
+                    if (!normalized.StartsWith(declared + "/", StringComparison.OrdinalIgnoreCase)) continue;
+                    result.NamesRoot = true;
+                    result.RootLabel = "declared sibling `" + declared + "`";
+                    string relative = normalized.Substring(declared.Length + 1);
+                    if (!IsContainedRelativePath(relative)) continue;
+                    string? found = await FindInSiblingAsync(auth, sibling, relative, token).ConfigureAwait(false);
+                    if (found == null) continue;
+                    result.FoundAt = declared + "/" + found;
+                    result.RootLabel = "declared sibling `" + declared + "`";
+                    return result;
+                }
+                return result;
+            }
+
+            string[] segments = NormalizeRelativePath(citedPath).Split('/', 2);
+            if (segments.Length == 2)
+            {
+                foreach (CaptainEvidenceRoot evidence in _Settings.CaptainEvidenceRoots)
+                {
+                    if (evidence == null || String.IsNullOrWhiteSpace(evidence.Path) || !evidence.AppliesTo(vessel.Id)) continue;
+                    string name = Path.GetFileName(evidence.Path.TrimEnd('/', '\\'));
+                    if (!String.Equals(name, segments[0], StringComparison.OrdinalIgnoreCase)) continue;
+                    result.NamesRoot = true;
+                    result.RootLabel = "evidence root `" + name + "`";
+                    if (!Path.IsPathRooted(evidence.Path) || !IsContainedRelativePath(segments[1])) continue;
+                    if (_ExecutionEnvironment.PathExists(Path.Combine(evidence.Path, segments[1].Replace('/', Path.DirectorySeparatorChar))))
                     {
-                        declared = true;
-                        break;
+                        result.FoundAt = name + "/" + segments[1];
+                        return result;
                     }
                 }
-                if (!declared) continue;
-
-                string siblingRepositoryPath = RepositoryPath(requiredVessel);
-                string? siblingTip = await _Git.GetRevisionCommitShaAsync(siblingRepositoryPath, "HEAD", token).ConfigureAwait(false);
-                if (String.IsNullOrWhiteSpace(siblingTip)) continue;
-                if (await _Git.PathExistsOnRevisionAsync(siblingRepositoryPath, siblingTip, siblingRelativePath, token).ConfigureAwait(false))
-                    return true;
-                string? suffix = await _Git.ResolveTrackedPathSuffixAsync(
-                    siblingRepositoryPath, siblingTip, siblingRelativePath, token).ConfigureAwait(false);
-                if (!String.IsNullOrWhiteSpace(suffix)) return true;
+                return result;
             }
-            return false;
+
+            if (CitedPathPrefix.IsBareName(citedPath))
+            {
+                foreach (SiblingRepo sibling in siblings)
+                {
+                    string? found = await FindInSiblingAsync(auth, sibling, citedPath, token).ConfigureAwait(false);
+                    if (found == null) continue;
+                    string declared = NormalizeRelativePath(sibling.RelativePath);
+                    result.FoundAt = declared + "/" + found;
+                    result.RootLabel = "declared sibling `" + declared + "`";
+                    return result;
+                }
+            }
+            return result;
+        }
+
+        // The sibling-relative path a citation names inside one declared sibling, or null when the sibling does
+        // not hold it or cannot be read at a verified tip.
+        private async Task<string?> FindInSiblingAsync(AuthContext auth, SiblingRepo sibling, string relative, CancellationToken token)
+        {
+            Vessel? siblingVessel = await ResolveVesselReferenceAsync(auth, sibling.VesselRef, token).ConfigureAwait(false);
+            if (siblingVessel == null) return null;
+            string repository = RepositoryPath(siblingVessel);
+            string? tip = NormalizeEmpty(await _Git.GetRevisionCommitShaAsync(repository, "HEAD", token).ConfigureAwait(false));
+            if (tip == null) return null;
+            if (await _Git.PathExistsOnRevisionAsync(repository, tip, relative, token).ConfigureAwait(false)) return relative;
+            string? suffix = NormalizeEmpty(await _Git.ResolveTrackedPathSuffixAsync(repository, tip, relative, token).ConfigureAwait(false));
+            if (suffix != null) return suffix;
+
+            // Extraction artifacts are untracked output a dock receives from the sibling's working checkout.
+            string? workingDirectory = NormalizeEmpty(siblingVessel.WorkingDirectory);
+            if (workingDirectory == null) return null;
+            foreach (string artifact in sibling.ExtractionArtifactPaths ?? new List<string>())
+            {
+                string root = NormalizeRelativePath(artifact);
+                if (root.Length == 0) continue;
+                if (!relative.Equals(root, StringComparison.Ordinal) && !relative.StartsWith(root + "/", StringComparison.Ordinal)) continue;
+                if (_ExecutionEnvironment.PathExists(Path.Combine(workingDirectory, relative.Replace('/', Path.DirectorySeparatorChar))))
+                    return relative;
+            }
+            return null;
+        }
+
+        private static bool IsContainedRelativePath(string relative)
+        {
+            return !String.IsNullOrWhiteSpace(relative)
+                && !relative.StartsWith("/", StringComparison.Ordinal)
+                && !Path.IsPathRooted(relative)
+                && !relative.Split('/').Any(segment => segment == ".." || segment == ".");
+        }
+
+        // Where a citation outside the target repository resolves. NamesRoot is true when the path names a
+        // declared sibling or evidence root, so a miss there is reported against that root.
+        private sealed class OutsideCitation
+        {
+            public bool NamesRoot { get; set; } = false;
+            public string RootLabel { get; set; } = "the declared sibling checkouts";
+            public string? FoundAt { get; set; } = null;
         }
 
         /// <summary>

@@ -29,5 +29,12 @@ namespace Armada.Core.Models
         /// The operator's recorded answer for the same question, echoed for comparison.
         /// </summary>
         public ObjectivePreflightAnswerEnum RecordedAnswer { get; set; } = ObjectivePreflightAnswerEnum.Unanswered;
+
+        /// <summary>
+        /// True when the fact fails and every failure is a citation outside the target repository: a path under a
+        /// declared sibling checkout or evidence root, or a parent-relative path. The target tip cannot contradict
+        /// such a citation, so a model reading of the same question does not block dispatch on it.
+        /// </summary>
+        public bool FailsOnlyOutsideTarget { get; set; } = false;
     }
 }

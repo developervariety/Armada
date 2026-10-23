@@ -35,7 +35,8 @@ namespace Armada.Core.Services
     /// Q4 or Q13 model flag never blocks dispatch or posts an owner-addressed board note. When no deterministic
     /// fact fails, a Q1 flag is a Warning while the Q1 citation fact passes, and a Q9 flag is a Warning while the
     /// brief states two different proof values for the corrected and the defective code
-    /// (<see cref="ProofValueChangeDetector"/>). The adapter never throws into the caller.
+    /// (<see cref="ProofValueChangeDetector"/>). A Q1 flag is also a Warning when the Q1 citation fact fails only on
+    /// citations outside the target repository and no other fact fails. The adapter never throws into the caller.
     ///
     /// Answers are cached by the redacted state's hash, the question contract's hash, the configured model
     /// and the model version the provider last reported. A repeat preview of an unchanged objective reuses
@@ -260,7 +261,9 @@ namespace Armada.Core.Services
             // different values for the corrected and the defective code and no fact fails, the question's own contract
             // answers false, so its q9 flag stays a warning.
             bool noFactFails = NoFactFails(result);
-            bool premiseProven = noFactFails && PremiseFactPasses(result);
+            // A citation fact that fails only on paths outside the target repository, with no other fact failing,
+            // is not a contradiction the target tip shows, so its q1 flag stays a warning too.
+            bool premiseProven = (noFactFails && PremiseFactPasses(result)) || PremiseFailsOnlyOutsideTarget(result);
             string? statedChange = noFactFails
                 ? ProofValueChangeDetector.Find(objective.Description, objective.AcceptanceCriteria)
                 : null;
@@ -649,6 +652,15 @@ namespace Armada.Core.Services
         {
             List<ObjectiveDispatchPreflightFact> facts = result.Preflight?.Facts ?? new List<ObjectiveDispatchPreflightFact>();
             return facts.Any(fact => fact != null && fact.QuestionNumber == _PremiseQuestion && fact.Status == PreflightFactStatusEnum.Pass);
+        }
+
+        private static bool PremiseFailsOnlyOutsideTarget(ObjectiveDispatchPreview result)
+        {
+            List<ObjectiveDispatchPreflightFact> facts = result.Preflight?.Facts ?? new List<ObjectiveDispatchPreflightFact>();
+            bool otherFails = facts.Any(fact => fact != null && fact.QuestionNumber != _PremiseQuestion
+                && fact.Status == PreflightFactStatusEnum.Fail);
+            return !otherFails && facts.Any(fact => fact != null && fact.QuestionNumber == _PremiseQuestion
+                && fact.Status == PreflightFactStatusEnum.Fail && fact.FailsOnlyOutsideTarget);
         }
 
         private static string QuoteOne(string text)

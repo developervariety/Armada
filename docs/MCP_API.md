@@ -1691,7 +1691,11 @@ template through the caller scope, and require edit rights.
 `create_objective`, `create_backlog_item`, `update_objective` and
 `update_backlog_item` share one input schema and call the same service methods
 as `POST` and `PUT /api/v1/objectives` (and `/api/v1/backlog`). The update tools
-change only supplied top-level fields, including `autoDispatchEnabled`. If an
+change only supplied top-level fields, including `autoDispatchEnabled`. A
+top-level field the schema does not list is refused and nothing is written: the
+tools return code `objective_unknown_field` with outcome `Invalid` and the
+names in `UnknownFields`, and REST returns 400 with a message that names each
+field. Preflight answers are written through `preparation.preflight.questions`. If an
 update supplies `preparation`, that nested object is a complete replacement.
 Send every nested value that must remain: `requiredForDispatch`,
 `requiredClaimKinds`, `requiredSiblingInputs`, `executionRequirements`,

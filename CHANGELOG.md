@@ -577,6 +577,22 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Objective preflight question 1 resolves a cited path in the trees a dock
+  provisions beside the repository: a path under a declared sibling's directory
+  name (with or without `../`) at that sibling's tip or under its extraction
+  artifact paths, a bare file name any declared sibling tracks, and a path
+  under an evidence root that applies to the vessel. A declared sibling no
+  longer also needs a required sibling input. A miss there is named against the
+  sibling or root, and when every failure of the fact lies outside the target
+  repository (`FailsOnlyOutsideTarget`) the Jev q1 reading is a warning, so a
+  sibling citation no longer blocks dispatch on the model's score alone.
+
+- Objective create and update on REST and MCP (`create_objective`,
+  `create_backlog_item`, `update_objective`, `update_backlog_item`) refuse a
+  top-level field the request does not accept and name it
+  (`objective_unknown_field`, `UnknownFields`; REST 400), instead of returning
+  success and storing nothing.
+
 - An objective's confirmed stored stage skip (`preparation.stageSkip`) is a
   default. An entry that names no stage of the chosen pipeline is dropped and
   reported, and the dispatch proceeds: the preview lists it in

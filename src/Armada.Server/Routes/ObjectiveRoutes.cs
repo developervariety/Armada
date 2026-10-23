@@ -453,22 +453,22 @@ namespace Armada.Server.Routes
 
         /// <summary>
         /// Create an objective through the shared write rule. A body that is not valid JSON for the request,
-        /// such as an unknown enum value, is refused with 400.
+        /// such as an unknown enum value, or that carries a field the request does not accept, is refused with 400.
         /// </summary>
         private async Task<object?> CreateObjectiveAsync(ApiRequest req, AuthContext ctx)
         {
-            if (!RecordWriteResponse.TryReadBody(req, _JsonOptions, out ObjectiveUpsertRequest? request, out object? refusal)) return refusal;
+            if (!RecordWriteResponse.TryReadKnownFieldsBody(req, _JsonOptions, out ObjectiveUpsertRequest? request, out object? refusal)) return refusal;
             RecordWriteResult<Objective> result = await _Objectives.CreateRecordAsync(ctx, request).ConfigureAwait(false);
             return RecordWriteResponse.From(req, result, 201);
         }
 
         /// <summary>
         /// Update an objective through the shared write rule: 404 when the objective is not found, 400 for an
-        /// invalid field or a linked record outside the caller's scope.
+        /// invalid field, a field the request does not accept, or a linked record outside the caller's scope.
         /// </summary>
         private async Task<object?> UpdateObjectiveAsync(ApiRequest req, AuthContext ctx)
         {
-            if (!RecordWriteResponse.TryReadBody(req, _JsonOptions, out ObjectiveUpsertRequest? request, out object? refusal)) return refusal;
+            if (!RecordWriteResponse.TryReadKnownFieldsBody(req, _JsonOptions, out ObjectiveUpsertRequest? request, out object? refusal)) return refusal;
             RecordWriteResult<Objective> result = await _Objectives.UpdateRecordAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
             return RecordWriteResponse.From(req, result, 200);
         }

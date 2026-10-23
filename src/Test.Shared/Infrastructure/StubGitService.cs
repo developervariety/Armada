@@ -419,8 +419,15 @@ namespace Test.Shared.Infrastructure
         /// <summary>Tracked paths ResolveTrackedPathSuffixAsync returns, keyed by the path as named.</summary>
         public Dictionary<string, string> TrackedPathSuffixes { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Tracked paths ResolveTrackedPathSuffixAsync returns for one repository only, keyed by
+        /// <c>repository|path as named</c>; consulted before <see cref="TrackedPathSuffixes"/>.
+        /// </summary>
+        public Dictionary<string, string> TrackedPathSuffixesByRepository { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
         public Task<string?> ResolveTrackedPathSuffixAsync(string worktreePath, string revision, string relativePath, CancellationToken token = default)
         {
+            if (TrackedPathSuffixesByRepository.TryGetValue(worktreePath + "|" + relativePath, out string? scoped)) return Task.FromResult<string?>(scoped);
             return Task.FromResult<string?>(TrackedPathSuffixes.TryGetValue(relativePath, out string? tracked) ? tracked : null);
         }
 

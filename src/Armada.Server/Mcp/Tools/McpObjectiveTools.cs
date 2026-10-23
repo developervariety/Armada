@@ -17,6 +17,14 @@ namespace Armada.Server.Mcp.Tools
     /// </summary>
     public static class McpObjectiveTools
     {
+        /// <summary>
+        /// Code of the refusal an objective create or update returns when the arguments carry a field the request
+        /// does not accept. The refusal lists every such field in <c>UnknownFields</c> and writes nothing.
+        /// </summary>
+        public const string UnknownFieldCode = "objective_unknown_field";
+
+        private static readonly string[] _UpdateIdArguments = new string[] { "objectiveId", "backlogItemId", "id" };
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -989,6 +997,9 @@ namespace Armada.Server.Mcp.Tools
 
         private static async Task<object> CreateAsync(ObjectiveService objectiveService, JsonElement? args, string code)
         {
+            object? unknown = RefuseUnknownFields(args, null);
+            if (unknown != null) return unknown;
+
             ObjectiveUpsertRequest? request;
             try
             {
@@ -1005,6 +1016,9 @@ namespace Armada.Server.Mcp.Tools
 
         private static async Task<object> UpdateAsync(ObjectiveService objectiveService, JsonElement? args, string code, string missingIdMessage, string? missingIdCode)
         {
+            object? unknown = RefuseUnknownFields(args, _UpdateIdArguments);
+            if (unknown != null) return unknown;
+
             UpdateObjectiveArgs? request;
             try
             {
@@ -1023,6 +1037,22 @@ namespace Armada.Server.Mcp.Tools
             // autoDispatchEnabled included, reaches it without a hand-copied field list.
             RecordWriteResult<Objective> result = await objectiveService.UpdateRecordAsync(McpCallerContext.Require(), objectiveId, request).ConfigureAwait(false);
             return result.Succeeded ? result.Record! : WriteError(result, code, objectiveId, false);
+        }
+
+        // A field the request does not accept is refused by name instead of dropped, so a write that would store
+        // nothing never reads as a success. REST objective writes apply the same rule.
+        private static object? RefuseUnknownFields(JsonElement? args, IEnumerable<string>? idArguments)
+        {
+            if (!args.HasValue) return null;
+            List<string> unknown = RequestFieldGuard.Unknown<ObjectiveUpsertRequest>(args.Value, idArguments);
+            if (unknown.Count == 0) return null;
+            return new
+            {
+                Error = RequestFieldGuard.Message(unknown),
+                Code = UnknownFieldCode,
+                Outcome = RecordWriteOutcomeEnum.Invalid,
+                UnknownFields = unknown
+            };
         }
 
         private static object WriteError(RecordWriteResult<Objective> result, string code, string? objectiveId, bool includeEnums)

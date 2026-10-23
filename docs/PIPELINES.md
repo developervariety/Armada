@@ -74,10 +74,17 @@ Read current fleet and vessel settings before a default change. Do not infer a
 default from a previous voyage.
 
 Objective preflight question 1 checks ordinary `path:line` citations at the
-target repository revision. A parent-relative citation is checked at a sibling
-tip only when the objective requires that sibling and the target vessel
-declares the same normalized sibling path. Armada rejects paths that traverse
-above that sibling root.
+target repository revision. A citation the target does not track is checked in
+the trees a dock provisions beside the repository. A `../<Sibling>/...` path, or
+a path whose first segment is the directory name of a sibling the target vessel
+declares, is checked at that sibling's verified tip, and under its declared
+extraction artifact paths in the sibling's working checkout. A bare file name is
+searched in every declared sibling. A path whose first segment names an
+evidence root that applies to the vessel is checked under that root. Armada
+rejects paths that traverse above the root they name. A miss under a declared
+sibling or evidence root is named against that root, and the fact reports
+`FailsOnlyOutsideTarget` when every failure lies outside the target repository;
+the Jev q1 reading on such a fact is a warning, not a blocking flag.
 
 A cited path resolves when the revision tracks it as a file or a directory,
 exactly or as a unique suffix. A path that resolves only after ignoring letter

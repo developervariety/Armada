@@ -158,11 +158,17 @@ and the tier floor a pinned model no captain runs sets. A compatible captain
 does not have to be idle for the objective to be ready; idle state is capacity.
 Operator and autonomous objective dispatch use this same preflight.
 The Jev text check can add blocking issues, but its Q4 dock-observability and Q13 owner-question findings are warnings. Deterministic preflight facts and recorded owner answers remain authoritative.
-Question 1 resolves ordinary citations at the target repository revision.
-Parent-relative citations resolve only when the objective requires that sibling
-and the target vessel declares the same sibling path; Armada checks the path at
-the sibling repository's current verified tip. An undeclared sibling path or
-one that traverses above its sibling root remains unresolved.
+Question 1 resolves ordinary citations at the target repository revision. A
+citation the target does not track resolves in the trees a dock provisions
+beside it: a `../<Sibling>/...` path, or a path whose first segment is a
+declared sibling's directory name, at that sibling repository's verified tip
+(or under its declared extraction artifact paths); a bare file name in any
+declared sibling; and a path whose first segment names an evidence root that
+applies to the vessel. A path that traverses above its root, or that names no
+declared sibling or evidence root, remains unresolved. When the question-1 fact
+fails only on citations outside the target repository
+(`FailsOnlyOutsideTarget`) and no other fact fails, the Jev q1 reading is a
+warning.
 The REST preview accepts a JSON `captainAssignments` query value when an
 operator must test the same captain and fallback-tier overrides as dispatch.
 

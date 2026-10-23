@@ -171,6 +171,38 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(0, failures.Count, String.Join("; ", failures));
             }).ConfigureAwait(false);
 
+            await RunTest("An objective update with a field the request does not accept is refused by name on REST and MCP and stores nothing", async () =>
+            {
+                Dictionary<string, string> ids = new Dictionary<string, string>();
+                foreach (string surface in new[] { "rest", "update_objective", "update_backlog_item" })
+                    ids[surface] = await CreateViaRestAsync(new { title = "Parity unknown field " + surface }).ConfigureAwait(false);
+
+                object answers = new[] { new { number = 1, answer = "Yes" } };
+                SurfaceReply rest = await _Surfaces.RestAsync(HttpMethod.Put, "/api/v1/objectives/" + ids["rest"],
+                    ConfigurationSurfaces.Json(new { title = "changed", preflightAnswers = answers })).ConfigureAwait(false);
+                SurfaceReply objective = await _Surfaces.McpAsync("update_objective",
+                    ConfigurationSurfaces.Json(new { objectiveId = ids["update_objective"], title = "changed", preflightAnswers = answers })).ConfigureAwait(false);
+                SurfaceReply backlog = await _Surfaces.McpAsync("update_backlog_item",
+                    ConfigurationSurfaces.Json(new { backlogItemId = ids["update_backlog_item"], title = "changed", preflightAnswers = answers })).ConfigureAwait(false);
+
+                List<string> failures = new List<string>();
+                if (rest.Status != 400 || !rest.Text.Contains("preflightAnswers", StringComparison.Ordinal))
+                    failures.Add("REST update with an unknown field returned " + rest);
+                if (!IsToolRefusal(objective, "Invalid") || !objective.Text.Contains("objective_unknown_field", StringComparison.Ordinal)
+                    || !objective.Text.Contains("preflightAnswers", StringComparison.Ordinal))
+                    failures.Add("update_objective with an unknown field returned " + objective);
+                if (!IsToolRefusal(backlog, "Invalid") || !backlog.Text.Contains("preflightAnswers", StringComparison.Ordinal))
+                    failures.Add("update_backlog_item with an unknown field returned " + backlog);
+                foreach (KeyValuePair<string, string> entry in ids)
+                {
+                    string title = ConfigurationSurfaces.Text(await ReadAsync(entry.Value).ConfigureAwait(false), "title");
+                    if (title == "changed") failures.Add(entry.Key + " stored the known field of a refused write");
+                }
+
+                AssertEqual(0, failures.Count, String.Join("; ", failures));
+                foreach (string id in ids.Values) await DeleteAsync(id).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             await RunTest("A refinement session delete is available on MCP as on REST and refuses an unknown session the same way", async () =>
             {
                 string missing = "ors_missing" + Guid.NewGuid().ToString("N").Substring(0, 12);

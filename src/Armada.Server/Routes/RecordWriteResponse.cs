@@ -1,10 +1,12 @@
 namespace Armada.Server.Routes
 {
     using System;
+    using System.Collections.Generic;
     using System.Text.Json;
     using WatsonWebserver.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Maps a configuration-record write result to a REST response: the stored record with the success
@@ -76,6 +78,47 @@ namespace Armada.Server.Routes
                 refusal = new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Request body is not valid: " + ex.Message };
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Read a request body into a write request, refusing with 400 any top-level field the request type does
+        /// not accept. The refusal names every such field, so a misspelled or unsupported field never reads as a
+        /// write that succeeded. A body that is not a JSON object is left to <see cref="TryReadBody{T}"/>.
+        /// </summary>
+        /// <typeparam name="T">Write request type.</typeparam>
+        /// <param name="req">API request.</param>
+        /// <param name="options">Serializer options.</param>
+        /// <param name="body">The request, or null when refused.</param>
+        /// <param name="refusal">The 400 error body when refused, otherwise null.</param>
+        /// <returns>True when the body was read.</returns>
+        public static bool TryReadKnownFieldsBody<T>(ApiRequest req, JsonSerializerOptions options, out T? body, out object? refusal) where T : class, new()
+        {
+            if (req == null) throw new ArgumentNullException(nameof(req));
+            body = null;
+            refusal = null;
+            string raw = req.Http.Request.DataAsString ?? "";
+            if (!String.IsNullOrWhiteSpace(raw))
+            {
+                List<string> unknown = new List<string>();
+                try
+                {
+                    using (JsonDocument document = JsonDocument.Parse(raw))
+                    {
+                        unknown = RequestFieldGuard.Unknown<T>(document.RootElement);
+                    }
+                }
+                catch (JsonException)
+                {
+                    // A malformed body is refused below with the deserializer's own message.
+                }
+                if (unknown.Count > 0)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    refusal = new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = RequestFieldGuard.Message(unknown) };
+                    return false;
+                }
+            }
+            return TryReadBody(req, options, out body, out refusal);
         }
 
         #endregion
