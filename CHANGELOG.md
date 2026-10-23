@@ -633,6 +633,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The Judge-PASS acceptance-criteria walk measures the linked objective's live
+  criteria at check time, not the dispatch-time snapshot. When an operator
+  narrows an objective's acceptance criteria after its voyage is dispatched, a
+  Judge PASS that covers the current criteria is validated instead of being
+  refused on the criteria the stored mission description still lists. A mission
+  with no linked objective still reads the criteria from its description, so
+  ad-hoc missions are unchanged, and a live criterion the review never walks is
+  still refused.
+
 - The coordination claim tool rejects a missing action instead of silently
   listing. A call that sends subject fields but no action returns a
   `missing_action` error rather than defaulting to a read that returns an empty

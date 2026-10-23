@@ -99,6 +99,54 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("ValidatePass measures the live criteria, not the dispatch-time snapshot, when they are supplied", () =>
+            {
+                // The dispatch-time brief batched four extra criteria that an operator later removed from the
+                // objective, leaving two in scope. The Judge PASS walks exactly the two current criteria.
+                string snapshotBrief =
+                    "# Objective Brief\n" +
+                    "## Acceptance Criteria\n" +
+                    "- Gate stays green\n" +
+                    "- CHANGELOG names the behaviour\n" +
+                    "- Batched step added metrics export\n" +
+                    "- Batched step added a retry backoff\n" +
+                    "- Batched step added a dashboard panel\n" +
+                    "- Batched step added an audit log\n" +
+                    "## Scope\nThe snapshot still lists the removed criteria.\n";
+
+                System.Collections.Generic.List<string> narrowed = new System.Collections.Generic.List<string>
+                {
+                    "Gate stays green",
+                    "CHANGELOG names the behaviour"
+                };
+
+                // The symptom: against the dispatch snapshot the PASS is refused because the removed criteria
+                // are not walked, even though it covers every current criterion.
+                AssertEqual("Judge PASS does not list every acceptance criterion from the brief",
+                    JudgeAcceptanceWalk.ValidatePass(PassReview, snapshotBrief));
+
+                // The fix: with the live criteria supplied the PASS is accepted; the stale snapshot does not count.
+                AssertNull(JudgeAcceptanceWalk.ValidatePass(PassReview, snapshotBrief, narrowed),
+                    "a PASS that covers the current criteria is not refused on criteria removed after dispatch");
+
+                // An empty live set means the objective now lists no criteria: no walk is required.
+                AssertNull(JudgeAcceptanceWalk.ValidatePass(
+                    PassReview.Replace("## Acceptance Criteria\n- Gate stays green: MET (JudgeAcceptanceWalk.cs:40)\n- CHANGELOG names the behaviour: MET (CHANGELOG.md:12)\n", ""),
+                    snapshotBrief,
+                    new System.Collections.Generic.List<string>()),
+                    "an empty current criteria set requires no walk");
+
+                // A live criterion the PASS never walks is still refused, so the walk is not weakened.
+                System.Collections.Generic.List<string> withExtra = new System.Collections.Generic.List<string>(narrowed)
+                {
+                    "A live criterion the Judge never walked"
+                };
+                AssertEqual("Judge PASS does not list every acceptance criterion from the brief",
+                    JudgeAcceptanceWalk.ValidatePass(PassReview, snapshotBrief, withExtra));
+
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("ValidatePass covers a criterion the brief lists twice with one MET line", () =>
             {
                 string brief = BriefTwo.Replace("- CHANGELOG names the behaviour\n", "- CHANGELOG names the behaviour\n- Gate stays green\n");

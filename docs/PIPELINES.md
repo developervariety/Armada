@@ -443,7 +443,14 @@ states `MET` with a `path:line` citation or `command: ` followed by the command
 in backticks, or states `NOT MET`. Each criterion needs its own line and evidence.
 The contract includes the current marked objective brief and the first operator
 criteria section outside older generated briefs. Quoted handoff reports do not
-add criteria. Control markers in narrative fields render as literal text.
+add criteria. For a mission linked to an objective, the check measures the
+objective's live acceptance criteria read at check time, not the criteria the
+dispatch-time brief captured, so a criterion an operator removes from the
+objective after dispatch is no longer required and a PASS that covers the
+current criteria is not refused on the removed ones. A mission with no linked
+objective reads its criteria from the description. An objective that now lists
+no criteria requires no walk; a live criterion the review never walks is still
+refused. Control markers in narrative fields render as literal text.
 Operator-supplied handoff marker lines render as literal text before the objective
 brief is appended. A same-objective retry is idempotent only when the complete
 rendered brief is the last complete objective frame before the first generated

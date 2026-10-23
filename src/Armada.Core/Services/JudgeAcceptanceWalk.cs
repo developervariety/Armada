@@ -155,11 +155,44 @@ namespace Armada.Core.Services
         /// <summary>Require a distinct, evidenced MET entry for each criterion in the brief.</summary>
         public static string? ValidatePass(string? agentOutput, string? brief)
         {
-            // A criterion the brief lists twice is one criterion: one MET line covers it.
-            List<string> expected = Deduplicate(ExtractCriteria(brief));
+            return ValidatePass(agentOutput, brief, null);
+        }
+
+        /// <summary>
+        /// Require a distinct, evidenced MET entry for each CURRENT acceptance criterion. When
+        /// <paramref name="currentCriteria"/> is non-null it is the authoritative expected set — the
+        /// linked objective's live criteria, which an operator may narrow after dispatch — and the
+        /// <paramref name="brief"/> snapshot is not read for the expected list, so a PASS that covers
+        /// the current criteria is not refused on criteria the dispatch-time brief still lists. When it
+        /// is null the expected set comes from the brief, for a mission with no linked objective.
+        /// </summary>
+        /// <param name="agentOutput">The Judge report.</param>
+        /// <param name="brief">The mission description the Judge was given.</param>
+        /// <param name="currentCriteria">The live criteria to measure, or null to read the brief.</param>
+        /// <returns>The failure reason, or null when the walk is satisfied.</returns>
+        public static string? ValidatePass(string? agentOutput, string? brief, IReadOnlyList<string>? currentCriteria)
+        {
+            // A criterion listed twice is one criterion: one MET line covers it. The current criteria win
+            // over the brief snapshot when supplied, so the walk measures what the objective requires now.
+            List<string> expected;
+            if (currentCriteria != null)
+            {
+                List<string> nonEmpty = new List<string>();
+                foreach (string criterion in currentCriteria)
+                {
+                    if (!String.IsNullOrWhiteSpace(criterion)) nonEmpty.Add(criterion);
+                }
+                expected = Deduplicate(nonEmpty);
+            }
+            else
+            {
+                expected = Deduplicate(ExtractCriteria(brief));
+            }
             if (expected.Count == 0) return null;
 
-            if (LacksWalkSection(agentOutput, brief))
+            // The walk is required exactly when a criterion is expected; read the section from the output
+            // against the resolved expected set, not the brief.
+            if (String.IsNullOrWhiteSpace(ExtractSection(agentOutput, SectionName)))
                 return "Judge PASS verdict missing required review sections: " + SectionName;
             string block = ExtractSection(agentOutput, SectionName)!;
             // Criteria that read the same once redacted are one criterion, as the stored output cannot tell them apart.

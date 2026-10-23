@@ -3130,7 +3130,8 @@ namespace Armada.Core.Services
                     // it MORE conservative — hold a thin PASS the rule accepted for operator review — or
                     // accept a heading-form-only rejection into the same Check gate below; it never
                     // fails a PASS the rule accepted, never lands, and never dispatches.
-                    JudgePassValidation ruleValidation = EvaluateJudgePassValidation(mission.AgentOutput, mission.IsReadOnlyMode, mission.Description);
+                    IReadOnlyList<string>? currentCriteria = await ReadCurrentAcceptanceCriteriaAsync(mission, token).ConfigureAwait(false);
+                    JudgePassValidation ruleValidation = EvaluateJudgePassValidation(mission.AgentOutput, mission.IsReadOnlyMode, mission.Description, currentCriteria);
                     verdictFailureReason = ruleValidation.FailureReason;
                     ReviewSubstanceVerdict substanceVerdict = await RefineReviewSubstanceAsync(mission, ruleValidation, token).ConfigureAwait(false);
                     if (!substanceVerdict.Validated)
@@ -10527,6 +10528,34 @@ namespace Armada.Core.Services
         /// adapter's Combine may only hold a thin validated PASS for operator review or accept a
         /// heading-form-only rejection into the Check gate. Never throws into the caller.
         /// </summary>
+        /// <summary>
+        /// The acceptance criteria the Judge-PASS walk measures: the linked objective's LIVE criteria when
+        /// the mission belongs to one, read at check time so an operator who narrows the objective's criteria
+        /// after dispatch is honoured and a PASS that covers the current criteria is not refused on criteria
+        /// the dispatch-time brief still lists. A linked objective always yields the authoritative set (even
+        /// when empty, which means no walk is required). Null only when the mission has no linked objective,
+        /// so the walk falls back to the criteria in the mission description. Best effort: a resolver miss
+        /// returns null and the description snapshot stands.
+        /// </summary>
+        /// <param name="mission">The Judge mission.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The live criteria, or null to read the mission description.</returns>
+        private async Task<IReadOnlyList<string>?> ReadCurrentAcceptanceCriteriaAsync(Mission mission, CancellationToken token)
+        {
+            Objective? linked = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
+            if (linked == null) return null;
+
+            List<string> criteria = new List<string>();
+            if (linked.AcceptanceCriteria != null)
+            {
+                foreach (string item in linked.AcceptanceCriteria)
+                {
+                    if (!String.IsNullOrWhiteSpace(item)) criteria.Add(item);
+                }
+            }
+            return criteria;
+        }
+
         private async Task<ReviewSubstanceVerdict> RefineReviewSubstanceAsync(Mission mission, JudgePassValidation rule, CancellationToken token)
         {
             ReviewSubstanceVerdict ruleVerdict = ReviewSubstanceVerdict.Rule(rule.Validated, rule.Category, rule.FailureReason);
@@ -12584,8 +12613,12 @@ namespace Armada.Core.Services
         /// <param name="agentOutput">The Judge mission output.</param>
         /// <param name="reportOnly">True for a read-only (Audit or Research) mission.</param>
         /// <param name="missionDescription">The mission description the Judge was given, used to extract expected criteria.</param>
+        /// <param name="currentCriteria">The linked objective's LIVE acceptance criteria, which win over the
+        /// dispatch-time snapshot in <paramref name="missionDescription"/> so a criterion an operator removed
+        /// after dispatch is not measured. Null for a mission with no linked objective, so the walk reads the
+        /// description.</param>
         /// <returns>The categorized validation result.</returns>
-        private JudgePassValidation EvaluateJudgePassValidation(string? agentOutput, bool reportOnly, string? missionDescription = null)
+        private JudgePassValidation EvaluateJudgePassValidation(string? agentOutput, bool reportOnly, string? missionDescription = null, IReadOnlyList<string>? currentCriteria = null)
         {
             IReadOnlyList<string> required = JudgeReviewSections.Required(reportOnly);
 
@@ -12623,7 +12656,7 @@ namespace Armada.Core.Services
                     required);
             }
 
-            string? walk = JudgeAcceptanceWalk.ValidatePass(agentOutput, missionDescription);
+            string? walk = JudgeAcceptanceWalk.ValidatePass(agentOutput, missionDescription, currentCriteria);
             if (walk != null)
             {
                 return new JudgePassValidation(
