@@ -45,6 +45,8 @@ namespace Armada.Test.Unit.Suites.Services
             "{\"type\":\"step_finish\",\"part\":{\"reason\":\"stop\",\"type\":\"step-finish\"}}"
         };
 
+        private const string DeferredDiscoveryToolName = "armada_discover_mcp_tools";
+
         private static LoggingModule CreateLogging()
         {
             LoggingModule logging = new LoggingModule();
@@ -316,6 +318,149 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("DeferredMcp_AdminDiscoversAndCallsOnlyCallerSelectedTools", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(testDb, logging).ConfigureAwait(false);
+                    string adminUserId = await fixture.CreateGlobalAdminAsync().ConfigureAwait(false);
+                    bool hiddenToolRan = false;
+                    bool targetToolRan = false;
+                    const string targetName = "admin_catalog_target";
+                    const string targetDescription = "deferred target description sentinel";
+
+                    await using (ArmadaMcpHttpServer server = fixture.CreateServer())
+                    {
+                        RegisterAdminCatalog(server, targetName, targetDescription, () =>
+                        {
+                            targetToolRan = true;
+                            return Task.FromResult((object)new { result = "target-handler-result" });
+                        }, () =>
+                        {
+                            hiddenToolRan = true;
+                            return Task.FromResult((object)new { result = "hidden-handler-result" });
+                        });
+                        await server.StartAsync().ConfigureAwait(false);
+
+                        ScriptedToolChatClient client = new ScriptedToolChatClient(new ToolChatResponse[]
+                        {
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_hidden", Name = "admin_catalog_02", ArgumentsJson = "{}" } } },
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_discover_target", Name = DeferredDiscoveryToolName, ArgumentsJson = "{\"query\":\"admin_catalog_target\",\"offset\":0}" } } },
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_discover_repeat", Name = DeferredDiscoveryToolName, ArgumentsJson = "{\"query\":\"admin_catalog_target\",\"offset\":0}" } } },
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_target", Name = targetName, ArgumentsJson = "{\"targetArgumentSentinel\":\"ok\"}" } } },
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_wildcard", Name = DeferredDiscoveryToolName, ArgumentsJson = "{\"query\":\"*\",\"offset\":0}" } } },
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_next_page", Name = DeferredDiscoveryToolName, ArgumentsJson = "{\"query\":\"*\",\"offset\":4}" } } },
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_bad_offset", Name = DeferredDiscoveryToolName, ArgumentsJson = "{\"query\":\"*\",\"offset\":-1}" } } },
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_long_query", Name = DeferredDiscoveryToolName, ArgumentsJson = "{\"query\":\"" + new String('x', 257) + "\",\"offset\":0}" } } },
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_long_description", Name = DeferredDiscoveryToolName, ArgumentsJson = "{\"query\":\"admin_catalog_39\",\"offset\":0}" } } },
+                            new ToolChatResponse { Success = true, Text = "Deferred catalog complete", ToolCalls = new List<ToolCall>() }
+                        }, logging);
+
+                        CaptainChatService chat = new CaptainChatService(testDb.Driver, new ScriptedApiRuntimeFactory(logging, client), null, null, logging, fixture.Settings, fixture.SessionTokens);
+                        AuthContext adminCaller = AuthContext.Authenticated(fixture.TenantAId, adminUserId, true, false, "Session");
+                        CaptainChatResponse adminResponse = await chat.ChatAsync(adminCaller, fixture.CaptainId, new CaptainChatRequest { Message = "Find the target and use it" }).ConfigureAwait(false);
+
+                        AssertTrue(adminResponse.Success, "The admin chat completes: " + (adminResponse.Error ?? String.Empty));
+                        AssertTrue(client.Requests.Count >= 10, "Each discovery and call result returns to the model");
+                        List<ToolDefinition> initialTools = client.Requests[0].Tools ?? new List<ToolDefinition>();
+                        AssertTrue(initialTools.Any(tool => tool.Name == DeferredDiscoveryToolName), "A large selected catalog offers its local discovery tool");
+                        AssertFalse(initialTools.Any(tool => tool.Name == targetName), "The target schema is deferred before discovery");
+                        AssertFalse(initialTools.Any(tool => tool.Name == "admin_catalog_02"), "Other selected schemas are also deferred");
+                        AssertTrue(hiddenToolRan, "An eligible selected tool remains callable before its schema is discovered");
+
+                        List<ToolDefinition> afterTargetDiscovery = client.Requests[2].Tools ?? new List<ToolDefinition>();
+                        AssertEqual(1, afterTargetDiscovery.Count(tool => tool.Name == targetName), "The first discovery adds the target schema to the next request");
+                        List<ToolDefinition> afterRepeatedDiscovery = client.Requests[3].Tools ?? new List<ToolDefinition>();
+                        List<ToolDefinition> targetDefinitions = afterRepeatedDiscovery.Where(tool => tool.Name == targetName).ToList();
+                        AssertEqual(1, targetDefinitions.Count, "Repeating discovery does not add the target definition twice");
+                        AssertEqual(targetDescription, targetDefinitions[0].Description, "Discovery adds the full target description for the next model request");
+                        AssertContains("targetArgumentSentinel", JsonSerializer.Serialize(targetDefinitions[0].Parameters), "Discovery adds the full target input schema");
+                        AssertContains("target-handler-result", FindToolResult(client.Requests[4], targetName), "The authenticated MCP call result returns to a later model request");
+                        AssertTrue(targetToolRan, "The discovered target handler runs through the real MCP endpoint");
+
+                        DeferredDiscoveryResult firstPage = JsonSerializer.Deserialize<DeferredDiscoveryResult>(FindToolResult(client.Requests[5], DeferredDiscoveryToolName), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+                        AssertNotNull(firstPage, "Wildcard discovery returns a structured page");
+                        AssertEqual(4, firstPage.Tools.Count, "Wildcard discovery returns four entries per page");
+                        AssertEqual(4, firstPage.NextOffset ?? -1, "The first wildcard page points to offset four");
+                        List<ToolDefinition> beforeNextPage = client.Requests[5].Tools ?? new List<ToolDefinition>();
+                        List<ToolDefinition> afterNextPage = client.Requests[6].Tools ?? new List<ToolDefinition>();
+                        HashSet<string> beforeNames = new HashSet<string>(beforeNextPage.Select(tool => tool.Name), StringComparer.Ordinal);
+                        List<ToolDefinition> newlyAdded = afterNextPage.Where(tool => !beforeNames.Contains(tool.Name)).ToList();
+                        AssertEqual(4, newlyAdded.Count, "The wildcard page adds only its four full schemas");
+                        HashSet<string> firstPageNames = new HashSet<string>(firstPage.Tools.Select(tool => tool.Name), StringComparer.Ordinal);
+                        DeferredDiscoveryResult secondPage = JsonSerializer.Deserialize<DeferredDiscoveryResult>(FindToolResult(client.Requests[6], DeferredDiscoveryToolName), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+                        AssertNotNull(secondPage, "The next wildcard call returns a structured page");
+                        AssertEqual(4, secondPage.Tools.Count, "The second wildcard page also returns four entries");
+                        AssertFalse(secondPage.Tools.Any(tool => firstPageNames.Contains(tool.Name)), "The next page contains distinct tools");
+                        AssertEqual(8, secondPage.NextOffset ?? -1, "The second wildcard page advances to offset eight");
+                        AssertEqual(4, afterNextPage.Count(tool => secondPage.Tools.Any(entry => entry.Name == tool.Name)), "The next page adds exactly its four full schemas");
+                        AssertContains("invalid_arguments", FindToolResult(client.Requests[7], DeferredDiscoveryToolName), "A negative page offset is rejected as invalid arguments");
+                        AssertContains("invalid_arguments", FindToolResult(client.Requests[8], DeferredDiscoveryToolName), "A query longer than 256 characters is rejected as invalid arguments");
+                        DeferredDiscoveryResult longDescriptionResult = JsonSerializer.Deserialize<DeferredDiscoveryResult>(FindToolResult(client.Requests[9], DeferredDiscoveryToolName), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+                        AssertNotNull(longDescriptionResult, "A matching tool with a long description is returned");
+                        AssertEqual(1, longDescriptionResult.Tools.Count, "Exact discovery returns only the matching tool");
+                        AssertEqual(400, longDescriptionResult.Tools[0].Description.Length, "Discovery bounds returned descriptions to 400 characters");
+                        AssertTrue((client.Requests[9].Tools ?? new List<ToolDefinition>()).Any(tool => tool.Name == "admin_catalog_39" && tool.Description.Length > 400), "The next request receives the full tool definition");
+
+                        ScriptedToolChatClient regularClient = new ScriptedToolChatClient(new ToolChatResponse[]
+                        {
+                            new ToolChatResponse { Success = true, Text = "Regular caller complete", ToolCalls = new List<ToolCall>() }
+                        }, logging);
+                        CaptainChatService regularChat = new CaptainChatService(testDb.Driver, new ScriptedApiRuntimeFactory(logging, regularClient), null, null, logging, fixture.Settings, fixture.SessionTokens);
+                        AuthContext regularCaller = AuthContext.Authenticated(fixture.TenantAId, fixture.UserAId, false, false, "Session");
+                        CaptainChatResponse regularResponse = await regularChat.ChatAsync(regularCaller, fixture.CaptainId, new CaptainChatRequest { Message = "Continue" }).ConfigureAwait(false);
+                        AssertTrue(regularResponse.Success, "A regular caller's separate chat turn completes");
+                        List<ToolDefinition> regularTools = regularClient.Requests[0].Tools ?? new List<ToolDefinition>();
+                        AssertFalse(regularTools.Any(tool => tool.Name == DeferredDiscoveryToolName), "A small caller-filtered catalog stays eager");
+                        AssertFalse(regularTools.Any(tool => tool.Name.StartsWith("admin_catalog_", StringComparison.Ordinal)), "The admin catalog does not leak into another caller's chat");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("DeferredMcp_RemoteDiscoveryNameCollisionUsesEagerFallback", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(testDb, logging).ConfigureAwait(false);
+                    string adminUserId = await fixture.CreateGlobalAdminAsync().ConfigureAwait(false);
+                    bool collisionToolRan = false;
+                    const string targetName = "collision_catalog_target";
+                    const string collisionDescription = "remote collision description sentinel";
+
+                    await using (ArmadaMcpHttpServer server = fixture.CreateServer())
+                    {
+                        RegisterAdminCatalog(server, targetName, "collision target schema sentinel", () =>
+                            Task.FromResult((object)new { result = "target" }), () => Task.FromResult((object)new { result = "other" }));
+                        server.RegisterTool(DeferredDiscoveryToolName, collisionDescription, new { type = "object", properties = new { collisionArgument = new { type = "string" } } }, args =>
+                        {
+                            collisionToolRan = true;
+                            return Task.FromResult((object)new { result = "remote-collision-result" });
+                        });
+                        await server.StartAsync().ConfigureAwait(false);
+
+                        ScriptedToolChatClient client = new ScriptedToolChatClient(new ToolChatResponse[]
+                        {
+                            new ToolChatResponse { Success = true, ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_collision", Name = DeferredDiscoveryToolName, ArgumentsJson = "{\"collisionArgument\":\"ok\"}" } } },
+                            new ToolChatResponse { Success = true, Text = "Collision fallback complete", ToolCalls = new List<ToolCall>() }
+                        }, logging);
+                        CaptainChatService chat = new CaptainChatService(testDb.Driver, new ScriptedApiRuntimeFactory(logging, client), null, null, logging, fixture.Settings, fixture.SessionTokens);
+                        AuthContext adminCaller = AuthContext.Authenticated(fixture.TenantAId, adminUserId, true, false, "Session");
+                        CaptainChatResponse response = await chat.ChatAsync(adminCaller, fixture.CaptainId, new CaptainChatRequest { Message = "Use the remote tool" }).ConfigureAwait(false);
+
+                        AssertTrue(response.Success, "The collision chat completes: " + (response.Error ?? String.Empty));
+                        List<ToolDefinition> offered = client.Requests[0].Tools ?? new List<ToolDefinition>();
+                        List<ToolDefinition> collisionDefinitions = offered.Where(tool => tool.Name == DeferredDiscoveryToolName).ToList();
+                        AssertEqual(1, collisionDefinitions.Count, "The reserved name is offered once when the remote catalog uses it");
+                        AssertEqual(collisionDescription, collisionDefinitions[0].Description, "The selected remote definition wins the reserved-name collision");
+                        AssertTrue(offered.Any(tool => tool.Name == targetName), "The collision falls back to eager catalog schemas");
+                        AssertTrue(collisionToolRan, "The remote tool with the reserved name remains routed to MCP");
+                        AssertContains("remote-collision-result", FindToolResult(client.Requests[1], DeferredDiscoveryToolName), "The collision handler result reaches the next model request");
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("The MCP tool client is refused without a credential and with a forged session token", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -578,6 +723,68 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("src/B.cs", third.Arguments, "The detail is the card argument");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+        }
+
+        private static void RegisterAdminCatalog(
+            ArmadaMcpHttpServer server,
+            string targetName,
+            string targetDescription,
+            Func<Task<object>> targetHandler,
+            Func<Task<object>> otherHandler)
+        {
+            for (int index = 0; index < 40; index++)
+            {
+                string name = index == 0 ? targetName : "admin_catalog_" + index.ToString("D2");
+                string description = index == 0 ? targetDescription : index == 39 ? new String('d', 500) : "Admin catalog tool " + index.ToString("D2");
+                object schema = index == 0
+                    ? new { type = "object", properties = new Dictionary<string, object> { ["targetArgumentSentinel"] = new { type = "string" } } }
+                    : new { type = "object", properties = new Dictionary<string, object> { ["catalogValue"] = new { type = "string" } } };
+                Func<Task<object>> handler = index == 0 ? targetHandler : otherHandler;
+                server.RegisterTool(name, description, schema, args => handler());
+            }
+        }
+
+        private static string FindToolResult(ToolChatRequest request, string toolName)
+        {
+            if (request.Messages != null)
+            {
+                for (int index = request.Messages.Count - 1; index >= 0; index--)
+                {
+                    ChatMessage message = request.Messages[index];
+                    if (String.Equals(message.ToolName, toolName, StringComparison.Ordinal)) return message.Content ?? String.Empty;
+                }
+            }
+            return String.Empty;
+        }
+
+        private sealed class DeferredDiscoveryResult
+        {
+            /// <summary>Create a discovery result for typed JSON deserialization.</summary>
+            public DeferredDiscoveryResult() { }
+
+            /// <summary>Number of selected tools that match the query.</summary>
+            public int Total { get; set; }
+
+            /// <summary>Current page offset.</summary>
+            public int Offset { get; set; }
+
+            /// <summary>Next page offset when more matches remain.</summary>
+            public int? NextOffset { get; set; }
+
+            /// <summary>Tool entries returned on this page.</summary>
+            public List<DeferredDiscoveredTool> Tools { get; set; } = new List<DeferredDiscoveredTool>();
+        }
+
+        private sealed class DeferredDiscoveredTool
+        {
+            /// <summary>Create a discovery entry for typed JSON deserialization.</summary>
+            public DeferredDiscoveredTool() { }
+
+            /// <summary>Selected remote tool name.</summary>
+            public string Name { get; set; } = String.Empty;
+
+            /// <summary>Bounded catalog description.</summary>
+            public string Description { get; set; } = String.Empty;
         }
 
         /// <summary>

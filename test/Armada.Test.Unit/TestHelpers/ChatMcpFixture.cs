@@ -122,6 +122,18 @@ namespace Armada.Test.Unit.TestHelpers
             return server;
         }
 
+        /// <summary>Create a stored global administrator in the fixture's first tenant.</summary>
+        /// <returns>The new administrator's user identifier.</returns>
+        public async Task<string> CreateGlobalAdminAsync()
+        {
+            if (_Database == null) throw new InvalidOperationException("The chat MCP fixture is not initialized.");
+            UserMaster admin = await _Database.Users.CreateAsync(new UserMaster(TenantAId, "admin@chat-mcp.test", "pass")
+            {
+                IsAdmin = true
+            }).ConfigureAwait(false);
+            return admin.Id;
+        }
+
         public List<McpRequestCredentials> SeenCredentials()
         {
             lock (_Lock) return new List<McpRequestCredentials>(_Seen);

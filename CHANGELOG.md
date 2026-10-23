@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- API runtimes load large caller-filtered MCP catalogs through local discovery,
+  four schemas per page. Small catalogs and discovery-name collisions stay
+  eager. Calls keep the same authenticated MCP connection and authorization.
+
 - Local Claude, Cursor, Gemini and OpenCode runs publish final reply artifacts
   from structured completion events after a clean exit. Capture excludes tool
   output and reasoning, keeps existing files, and preserves telemetry and

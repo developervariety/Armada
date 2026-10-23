@@ -300,7 +300,7 @@ namespace Armada.Runtimes
             int exitCode = 0;
             string finalText = String.Empty;
             CancellationToken token = cts.Token;
-            McpToolClient? mcpClient = null;
+            McpConnection? mcpConnection = null;
 
             try
             {
@@ -315,11 +315,15 @@ namespace Armada.Runtimes
                 HashSet<string> mcpToolNames = new HashSet<string>(StringComparer.Ordinal);
                 if (mcpAccess != null)
                 {
-                    mcpClient = await ConnectMcpToolsAsync(processId, mcpAccess, tools, mcpToolNames, token).ConfigureAwait(false);
+                    mcpConnection = await ConnectMcpToolsAsync(processId, mcpAccess, tools, mcpToolNames, token).ConfigureAwait(false);
                 }
+                DeferredMcpToolCatalog? deferredCatalog = mcpConnection?.DeferredCatalog;
 
                 List<ChatMessage> messages = new List<ChatMessage>();
-                messages.Add(ChatMessage.System(BuildSystemPrompt(workingDirectory)));
+                string systemPrompt = BuildSystemPrompt(workingDirectory);
+                if (deferredCatalog != null)
+                    systemPrompt += "\nFor more Armada MCP tools, use armada_discover_mcp_tools. Its results add full schemas for the next request; it does not execute those tools.";
+                messages.Add(ChatMessage.System(systemPrompt));
                 messages.Add(ChatMessage.User(prompt));
 
                 // Cache capability is announced once, never inferred from a zero counter.
@@ -405,9 +409,11 @@ namespace Armada.Runtimes
                     foreach (ToolCall call in response.ToolCalls)
                     {
                         token.ThrowIfCancellationRequested();
-                        string resultContent = mcpClient != null && mcpToolNames.Contains(call.Name)
-                            ? await ExecuteMcpToolAsync(processId, mcpClient, call, workingDirectory, token).ConfigureAwait(false)
-                            : await ExecuteToolAsync(processId, registry, call, workingDirectory, token).ConfigureAwait(false);
+                        string resultContent = deferredCatalog != null && String.Equals(call.Name, DeferredMcpToolCatalog.DiscoveryName, StringComparison.Ordinal)
+                            ? ExecuteDiscoveryTool(processId, deferredCatalog, call, workingDirectory)
+                            : mcpConnection?.Client != null && mcpToolNames.Contains(call.Name)
+                                ? await ExecuteMcpToolAsync(processId, mcpConnection.Client, call, workingDirectory, token).ConfigureAwait(false)
+                                : await ExecuteToolAsync(processId, registry, call, workingDirectory, token).ConfigureAwait(false);
                         messages.Add(ChatMessage.ToolResult(call.Id, call.Name, resultContent));
                     }
 
@@ -433,7 +439,7 @@ namespace Armada.Runtimes
             }
             finally
             {
-                mcpClient?.Dispose();
+                mcpConnection?.Client.Dispose();
                 CloseLog();
                 try { _TransportClient?.Dispose(); } catch { }
                 _TransportClient = null;
@@ -569,7 +575,7 @@ namespace Armada.Runtimes
         /// endpoint cannot be reached or refuses the credential, the run continues with the workspace tools
         /// only and the reason is logged, never written into the reply.
         /// </summary>
-        private async Task<McpToolClient?> ConnectMcpToolsAsync(
+        private async Task<McpConnection?> ConnectMcpToolsAsync(
             int processId,
             CallerMcpToolAccess access,
             List<PolyToolDefinition> tools,
@@ -584,14 +590,37 @@ namespace Armada.Runtimes
             {
                 await mcpClient.InitializeAsync(token).ConfigureAwait(false);
                 List<McpRemoteTool> remoteTools = await mcpClient.ListToolsAsync(token).ConfigureAwait(false);
-                foreach (McpRemoteTool remote in SelectOfferedMcpTools(builtInNames, remoteTools))
+                List<McpRemoteTool> selected = SelectOfferedMcpTools(builtInNames, remoteTools);
+                List<PolyToolDefinition> remoteDefinitions = new List<PolyToolDefinition>();
+                foreach (McpRemoteTool remote in selected)
                 {
-                    tools.Add(PolyToolDefinition.Function(remote.Name, remote.Description, remote.InputSchema));
+                    remoteDefinitions.Add(PolyToolDefinition.Function(remote.Name, remote.Description, remote.InputSchema));
                     mcpToolNames.Add(remote.Name);
                 }
 
+                bool discoveryNameCollision = builtInNames.Contains(DeferredMcpToolCatalog.DiscoveryName);
+                foreach (McpRemoteTool remote in selected)
+                {
+                    if (String.Equals(remote.Name, DeferredMcpToolCatalog.DiscoveryName, StringComparison.Ordinal))
+                    {
+                        discoveryNameCollision = true;
+                        break;
+                    }
+                }
+
+                DeferredMcpToolCatalog? deferredCatalog = null;
+                if (remoteDefinitions.Count > DeferredMcpToolCatalog.EagerCatalogLimit && !discoveryNameCollision)
+                {
+                    deferredCatalog = new DeferredMcpToolCatalog(remoteDefinitions, tools);
+                    tools.Add(deferredCatalog.DiscoveryToolDefinition);
+                }
+                else
+                {
+                    tools.AddRange(remoteDefinitions);
+                }
+
                 WriteLog("[mcp] " + mcpToolNames.Count + " Armada MCP tool(s) available to process " + processId);
-                return mcpClient;
+                return new McpConnection(mcpClient, deferredCatalog);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -607,6 +636,19 @@ namespace Armada.Runtimes
                 WriteLog("[mcp] " + reason);
                 return null;
             }
+        }
+
+        private sealed class McpConnection
+        {
+            internal McpConnection(McpToolClient client, DeferredMcpToolCatalog? deferredCatalog)
+            {
+                Client = client;
+                DeferredCatalog = deferredCatalog;
+            }
+
+            internal McpToolClient Client { get; }
+
+            internal DeferredMcpToolCatalog? DeferredCatalog { get; }
         }
 
         private async Task<string> ExecuteMcpToolAsync(int processId, McpToolClient mcpClient, ToolCall call, string workingDirectory, CancellationToken token)
@@ -633,6 +675,20 @@ namespace Armada.Runtimes
                 EmitToolActivity(processId, call.Name, null, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory, "mcp_tool_failed");
                 return JsonSerializer.Serialize(new { error = "mcp_tool_failed", message = Truncate(ex.Message, 500) });
             }
+        }
+
+        private string ExecuteDiscoveryTool(int processId, DeferredMcpToolCatalog catalog, ToolCall call, string workingDirectory)
+        {
+            string result = catalog.Discover(call.ArgumentsJson);
+            string? failureClass = ReadFailureClass(result);
+            EmitToolActivity(
+                processId,
+                call.Name,
+                null,
+                failureClass == null ? StructuredRuntimeLogFormatter.OkStatus : StructuredRuntimeLogFormatter.ErrorStatus,
+                workingDirectory,
+                failureClass);
+            return result;
         }
 
         // Tool calls are runtime activity, not the model's answer: they use the shared activity record so

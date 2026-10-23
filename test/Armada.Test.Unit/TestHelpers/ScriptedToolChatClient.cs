@@ -102,7 +102,7 @@ namespace Armada.Test.Unit.TestHelpers
             {
                 ToolChatRequest snapshot = new ToolChatRequest();
                 snapshot.Messages = request.Messages == null ? new List<ChatMessage>() : new List<ChatMessage>(request.Messages);
-                snapshot.Tools = request.Tools;
+                snapshot.Tools = request.Tools == null ? null : new List<ToolDefinition>(request.Tools);
                 Requests.Add(snapshot);
                 if (_Script.Count == 0) return new ToolChatResponse { Success = true, Text = String.Empty, ToolCalls = new List<ToolCall>() };
                 return _Script.Dequeue();

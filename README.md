@@ -92,7 +92,10 @@ and check forward migration and a fresh driver startup on all four providers.
 Both versions check REST and MCP authorization contracts. The fork checks the
 registered API exposure and real MCP catalog, keeps its tenant and mission scope
 rules, authenticates captain session tokens through the shared service, and
-marks caller-filtered tool catalogs as private cache entries.
+marks caller-filtered tool catalogs as private cache entries. Both versions
+load large API-runtime MCP catalogs on demand. The fork selects names from
+the caller-filtered catalog and keeps the same authenticated connection for
+execution; small catalogs and discovery-name collisions remain eager.
 
 Both versions serialize SQLite writes through a FIFO gate shared by each database
 file. The fork includes shared persistence methods, migrations, expiry deletes and live restore. Reads stay independent and existing durability settings apply.

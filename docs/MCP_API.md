@@ -782,6 +782,21 @@ is an administrator. The owner must be an active user
 of the mission's tenant. Otherwise the launch presents no credential, the
 endpoint refuses it (fail closed), and the admiral log names the reason.
 
+API runtimes select remote tools from that caller-filtered catalog. Built-in
+workspace tools keep their names when a remote tool has the same name. Up to
+32 selected remote tools are offered with full schemas at the start. Larger
+catalogs offer the local `armada_discover_mcp_tools` tool instead. It searches
+names and descriptions with a nonblank `query` of at most 256 characters; `*`
+browses the catalog. An optional nonnegative `offset` selects a page. Each page
+adds up to four full schemas to the next model request and returns descriptions
+of at most 400 characters. Discovery executes no remote action.
+
+Each run owns its catalog and loaded schemas. Calls to any selected remote name
+still use the same authenticated MCP client, and the server checks authorization
+again. Discovery does not grant access to a hidden tool. If a selected remote or
+built-in tool already has the discovery name, the runtime offers the remote
+catalog eagerly and preserves that tool's behavior.
+
 The token reaches a captain in its environment as `ARMADA_MCP_TOKEN` (chat uses
 `ARMADA_MCP_CHAT_TOKEN`), and it changes on every launch. With dock MCP delivery
 enabled, every captain launch carries it, including Cursor, Gemini and OpenCode
