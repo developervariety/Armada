@@ -30,7 +30,7 @@ import { useModalBack } from '../components/ui/useModalBack';
 import { focusElement, useReducedMotion } from '../lib/accessibility';
 import { MODAL_ORIENTATIONS } from '../components/ui/modalOrientations';
 
-/** The last conversation reopens once per app session (MOBILE_APP_PLAN.md design principle 1). */
+/** The last conversation reopens once per app session (archive/MOBILE_APP_PLAN.md design principle 1). */
 let restoredLastThread = false;
 
 /** True the first time it is called in an app session (the bare /ask route then reopens the last conversation). */

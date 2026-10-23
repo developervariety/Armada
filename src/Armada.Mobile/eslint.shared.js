@@ -1,4 +1,4 @@
-// The sharing contract (MOBILE_APP_PLAN.md, "Code sharing"): modules shared with the dashboard, and the app's own
+// The sharing contract (archive/MOBILE_APP_PLAN.md, "Code sharing"): modules shared with the dashboard, and the app's own
 // code, must be host-agnostic. Used by eslint.config.js (the app) and eslint.dashboard-shared.config.js (the
 // dashboard's shared folders, linted from this project by `npm run lint:shared`).
 const BROWSER_GLOBALS = ['window', 'document', 'localStorage', 'sessionStorage', 'navigator', 'location', 'history', 'DOMException', 'HTMLElement', 'MutationObserver', 'requestAnimationFrame'];

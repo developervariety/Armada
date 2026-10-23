@@ -8,7 +8,7 @@ files and src/navigation/dashboardRoutes.generated.ts). Each dashboard route bec
     dashboard Home), which is /home on mobile because the app opens into Ask Armada;
   - an Expo Router file under src/Armada.Mobile/src/app/(app)/(<tab>)/..., where <tab> is the bottom tab whose
     stack hosts it (ask, approvals, work, more), chosen from the dashboard's own nav sections (lib/navModel.ts);
-  - the workstream of MOBILE_APP_PLAN.md that implements it.
+  - the workstream of archive/MOBILE_APP_PLAN.md that implements it.
 """
 import os
 import re
@@ -22,7 +22,7 @@ MOBILE = os.path.join(ROOT, "src", "Armada.Mobile")
 APP_DIR = os.path.join(MOBILE, "src", "app")
 TABS_DIR = os.path.join(APP_DIR, "(app)")
 
-# Workstream (MOBILE_APP_PLAN.md) per first path segment of a dashboard route.
+# Workstream (archive/MOBILE_APP_PLAN.md) per first path segment of a dashboard route.
 WORKSTREAMS = {
     "": "W2.1", "dashboard": "W2.1",
     "ask": "W1.1", "inbox": "W1.3", "notifications": "W1.4",

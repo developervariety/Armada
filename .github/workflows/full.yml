@@ -140,7 +140,7 @@ jobs:
   # parity gate. The app shares modules with the dashboard (api/client.ts,
   # types, lib, i18n/catalog.ts), so a dashboard change runs this job too.
   # The parity check enforces a complete manifest with no planned entries
-  # (--forbid-planned, MOBILE_APP_PLAN.md, Parity enforcement).
+  # (--forbid-planned, archive/MOBILE_APP_PLAN.md, Parity enforcement).
   # Native builds and Maestro E2E need simulators and run locally
   # (scripts/mobile/run-e2e.sh); EAS cloud builds are the maintainer's.
   # ------------------------------------------------------------------

@@ -1,4 +1,4 @@
-// Metro configuration. The app shares modules with the web dashboard instead of copying them (MOBILE_APP_PLAN.md,
+// Metro configuration. The app shares modules with the web dashboard instead of copying them (archive/MOBILE_APP_PLAN.md,
 // "Code sharing"): `@dashboard/*` resolves into src/Armada.Dashboard/src and `@armada-i18n/*` into the Admiral's
 // i18n catalog folder. Both folders are watched. Bare imports from shared files (react, ...) resolve as if they were
 // made from this project, so the dashboard's own node_modules (when installed) never produce a second React.

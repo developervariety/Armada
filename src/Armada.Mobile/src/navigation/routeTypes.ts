@@ -10,7 +10,7 @@ export interface DashboardRoute {
   tab: TabKey;
   /** English title, translated at render time. */
   title: string;
-  /** MOBILE_APP_PLAN.md workstream that implements the screen. */
+  /** archive/MOBILE_APP_PLAN.md workstream that implements the screen. */
   workstream: string;
   /** Dashboard redirect target (path plus query) when the route only redirects. */
   redirect: string | null;

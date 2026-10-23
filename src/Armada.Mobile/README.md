@@ -3,7 +3,7 @@
 The Armada app for iPhone, iPad, and Android phones and tablets: React Native with Expo SDK 57 (Expo Router,
 TypeScript strict, Hermes). It is a thin client over the Admiral's REST API and WebSocket, like the web dashboard,
 and shares the dashboard's API client, models, i18n catalog, and pure logic instead of copying them. The plan,
-workstreams, and parity rules are in [`MOBILE_APP_PLAN.md`](../../MOBILE_APP_PLAN.md).
+workstreams, and parity rules are in [`archive/MOBILE_APP_PLAN.md`](../../archive/MOBILE_APP_PLAN.md).
 
 Status: native screens cover operations, fleet actions, configuration, delivery, administration, and workspace workflows with adaptive phone/tablet layouts. Dashboard API types and pure logic are shared. Route and parity manifests track implementation coverage; passing those checks does not establish native device behavior. Run the tests and device checks below before release.
 

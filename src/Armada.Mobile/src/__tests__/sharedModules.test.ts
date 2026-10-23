@@ -1,5 +1,5 @@
 /**
- * The sharing contract (MOBILE_APP_PLAN.md, "Code sharing"): every module the app shares with the dashboard loads
+ * The sharing contract (archive/MOBILE_APP_PLAN.md, "Code sharing"): every module the app shares with the dashboard loads
  * under React Native (no window, document, localStorage, import.meta, or react-dom at import time), and the list of
  * dashboard-only exceptions stays honest. ESLint (`npm run lint:shared`) checks the same files statically.
  */
