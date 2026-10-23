@@ -231,8 +231,17 @@ namespace Armada.Runtimes
         protected override void HandleRawOutputLine(int processId, string line)
         {
             ClaudeEvent? evt = Deserialize(line);
-            if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Usage == null)
-                return;
+            if (evt == null) return;
+
+            if (String.Equals(evt.Type, "result", StringComparison.Ordinal)
+                && evt.IsError == true)
+            {
+                RuntimeProviderError? error = RuntimeProviderErrorParser.ParseApiError(evt.Result);
+                error ??= RuntimeProviderErrorParser.ParseClaudeUsageLimit(evt.Result);
+                if (error != null) PublishProviderError(processId, error);
+            }
+
+            if (!String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Usage == null) return;
 
             // Anthropic's input_tokens excludes the cache: cache reads and cache writes are
             // reported beside it, so each maps to its own bucket.

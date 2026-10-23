@@ -307,6 +307,15 @@ namespace Armada.Runtimes
             ClearFinalReplyParts();
         }
 
+        /// <summary>Read explicit provider status cues from OpenCode stderr.</summary>
+        /// <param name="processId">OpenCode process identifier.</param>
+        /// <param name="line">Raw stderr line.</param>
+        protected override void HandleRawErrorLine(int processId, string line)
+        {
+            RuntimeProviderError? error = RuntimeProviderErrorParser.ParseStatusCue(line);
+            if (error != null) PublishProviderError(processId, error);
+        }
+
         /// <summary>
         /// Extract authoritative usage counters from OpenCode step-finish events.
         /// </summary>
@@ -328,6 +337,19 @@ namespace Armada.Runtimes
                 (!String.Equals(evt.Type, "step_finish", StringComparison.Ordinal) &&
                  !String.Equals(evt.Type, "step-finish", StringComparison.Ordinal)))
             {
+                if (String.Equals(evt?.Type, "error", StringComparison.Ordinal) && evt?.Error != null)
+                {
+                    int? statusCode = evt.Error.StatusCode ?? evt.Error.Data?.StatusCode;
+                    string? errorType = evt.Error.Data?.Code;
+                    if (statusCode.HasValue || !String.IsNullOrWhiteSpace(errorType))
+                    {
+                        PublishProviderError(processId, new RuntimeProviderError
+                        {
+                            HttpStatusCode = statusCode,
+                            ErrorType = errorType
+                        });
+                    }
+                }
                 return;
             }
 

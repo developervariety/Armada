@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using System.Diagnostics;
     using System.IO;
     using System.Text;
@@ -173,6 +174,15 @@ namespace Armada.Runtimes
             args.Add("stream-json");
 
             return args;
+        }
+
+        /// <summary>Read explicit provider status cues from Cursor stderr.</summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="line">Raw stderr line.</param>
+        protected override void HandleRawErrorLine(int processId, string line)
+        {
+            RuntimeProviderError? error = RuntimeProviderErrorParser.ParseStatusCue(line);
+            if (error != null) PublishProviderError(processId, error);
         }
 
         /// <summary>

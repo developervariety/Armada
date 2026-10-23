@@ -85,6 +85,39 @@ namespace Armada.Test.Runtimes.Suites
 
             if (OperatingSystem.IsWindows())
             {
+                SkipTest("ProcessProviderError_UsesExplicitGoogleRpcStderr", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessProviderError_UsesExplicitGoogleRpcStderr", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-gemini-provider-error-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"HTTP 429 is narration only\"}",
+                        "{\"type\":\"result\",\"status\":\"error\",\"error\":\"quota exceeded\"}"
+                    }, 1, new[] { "RESOURCE_EXHAUSTED: provider refused the request", "{\"error\":{\"status\":\"UNAUTHENTICATED\"}}" });
+                    InspectableGeminiRuntime runtime = CreateRuntime();
+                    runtime.ExecutablePath = executable;
+                    List<RuntimeProviderError> captured = new List<RuntimeProviderError>();
+                    runtime.OnProviderErrorReceived += (_, error) => captured.Add(error);
+
+                    await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, Path.Combine(directory, "final.txt")).ConfigureAwait(false);
+
+                    AssertEqual(2, captured.Count, "Only explicit RPC error codes on stderr provide evidence.");
+                    AssertEqual("rate_limit_exceeded", captured[0].ErrorType);
+                    AssertEqual("authentication_error", captured[1].ErrorType);
+                    AssertNull(captured[0].HttpStatusCode);
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
                 SkipTest("ProcessFinalReply_CommitsOnlyTheSuccessfulAssistantTurn", "the provider stub is a POSIX shell script");
             }
             else await RunTest("ProcessFinalReply_CommitsOnlyTheSuccessfulAssistantTurn", async () =>

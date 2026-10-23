@@ -143,6 +143,41 @@ namespace Armada.Test.Runtimes.Suites
                     try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
                 }
             }).ConfigureAwait(false);
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("ProcessProviderError_UsesExplicitOpenCodeErrorPayload", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessProviderError_UsesExplicitOpenCodeErrorPayload", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-opencode-provider-error-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                string prior = Environment.GetEnvironmentVariable("ARMADA_TEST_OPENCODE") ?? String.Empty;
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"text\",\"text\":\"HTTP 429 is narration only\"}",
+                        "{\"type\":\"text\",\"error\":{\"statusCode\":401},\"part\":{\"type\":\"text\",\"text\":\"narration with an error-shaped field\"}}",
+                        "{\"type\":\"error\",\"error\":{\"statusCode\":429,\"data\":{\"code\":\"rate_limit_exceeded\"}}}"
+                    }, 1);
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", executable);
+                    InspectableOpenCodeRuntime runtime = CreateRuntime();
+                    RuntimeProviderError? captured = null;
+                    int eventCount = 0;
+                    runtime.OnProviderErrorReceived += (_, error) => { eventCount++; captured = error; };
+
+                    await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, Path.Combine(directory, "final.txt")).ConfigureAwait(false);
+
+                    AssertEqual(1, eventCount, "Only an explicit OpenCode error event is typed evidence.");
+                    AssertEqual((int?)429, captured!.HttpStatusCode);
+                    AssertEqual("rate_limit_exceeded", captured.ErrorType);
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", String.IsNullOrEmpty(prior) ? null : prior);
+                    Directory.Delete(directory, true);
+                }
+            });
             await RunTest("StepFinishPublishesExactUsage", () =>
             {
                 InspectableOpenCodeRuntime runtime = CreateRuntime();

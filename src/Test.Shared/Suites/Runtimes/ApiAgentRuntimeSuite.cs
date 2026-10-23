@@ -419,6 +419,43 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("provider_error_source_publishes_http_status", "API response failures and transport exceptions expose their typed HTTP status", TestTags.Negative, async () =>
+            {
+                foreach (bool transportFailure in new[] { false, true })
+                {
+                    string dir = NewTempDir();
+                    try
+                    {
+                        Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                        script.Enqueue(new ToolChatResponse { Success = false, StatusCode = 429, Error = "provider refused the request" });
+                        System.Net.Http.HttpRequestException? failure = transportFailure
+                            ? new System.Net.Http.HttpRequestException("transport refused the request", null, System.Net.HttpStatusCode.Unauthorized)
+                            : null;
+                        ApiAgentRuntime runtime = new ApiAgentRuntime(NewEndpoint("typed-provider-error"), CreateLogging(), 1,
+                            (ep, log) => new ScriptedClient(script, log, failure));
+                        RuntimeProviderError? captured = null;
+                        runtime.OnProviderErrorReceived += (_, error) => captured = error;
+                        int? exitCode = null;
+                        using (ManualResetEventSlim exited = new ManualResetEventSlim(false))
+                        {
+                            runtime.OnProcessExited += (_, code) => { exitCode = code; exited.Set(); };
+
+                            await runtime.StartAsync(dir, "provider failure").ConfigureAwait(false);
+
+                            AssertTrue(exited.Wait(TimeSpan.FromSeconds(5)), "The failed API run must exit.");
+                            AssertEqual(1, exitCode ?? 0);
+                            AssertNotNull(captured, "The API failure supplies typed evidence.");
+                            AssertEqual((int?)(transportFailure ? 401 : 429), captured!.HttpStatusCode);
+                            AssertNull(captured.ErrorType, "Display error text is not copied into typed evidence.");
+                        }
+                    }
+                    finally
+                    {
+                        Cleanup(dir);
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("loop_executes_tool_and_completes", "Agent loop runs a scripted tool call then completes, writing the final message", TestTags.Positive, async () =>
             {
                 string dir = NewTempDir();
@@ -1263,11 +1300,17 @@ namespace Test.Shared.Suites.Runtimes
         private sealed class ScriptedClient : CompletionClientBase
         {
             private readonly Queue<ToolChatResponse> _Script;
+            private readonly Exception? _StreamingFailure;
 
-            public ScriptedClient(Queue<ToolChatResponse> script, LoggingModule logging)
+            /// <summary>Create a scripted provider client with an optional streaming transport failure.</summary>
+            /// <param name="script">Provider responses to return.</param>
+            /// <param name="logging">Fixture logging.</param>
+            /// <param name="streamingFailure">Exception thrown from the streaming provider call.</param>
+            public ScriptedClient(Queue<ToolChatResponse> script, LoggingModule logging, Exception? streamingFailure = null)
                 : base("http://localhost:1", null, logging)
             {
                 _Script = script;
+                _StreamingFailure = streamingFailure;
             }
 
             /// <summary>Tool names offered to the model, one list per inference call.</summary>
@@ -1307,6 +1350,7 @@ namespace Test.Shared.Suites.Runtimes
             public override Task<ChatStreamingResponse> ChatStreamingAsync(string prompt, ChatCompletionOptions? options = null, CancellationToken token = default) => throw new NotImplementedException();
             public override Task<ToolChatStreamingResponse> ToolChatStreamingAsync(ToolChatRequest request, CancellationToken token = default)
             {
+                if (_StreamingFailure != null) throw _StreamingFailure;
                 Record(request);
                 ToolChatResponse response = _Script.Count == 0
                     ? new ToolChatResponse { Success = true, Text = "", ToolCalls = new List<ToolCall>() }

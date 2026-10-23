@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -65,6 +66,66 @@ namespace Test.Shared.Suites.Services
             {
                 // A message mentioning both should resolve to the more recoverable UsageLimit.
                 AssertEqual(RuntimeFailureKindEnum.UsageLimit, RuntimeFailureClassifier.Classify(1, "429 unauthorized-looking rate limit"));
+            }));
+
+            cases.Add(Case("typed_provider_errors_and_text_precedence", "Typed provider evidence classifies exits and text quota remains first", TestTags.Positive, () =>
+            {
+                RuntimeProviderError auth = new RuntimeProviderError { HttpStatusCode = 401 };
+                RuntimeProviderError quota = new RuntimeProviderError { ErrorType = "rate_limit_error" };
+                RuntimeProviderError credit = new RuntimeProviderError { HttpStatusCode = 402, ErrorType = "billing_error" };
+                AssertEqual(RuntimeFailureKindEnum.AuthFailure, RuntimeFailureClassifier.Classify(1, "neutral output", auth));
+                AssertEqual(RuntimeFailureKindEnum.UsageLimit, RuntimeFailureClassifier.Classify(1, "neutral output", credit));
+                AssertEqual(RuntimeFailureKindEnum.UsageLimit, RuntimeFailureClassifier.Classify(1, "HTTP 429 rate limit", auth));
+                AssertEqual(RuntimeFailureKindEnum.UsageLimit, RuntimeFailureClassifier.Classify(1, "401 Unauthorized", quota));
+                AssertEqual(RuntimeFailureKindEnum.Crash, RuntimeFailureClassifier.Classify(1, "neutral output", new RuntimeProviderError { HttpStatusCode = 500 }));
+                AssertEqual(RuntimeFailureKindEnum.Clean, RuntimeFailureClassifier.Classify(0, "HTTP 429 rate limit", auth));
+                foreach (int status in new[] { 429, 529, 402 })
+                    AssertEqual(RuntimeFailureKindEnum.UsageLimit, RuntimeFailureClassifier.Classify(1, "neutral output", new RuntimeProviderError { HttpStatusCode = status }), "typed quota/credit status " + status);
+                foreach (int status in new[] { 401, 403 })
+                    AssertEqual(RuntimeFailureKindEnum.AuthFailure, RuntimeFailureClassifier.Classify(1, "neutral output", new RuntimeProviderError { HttpStatusCode = status }), "typed auth status " + status);
+                foreach (string type in new[] { "rate_limit_error", "rate_limit_exceeded", "insufficient_quota", "usage_limit_reached", "overloaded_error", "billing_error" })
+                    AssertEqual(RuntimeFailureKindEnum.UsageLimit, RuntimeFailureClassifier.Classify(1, "neutral output", new RuntimeProviderError { ErrorType = type }), "typed quota/credit type " + type);
+                foreach (string type in new[] { "authentication_error", "permission_error", "invalid_api_key" })
+                    AssertEqual(RuntimeFailureKindEnum.AuthFailure, RuntimeFailureClassifier.Classify(1, "neutral output", new RuntimeProviderError { ErrorType = type }), "typed auth type " + type);
+                foreach (RuntimeProviderError unknown in new[]
+                {
+                    new RuntimeProviderError { HttpStatusCode = 404 },
+                    new RuntimeProviderError { HttpStatusCode = 500 },
+                    new RuntimeProviderError { ErrorType = "server_error" },
+                    new RuntimeProviderError { ErrorType = "rate_limit_error: try again" }
+                })
+                    AssertEqual(RuntimeFailureKindEnum.Crash, RuntimeFailureClassifier.Classify(1, "neutral output", unknown), "unknown typed evidence stays a crash");
+            }));
+
+            cases.Add(Case("captured_provider_evidence_keeps_stronger_result", "A later generic error cannot erase a stronger captured provider error", TestTags.Positive, () =>
+            {
+                RuntimeProviderError auth = new RuntimeProviderError { HttpStatusCode = 401 };
+                RuntimeProviderError quota = new RuntimeProviderError { ErrorType = "rate_limit_error" };
+                RuntimeProviderError generic = new RuntimeProviderError { HttpStatusCode = 500 };
+                AssertTrue(Object.ReferenceEquals(quota, RuntimeFailureClassifier.PreferProviderError(auth, quota)), "quota replaces auth");
+                AssertTrue(Object.ReferenceEquals(quota, RuntimeFailureClassifier.PreferProviderError(quota, generic)), "generic error does not replace quota");
+                AssertTrue(Object.ReferenceEquals(auth, RuntimeFailureClassifier.PreferProviderError(auth, new RuntimeProviderError { HttpStatusCode = 403 })), "equal-rank auth keeps the first detail");
+            }));
+
+            cases.Add(Case("typed_retry_evidence_keeps_throttle_and_cap_timing", "Typed throttle uses the short backoff while caps and published reset times keep their windows", TestTags.Positive, () =>
+            {
+                DateTime reference = new DateTime(2026, 10, 23, 12, 0, 0, DateTimeKind.Utc);
+                RuntimeProviderError typed429 = new RuntimeProviderError { HttpStatusCode = 429 };
+                RuntimeProviderError typed529 = new RuntimeProviderError { HttpStatusCode = 529 };
+                DateTime? plainText429Deadline = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc("HTTP 429", Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode, reference);
+                AssertNull(plainText429Deadline, "plain text 429 uses configured short backoff");
+                AssertEqual(plainText429Deadline, ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc("neutral output", Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode, reference, typed429), "typed 429 matches the existing plain text throttle behavior");
+                AssertEqual(reference.AddHours(5), ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc("HTTP 429: rate limit reached", Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode, reference), "text rate-limit wording retains its existing runtime fallback semantics");
+                AssertNull(ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc("neutral output", Armada.Core.Enums.AgentRuntimeEnum.OpenCode, reference, typed529), "typed 529 overload uses configured short backoff");
+
+                DateTime? explicitReset = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(
+                    "HTTP 429 rate limit reached. Retry-After: 120", Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode, reference, typed429);
+                AssertEqual(reference.AddSeconds(120), explicitReset, "published retry time remains first");
+                AssertEqual(reference.AddHours(5), ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(
+                    "neutral output", Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode, reference,
+                    new RuntimeProviderError { ErrorType = "usage_limit_reached" }), "typed usage cap retains the Claude fallback window");
+                AssertEqual(reference.AddHours(5), ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(
+                    "You've hit your usage limit", Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode, reference, typed429), "text cap wins over typed throttle");
             }));
 
             cases.Add(Case("crash_output_is_not_a_provider_limit", "A crash that mentions capacity, billing, a status-like number or a filesystem permission stays Crash", TestTags.Negative, () =>

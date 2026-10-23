@@ -600,6 +600,22 @@ refusal. An account with a `Manual` or `File` collector has no usage read that
 proves its login, so only a new login clears it. A captain on no account keeps
 the captain bench described below.
 
+### Provider failure evidence
+
+Runtime adapters can report typed HTTP status codes and machine error types from
+provider failure channels. The lifecycle carries this evidence by process id to
+the account-routing decision. Structured CLI errors and API response status fields
+supply it; assistant narration does not. The evidence contains no response body,
+message text or credential. Existing output and telemetry remain available.
+
+A clean exit remains clean. For a failed exit, quota, credit and spend evidence
+from either the typed fields or existing text signatures takes priority over
+authentication evidence. HTTP 429 and 529 indicate a quota or throttle, 402
+indicates credit, and 401 or 403 indicates authentication. Recognized machine
+error types support the same categories. When neither typed field identifies a supported category,
+the text fallback remains in control. This adds no failure category or retry policy.
+Retry and reset times still come from the existing text parser.
+
 ### Quota and credit holds
 
 When a captain fails on a quota, rate, spend, or credit signal, Armada holds
@@ -618,7 +634,7 @@ default backoff, not the usage-cap window. A status code counts only in a status
 form (`HTTP 429`, `status: 429`, `API Error: 529`, `429 Too Many Requests`), so a
 crash that prints a process id or a line number stays a crash and still counts
 toward crash-loop quarantine. The bench decision and the crash-loop classifier
-read the same provider signatures. Idle captains on the same
+read the same provider signatures and typed evidence. Idle captains on the same
 account are quarantined until then, so the re-routed mission cannot land on
 them. A busy captain on the account keeps its running mission, and routing gives
 it no new work while the hold lasts.

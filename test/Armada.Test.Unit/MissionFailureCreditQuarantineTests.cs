@@ -157,6 +157,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("HandleProcessExit_Typed402WithoutText_UsesCreditHoldAndReroutes", async () =>
+            {
+                using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver database = testDatabase.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                    {
+                        Enabled = true,
+                        AccountHoldMaxMinutes = 1,
+                        Accounts = new List<UsageAccountSettings>()
+                    };
+                    LoggingModule logging = CreateLogging();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(database, settings, logging);
+                    AdmiralService service = CreateAdmiralService(database, settings, quarantine);
+
+                    Captain captain = new Captain("typed-credit-captain")
+                    {
+                        State = CaptainStateEnum.Working,
+                        ProcessId = 8104
+                    };
+                    captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Captain sibling = new Captain("typed-credit-sibling") { State = CaptainStateEnum.Idle };
+                    sibling = await database.Captains.CreateAsync(sibling).ConfigureAwait(false);
+                    settings.ModelTier.UsageRouting.Accounts.Add(new UsageAccountSettings
+                    {
+                        Id = "typed-credit-account",
+                        CaptainIds = new List<string> { captain.Id, sibling.Id }
+                    });
+                    Mission mission = new Mission("Typed credit failure mission")
+                    {
+                        Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        ProcessId = 8104,
+                        StartedUtc = DateTime.UtcNow.AddMinutes(-2)
+                    };
+                    mission = await database.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    captain.CurrentMissionId = mission.Id;
+                    await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    IAdmiralService admiral = service;
+                    DateTime beforeExitUtc = DateTime.UtcNow;
+                    await admiral.HandleProcessExitAsync(8104, 1, captain.Id, mission.Id,
+                        new RuntimeProviderError { HttpStatusCode = 402, ErrorType = "billing_error" }, default).ConfigureAwait(false);
+                    DateTime afterExitUtc = DateTime.UtcNow;
+
+                    Mission? missionAfter = await database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(missionAfter, "The mission remains stored after typed provider credit handling.");
+                    AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status, "Typed credit evidence reroutes the mission.");
+                    ProviderUsageStatus status = UsageRoutingService.For(settings).GetStatus(settings.ModelTier.UsageRouting.Accounts[0], null, DateTime.UtcNow);
+                    AssertEqual(UsageRoutingService.HoldKindCredit, status.HoldKind, "Typed 402 retains the credit hold kind.");
+                    AssertEqual("Exhausted", status.State, "Typed credit evidence creates the existing bounded usage-account hold.");
+                    AssertNotNull(status.ExhaustedUntilUtc, "Typed credit evidence uses a timed credit hold.");
+                    AssertTrue(status.ExhaustedUntilUtc!.Value > beforeExitUtc, "The credit hold has not already expired.");
+                    AssertTrue(status.ExhaustedUntilUtc.Value <= beforeExitUtc.AddMinutes(1).AddSeconds(2), "The hold respects the one-minute account cap.");
+                    Captain? siblingAfter = await database.Captains.ReadAsync(sibling.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, siblingAfter!.State, "The sibling on the exhausted credit account is held.");
+                    AssertNotNull(siblingAfter.QuarantineUntilUtc, "The sibling hold has a deadline.");
+                    AssertTrue(siblingAfter.QuarantineUntilUtc!.Value > beforeExitUtc && siblingAfter.QuarantineUntilUtc.Value <= beforeExitUtc.AddMinutes(1).AddSeconds(2), "The sibling deadline uses the bounded credit window.");
+                    AssertTrue(Math.Abs((status.ExhaustedUntilUtc.Value - siblingAfter.QuarantineUntilUtc.Value).TotalSeconds) <= 2, "The account and sibling share the same bounded deadline.");
+                    AssertTrue(status.ExhaustedUntilUtc.Value <= afterExitUtc.AddMinutes(1), "The account deadline remains within the cap after processing completes.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("HandleProcessExit_AuthenticationFailure_RequeuesAndQuarantinesCaptain", async () =>
             {
                 using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

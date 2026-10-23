@@ -174,6 +174,51 @@ namespace Armada.Test.Runtimes.Suites
 
             if (OperatingSystem.IsWindows())
             {
+                SkipTest("ProcessProviderError_UsesExactClaudeUsageProtocol", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessProviderError_UsesExactClaudeUsageProtocol", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-claude-provider-error-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"rate_limit_event HTTP 429 is narration\"}]}}",
+                        "{\"type\":\"rate_limit_event\"}",
+                        "{\"type\":\"result\",\"is_error\":true,\"result\":\"Claude AI usage limit reached|1712345678\"}"
+                    }, 1);
+                    InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                    runtime.ExecutablePath = executable;
+                    RuntimeProviderError? captured = null;
+                    int eventCount = 0;
+                    runtime.OnProviderErrorReceived += (_, error) => { eventCount++; captured = error; };
+
+                    await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, Path.Combine(directory, "final.txt")).ConfigureAwait(false);
+
+                    AssertEqual(1, eventCount, "Only the exact errored terminal usage protocol is typed evidence.");
+                    AssertEqual("usage_limit_reached", captured!.ErrorType);
+                    AssertNull(captured.HttpStatusCode);
+
+                    string apiErrorExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"result\",\"is_error\":true,\"result\":\"API Error: 500 {\\\"error\\\":{\\\"type\\\":\\\"authentication_error\\\"}}\"}"
+                    }, 1);
+                    runtime.ExecutablePath = apiErrorExecutable;
+                    await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, Path.Combine(directory, "api-final.txt")).ConfigureAwait(false);
+
+                    AssertEqual(2, eventCount, "The exact API Error protocol contributes status and machine type evidence.");
+                    AssertEqual((int?)500, captured!.HttpStatusCode);
+                    AssertEqual("authentication_error", captured.ErrorType);
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
                 SkipTest("ProcessFinalReply_UsesSuccessfulTerminalResult", "the provider stub is a POSIX shell script");
             }
             else await RunTest("ProcessFinalReply_UsesSuccessfulTerminalResult", async () =>

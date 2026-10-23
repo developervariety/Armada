@@ -1628,6 +1628,12 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)
         {
+            await HandleProcessExitAsync(processId, exitCode, captainId, missionId, null, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, RuntimeProviderError? providerError, CancellationToken token)
+        {
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
@@ -1760,8 +1766,8 @@ namespace Armada.Core.Services
                 // recovery paths; preserve the captured runtime error, halt the voyage, and only
                 // stall the captain when the failure indicates the runtime itself is unavailable.
                 string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, captain.Runtime, token).ConfigureAwait(false);
-                RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason);
-                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, failureKind, token).ConfigureAwait(false);
+                RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason, providerError);
+                await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, failureKind, token, providerError).ConfigureAwait(false);
                 failureKind = await RefineRuntimeFailureAsync(mission, captain, exitCode, failureReason, failureKind, token).ConfigureAwait(false);
                 if (_Settings.CrashLoopDetection.Enabled
                     && failureKind == RuntimeFailureKindEnum.Crash
@@ -3494,7 +3500,8 @@ namespace Armada.Core.Services
             int? exitCode,
             string failureReason,
             RuntimeFailureKindEnum failureKind,
-            CancellationToken token)
+            CancellationToken token,
+            RuntimeProviderError? providerError = null)
         {
             // A PROVIDER SAFEGUARD BLOCK (the provider's content/cyber safety gate refused the request) follows the
             // one refusal rule: it is recorded, and the mission gets at most one continuation on an approved captain
@@ -3541,7 +3548,9 @@ namespace Armada.Core.Services
             if (mission != null)
             {
                 TimeSpan quotaRuntime = mission.StartedUtc.HasValue ? DateTime.UtcNow - mission.StartedUtc.Value : TimeSpan.Zero;
-                bool isCreditAuth = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason);
+                bool isCreditAuth = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason)
+                    || ProviderQuotaLimitDetector.IsProviderCreditError(providerError)
+                    || ProviderQuotaLimitDetector.IsProviderAuthError(providerError);
                 bool isAccountSpendLimit = ProviderQuotaLimitDetector.IsProviderAccountSpendLimitSignal(failureReason);
                 bool isCodexUsageCrash = ProviderQuotaLimitDetector.IsCodexUsageLimitCrash(exitCode, quotaRuntime, failureReason);
 
@@ -3550,7 +3559,7 @@ namespace Armada.Core.Services
                 // until a usage read succeeds or the account signs in again, instead of a timed quota hold that expires
                 // into the same failure. A captain on no account keeps the captain bench below.
                 UsageAccountSettings? loginAccount = !isCodexUsageCrash
-                    && ProviderQuotaLimitDetector.ClassifyProviderFault(failureReason) == RuntimeFailureKindEnum.AuthFailure
+                    && RuntimeFailureClassifier.Classify(exitCode, failureReason, providerError) == RuntimeFailureKindEnum.AuthFailure
                     ? CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, captain.Id)
                     : null;
                 if (loginAccount != null)
@@ -3568,12 +3577,13 @@ namespace Armada.Core.Services
                 }
 
                 bool isQuota = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) ||
+                    ProviderQuotaLimitDetector.IsProviderQuotaError(providerError) ||
                     isCreditAuth ||
                     isAccountSpendLimit ||
                     isCodexUsageCrash;
                 if (isQuota)
                 {
-                    DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(failureReason, captain.Runtime, DateTime.UtcNow);
+                    DateTime? retryAfterUtc = ProviderQuotaLimitDetector.ResolveQuotaRetryAfterUtc(failureReason, captain.Runtime, DateTime.UtcNow, providerError);
 
                     // A provider spend cap kills every captain on the CAPPED MODEL, not the whole provider
                     // account: cheaper models on the same provider keep answering. Benching them one-per-re-route
@@ -3590,8 +3600,11 @@ namespace Armada.Core.Services
                     }
 
                     // A credit or billing limit that names no usage, rate or spend limit is a credit hold; the rest are quota holds.
-                    string holdKind = ProviderQuotaLimitDetector.IsCreditSignal(failureReason)
-                        && !ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) && !isAccountSpendLimit && !isCodexUsageCrash
+                    string holdKind = (ProviderQuotaLimitDetector.IsCreditSignal(failureReason)
+                        || ProviderQuotaLimitDetector.IsProviderCreditError(providerError))
+                        && !ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason)
+                        && !ProviderQuotaLimitDetector.IsProviderQuotaError(providerError)
+                        && !isAccountSpendLimit && !isCodexUsageCrash
                         ? UsageRoutingService.HoldKindCredit
                         : UsageRoutingService.HoldKindQuota;
                     await HoldUsageAccountAsync(captain, retryAfterUtc, holdKind, token).ConfigureAwait(false);

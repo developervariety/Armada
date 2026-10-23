@@ -364,5 +364,26 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="missionId">Mission identifier.</param>
         /// <param name="token">Cancellation token.</param>
         Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default);
+
+        /// <summary>
+        /// Handle an agent exit with the compact provider error evidence reported by its runtime. Implementations
+        /// that do not classify typed provider errors can keep using the existing text-based process-exit handler.
+        /// </summary>
+        /// <param name="processId">OS process ID that exited.</param>
+        /// <param name="exitCode">Exit code, or null if unavailable.</param>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="providerError">Typed status or provider error type, when reported.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task HandleProcessExitAsync(
+            int processId,
+            int? exitCode,
+            string captainId,
+            string missionId,
+            RuntimeProviderError? providerError,
+            CancellationToken token)
+        {
+            return HandleProcessExitAsync(processId, exitCode, captainId, missionId, token);
+        }
     }
 }

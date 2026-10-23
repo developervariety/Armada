@@ -79,6 +79,39 @@ namespace Armada.Test.Runtimes.Suites
 
         protected override async Task RunTestsAsync()
         {
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("ProcessProviderError_UsesExplicitTransportStderr", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessProviderError_UsesExplicitTransportStderr", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-cursor-provider-error-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"assistant\",\"text\":\"HTTP 429 is narration only\"}",
+                        "{\"type\":\"tool_call\",\"subtype\":\"error\",\"tool_call\":{\"name\":\"read\",\"error\":\"quota exceeded\"}}"
+                    }, 1, new[] { "status401", "HTTP/1.1 429 Too Many Requests" });
+                    InspectableCursorRuntime runtime = CreateRuntime();
+                    runtime.ExecutablePath = executable;
+                    RuntimeProviderError? captured = null;
+                    int eventCount = 0;
+                    runtime.OnProviderErrorReceived += (_, error) => { eventCount++; captured = error; };
+
+                    await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, Path.Combine(directory, "final.txt")).ConfigureAwait(false);
+
+                    AssertEqual(1, eventCount, "A fused status401 lookalike and stdout text are ignored; the explicit transport status is typed evidence.");
+                    AssertEqual((int?)429, captured!.HttpStatusCode);
+                    AssertNull(captured.ErrorType);
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
+
             await RunTest("BuildArguments Uses NonInteractiveStructuredOutput", () =>
             {
                 InspectableCursorRuntime runtime = CreateRuntime();

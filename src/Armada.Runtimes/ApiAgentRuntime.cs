@@ -31,7 +31,7 @@ namespace Armada.Runtimes
     /// agent lifecycle handler treats it identically. Processless: it uses a synthetic process id and
     /// cooperative cancellation keyed by that id.
     /// </summary>
-    public class ApiAgentRuntime : IAgentRuntime
+    public class ApiAgentRuntime : IAgentRuntime, IRuntimeProviderErrorSource
     {
         #region Public-Members
 
@@ -55,6 +55,9 @@ namespace Armada.Runtimes
 
         /// <inheritdoc />
         public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived;
+
+        /// <inheritdoc />
+        public event Action<int, RuntimeProviderError>? OnProviderErrorReceived;
 
         /// <summary>
         /// Raised after each conversation compaction pass that replaced at least one tool result. The int parameter
@@ -369,6 +372,11 @@ namespace Armada.Runtimes
 
                     if (!response.Success)
                     {
+                        if (response.StatusCode.HasValue)
+                        {
+                            PublishProviderError(processId, new RuntimeProviderError { HttpStatusCode = response.StatusCode });
+                        }
+
                         string failure = String.IsNullOrWhiteSpace(response.Error)
                             ? "inference request returned an unsuccessful response."
                             : response.Error;
@@ -434,6 +442,13 @@ namespace Armada.Runtimes
             catch (Exception e)
             {
                 exitCode = 1;
+                if (e is HttpRequestException httpRequestException && httpRequestException.StatusCode.HasValue)
+                {
+                    PublishProviderError(processId, new RuntimeProviderError
+                    {
+                        HttpStatusCode = (int)httpRequestException.StatusCode.Value
+                    });
+                }
                 _Logging.Warn(_Header + "loop error for process " + processId + ": " + e.Message);
                 Emit(processId, StructuredRuntimeLogFormatter.BuildProviderFailureRecord("api", e.Message));
             }
@@ -944,6 +959,12 @@ namespace Armada.Runtimes
             WriteLog(line);
             try { OnOutputReceived?.Invoke(processId, line); } catch { }
             try { OnStdoutReceived?.Invoke(processId, line); } catch { }
+        }
+
+        private void PublishProviderError(int processId, RuntimeProviderError error)
+        {
+            try { OnProviderErrorReceived?.Invoke(processId, error); }
+            catch (Exception ex) { _Logging.Warn(_Header + "provider error subscriber failed for process " + processId + ": " + ex.Message); }
         }
 
         /// <summary>

@@ -107,6 +107,39 @@ namespace Armada.Test.Runtimes.Suites
                 AssertFalse(runtime.StderrWrittenToLogFile, "Codex streams its full transcript on stderr; the log-file write must be suppressed to keep mission logs bounded");
             });
 
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("ProcessProviderError_RequiresCodexFailureEvent", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessProviderError_RequiresCodexFailureEvent", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-codex-provider-error-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"HTTP 429 is narration only\"}}",
+                        "{\"type\":\"error\",\"message\":\"unexpected status 401\"}",
+                        "{\"type\":\"turn.failed\",\"message\":\"last status:429\"}"
+                    }, 1, new[] { "HTTP 401 in the Codex transcript is not provider failure evidence" });
+                    InspectableCodexRuntime runtime = CreateRuntime();
+                    runtime.ExecutablePath = executable;
+                    List<int?> capturedStatuses = new List<int?>();
+                    runtime.OnProviderErrorReceived += (_, error) => capturedStatuses.Add(error.HttpStatusCode);
+
+                    await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, Path.Combine(directory, "final.txt")).ConfigureAwait(false);
+
+                    AssertEqual(2, capturedStatuses.Count, "Narration is ignored; explicit Codex error and failed-turn messages provide evidence.");
+                    AssertEqual((int?)401, capturedStatuses[0]);
+                    AssertEqual((int?)429, capturedStatuses[1]);
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
+
             await RunTest("BuildArguments Uses Exec With Platform Appropriate Auto Mode", () =>
             {
                 InspectableCodexRuntime runtime = CreateRuntime();

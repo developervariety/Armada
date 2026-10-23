@@ -13,7 +13,7 @@ namespace Armada.Test.Runtimes.Suites
         /// <summary>
         /// Create a POSIX executable that drains prompt input, writes protocol lines, and exits.
         /// </summary>
-        public static string CreateExecutable(string directory, IEnumerable<string> outputLines, int exitCode)
+        public static string CreateExecutable(string directory, IEnumerable<string> outputLines, int exitCode, IEnumerable<string>? errorLines = null)
         {
             string path = Path.Combine(directory, "agent-stub.sh");
             StringBuilder script = new StringBuilder();
@@ -22,6 +22,12 @@ namespace Armada.Test.Runtimes.Suites
             script.AppendLine("cat <<'ARMADA_FINAL_REPLY_EOF'");
             foreach (string line in outputLines) script.AppendLine(line);
             script.AppendLine("ARMADA_FINAL_REPLY_EOF");
+            if (errorLines != null)
+            {
+                script.AppendLine("cat <<'ARMADA_FINAL_REPLY_STDERR_EOF' >&2");
+                foreach (string line in errorLines) script.AppendLine(line);
+                script.AppendLine("ARMADA_FINAL_REPLY_STDERR_EOF");
+            }
             script.AppendLine("exit " + exitCode);
             File.WriteAllText(path, script.ToString(), new UTF8Encoding(false));
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);

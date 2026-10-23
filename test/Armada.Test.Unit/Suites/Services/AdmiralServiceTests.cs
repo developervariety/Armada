@@ -142,6 +142,106 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Typed provider errors follow account policy and quota-first precedence", async () =>
+            {
+                foreach (int scenario in new[] { 0, 1, 2 })
+                {
+                    bool includeQuotaText = scenario == 1;
+                    bool includeAuthText = scenario == 2;
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        SqliteDatabaseDriver db = testDb.Driver;
+                        StubGitService git = new StubGitService();
+                        ArmadaSettings settings = CreateSettings();
+                        settings.MinIdleCaptains = 0;
+                        settings.MaxRecoveryAttempts = 3;
+                        settings.CaptainQuarantine.DefaultBackoffSeconds = 120;
+                        settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                        {
+                            Enabled = true,
+                            Accounts = new List<UsageAccountSettings>
+                            {
+                                new UsageAccountSettings { Id = "shared", CaptainIds = new List<string>() },
+                                new UsageAccountSettings { Id = "separate", CaptainIds = new List<string>() }
+                            },
+                            PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>>
+                            {
+                                ["Worker"] = new List<UsageRouteSettings>
+                                {
+                                    new UsageRouteSettings { AccountId = "shared" },
+                                    new UsageRouteSettings { AccountId = "separate" }
+                                }
+                            }
+                        };
+                        int processId = 5353 + scenario;
+                        Captain failing = new Captain("typed-auth-first") { Model = "shared-model", State = CaptainStateEnum.Working, ProcessId = processId };
+                        Captain sibling = new Captain("typed-auth-second") { Model = "shared-model", State = CaptainStateEnum.Idle };
+                        Captain other = new Captain("typed-auth-other") { Model = "shared-model", State = CaptainStateEnum.Idle };
+                        await db.Captains.CreateAsync(failing).ConfigureAwait(false);
+                        await db.Captains.CreateAsync(sibling).ConfigureAwait(false);
+                        await db.Captains.CreateAsync(other).ConfigureAwait(false);
+                        settings.ModelTier.UsageRouting.Accounts[0].CaptainIds.Add(failing.Id);
+                        settings.ModelTier.UsageRouting.Accounts[0].CaptainIds.Add(sibling.Id);
+                        settings.ModelTier.UsageRouting.Accounts[1].CaptainIds.Add(other.Id);
+                        AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+                        Voyage voyage = new Voyage("Typed provider policy " + processId) { Status = VoyageStatusEnum.InProgress };
+                        await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                        Mission mission = new Mission("Typed provider policy mission " + processId)
+                        {
+                            VoyageId = voyage.Id,
+                            Persona = "Worker",
+                            Status = MissionStatusEnum.InProgress,
+                            AssignmentState = MissionAssignmentStateEnum.Assigned,
+                            ProcessId = processId
+                        };
+                        await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        failing.CurrentMissionId = mission.Id;
+                        await db.Captains.UpdateAsync(failing).ConfigureAwait(false);
+                        if (includeQuotaText)
+                        {
+                            string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                            Directory.CreateDirectory(missionLogDir);
+                            await File.WriteAllTextAsync(Path.Combine(missionLogDir, mission.Id + ".log"), "HTTP 429 rate limit reached\nAgent exited with code 1").ConfigureAwait(false);
+                        }
+                        else if (includeAuthText)
+                        {
+                            string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                            Directory.CreateDirectory(missionLogDir);
+                            await File.WriteAllTextAsync(Path.Combine(missionLogDir, mission.Id + ".log"), "401 Unauthorized\nAgent exited with code 1").ConfigureAwait(false);
+                        }
+
+                        IAdmiralService admiral = service;
+                        await admiral.HandleProcessExitAsync(processId, 1, failing.Id, mission.Id,
+                            scenario == 2
+                                ? new RuntimeProviderError { HttpStatusCode = 429 }
+                                : new RuntimeProviderError { HttpStatusCode = 401 }, default).ConfigureAwait(false);
+
+                        Mission? missionAfter = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(missionAfter, "The typed provider failure keeps its mission stored.");
+                        AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status, "Typed provider evidence reroutes the failed mission.");
+                        ProviderUsageStatus usageStatus = UsageRoutingService.For(settings).GetStatus(settings.ModelTier.UsageRouting.Accounts[0], null, DateTime.UtcNow);
+                        if (scenario != 0)
+                        {
+                            AssertNotEqual(AccountLoginProbe.ReasonLoginRejected, usageStatus.Reason, "quota text outranks typed authentication and does not reject the login");
+                            AssertEqual(UsageRoutingService.HoldKindQuota, usageStatus.HoldKind, "mixed quota/auth evidence follows the quota hold policy");
+                        }
+                        else
+                        {
+                            AssertEqual(AccountLoginProbe.ReasonLoginRejected, usageStatus.Reason, "typed 401 with neutral text rejects the usage-account login");
+                            AssertEqual(UsageRoutingService.HoldKindAuth, usageStatus.HoldKind, "typed 401 uses the indefinite auth hold");
+                            AssertNull(usageStatus.ExhaustedUntilUtc, "typed auth does not create a timed quota hold");
+                        }
+                        Captain? siblingAfter = await db.Captains.ReadAsync(sibling.Id).ConfigureAwait(false);
+                        Captain? otherAfter = await db.Captains.ReadAsync(other.Id).ConfigureAwait(false);
+                        UsageRoutingDecision decision = SmartRoutingTestSelect.Select(
+                            UsageRoutingService.For(settings), settings.ModelTier.UsageRouting, missionAfter!,
+                            new List<Captain> { siblingAfter!, otherAfter! }, Array.Empty<string>(), DateTime.UtcNow);
+                        AssertEqual(1, decision.Candidates.Count, "the shared-account sibling is excluded and the separate account stays eligible");
+                        AssertEqual(other.Id, decision.Candidates[0].Id, "the mission can reroute to the separate account");
+                    }
+                }
+            });
+
             await RunTest("HandleProcessExitAsync records the process exit event in the mission owner's scope", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

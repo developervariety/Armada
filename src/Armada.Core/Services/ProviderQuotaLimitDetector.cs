@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Globalization;
     using System.Text.RegularExpressions;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Detects provider usage/quota-limit signals in runtime stderr or validation output.
@@ -108,11 +109,51 @@ namespace Armada.Core.Services
         /// <returns>The provider fault kind, or Crash when the text names none.</returns>
         public static RuntimeFailureKindEnum ClassifyProviderFault(string? text)
         {
-            if (String.IsNullOrWhiteSpace(text)) return RuntimeFailureKindEnum.Crash;
-            if (IsQuotaLimitSignal(text) || IsCreditSignal(text) || IsProviderAccountSpendLimitSignal(text))
+            return ClassifyProviderFault(text, null);
+        }
+
+        /// <summary>Classify runtime output and typed provider evidence using the same quota-first policy.</summary>
+        /// <param name="text">Runtime output or failure reason.</param>
+        /// <param name="providerError">Typed provider evidence, or null when none was captured.</param>
+        /// <returns>The provider failure kind.</returns>
+        public static RuntimeFailureKindEnum ClassifyProviderFault(string? text, RuntimeProviderError? providerError)
+        {
+            if (IsQuotaLimitSignal(text) || IsProviderQuotaError(providerError)
+                || IsCreditSignal(text) || IsProviderCreditError(providerError)
+                || IsProviderAccountSpendLimitSignal(text))
                 return RuntimeFailureKindEnum.UsageLimit;
-            if (IsAuthFailureSignal(text)) return RuntimeFailureKindEnum.AuthFailure;
+            if (IsAuthFailureSignal(text) || IsProviderAuthError(providerError))
+                return RuntimeFailureKindEnum.AuthFailure;
             return RuntimeFailureKindEnum.Crash;
+        }
+
+        /// <summary>True when typed provider evidence names a usage limit or throttle.</summary>
+        /// <param name="providerError">Typed provider evidence.</param>
+        /// <returns>True when the evidence identifies a usage limit or throttle.</returns>
+        public static bool IsProviderQuotaError(RuntimeProviderError? providerError)
+        {
+            if (providerError == null) return false;
+            if (providerError.HttpStatusCode == 429 || providerError.HttpStatusCode == 529) return true;
+            return HasErrorType(providerError, "rate_limit_error", "rate_limit_exceeded", "insufficient_quota",
+                "usage_limit_reached", "overloaded_error");
+        }
+
+        /// <summary>True when typed provider evidence names a credit or billing failure.</summary>
+        /// <param name="providerError">Typed provider evidence.</param>
+        /// <returns>True when the evidence identifies a credit or billing failure.</returns>
+        public static bool IsProviderCreditError(RuntimeProviderError? providerError)
+        {
+            return providerError != null && (providerError.HttpStatusCode == 402
+                || HasErrorType(providerError, "billing_error"));
+        }
+
+        /// <summary>True when typed provider evidence names an authentication or permission failure.</summary>
+        /// <param name="providerError">Typed provider evidence.</param>
+        /// <returns>True when the evidence identifies an authentication or permission failure.</returns>
+        public static bool IsProviderAuthError(RuntimeProviderError? providerError)
+        {
+            return providerError != null && ((providerError.HttpStatusCode == 401 || providerError.HttpStatusCode == 403)
+                || HasErrorType(providerError, "authentication_error", "permission_error", "invalid_api_key"));
         }
 
         /// <summary>
@@ -380,6 +421,21 @@ namespace Armada.Core.Services
             AgentRuntimeEnum? runtime,
             DateTime referenceUtc)
         {
+            return ResolveQuotaRetryAfterUtc(text, runtime, referenceUtc, null);
+        }
+
+        /// <summary>Resolve a retry deadline using text reset hints and typed provider evidence.</summary>
+        /// <param name="text">Runtime stderr or failure reason text.</param>
+        /// <param name="runtime">Runtime of the captain that hit the limit.</param>
+        /// <param name="referenceUtc">Reference instant.</param>
+        /// <param name="providerError">Typed provider evidence, or null when none was captured.</param>
+        /// <returns>A published or runtime-specific deadline, or null for the configured short backoff.</returns>
+        public static DateTime? ResolveQuotaRetryAfterUtc(
+            string? text,
+            AgentRuntimeEnum? runtime,
+            DateTime referenceUtc,
+            RuntimeProviderError? providerError)
+        {
             DateTime? published = TryParseRetryAfterUtc(text, referenceUtc);
             if (published.HasValue)
             {
@@ -388,7 +444,7 @@ namespace Armada.Core.Services
 
             // A throttle or overload with no exhausted allowance clears in seconds or minutes, so it takes the
             // configured default backoff rather than the usage-cap window.
-            if (IsTransientThrottleOnly(text))
+            if (IsTransientThrottleOnly(text, providerError))
             {
                 return null;
             }
@@ -518,13 +574,30 @@ namespace Armada.Core.Services
             return normalized;
         }
 
-        private static bool IsTransientThrottleOnly(string? text)
+        private static bool HasErrorType(RuntimeProviderError providerError, params string[] knownTypes)
         {
-            if (!IsThrottleOrOverloadSignal(text)) return false;
-            string normalized = Normalize(text!);
-            return !ContainsUsageLimitText(normalized)
-                && !_QuotaPattern.IsMatch(normalized)
-                && !IsCreditSignal(normalized);
+            string? errorType = providerError.ErrorType?.Trim();
+            if (String.IsNullOrEmpty(errorType)) return false;
+            foreach (string knownType in knownTypes)
+            {
+                if (String.Equals(errorType, knownType, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        private static bool IsTransientThrottleOnly(string? text, RuntimeProviderError? providerError)
+        {
+            bool textThrottle = IsThrottleOrOverloadSignal(text);
+            bool typedThrottle = IsProviderQuotaError(providerError);
+            if (!textThrottle && !typedThrottle) return false;
+
+            string normalized = String.IsNullOrWhiteSpace(text) ? String.Empty : Normalize(text);
+            bool textAllowanceCap = ContainsUsageLimitText(normalized)
+                || _QuotaPattern.IsMatch(normalized)
+                || IsCreditSignal(normalized);
+            bool typedAllowanceCap = IsProviderCreditError(providerError)
+                || (providerError != null && HasErrorType(providerError, "insufficient_quota", "usage_limit_reached"));
+            return !textAllowanceCap && !typedAllowanceCap;
         }
 
         private static bool ContainsUsageLimitText(string? text)

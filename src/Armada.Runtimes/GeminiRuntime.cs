@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using System.Diagnostics;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -123,6 +124,15 @@ namespace Armada.Runtimes
         /// runs the npm .cmd shim); a mission brief exceeds both.
         /// </summary>
         protected override bool UsePromptStdin => true;
+
+        /// <summary>Read explicit provider status cues from Gemini stderr.</summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="line">Raw stderr line.</param>
+        protected override void HandleRawErrorLine(int processId, string line)
+        {
+            RuntimeProviderError? error = RuntimeProviderErrorParser.ParseStatusCue(line);
+            if (error != null) PublishProviderError(processId, error);
+        }
 
         /// <summary>
         /// Capture Gemini CLI's exact terminal per-model statistics.

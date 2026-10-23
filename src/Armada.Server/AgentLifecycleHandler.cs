@@ -113,6 +113,14 @@ namespace Armada.Server
         /// </summary>
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, long> _ProcessStateOwners = new System.Collections.Concurrent.ConcurrentDictionary<int, long>();
 
+        /// <summary>Typed provider errors captured for a process and the launch state that owns its PID.</summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, ProcessProviderErrorCapture> _ProviderErrors =
+            new System.Collections.Concurrent.ConcurrentDictionary<int, ProcessProviderErrorCapture>();
+
+        /// <summary>Runtime event subscriptions, keyed by the launch state owner.</summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<long, RuntimeProviderErrorSubscription> _ProviderErrorSources =
+            new System.Collections.Concurrent.ConcurrentDictionary<long, RuntimeProviderErrorSubscription>();
+
         /// <summary>
         /// The owning launch of each launch still waiting for its process id, keyed like <see cref="_PendingLaunches"/>.
         /// </summary>
@@ -780,7 +788,6 @@ namespace Armada.Server
             runtime.OnOutputReceived += HandleAgentHeartbeat;
             runtime.OnTokenUsageReceived += HandleTokenUsage;
             runtime.OnProviderProgressReceived += HandleProviderProgress;
-            runtime.OnProcessExited += HandleAgentProcessExited;
             if (runtime is ApiAgentRuntime compactingRuntime)
                 compactingRuntime.OnContextCompacted += HandleContextCompacted;
 
@@ -837,6 +844,21 @@ namespace Armada.Server
             string captainLogPointer = Path.Combine(captainLogDir, captain.Id + ".current");
             File.WriteAllText(captainLogPointer, logFilePath);
 
+            Armada.Runtimes.Interfaces.IRuntimeProviderErrorSource? providerErrorSource = runtime as Armada.Runtimes.Interfaces.IRuntimeProviderErrorSource;
+            if (providerErrorSource != null)
+            {
+                RuntimeProviderErrorSubscription registration = new RuntimeProviderErrorSubscription(
+                    providerErrorSource, (processId, error) => CaptureProviderError(processId, stateOwner, error));
+                _ProviderErrorSources[stateOwner] = registration;
+                registration.Subscribe();
+            }
+            Action<int, int?> processExitedHandler = (processId, exitCode) =>
+            {
+                CloseProviderErrorSource(stateOwner);
+                HandleAgentProcessExited(processId, exitCode, stateOwner);
+            };
+            runtime.OnProcessExited += processExitedHandler;
+
             int processId;
             try
             {
@@ -863,6 +885,8 @@ namespace Armada.Server
             }
             catch
             {
+                CloseProviderErrorSource(stateOwner);
+                RemoveProviderErrorsForOwner(stateOwner);
                 _PendingLaunches.TryRemove(launchKey, out _);
                 _PendingLaunchOwners.TryRemove(launchKey, out _);
                 ReleaseMissionState(stateOwner, mission.Id);
@@ -1797,7 +1821,22 @@ namespace Armada.Server
         /// </summary>
         public void HandleAgentProcessExited(int processId, int? exitCode)
         {
-            StopProcessLivenessHeartbeat(processId);
+            HandleAgentProcessExited(processId, exitCode, null);
+        }
+
+        private void HandleAgentProcessExited(int processId, int? exitCode, long? expectedStateOwner)
+        {
+            if (RejectStaleProcessExit(processId, expectedStateOwner)) return;
+
+            long? errorStateOwner = expectedStateOwner;
+            if (!errorStateOwner.HasValue && _ProcessStateOwners.TryGetValue(processId, out long mappedStateOwner))
+                errorStateOwner = mappedStateOwner;
+            ProcessProviderErrorCapture? capturedProviderError = TakeProviderError(processId, errorStateOwner);
+            if (capturedProviderError != null)
+                CloseProviderErrorSource(capturedProviderError.StateOwner);
+            else if (errorStateOwner.HasValue)
+                CloseProviderErrorSource(errorStateOwner.Value);
+            RuntimeProviderError? providerError = capturedProviderError?.Error;
 
             string? captainId = null;
             string? missionId = null;
@@ -1828,11 +1867,20 @@ namespace Armada.Server
                 }
             }
 
+            // The PID may have been reused while the mapping retry waited. A stale callback must not stop
+            // the new process's heartbeat or remove its captain and mission mappings.
+            if (RejectStaleProcessExit(processId, expectedStateOwner)) return;
+
             if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
             {
                 _Logging.Warn(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found after retries -- exit may be lost");
                 return;
             }
+
+            if (!errorStateOwner.HasValue && _ProcessStateOwners.TryGetValue(processId, out long resolvedStateOwner))
+                errorStateOwner = resolvedStateOwner;
+
+            StopProcessLivenessHeartbeat(processId);
 
             _Logging.Info(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") for captain " + captainId + " mission " + missionId);
 
@@ -1864,7 +1912,7 @@ namespace Armada.Server
             {
                 try
                 {
-                    await HandleAgentProcessExitedAsync(processId, exitCode, capturedCaptainId, capturedMissionId).ConfigureAwait(false);
+                    await HandleAgentProcessExitedAsync(processId, exitCode, capturedCaptainId, capturedMissionId, providerError, errorStateOwner).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -1885,19 +1933,102 @@ namespace Armada.Server
         /// </summary>
         public async Task HandleAgentProcessExitedAsync(int processId, int? exitCode, string captainId, string missionId)
         {
+            long? errorStateOwner = _ProcessStateOwners.TryGetValue(processId, out long stateOwner) ? stateOwner : (long?)null;
+            ProcessProviderErrorCapture? capturedProviderError = TakeProviderError(processId, errorStateOwner);
+            if (capturedProviderError != null)
+                CloseProviderErrorSource(capturedProviderError.StateOwner);
+            else if (_ProcessStateOwners.TryGetValue(processId, out long mappedStateOwner))
+                CloseProviderErrorSource(mappedStateOwner);
+            await HandleAgentProcessExitedAsync(processId, exitCode, captainId, missionId, capturedProviderError?.Error, errorStateOwner).ConfigureAwait(false);
+        }
+
+        private async Task HandleAgentProcessExitedAsync(
+            int processId,
+            int? exitCode,
+            string captainId,
+            string missionId,
+            RuntimeProviderError? providerError,
+            long? expectedStateOwner)
+        {
             _InFlightProcessExits[processId] = 0;
             try
             {
-                await _Admiral.HandleProcessExitAsync(processId, exitCode, captainId, missionId).ConfigureAwait(false);
+                await _Admiral.HandleProcessExitAsync(
+                    processId,
+                    exitCode,
+                    captainId,
+                    missionId,
+                    providerError,
+                    CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
-                // Record completion before releasing the in-flight marker, so there is no instant
-                // at which the health check can see neither.
+                if (expectedStateOwner.HasValue)
+                {
+                    _ProcessStateOwners.TryRemove(new System.Collections.Generic.KeyValuePair<int, long>(processId, expectedStateOwner.Value));
+                    ReleaseMissionState(expectedStateOwner.Value, missionId);
+                }
+
+                // Record completion only after owner-scoped cleanup, and before releasing the in-flight marker,
+                // so the health check can see neither only after the exit is fully handled.
                 _HandledProcessExits[processId] = DateTime.UtcNow;
                 _InFlightProcessExits.TryRemove(processId, out _);
-                if (_ProcessStateOwners.TryRemove(processId, out long stateOwner))
-                    ReleaseMissionState(stateOwner, missionId);
+            }
+        }
+
+        private void CaptureProviderError(int processId, long stateOwner, RuntimeProviderError providerError)
+        {
+            _ProviderErrors.AddOrUpdate(
+                processId,
+                new ProcessProviderErrorCapture(stateOwner, providerError),
+                (key, current) =>
+                {
+                    if (current.StateOwner != stateOwner)
+                        return current.StateOwner > stateOwner
+                            ? current
+                            : new ProcessProviderErrorCapture(stateOwner, providerError);
+
+                    RuntimeProviderError preferred = RuntimeFailureClassifier.PreferProviderError(current.Error, providerError)
+                        ?? current.Error;
+                    return new ProcessProviderErrorCapture(stateOwner, preferred);
+                });
+        }
+
+        private ProcessProviderErrorCapture? TakeProviderError(int processId, long? expectedStateOwner)
+        {
+            if (_ProviderErrors.TryGetValue(processId, out ProcessProviderErrorCapture? captured) &&
+                (!expectedStateOwner.HasValue || captured.StateOwner == expectedStateOwner.Value) &&
+                _ProviderErrors.TryRemove(new System.Collections.Generic.KeyValuePair<int, ProcessProviderErrorCapture>(processId, captured)))
+                return captured;
+            return null;
+        }
+
+        private bool RejectStaleProcessExit(int processId, long? expectedStateOwner)
+        {
+            if (!expectedStateOwner.HasValue ||
+                !_ProcessStateOwners.TryGetValue(processId, out long currentStateOwner) ||
+                currentStateOwner == expectedStateOwner.Value)
+                return false;
+
+            CloseProviderErrorSource(expectedStateOwner.Value);
+            RemoveProviderErrorsForOwner(expectedStateOwner.Value);
+            _Logging.Info(_Header + "ignoring stale process exit callback for process " + processId + " from launch owner " + expectedStateOwner.Value
+                + "; current owner is " + currentStateOwner);
+            return true;
+        }
+
+        private void CloseProviderErrorSource(long stateOwner)
+        {
+            if (_ProviderErrorSources.TryRemove(stateOwner, out RuntimeProviderErrorSubscription? registration))
+                registration.Close();
+        }
+
+        private void RemoveProviderErrorsForOwner(long stateOwner)
+        {
+            foreach (System.Collections.Generic.KeyValuePair<int, ProcessProviderErrorCapture> entry in _ProviderErrors)
+            {
+                if (entry.Value.StateOwner == stateOwner)
+                    _ProviderErrors.TryRemove(new System.Collections.Generic.KeyValuePair<int, ProcessProviderErrorCapture>(entry.Key, entry.Value));
             }
         }
 
@@ -1954,6 +2085,8 @@ namespace Armada.Server
         /// </summary>
         private void ReleaseMissionState(long owner, string missionId)
         {
+            CloseProviderErrorSource(owner);
+            RemoveProviderErrorsForOwner(owner);
             lock (_MissionStateOwners)
             {
                 if (!_MissionStateOwners.TryGetValue(missionId, out long current) || current != owner) return;

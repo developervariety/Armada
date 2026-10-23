@@ -14,7 +14,7 @@ namespace Armada.Runtimes
     /// <summary>
     /// Base implementation for agent runtimes with common process management.
     /// </summary>
-    public abstract class BaseAgentRuntime : IAgentRuntime
+    public abstract class BaseAgentRuntime : IAgentRuntime, IRuntimeProviderErrorSource
     {
         #region Public-Members
 
@@ -80,6 +80,9 @@ namespace Armada.Runtimes
         /// window.
         /// </summary>
         public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived;
+
+        /// <inheritdoc />
+        public event Action<int, RuntimeProviderError>? OnProviderErrorReceived;
 
         /// <summary>
         /// Event raised immediately after the agent process starts and a PID is available.
@@ -701,6 +704,23 @@ namespace Armada.Runtimes
         {
         }
 
+        /// <summary>Inspect one raw stderr line for provider status or error-type evidence.</summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="line">Raw stderr line.</param>
+        protected virtual void HandleRawErrorLine(int processId, string line)
+        {
+        }
+
+        /// <summary>Publish compact provider status or error-type evidence to lifecycle subscribers.</summary>
+        /// <param name="processId">Agent process identifier.</param>
+        /// <param name="error">Typed provider error evidence.</param>
+        protected void PublishProviderError(int processId, RuntimeProviderError error)
+        {
+            if (error == null) return;
+            try { OnProviderErrorReceived?.Invoke(processId, error); }
+            catch (Exception ex) { WarnSwallowed("OnProviderErrorReceived handler for process " + processId, ex); }
+        }
+
         /// <summary>
         /// Publish authoritative token usage to lifecycle subscribers.
         /// </summary>
@@ -985,6 +1005,9 @@ namespace Armada.Runtimes
         /// </summary>
         private void EmitStderrLine(int processId, string line, StreamWriter? logWriter)
         {
+            try { HandleRawErrorLine(processId, line); }
+            catch (Exception ex) { _Logging.Warn(_Header + "error parsing runtime provider error evidence: " + ex.Message); }
+
             _Logging.Debug(_Header + "[stderr] " + line);
 
             // Gate ONLY the log-file write. Runtimes that stream their full

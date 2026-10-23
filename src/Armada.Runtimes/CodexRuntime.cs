@@ -320,8 +320,18 @@ namespace Armada.Runtimes
         protected override void HandleRawOutputLine(int processId, string line)
         {
             CodexEvent? evt = Deserialize(line);
-            if (evt == null || !String.Equals(evt.Type, "turn.completed", StringComparison.Ordinal) || evt.Usage == null)
-                return;
+            if (evt == null) return;
+
+            if (String.Equals(evt.Type, "error", StringComparison.Ordinal)
+                || String.Equals(evt.Type, "turn.failed", StringComparison.Ordinal))
+            {
+                string? errorText = !String.IsNullOrEmpty(evt.Message) ? evt.Message : evt.Error?.Message;
+                RuntimeProviderError? error = RuntimeProviderErrorParser.ParseApiError(errorText)
+                    ?? RuntimeProviderErrorParser.ParseStatusCue(errorText);
+                if (error != null) PublishProviderError(processId, error);
+            }
+
+            if (!String.Equals(evt.Type, "turn.completed", StringComparison.Ordinal) || evt.Usage == null) return;
 
             // Codex's input_tokens already includes cached_input_tokens, so the uncached
             // bucket is the input count less the cached counts.

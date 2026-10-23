@@ -574,6 +574,101 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("handle_launch_agent_async_correlates_typed_provider_errors_by_process", "HandleLaunchAgentAsync keeps the strongest typed provider error with its process and clears it after exit", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_provider_error_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+                    try
+                    {
+                        ScriptedProviderErrorRuntime firstRuntime = new ScriptedProviderErrorRuntime(51001, new RuntimeProviderError { HttpStatusCode = 401 });
+                        ScriptedProviderErrorRuntime secondRuntime = new ScriptedProviderErrorRuntime(51002, new RuntimeProviderError { HttpStatusCode = 429 });
+                        ScriptedProviderErrorRuntime directRuntime = new ScriptedProviderErrorRuntime(51003, new RuntimeProviderError { HttpStatusCode = 402 });
+                        ScriptedOrdinaryLifecycleRuntime ordinaryRuntime = new ScriptedOrdinaryLifecycleRuntime(51004);
+                        ScriptedProviderErrorRuntime reusedRuntime = new ScriptedProviderErrorRuntime(51001, new RuntimeProviderError { HttpStatusCode = 403 });
+                        ScriptedProviderErrorRuntime blockedOldRuntime = new ScriptedProviderErrorRuntime(51005, new RuntimeProviderError { HttpStatusCode = 401 });
+                        ScriptedProviderErrorRuntime blockedNewRuntime = new ScriptedProviderErrorRuntime(51005, new RuntimeProviderError { HttpStatusCode = 403 });
+                        ScriptedLifecycleRuntimeFactory runtimeFactory = new ScriptedLifecycleRuntimeFactory(
+                            CreateLogging(),
+                            new Armada.Runtimes.Interfaces.IAgentRuntime[] { firstRuntime, secondRuntime, directRuntime, ordinaryRuntime, reusedRuntime, blockedOldRuntime, blockedNewRuntime });
+                        StubAdmiralService admiral = new StubAdmiralService();
+                        System.Collections.Concurrent.ConcurrentDictionary<int, System.Collections.Concurrent.ConcurrentQueue<RuntimeProviderError?>> exits =
+                            new System.Collections.Concurrent.ConcurrentDictionary<int, System.Collections.Concurrent.ConcurrentQueue<RuntimeProviderError?>>();
+                        TaskCompletionSource<bool> blockedExitEntered = new TaskCompletionSource<bool>();
+                        TaskCompletionSource<bool> releaseBlockedExit = new TaskCompletionSource<bool>();
+                        int blockedExitCalls = 0;
+                        admiral.OnHandleProcessExitWithError = async (processId, exitCode, captainId, missionId, providerError, token) =>
+                        {
+                            if (processId == 51005 && Interlocked.Increment(ref blockedExitCalls) == 1)
+                            {
+                                blockedExitEntered.TrySetResult(true);
+                                await releaseBlockedExit.Task.ConfigureAwait(false);
+                            }
+                            exits.GetOrAdd(processId, key => new System.Collections.Concurrent.ConcurrentQueue<RuntimeProviderError?>()).Enqueue(providerError);
+                        };
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, runtimeFactory, admiral);
+
+                        await LaunchSyntheticRuntimeAsync(handler, "typed-first", "First typed exit", "feature/typed-first", worktreePath).ConfigureAwait(false);
+                        await LaunchSyntheticRuntimeAsync(handler, "typed-second", "Second typed exit", "feature/typed-second", worktreePath).ConfigureAwait(false);
+                        await LaunchSyntheticRuntimeAsync(handler, "typed-direct", "Direct typed exit", "feature/typed-direct", worktreePath).ConfigureAwait(false);
+                        await LaunchSyntheticRuntimeAsync(handler, "typed-ordinary", "Ordinary exit", "feature/typed-ordinary", worktreePath).ConfigureAwait(false);
+
+                        // A later generic failure has lower rank and must not replace the provider evidence.
+                        firstRuntime.PublishProviderError(new RuntimeProviderError { HttpStatusCode = 500 });
+                        secondRuntime.PublishProviderError(new RuntimeProviderError { HttpStatusCode = 401 });
+
+                        // Exit in reverse launch order to prove that evidence follows the PID, not the latest launch.
+                        secondRuntime.RaiseExit();
+                        firstRuntime.RaiseExit();
+                        ordinaryRuntime.RaiseExit();
+
+                        RuntimeProviderError? firstError = await WaitForExitEvidenceAsync(exits, 51001).ConfigureAwait(false);
+                        RuntimeProviderError? secondError = await WaitForExitEvidenceAsync(exits, 51002).ConfigureAwait(false);
+                        RuntimeProviderError? ordinaryError = await WaitForExitEvidenceAsync(exits, 51004).ConfigureAwait(false);
+
+                        AssertEqual(401, firstError?.HttpStatusCode, "The first process must retain its auth evidence after a generic 500.");
+                        AssertEqual(429, secondError?.HttpStatusCode, "The second process must retain its quota evidence after a weaker auth event.");
+                        AssertNull(ordinaryError, "A runtime without the optional typed-evidence source must keep working.");
+
+                        await handler.HandleAgentProcessExitedAsync(51003, 1, "typed-direct", "direct-mission").ConfigureAwait(false);
+                        RuntimeProviderError? directError = exits[51003].TryDequeue(out RuntimeProviderError? firstDirectError) ? firstDirectError : null;
+                        AssertEqual(402, directError?.HttpStatusCode, "Typed evidence emitted before OnProcessStarted must reach the admiral.");
+                        directRuntime.PublishProviderError(new RuntimeProviderError { HttpStatusCode = 429 });
+                        await handler.HandleAgentProcessExitedAsync(51003, 1, "typed-direct", "direct-mission").ConfigureAwait(false);
+                        RuntimeProviderError? directDuplicate = exits[51003].TryDequeue(out RuntimeProviderError? repeatedDirectError) ? repeatedDirectError : null;
+                        AssertNull(directDuplicate, "The direct async exit path must unsubscribe and consume provider evidence once.");
+
+                        // A closed source cannot contaminate a later launch if the OS reuses its PID.
+                        await LaunchSyntheticRuntimeAsync(handler, "typed-reused", "Reused PID exit", "feature/typed-reused", worktreePath).ConfigureAwait(false);
+                        firstRuntime.PublishProviderError(new RuntimeProviderError { HttpStatusCode = 429 });
+                        firstRuntime.RaiseExit();
+                        reusedRuntime.RaiseExit();
+                        RuntimeProviderError? reusedError = await WaitForExitEvidenceAsync(exits, 51001).ConfigureAwait(false);
+                        AssertEqual(403, reusedError?.HttpStatusCode, "A stale exit callback must not remove the reused PID's mapping or evidence.");
+
+                        // Keep the old exit inside the admiral while a new launch reuses its PID. Its later
+                        // cleanup must remove only the old launch owner and preserve the new source and packet.
+                        await LaunchSyntheticRuntimeAsync(handler, "typed-blocked-old", "Blocked old exit", "feature/blocked-old", worktreePath).ConfigureAwait(false);
+                        Task blockedOldExit = handler.HandleAgentProcessExitedAsync(51005, 1, "typed-blocked-old", "blocked-old-mission");
+                        await blockedExitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                        await LaunchSyntheticRuntimeAsync(handler, "typed-blocked-new", "Blocked new exit", "feature/blocked-new", worktreePath).ConfigureAwait(false);
+                        releaseBlockedExit.TrySetResult(true);
+                        await blockedOldExit.ConfigureAwait(false);
+                        RuntimeProviderError? blockedOldError = await WaitForExitEvidenceAsync(exits, 51005).ConfigureAwait(false);
+                        AssertEqual(401, blockedOldError?.HttpStatusCode, "The blocked old exit must carry its own error.");
+
+                        blockedNewRuntime.RaiseExit();
+                        RuntimeProviderError? blockedNewError = await WaitForExitEvidenceAsync(exits, 51005).ConfigureAwait(false);
+                        AssertEqual(403, blockedNewError?.HttpStatusCode, "Old asynchronous cleanup must preserve the new launch's PID owner and provider source.");
+                    }
+                    finally
+                    {
+                        Directory.Delete(worktreePath, true);
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("handle_agent_heartbeat_updates_mission_and_voyage_timestamps", "HandleAgentHeartbeat updates mission and voyage timestamps", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -901,12 +996,12 @@ namespace Test.Shared.Suites.Services
 
         #region Private-Methods
 
-        private static AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, AgentRuntimeFactory? runtimeFactoryOverride = null)
+        private static AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, AgentRuntimeFactory? runtimeFactoryOverride = null, IAdmiralService? admiralOverride = null)
         {
             LoggingModule logging = CreateLogging();
             settings = CreateSettings();
             AgentRuntimeFactory runtimeFactory = runtimeFactoryOverride ?? new AgentRuntimeFactory(logging);
-            IAdmiralService admiral = new StubAdmiralService();
+            IAdmiralService admiral = admiralOverride ?? new StubAdmiralService();
             IMessageTemplateService templateService = new MessageTemplateService(logging);
 
             return new AgentLifecycleHandler(
@@ -920,6 +1015,29 @@ namespace Test.Shared.Suites.Services
                 null,
                 (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask,
                 modelValidationTimeout);
+        }
+
+        private static async Task LaunchSyntheticRuntimeAsync(AgentLifecycleHandler handler, string captainId, string missionName, string branchName, string worktreePath)
+        {
+            Captain captain = new Captain(captainId, AgentRuntimeEnum.Cursor) { Model = "synthetic-model" };
+            Mission mission = new Mission(missionName) { Persona = "Test Engineer", BranchName = branchName };
+            Dock dock = new Dock { BranchName = branchName, WorktreePath = worktreePath };
+            await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+        }
+
+        private static async Task<RuntimeProviderError?> WaitForExitEvidenceAsync(
+            System.Collections.Concurrent.ConcurrentDictionary<int, System.Collections.Concurrent.ConcurrentQueue<RuntimeProviderError?>> exits,
+            int processId)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (exits.TryGetValue(processId, out System.Collections.Concurrent.ConcurrentQueue<RuntimeProviderError?>? queue) &&
+                    queue.TryDequeue(out RuntimeProviderError? providerError))
+                    return providerError;
+                await Task.Delay(10).ConfigureAwait(false);
+            }
+            throw new TimeoutException("No typed provider exit was observed for process " + processId + ".");
         }
 
         private static void BindCursorAccount(ArmadaSettings settings, Captain captain, string keyFile)
@@ -1281,6 +1399,7 @@ namespace Test.Shared.Suites.Services
             public Func<Voyage, Task>? OnVoyageComplete { get; set; }
             public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
             public Func<int, bool>? OnIsProcessExitHandled { get; set; }
+            public Func<int, int?, string, string, RuntimeProviderError?, CancellationToken, Task>? OnHandleProcessExitWithError { get; set; }
 
             public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, CancellationToken token = default)
             {
@@ -1341,10 +1460,108 @@ namespace Test.Shared.Suites.Services
             {
                 return Task.CompletedTask;
             }
+
+            public Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, RuntimeProviderError? providerError, CancellationToken token)
+            {
+                if (OnHandleProcessExitWithError != null)
+                    return OnHandleProcessExitWithError(processId, exitCode, captainId, missionId, providerError, token);
+                return HandleProcessExitAsync(processId, exitCode, captainId, missionId, token);
+            }
         
             // ----- Fork-only IAdmiralService surface (inert test defaults) -----
             public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
             public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default) => Task.FromResult<Pipeline?>(null);
+        }
+
+        private sealed class ScriptedLifecycleRuntimeFactory : AgentRuntimeFactory
+        {
+            private readonly Queue<Armada.Runtimes.Interfaces.IAgentRuntime> _Runtimes;
+
+            public ScriptedLifecycleRuntimeFactory(LoggingModule logging, IEnumerable<Armada.Runtimes.Interfaces.IAgentRuntime> runtimes) : base(logging)
+            {
+                _Runtimes = new Queue<Armada.Runtimes.Interfaces.IAgentRuntime>(runtimes);
+            }
+
+            public override Armada.Runtimes.Interfaces.IAgentRuntime Create(AgentRuntimeEnum runtimeType)
+            {
+                return _Runtimes.Dequeue();
+            }
+        }
+
+        private class ScriptedLifecycleRuntime : Armada.Runtimes.Interfaces.IAgentRuntime
+        {
+            private readonly int _ProcessId;
+
+            public ScriptedLifecycleRuntime(int processId)
+            {
+                _ProcessId = processId;
+            }
+
+            protected int ProcessId => _ProcessId;
+
+            public string Name => "ScriptedLifecycle";
+            public bool SupportsResume => false;
+            public bool SupportsPlanningSessions => false;
+            public event Action<int, string>? OnOutputReceived { add { } remove { } }
+            public event Action<int, string>? OnStdoutReceived { add { } remove { } }
+            public event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived { add { } remove { } }
+            public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived { add { } remove { } }
+            public event Action<int>? OnProcessStarted;
+            public event Action<int, int?>? OnProcessExited;
+
+            public virtual Task<int> StartAsync(
+                string workingDirectory,
+                string prompt,
+                Dictionary<string, string>? environment = null,
+                string? logFilePath = null,
+                string? finalMessageFilePath = null,
+                string? model = null,
+                Captain? captain = null,
+                bool showThinking = false,
+                CancellationToken token = default,
+                CaptainLaunchIsolationPlan? isolationPlan = null)
+            {
+                BeforeProcessStarted();
+                OnProcessStarted?.Invoke(_ProcessId);
+                return Task.FromResult(_ProcessId);
+            }
+
+            protected virtual void BeforeProcessStarted() { }
+
+            public void RaiseExit()
+            {
+                OnProcessExited?.Invoke(_ProcessId, 1);
+            }
+
+            public Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default) => Task.FromResult(AgentStopResult.Stopped());
+            public Task<bool> IsRunningAsync(int processId, CancellationToken token = default) => Task.FromResult(true);
+        }
+
+        private sealed class ScriptedProviderErrorRuntime : ScriptedLifecycleRuntime, Armada.Runtimes.Interfaces.IRuntimeProviderErrorSource
+        {
+            private readonly RuntimeProviderError _StartupError;
+
+            public ScriptedProviderErrorRuntime(int processId, RuntimeProviderError startupError) : base(processId)
+            {
+                _StartupError = startupError;
+            }
+
+            public event Action<int, RuntimeProviderError>? OnProviderErrorReceived;
+
+            protected override void BeforeProcessStarted()
+            {
+                PublishProviderError(_StartupError);
+            }
+
+            public void PublishProviderError(RuntimeProviderError error)
+            {
+                OnProviderErrorReceived?.Invoke(ProcessId, error);
+            }
+        }
+
+        private sealed class ScriptedOrdinaryLifecycleRuntime : ScriptedLifecycleRuntime
+        {
+            public ScriptedOrdinaryLifecycleRuntime(int processId) : base(processId) { }
         }
 
         /// <summary>

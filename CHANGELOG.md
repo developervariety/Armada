@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Runtime provider failures carry typed HTTP status and machine error codes
+  through process exit to account routing. Existing quota, credit and
+  authentication rules, retry-time parsing and text fallback remain in effect.
+
 - API runtimes load large caller-filtered MCP catalogs through local discovery,
   four schemas per page. Small catalogs and discovery-name collisions stay
   eager. Calls keep the same authenticated MCP connection and authorization.

@@ -108,6 +108,10 @@ Both versions prefer final reply artifacts for stage handoff. The fork keeps
 structured CLI streams and derives replies from provider completion events,
 while retaining token usage, tool activity and transcript fallback.
 
+Both versions carry typed provider failure evidence. The fork adds that evidence
+to its existing quota, credit and authentication policy, keeps text fallback and
+retry-time parsing, and applies the same result to routing and crash detection.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the
