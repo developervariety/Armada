@@ -9,6 +9,16 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A Build or UnitTest Check that passes because a definition-of-done gate
+  already ran the same command in full on the same commit records that gate as
+  structured evidence: `satisfiedBy` holds the kind
+  (`definition_of_done_gate`), the gate's mission, the command label, the
+  commit and the pass time. Its `durationMs` is null, because it ran no command,
+  so it is outside the execution-time measure. REST, MCP `get_check_run` and the
+  `check-run.changed` event carry the field; the dashboard Check list and detail
+  show "Not run" with the gate's mission and commit; the operator watcher prints
+  `NOT RUN: satisfied by ...` in place of `run=<ms>`. Persisted on all four
+  providers (SQLite 121, PostgreSQL 125, SQL Server 117, MySQL 114).
 - A workflow profile sets the time limit of its definition-of-done gate
   commands with `gateCommandTimeoutSeconds` (30 to 3600 seconds; empty uses the
   global `DefinitionOfDone.CommandTimeoutSeconds`). It applies to the vessel's

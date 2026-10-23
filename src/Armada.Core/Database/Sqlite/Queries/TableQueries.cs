@@ -1669,7 +1669,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(117, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.SqliteStatements),
                 new SchemaMigration(118, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.SqliteStatements),
                 new SchemaMigration(119, "Persist trace records, trace links and trace cursors", TraceRecordSchema.SqliteStatements),
-                new SchemaMigration(120, "Persist the workflow profile definition-of-done command time limit", WorkflowProfileGateTimeoutPersistence.SqliteStatements)
+                new SchemaMigration(120, "Persist the workflow profile definition-of-done command time limit", WorkflowProfileGateTimeoutPersistence.SqliteStatements),
+                new SchemaMigration(121, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.SqliteStatements)
             };
         }
 

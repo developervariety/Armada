@@ -618,7 +618,7 @@ export default function CheckRuns() {
                   <td><StatusBadge status={run.status} /></td>
                   <td className="text-dim">{run.source === 'External' ? `${run.source}${run.providerName ? ` / ${run.providerName}` : ''}` : run.source}</td>
                   <td className="text-dim">{run.environmentName || '-'}</td>
-                  <td className="text-dim">{run.durationMs != null ? `${Math.round(run.durationMs)} ms` : '-'}</td>
+                  <td className="text-dim" title={run.satisfiedBy ? `${t('Satisfied by the definition-of-done gate of mission')} ${run.satisfiedBy.missionId} (${run.satisfiedBy.commitHash})` : undefined}>{run.satisfiedBy ? t('Not run') : run.durationMs != null ? `${Math.round(run.durationMs)} ms` : '-'}</td>
                   <td className="text-dim" title={formatDateTime(run.createdUtc)}>{formatRelativeTime(run.createdUtc)}</td>
                   <td className="text-right" onClick={(event) => event.stopPropagation()}>
                     <ActionMenu

@@ -709,7 +709,10 @@ the client's tool timeout. Both are operator runs: the check runs to completion
 even when its voyage has ended. Only the automatic Check runner discards a
 Pending check of a cancelled or failed voyage, and the discard writes its
 reason (`voyage_cancelled` or `voyage_failed`) into the check's `summary` and
-`output` and records a `check.discarded` event.
+`output` and records a `check.discarded` event. A check that passed because a
+definition-of-done gate already ran the same command on the same commit carries
+`satisfiedBy` (gate mission, command label, commit, pass time) and a null
+`durationMs`; it ran no command of its own.
 
 What a caller may use:
 

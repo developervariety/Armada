@@ -63,6 +63,7 @@ namespace Armada.Core.Database
             run.TestSummary = row.Json<CheckRunTestSummary>("test_summary_json", _Json);
             run.CoverageSummary = row.Json<CheckRunCoverageSummary>("coverage_summary_json", _Json);
             run.Artifacts = row.Json<List<CheckRunArtifact>>("artifacts_json", _Json) ?? new List<CheckRunArtifact>();
+            run.SatisfiedBy = row.Json<CheckRunSatisfiedBy>("satisfied_by_json", _Json);
             run.DurationMs = row.NullableLong("duration_ms");
             run.SlotRequestedUtc = row.NullableUtc("slot_requested_utc");
             run.StartedUtc = row.NullableUtc("started_utc");
@@ -108,6 +109,7 @@ namespace Armada.Core.Database
                 .Text("test_summary_json", checkRun.TestSummary != null ? JsonSerializer.Serialize(checkRun.TestSummary, _Json) : null)
                 .Text("coverage_summary_json", checkRun.CoverageSummary != null ? JsonSerializer.Serialize(checkRun.CoverageSummary, _Json) : null)
                 .Text("artifacts_json", JsonSerializer.Serialize(checkRun.Artifacts ?? new List<CheckRunArtifact>(), _Json))
+                .Text("satisfied_by_json", checkRun.SatisfiedBy != null ? JsonSerializer.Serialize(checkRun.SatisfiedBy, _Json) : null)
                 .Long("duration_ms", checkRun.DurationMs)
                 .Utc("slot_requested_utc", checkRun.SlotRequestedUtc)
                 .Utc("started_utc", checkRun.StartedUtc)

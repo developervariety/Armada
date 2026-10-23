@@ -272,7 +272,16 @@ export default function CheckRunDetail() {
           <span>{run.externalUrl ? <a href={run.externalUrl} target="_blank" rel="noopener noreferrer">{run.externalUrl}</a> : '-'}</span>
         </div>
         <div className="detail-field"><span className="detail-label">{t('Environment')}</span><span>{run.environmentName || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Duration')}</span><span>{formatDuration(run.durationMs)}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Duration')}</span><span>{run.satisfiedBy ? t('Not run') : formatDuration(run.durationMs)}</span></div>
+        {run.satisfiedBy && (
+          <div className="detail-field">
+            <span className="detail-label">{t('Satisfied By')}</span>
+            <span>
+              {t('Definition-of-done gate of mission')} <Link to={`/missions/${run.satisfiedBy.missionId}`}>{run.satisfiedBy.missionId}</Link>
+              {' '}({run.satisfiedBy.label}, <span className="mono">{run.satisfiedBy.commitHash}</span>, {formatDateTime(run.satisfiedBy.passedUtc)})
+            </span>
+          </div>
+        )}
         <div className="detail-field"><span className="detail-label">{t('Mission ID')}</span><span>{run.missionId ? <Link to={`/missions/${run.missionId}`}>{run.missionId}</Link> : '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Voyage ID')}</span><span>{run.voyageId ? <Link to={`/voyages/${run.voyageId}`}>{run.voyageId}</Link> : '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Deployment ID')}</span><span>{run.deploymentId ? <Link to={`/deployments/${run.deploymentId}`}>{run.deploymentId}</Link> : '-'}</span></div>

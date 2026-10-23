@@ -494,7 +494,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             // A definition-of-done gate and the check armed for the same voyage run the same full suite. When the
             // gate already passed that command on that commit, the check names the gate instead of running again.
-            await RunTest("An armed check of a voyage is satisfied by a gate that passed the same command on the same commit, and runs otherwise", async () =>
+            // The stored record carries that gate as structured evidence and no run time, so no reader can take a
+            // check that ran nothing for a real pass.
+            await RunTest("An armed check of a voyage is satisfied by a gate that passed the same command on the same commit, records that gate and no run time, and runs otherwise", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -526,13 +528,15 @@ namespace Armada.Test.Unit.Suites.Services
                     await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
                     Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("gate-reuse-voyage") { TenantId = "ten_gate_reuse", UserId = "usr_gate_reuse" }).ConfigureAwait(false);
 
+                    DateTime gatePassedUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
                     DefinitionOfDoneCommandPasses.Record(new DefinitionOfDoneCommandPass
                     {
                         MissionId = "msn_gate_reuse",
                         VesselId = vessel.Id,
                         CommitHash = reviewed,
                         Label = "unit-test",
-                        Command = unitTest
+                        Command = unitTest,
+                        CompletedUtc = gatePassedUtc
                     });
 
                     CheckRun ArmedAt(string commit) => new CheckRun
@@ -557,10 +561,22 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("msn_gate_reuse", satisfied.Summary ?? String.Empty, "the record names the gate that satisfied it");
                     AssertFalse((satisfied.Output ?? String.Empty).Contains("suite-ran", StringComparison.Ordinal), "the command did not run again");
 
+                    CheckRun stored = (await testDb.Driver.CheckRuns.ReadAsync(same.Id).ConfigureAwait(false))!;
+                    AssertNotNull(stored.SatisfiedBy, "the stored record names the run it took its result from");
+                    AssertEqual(CheckRunSatisfiedBy.DefinitionOfDoneGate, stored.SatisfiedBy!.Kind);
+                    AssertEqual("msn_gate_reuse", stored.SatisfiedBy.MissionId, "the source is the gate's mission");
+                    AssertEqual(reviewed, stored.SatisfiedBy.CommitHash, "the source ran on the reviewed commit");
+                    AssertEqual("unit-test", stored.SatisfiedBy.Label);
+                    AssertEqual(gatePassedUtc, stored.SatisfiedBy.PassedUtc.ToUniversalTime(), "the source pass time is the gate's");
+                    AssertNull(stored.DurationMs, "a check that ran no command has no run time, not a zero one");
+                    AssertNotNull(CheckRunSummaryView.From(stored).SatisfiedBy, "get_check_run shows the source run");
+
                     CheckRun other = await testDb.Driver.CheckRuns.CreateAsync(ArmedAt(new string('e', 40))).ConfigureAwait(false);
                     CheckRun ran = await checkRuns.RunPendingAsync(auth, other.Id).ConfigureAwait(false);
                     AssertEqual(CheckRunStatusEnum.Failed, ran.Status, "a check of another commit runs its command");
                     AssertContains("suite-ran", ran.Output ?? String.Empty, "the command ran");
+                    AssertNull(ran.SatisfiedBy, "a check that ran its command names no other run");
+                    AssertNotNull(ran.DurationMs, "a check that ran its command has a run time");
                 }
                 finally
                 {

@@ -25,7 +25,7 @@ namespace Armada.Core.Database
                 "id", "tenant_id", "user_id", "workflow_profile_id", "vessel_id", "mission_id", "voyage_id", "deployment_id", "label", "check_type", "status",
                 "source", "provider_name", "external_id", "external_url", "environment_name", "command", "working_directory", "branch_name", "commit_hash", "exit_code", "output", "summary",
                 "test_summary_json", "coverage_summary_json", "artifacts_json", "duration_ms", "started_utc", "completed_utc", "created_utc", "last_update_utc",
-                "regression_purpose", "regression_objective_id", "regression_landed_commit", "slot_requested_utc"
+                "regression_purpose", "regression_objective_id", "regression_landed_commit", "slot_requested_utc", "satisfied_by_json"
             },
             new[] { "created_utc" },
             CheckRunColumns.Read,

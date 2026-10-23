@@ -1114,6 +1114,7 @@ namespace Armada.Core.Services
             target.TestSummary = source.TestSummary;
             target.CoverageSummary = source.CoverageSummary;
             target.Artifacts = source.Artifacts;
+            target.SatisfiedBy = source.SatisfiedBy;
             target.DurationMs = source.DurationMs;
             target.SlotRequestedUtc = source.SlotRequestedUtc;
             target.StartedUtc = source.StartedUtc;
@@ -1402,8 +1403,10 @@ namespace Armada.Core.Services
         /// <summary>
         /// Record an automatic Build or UnitTest check of a voyage or mission as satisfied when a passing
         /// definition-of-done gate already ran the same command in full on the same commit, with the same
-        /// environment. The check names that gate and does not run the suite again. An operator's run and a
-        /// check of a deployment always run their command. See <see cref="DefinitionOfDoneCommandPasses"/>.
+        /// environment. The check does not run the suite again. It stores the gate it took its result from in
+        /// <see cref="CheckRun.SatisfiedBy"/> (mission, command label, commit, pass time) and has no run duration,
+        /// so no reader can take it for a run of its own. An operator's run and a check of a deployment always run
+        /// their command. See <see cref="DefinitionOfDoneCommandPasses"/>.
         /// </summary>
         /// <returns>The completed record, or null when no gate pass applies and the command must run.</returns>
         private async Task<CheckRun?> TryCompleteFromGatePassAsync(CheckRun run, WorkflowProfile? profile, CancellationToken token)
@@ -1437,9 +1440,17 @@ namespace Armada.Core.Services
                 current.Command = run.Command;
                 current.Output = text;
                 current.Summary = text;
+                current.SatisfiedBy = new CheckRunSatisfiedBy
+                {
+                    Kind = CheckRunSatisfiedBy.DefinitionOfDoneGate,
+                    MissionId = pass.MissionId,
+                    Label = pass.Label,
+                    CommitHash = pass.CommitHash,
+                    PassedUtc = pass.CompletedUtc
+                };
                 current.StartedUtc = now;
                 current.CompletedUtc = now;
-                current.SettleRunDuration();
+                current.DurationMs = null;
                 current.LastUpdateUtc = now;
                 current = await _Database.CheckRuns.UpdateAsync(current, token).ConfigureAwait(false);
             }

@@ -1071,6 +1071,14 @@ export interface CheckRunTestSummary {
   durationMs: number | null;
 }
 
+export interface CheckRunSatisfiedBy {
+  kind: string;
+  missionId: string;
+  label: string;
+  commitHash: string;
+  passedUtc: string;
+}
+
 export interface CheckRunCoverageMetric {
   covered: number | null;
   total: number | null;
@@ -1115,6 +1123,8 @@ export interface CheckRun {
   testSummary: CheckRunTestSummary | null;
   coverageSummary: CheckRunCoverageSummary | null;
   artifacts: CheckRunArtifact[];
+  /** The earlier run this check took its result from; present only when the check ran no command of its own. */
+  satisfiedBy?: CheckRunSatisfiedBy | null;
   durationMs: number | null;
   startedUtc: string | null;
   completedUtc: string | null;

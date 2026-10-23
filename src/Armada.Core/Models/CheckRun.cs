@@ -185,8 +185,15 @@ namespace Armada.Core.Models
         public List<CheckRunArtifact> Artifacts { get; set; } = new List<CheckRunArtifact>();
 
         /// <summary>
+        /// The earlier run this check took its result from, or null when the check ran its own command. A check
+        /// satisfied this way ran nothing, so its <see cref="DurationMs"/> is null.
+        /// </summary>
+        public CheckRunSatisfiedBy? SatisfiedBy { get; set; } = null;
+
+        /// <summary>
         /// Run duration in milliseconds when known. A finished run that started carries the time from
-        /// <see cref="StartedUtc"/> to <see cref="CompletedUtc"/>; see <see cref="SettleRunDuration"/>.
+        /// <see cref="StartedUtc"/> to <see cref="CompletedUtc"/>; see <see cref="SettleRunDuration"/>. A check
+        /// satisfied by an earlier run (<see cref="SatisfiedBy"/>) ran no command and has none.
         /// </summary>
         public long? DurationMs { get; set; } = null;
 

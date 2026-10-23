@@ -101,7 +101,8 @@ is absent, and report that exclusion.
 - Host-slot queue time (`hostQueueMs`) is `StartedUtc - SlotRequestedUtc`.
 - Execution time is `DurationMs`, which is `CompletedUtc - StartedUtc` for
   every started Check, timed-out and cancelled ones included. A Check satisfied
-  by a definition-of-done gate pass records 0.
+  by a definition-of-done gate pass (`satisfiedBy` set) ran no command, has a
+  null `DurationMs`, and is outside the execution-time measure.
 
 Imported external Checks never request the slot and are outside both slot
 denominators. An Armada Check that started without a recorded slot request is

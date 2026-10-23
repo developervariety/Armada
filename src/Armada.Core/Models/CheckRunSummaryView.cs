@@ -81,7 +81,13 @@ namespace Armada.Core.Models
         /// <summary>Collected artifacts, including any written test-results files.</summary>
         public List<CheckRunArtifact> Artifacts { get; set; } = new List<CheckRunArtifact>();
 
-        /// <summary>Wall-clock duration of the command.</summary>
+        /// <summary>
+        /// The earlier run this check took its result from, or null when it ran its own command. A check satisfied
+        /// this way ran nothing and has no duration.
+        /// </summary>
+        public CheckRunSatisfiedBy? SatisfiedBy { get; set; } = null;
+
+        /// <summary>Wall-clock duration of the command; null when no command ran.</summary>
         public long? DurationMs { get; set; } = null;
 
         /// <summary>Time spent ready or queued before the command acquired the host slot.</summary>
@@ -212,6 +218,7 @@ namespace Armada.Core.Models
                 TestSummary = run.TestSummary,
                 CoverageSummary = run.CoverageSummary,
                 Artifacts = run.Artifacts ?? new List<CheckRunArtifact>(),
+                SatisfiedBy = run.SatisfiedBy,
                 DurationMs = run.DurationMs,
                 QueueDurationMs = run.QueueDurationMs,
                 StartedUtc = run.StartedUtc,

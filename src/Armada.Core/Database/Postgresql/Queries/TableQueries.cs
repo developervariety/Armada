@@ -1218,7 +1218,8 @@ $convert$;"),
                 new SchemaMigration(121, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.PostgresqlStatements),
                 new SchemaMigration(122, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.PostgresqlStatements),
                 new SchemaMigration(123, "Persist trace records, trace links and trace cursors", TraceRecordSchema.PostgresqlStatements),
-                new SchemaMigration(124, "Persist the workflow profile definition-of-done command time limit", WorkflowProfileGateTimeoutPersistence.PostgresqlStatements)
+                new SchemaMigration(124, "Persist the workflow profile definition-of-done command time limit", WorkflowProfileGateTimeoutPersistence.PostgresqlStatements),
+                new SchemaMigration(125, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.PostgresqlStatements)
             };
         }
 

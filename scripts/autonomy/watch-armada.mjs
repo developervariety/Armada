@@ -96,7 +96,11 @@ export function describeEvent(event, options) {
       if (options.voyageId && data.voyageId !== options.voyageId) return null;
       const label = data.label || data.type || "Check";
       const queue = Number.isFinite(data.queueDurationMs) ? ` queue=${data.queueDurationMs}ms` : "";
-      const run = Number.isFinite(data.durationMs) ? ` run=${data.durationMs}ms` : "";
+      // A check that took its result from an earlier run ran nothing: name that run instead of a run time.
+      const source = data.satisfiedBy;
+      const run = source
+        ? ` NOT RUN: satisfied by the ${source.label || "same"} command of the definition-of-done gate of mission ${source.missionId} at ${String(source.commitHash || "").slice(0, 12)}`
+        : Number.isFinite(data.durationMs) ? ` run=${data.durationMs}ms` : "";
       return `check ${data.id} ${label} -> ${data.status}${queue}${run}`;
     }
 

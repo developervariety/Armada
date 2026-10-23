@@ -227,8 +227,14 @@ record holds the worktree HEAD and needs a worktree with no uncommitted tracked
 change and the same HEAD before and after the command. An automatic Build or
 UnitTest Check armed for the same voyage or mission, on the same commit, with
 the same configured command and environment, passes by naming the gate instead
-of running the suite again. A failed, cancelled or timed-out gate records
-nothing. The automatic Check runner also holds those Checks back while the gate
+of running the suite again. Such a Check ran no command: its record carries
+`satisfiedBy` (`kind` `definition_of_done_gate`, the gate's `missionId`, the
+command `label`, the `commitHash` the gate ran on and `passedUtc`), its
+`durationMs` is null, and its summary says it did not run the command. The
+dashboard shows its duration as "Not run" with the gate's mission, and the
+operator watcher prints `NOT RUN: satisfied by ...` in place of a run time. A
+Check without `satisfiedBy` ran its own command. A failed, cancelled or
+timed-out gate records nothing. The automatic Check runner also holds those Checks back while the gate
 runs.
 `DefinitionOfDone.HostSlotWaitReportMinutes` (default 5, clamped to 1-60) is
 how often the automatic Check runner records a wait that lasts: the slot held
