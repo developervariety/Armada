@@ -80,6 +80,9 @@ Both versions parse Jest and Vitest test totals and Windows summary lines. The
 fork keeps aggregate .NET project counts and prefers structured test artifacts
 only from the current local execution; older files remain visible as artifacts.
 
+Both versions reject an unknown shared test database provider. The fork's shared
+console runner reports the configuration error before it discovers or runs tests.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the

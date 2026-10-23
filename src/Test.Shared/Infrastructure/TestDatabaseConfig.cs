@@ -120,7 +120,9 @@ namespace Test.Shared.Infrastructure
                 case "mariadb": return DatabaseTypeEnum.Mysql;
                 case "sqlserver":
                 case "mssql": return DatabaseTypeEnum.SqlServer;
-                default: return DatabaseTypeEnum.Sqlite;
+                case "sqlite": return DatabaseTypeEnum.Sqlite;
+                default: throw new InvalidOperationException("ARMADA_TEST_DB_TYPE '" + value
+                    + "' is not supported. Use sqlite, postgresql (postgres), mysql (mariadb), or sqlserver (mssql).");
             }
         }
 

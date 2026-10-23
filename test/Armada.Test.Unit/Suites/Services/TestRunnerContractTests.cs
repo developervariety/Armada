@@ -13,6 +13,59 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Automated runner rejects unknown database providers from the environment", async () =>
+            {
+                foreach (string provider in new[] { "oracle", "postgre", " " })
+                {
+                    (int exitCode, string output, string error) = await RunAutomatedRunnerAsync(
+                        new[] { "--suites", "__configuration_probe_no_suite__" }, provider);
+                    string combined = output + Environment.NewLine + error;
+                    AssertEqual(2, exitCode, "environment provider " + provider);
+                    AssertContains("RESULT: FAIL (configuration)", combined, "environment provider " + provider);
+                    AssertContains("ARMADA_TEST_DB_TYPE", combined, "environment provider " + provider);
+                    AssertContains("sqlite", combined, "environment provider " + provider);
+                    AssertContains("postgresql", combined, "environment provider " + provider);
+                    AssertContains("mysql", combined, "environment provider " + provider);
+                    AssertContains("sqlserver", combined, "environment provider " + provider);
+                    AssertFalse(combined.Contains("RESULT: FAIL (discovery)", StringComparison.Ordinal), "configuration is rejected before suite discovery");
+                    AssertFalse(combined.Contains("Running tests...", StringComparison.Ordinal), "configuration is rejected before test execution");
+                }
+            });
+            await RunTest("Automated runner rejects CLI database typos and accepts supported selections", async () =>
+            {
+                foreach (string provider in new[] { "oracle", "postgre", " " })
+                {
+                    (int exitCode, string output, string error) = await RunAutomatedRunnerAsync(
+                        new[] { "--db-type", provider, "--suites", "__configuration_probe_no_suite__" }, null);
+                    string combined = output + Environment.NewLine + error;
+                    AssertEqual(2, exitCode, "CLI provider " + provider);
+                    AssertContains("RESULT: FAIL (configuration)", combined, "CLI provider " + provider);
+                    AssertContains("ARMADA_TEST_DB_TYPE", combined, "CLI provider " + provider);
+                    AssertContains("--db-type", combined, "CLI provider " + provider);
+                    AssertContains("sqlite", combined, "CLI provider " + provider);
+                    AssertContains("postgresql", combined, "CLI provider " + provider);
+                    AssertContains("mysql", combined, "CLI provider " + provider);
+                    AssertContains("sqlserver", combined, "CLI provider " + provider);
+                    AssertFalse(combined.Contains("RESULT: FAIL (discovery)", StringComparison.Ordinal), "configuration is rejected before suite discovery");
+                    AssertFalse(combined.Contains("Running tests...", StringComparison.Ordinal), "configuration is rejected before test execution");
+                }
+                string?[] providers = new string?[]
+                {
+                    null, "", "sqlite", " SQLITE ",
+                    "postgres", "postgresql", "mysql", "mariadb", "sqlserver", "mssql"
+                };
+                foreach (string? provider in providers)
+                {
+                    (int exitCode, string output, string error) = await RunAutomatedRunnerAsync(
+                        new[] { "--suites", "__configuration_probe_no_suite__" }, provider);
+                    string combined = output + Environment.NewLine + error;
+                    AssertEqual(2, exitCode, "provider " + (provider ?? "unset"));
+                    AssertContains("RESULT: FAIL (discovery)", combined, "provider " + (provider ?? "unset"));
+                    AssertFalse(combined.Contains("RESULT: FAIL (configuration)", StringComparison.Ordinal), "provider is accepted: " + (provider ?? "unset"));
+                    AssertFalse(combined.Contains("Running tests...", StringComparison.Ordinal), "suite filter prevents database work");
+                }
+            });
+
             // A network call that never answers, and ignores its token, must fail the test with a named
             // timeout instead of hanging the run.
             await RunTest("A bounded call that never finishes fails with a timeout that names it", async () =>
@@ -374,6 +427,72 @@ namespace Armada.Test.Unit.Suites.Services
                     Directory.Delete(root, true);
                 }
             });
+        }
+
+        private static async Task<(int ExitCode, string Output, string Error)> RunAutomatedRunnerAsync(string[] arguments, string? environmentProvider)
+        {
+            string baseDirectory = AppContext.BaseDirectory;
+            DirectoryInfo? directory = new DirectoryInfo(baseDirectory);
+            string? repositoryRoot = null;
+            while (directory != null)
+            {
+                if (File.Exists(Path.Combine(directory.FullName, "src", "Armada.sln")))
+                {
+                    repositoryRoot = directory.FullName;
+                    break;
+                }
+                directory = directory.Parent;
+            }
+            if (repositoryRoot == null) throw new DirectoryNotFoundException("Cannot locate the repository from " + baseDirectory);
+
+            DirectoryInfo outputDirectory = new DirectoryInfo(baseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            string framework = outputDirectory.Name;
+            string configuration = outputDirectory.Parent?.Name ?? throw new DirectoryNotFoundException("Cannot locate the build configuration from " + baseDirectory);
+            string runnerPath = Path.Combine(repositoryRoot, "src", "Test.Automated", "bin", configuration, framework, "Test.Automated.dll");
+            if (!File.Exists(runnerPath)) throw new FileNotFoundException("The public shared-suite runner was not built", runnerPath);
+
+            System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo("dotnet")
+            {
+                WorkingDirectory = repositoryRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            start.ArgumentList.Add(runnerPath);
+            foreach (string argument in arguments) start.ArgumentList.Add(argument);
+
+            foreach (string name in new[]
+            {
+                "ARMADA_TEST_DB_TYPE", "ARMADA_TEST_DB_HOST", "ARMADA_TEST_DB_PORT", "ARMADA_TEST_DB_USER",
+                "ARMADA_TEST_DB_PASS", "ARMADA_TEST_DB_NAME", "ARMADA_TEST_DB_SCHEMA", "ARMADA_TEST_REAL_RUNTIMES",
+                "ARMADA_TEST_SUITES"
+            })
+                start.Environment.Remove(name);
+            if (environmentProvider != null) start.Environment["ARMADA_TEST_DB_TYPE"] = environmentProvider;
+
+            using System.Diagnostics.Process process = System.Diagnostics.Process.Start(start)
+                ?? throw new InvalidOperationException("Cannot start the public shared-suite runner");
+            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+            try
+            {
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException ex)
+                {
+                    if (!process.HasExited) throw new InvalidOperationException("Cannot stop the shared-suite runner after its timeout", ex);
+                }
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
+                throw new TimeoutException("The public shared-suite runner did not exit within 20 seconds. Output: "
+                    + outputTask.Result + Environment.NewLine + errorTask.Result);
+            }
+
+            await Task.WhenAll(outputTask, errorTask).ConfigureAwait(false);
+            return (process.ExitCode, outputTask.Result, errorTask.Result);
         }
 
         private static async Task RunTracedGitAsync(string directory, string traceDirectory, params string[] arguments)

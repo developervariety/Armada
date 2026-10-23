@@ -96,6 +96,17 @@ namespace Test.Automated
                 }
             }
 
+            try
+            {
+                _ = TestDatabaseConfig.Type;
+            }
+            catch (TypeInitializationException ex) when (ex.InnerException is InvalidOperationException)
+            {
+                Console.Error.WriteLine("RESULT: FAIL (configuration) " + ex.InnerException.Message
+                    + " Set ARMADA_TEST_DB_TYPE or --db-type to a supported provider.");
+                return 2;
+            }
+
             IReadOnlyList<TestSuiteDescriptor> suites;
             try
             {

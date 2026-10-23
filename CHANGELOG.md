@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- An unknown shared test database provider is rejected instead of selecting
+  SQLite. The shared console runner validates `ARMADA_TEST_DB_TYPE` and its
+  `--db-type` input before suite discovery, prints the supported providers, and
+  exits with code 2. Unset and empty values keep the SQLite default; supported
+  provider names and aliases remain case-insensitive.
+
 - Check summaries read Jest and Vitest per-test counts, final watch summaries,
   and elapsed time, including Windows line endings. Fresh result artifacts take
   priority over console counts. Local Check executions exclude old result and

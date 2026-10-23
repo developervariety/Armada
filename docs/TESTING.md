@@ -274,6 +274,14 @@ If no `--type` is provided, Test.Automated uses a temporary SQLite database. Tes
 
 ## Multi-Database Testing
 
+The shared Touchstone runner (`src/Test.Automated`) selects its provider through
+`ARMADA_TEST_DB_TYPE` or `--db-type`. Unset and empty values select SQLite. Names
+are trimmed and case-insensitive: `sqlite`, `postgresql` (alias `postgres`),
+`mysql` (alias `mariadb`), and `sqlserver` (alias `mssql`). Any other non-empty
+value, including whitespace alone, is a configuration error. The console runner
+prints the accepted providers and exits with code 2 before suite discovery or
+database access. The shared test adapters use the same provider validation.
+
 Armada supports four database backends: SQLite, PostgreSQL, SQL Server, and MySQL. The testing strategy covers databases at two layers:
 
 - **Test.Database** tests the database driver layer directly and runs the same cases against each backend. The operational cases create, read, update, reopen through a fresh driver, filter and delete each stored record type, including skills, project profiles, playbooks, landing jobs, Judge follow-ups and the coordination board (rooms, participants, messages, claims). Round-trip cases compare every public property of the record and require every timestamp to read back as the same instant with `DateTimeKind.Utc`. The mission summary case checks that every Mission-shaped summary read (by id, and the unscoped, tenant and user lists) returns every light field of the full row with the voyage filter applied, leaves the description, diff snapshot and agent output unset, and never loads those columns: it stores several megabytes of heavy text and requires each summary read and the grouped voyage count to allocate under a quarter of it. Planning sessions and their transcripts are stored and checked on all four backends. Pipeline stages that share an order read back in their submitted order on every backend. A case for a record type a backend does not store (the coordination board on MySQL and SQL Server) is a named skip with its reason, counted in the summary, never a pass. The automated suite asserts that board refusal on those two backends: a global administrator's board read returns `501` with a message naming the provider.
