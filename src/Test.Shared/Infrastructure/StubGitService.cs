@@ -301,10 +301,14 @@ namespace Test.Shared.Infrastructure
         public bool? IsAncestorResult { get; set; } = null;
         public List<string> IsAncestorCalls { get; } = new List<string>();
 
+        /// <summary>Ancestry answers keyed by <c>ancestor|descendant</c>; consulted before <see cref="IsAncestorResult"/>.</summary>
+        public Dictionary<string, bool?> AncestorResults { get; } = new Dictionary<string, bool?>(StringComparer.Ordinal);
+
         public Task<bool?> TryIsAncestorAsync(
             string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default)
         {
             IsAncestorCalls.Add(repoPath + ":" + ancestorRef + ":" + descendantRef);
+            if (AncestorResults.TryGetValue(ancestorRef + "|" + descendantRef, out bool? keyed)) return Task.FromResult(keyed);
             return Task.FromResult(IsAncestorResult);
         }
 
@@ -410,10 +414,13 @@ namespace Test.Shared.Infrastructure
         /// <summary>Recorded repository, revision and path for each tracked-path lookup.</summary>
         public List<string> PathExistsOnRevisionCalls { get; } = new List<string>();
 
+        /// <summary>Repository-relative paths that exist on one revision only, keyed by <c>revision|path</c>.</summary>
+        public HashSet<string> PathsAtRevision { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         public Task<bool> PathExistsOnRevisionAsync(string worktreePath, string revision, string relativePath, CancellationToken token = default)
         {
             PathExistsOnRevisionCalls.Add(worktreePath + "|" + revision + "|" + relativePath);
-            return Task.FromResult(PathsOnRevision.Contains(relativePath));
+            return Task.FromResult(PathsOnRevision.Contains(relativePath) || PathsAtRevision.Contains(revision + "|" + relativePath));
         }
 
         /// <summary>Tracked paths ResolveTrackedPathSuffixAsync returns, keyed by the path as named.</summary>
@@ -444,8 +451,12 @@ namespace Test.Shared.Infrastructure
         /// <summary>File lines ReadFileLinesOnRevisionAsync returns, keyed by repository-relative path.</summary>
         public Dictionary<string, List<string>> FileLinesOnRevision { get; } = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
+        /// <summary>File lines on one revision only, keyed by <c>revision|path</c>; consulted before <see cref="FileLinesOnRevision"/>.</summary>
+        public Dictionary<string, List<string>> FileLinesAtRevision { get; } = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
         public Task<IReadOnlyList<string>?> ReadFileLinesOnRevisionAsync(string worktreePath, string revision, string relativePath, CancellationToken token = default)
         {
+            if (FileLinesAtRevision.TryGetValue(revision + "|" + relativePath, out List<string>? atRevision)) return Task.FromResult<IReadOnlyList<string>?>(atRevision);
             return Task.FromResult<IReadOnlyList<string>?>(FileLinesOnRevision.TryGetValue(relativePath, out List<string>? lines) ? lines : null);
         }
 

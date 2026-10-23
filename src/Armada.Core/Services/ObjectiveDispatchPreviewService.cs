@@ -38,10 +38,7 @@ namespace Armada.Core.Services
         // SHA, a path:line citation, and a backticked code identifier. Facts are best-effort and
         // bounded so the preview a scheduler runs never becomes expensive.
         private const int _MaxFactTokens = 12;
-        private const int _MaxAnchorMovePaths = 2000;
         private const int _MaxNamedAnchorMovePaths = 10;
-        private const int _AnchorMoveOutputLimitBytes = 4 * 1024 * 1024;
-        private static readonly TimeSpan _AnchorMoveReadTimeout = TimeSpan.FromSeconds(15);
         private static readonly Regex _RecoverRefPattern = new Regex(@"recover/[A-Za-z0-9._/-]+", RegexOptions.Compiled);
         private static readonly Regex _CommitShaPattern = new Regex(@"\b[0-9a-fA-F]{40}\b", RegexOptions.Compiled);
         private static readonly Regex _PathLinePattern = new Regex(@"([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):\d+(?:-\d+)?", RegexOptions.Compiled);
@@ -458,8 +455,10 @@ namespace Armada.Core.Services
             result.Preflight.Facts.Add(await BuildSiblingTipFact(auth, vessel, preflight, description, token).ConfigureAwait(false));
             List<string> drifts = new List<string>();
             List<string> ambiguities = new List<string>();
+            CitationBranchRevision? branchRevision = await ResolveCitationBranchRevisionAsync(
+                vessel, repositoryPath, result.ResolvedStartCommit, token).ConfigureAwait(false);
             result.Preflight.Facts.Add(await BuildCitationResolvesFact(auth, objective, vessel, preflight, repositoryPath,
-                targetRevision, description, drifts, ambiguities, token).ConfigureAwait(false));
+                targetRevision, branchRevision, description, drifts, ambiguities, token).ConfigureAwait(false));
             if (ambiguities.Count > 0)
             {
                 AddIssue(result, CitationAmbiguousIssueCode, "preflight", ReadinessSeverityEnum.Warning,
@@ -663,6 +662,7 @@ namespace Armada.Core.Services
             ObjectivePreflight preflight,
             string repositoryPath,
             string targetRevision,
+            CitationBranchRevision? branchRevision,
             string description,
             List<string> drifts,
             List<string> ambiguities,
@@ -686,116 +686,32 @@ namespace Armada.Core.Services
                 return fact;
             }
 
-            List<string> issues = new List<string>();
-            List<string> notes = new List<string>();
-            // Issues raised for citations outside the target repository are counted apart, so the fact can say
-            // whether every failure lies outside it.
-            int outsideIssues = 0;
-            Dictionary<string, string> trackedPaths = new Dictionary<string, string>(StringComparer.Ordinal);
             List<CitedLineRange> ranges = CitedLineRangeChecker.Parse(description);
+            List<CitationReading> readings;
             try
             {
-                foreach (string path in paths)
+                readings = await ReadCitationsAsync(auth, vessel, repositoryPath, targetRevision, description, paths, identifiers, ranges, token).ConfigureAwait(false);
+
+                // A start ref off the target branch (a recovery start on a mission branch whose brief merges the
+                // branch first) cites files as the branch holds them, so a citation that fails at the start ref is
+                // read again at the branch tip, and it passes when it resolves there.
+                List<CitationReading> failing = readings.Where(reading => reading.Issues.Count > 0).ToList();
+                if (branchRevision != null && failing.Count > 0)
                 {
-                    if (path.StartsWith("../", StringComparison.Ordinal))
+                    List<CitationReading> atBranch = await ReadCitationsAsync(auth, vessel, repositoryPath, branchRevision.Commit, description,
+                        failing.Where(reading => reading.Path != null).Select(reading => reading.Path!).ToList(),
+                        failing.Where(reading => reading.Identifier != null).Select(reading => reading.Identifier!).ToList(),
+                        ranges, token).ConfigureAwait(false);
+                    for (int i = 0; i < readings.Count; i++)
                     {
-                        OutsideCitation parent = await ResolveOutsideTargetAsync(auth, vessel, path, token).ConfigureAwait(false);
-                        if (parent.FoundAt != null)
-                        {
-                            notes.Add("`" + path + "` resolves in " + parent.RootLabel + ".");
-                        }
-                        else
-                        {
-                            int before = issues.Count;
-                            AddUnresolved(issues, description, path, parent.NamesRoot
-                                ? "file missing in " + parent.RootLabel
-                                : "file missing; no declared sibling checkout holds this path");
-                            outsideIssues += issues.Count - before;
-                        }
-                        continue;
+                        CitationReading primary = readings[i];
+                        if (primary.Issues.Count == 0) continue;
+                        CitationReading? second = atBranch.FirstOrDefault(reading => reading.Key == primary.Key);
+                        if (second == null || second.Issues.Count > 0) continue;
+                        second.Notes.Insert(0, "`" + primary.Name + "` resolves at branch " + branchRevision.Branch + " ("
+                            + ShortCommit(branchRevision.Commit) + "), not at the start ref " + ShortCommit(targetRevision) + ".");
+                        readings[i] = second;
                     }
-
-                    bool exists = await _Git.PathExistsOnRevisionAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
-                    if (exists)
-                    {
-                        trackedPaths[path] = path;
-                        continue;
-                    }
-
-                    string? suffix = await _Git.ResolveTrackedPathSuffixAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
-                    if (String.IsNullOrWhiteSpace(suffix))
-                    {
-                        List<string> candidates = await _Git.ListTrackedPathCandidatesAsync(
-                            repositoryPath, targetRevision, path, token).ConfigureAwait(false);
-                        if (candidates.Count < 2)
-                        {
-                            // A path the target does not track may name a declared sibling checkout or evidence
-                            // root, the same trees a dock provisions beside the repository.
-                            OutsideCitation outside = await ResolveOutsideTargetAsync(auth, vessel, path, token).ConfigureAwait(false);
-                            if (outside.FoundAt != null)
-                            {
-                                notes.Add("`" + path + "` resolves in " + outside.RootLabel + " as `" + outside.FoundAt + "`.");
-                            }
-                            else if (outside.NamesRoot)
-                            {
-                                int before = issues.Count;
-                                AddUnresolved(issues, description, path, "file missing in " + outside.RootLabel);
-                                outsideIssues += issues.Count - before;
-                            }
-                            else
-                            {
-                                AddUnresolved(issues, description, path, "file missing");
-                            }
-                            continue;
-                        }
-
-                        // A bare name that matches several files means the one whose lines hold the citations.
-                        List<CitedLineRange> cited = ranges.Where(range => range.Path == path).ToList();
-                        List<string> holding = await CitedLineRangeChecker.CandidatesHoldingAsync(cited, candidates,
-                            candidate => _Git.ReadFileLinesOnRevisionAsync(repositoryPath, targetRevision, candidate, token)).ConfigureAwait(false);
-                        string listed = String.Join(", ", candidates.Select(candidate => "`" + candidate + "`"));
-                        if (holding.Count == 1)
-                        {
-                            trackedPaths[path] = holding[0];
-                            notes.Add("`" + path + "` names `" + holding[0] + "`, the one of " + candidates.Count + " matching files whose lines hold the citation.");
-                        }
-                        else if (holding.Count > 1)
-                        {
-                            ambiguities.Add("`" + path + "` is an ambiguous file name: " + String.Join(", ", holding.Select(candidate => "`" + candidate + "`")) + ".");
-                        }
-                        else
-                        {
-                            AddUnresolved(issues, description, path, "ambiguous file name, and no candidate holds the cited lines (" + listed + ")");
-                        }
-                        continue;
-                    }
-
-                    trackedPaths[path] = suffix!;
-                    // A suffix names the tracked path as a reader says it; a different spelling does not.
-                    if (!suffix!.Equals(path, StringComparison.Ordinal) && !suffix.EndsWith("/" + path, StringComparison.Ordinal))
-                        issues.Add("`" + path + "` is tracked as `" + suffix + "`.");
-                }
-                foreach (string identifier in identifiers)
-                {
-                    GitAnchorPriorArt search = await _Git.SearchTrackedContentOnRevisionAsync(
-                        repositoryPath, targetRevision, identifier, 1, token).ConfigureAwait(false);
-                    if (!search.Found) issues.Add("`" + identifier + "` does not resolve: identifier not found.");
-                }
-                foreach (CitedLineRange range in ranges)
-                {
-                    if (!trackedPaths.TryGetValue(range.Path, out string? tracked)) continue;
-                    IReadOnlyList<string>? lines = await _Git.ReadFileLinesOnRevisionAsync(
-                        repositoryPath, targetRevision, tracked, token).ConfigureAwait(false);
-                    if (lines == null) continue;
-                    string? issue = CitedLineRangeChecker.Evaluate(range, lines, out int currentLine);
-                    if (issue == null) continue;
-                    if (GitLfsPointer.IsPointer(lines))
-                    {
-                        notes.Add(issue);
-                        continue;
-                    }
-                    if (CitedLineRangeChecker.IsSmallDrift(range, currentLine)) drifts.Add(issue);
-                    else issues.Add(issue + (range.StartLine > lines.Count ? " Reason: line out of range." : " Reason: outside the declaration span."));
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -804,6 +720,14 @@ namespace Armada.Core.Services
                 fact.Detail = "The cited references could not be resolved at the target tip: " + ex.Message;
                 return fact;
             }
+
+            List<string> issues = readings.SelectMany(reading => reading.Issues).ToList();
+            List<string> notes = readings.SelectMany(reading => reading.Notes).ToList();
+            drifts.AddRange(readings.SelectMany(reading => reading.Drifts));
+            ambiguities.AddRange(readings.SelectMany(reading => reading.Ambiguities));
+            // Issues raised for citations outside the target repository are counted apart, so the fact can say
+            // whether every failure lies outside it.
+            int outsideIssues = readings.Where(reading => reading.Outside).Sum(reading => reading.Issues.Count);
 
             if (issues.Count == 0)
             {
@@ -818,9 +742,182 @@ namespace Armada.Core.Services
             {
                 fact.Status = PreflightFactStatusEnum.Fail;
                 fact.FailsOnlyOutsideTarget = outsideIssues == issues.Count;
-                fact.Detail = String.Join(" ", issues);
+                List<string> parts = new List<string>(issues);
+                if (branchRevision != null)
+                    parts.Add("Read at the start ref " + ShortCommit(targetRevision) + " and at branch " + branchRevision.Branch
+                        + " (" + ShortCommit(branchRevision.Commit) + ").");
+                fact.Detail = String.Join(" ", parts);
             }
             return fact;
+        }
+
+        // The target branch tip to read citations at as well, when the start commit is not on that branch.
+        private async Task<CitationBranchRevision?> ResolveCitationBranchRevisionAsync(
+            Vessel vessel,
+            string repositoryPath,
+            string? startCommit,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(startCommit)) return null;
+            string branch = !String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? vessel.DefaultBranch : "main";
+            try
+            {
+                string? tip = NormalizeEmpty(await _Git.GetRevisionCommitShaAsync(repositoryPath, "refs/heads/" + branch, token).ConfigureAwait(false));
+                if (tip == null || String.Equals(tip, startCommit, StringComparison.OrdinalIgnoreCase)) return null;
+                bool? onBranch = await _Git.TryIsAncestorAsync(repositoryPath, startCommit!, tip, token).ConfigureAwait(false);
+                if (onBranch != false) return null;
+                return new CitationBranchRevision { Branch = branch, Commit = tip };
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return null;
+            }
+        }
+
+        // Reads each cited path (with its cited line ranges) and each cited identifier at one revision, one
+        // reading per citation, so a citation can be judged at a second revision on its own.
+        private async Task<List<CitationReading>> ReadCitationsAsync(
+            AuthContext auth,
+            Vessel vessel,
+            string repositoryPath,
+            string revision,
+            string description,
+            List<string> paths,
+            List<string> identifiers,
+            List<CitedLineRange> ranges,
+            CancellationToken token)
+        {
+            List<CitationReading> readings = new List<CitationReading>();
+            Dictionary<string, string> trackedPaths = new Dictionary<string, string>(StringComparer.Ordinal);
+            Dictionary<string, CitationReading> byPath = new Dictionary<string, CitationReading>(StringComparer.Ordinal);
+            foreach (string path in paths)
+            {
+                CitationReading reading = new CitationReading { Key = "path:" + path, Name = path, Path = path };
+                readings.Add(reading);
+                byPath[path] = reading;
+                if (path.StartsWith("../", StringComparison.Ordinal))
+                {
+                    OutsideCitation parent = await ResolveOutsideTargetAsync(auth, vessel, path, token).ConfigureAwait(false);
+                    if (parent.FoundAt != null)
+                    {
+                        reading.Notes.Add("`" + path + "` resolves in " + parent.RootLabel + ".");
+                    }
+                    else
+                    {
+                        AddUnresolved(reading.Issues, description, path, parent.NamesRoot
+                            ? "file missing in " + parent.RootLabel
+                            : "file missing; no declared sibling checkout holds this path");
+                        reading.Outside = true;
+                    }
+                    continue;
+                }
+
+                bool exists = await _Git.PathExistsOnRevisionAsync(repositoryPath, revision, path, token).ConfigureAwait(false);
+                if (exists)
+                {
+                    trackedPaths[path] = path;
+                    continue;
+                }
+
+                string? suffix = await _Git.ResolveTrackedPathSuffixAsync(repositoryPath, revision, path, token).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(suffix))
+                {
+                    List<string> candidates = await _Git.ListTrackedPathCandidatesAsync(
+                        repositoryPath, revision, path, token).ConfigureAwait(false);
+                    if (candidates.Count < 2)
+                    {
+                        // A path the target does not track may name a declared sibling checkout or evidence
+                        // root, the same trees a dock provisions beside the repository.
+                        OutsideCitation outside = await ResolveOutsideTargetAsync(auth, vessel, path, token).ConfigureAwait(false);
+                        if (outside.FoundAt != null)
+                        {
+                            reading.Notes.Add("`" + path + "` resolves in " + outside.RootLabel + " as `" + outside.FoundAt + "`.");
+                        }
+                        else if (outside.NamesRoot)
+                        {
+                            AddUnresolved(reading.Issues, description, path, "file missing in " + outside.RootLabel);
+                            reading.Outside = true;
+                        }
+                        else
+                        {
+                            AddUnresolved(reading.Issues, description, path, "file missing");
+                        }
+                        continue;
+                    }
+
+                    // A bare name that matches several files means the one whose lines hold the citations.
+                    List<CitedLineRange> cited = ranges.Where(range => range.Path == path).ToList();
+                    List<string> holding = await CitedLineRangeChecker.CandidatesHoldingAsync(cited, candidates,
+                        candidate => _Git.ReadFileLinesOnRevisionAsync(repositoryPath, revision, candidate, token)).ConfigureAwait(false);
+                    string listed = String.Join(", ", candidates.Select(candidate => "`" + candidate + "`"));
+                    if (holding.Count == 1)
+                    {
+                        trackedPaths[path] = holding[0];
+                        reading.Notes.Add("`" + path + "` names `" + holding[0] + "`, the one of " + candidates.Count + " matching files whose lines hold the citation.");
+                    }
+                    else if (holding.Count > 1)
+                    {
+                        reading.Ambiguities.Add("`" + path + "` is an ambiguous file name: " + String.Join(", ", holding.Select(candidate => "`" + candidate + "`")) + ".");
+                    }
+                    else
+                    {
+                        AddUnresolved(reading.Issues, description, path, "ambiguous file name, and no candidate holds the cited lines (" + listed + ")");
+                    }
+                    continue;
+                }
+
+                trackedPaths[path] = suffix!;
+                // A suffix names the tracked path as a reader says it; a different spelling does not.
+                if (!suffix!.Equals(path, StringComparison.Ordinal) && !suffix.EndsWith("/" + path, StringComparison.Ordinal))
+                    reading.Issues.Add("`" + path + "` is tracked as `" + suffix + "`.");
+            }
+            foreach (string identifier in identifiers)
+            {
+                CitationReading reading = new CitationReading { Key = "identifier:" + identifier, Name = identifier, Identifier = identifier };
+                readings.Add(reading);
+                GitAnchorPriorArt search = await _Git.SearchTrackedContentOnRevisionAsync(
+                    repositoryPath, revision, identifier, 1, token).ConfigureAwait(false);
+                if (!search.Found) reading.Issues.Add("`" + identifier + "` does not resolve: identifier not found.");
+            }
+            foreach (CitedLineRange range in ranges)
+            {
+                if (!byPath.TryGetValue(range.Path, out CitationReading? reading)) continue;
+                if (!trackedPaths.TryGetValue(range.Path, out string? tracked)) continue;
+                IReadOnlyList<string>? lines = await _Git.ReadFileLinesOnRevisionAsync(
+                    repositoryPath, revision, tracked, token).ConfigureAwait(false);
+                if (lines == null) continue;
+                string? issue = CitedLineRangeChecker.Evaluate(range, lines, out int currentLine);
+                if (issue == null) continue;
+                if (GitLfsPointer.IsPointer(lines))
+                {
+                    reading.Notes.Add(issue);
+                    continue;
+                }
+                if (CitedLineRangeChecker.IsSmallDrift(range, currentLine)) reading.Drifts.Add(issue);
+                else reading.Issues.Add(issue + (range.StartLine > lines.Count ? " Reason: line out of range." : " Reason: outside the declaration span."));
+            }
+            return readings;
+        }
+
+        // One cited path (with its cited line ranges) or identifier, as read at one revision.
+        private sealed class CitationReading
+        {
+            public string Key { get; set; } = String.Empty;
+            public string Name { get; set; } = String.Empty;
+            public string? Path { get; set; } = null;
+            public string? Identifier { get; set; } = null;
+            public bool Outside { get; set; } = false;
+            public List<string> Issues { get; } = new List<string>();
+            public List<string> Notes { get; } = new List<string>();
+            public List<string> Drifts { get; } = new List<string>();
+            public List<string> Ambiguities { get; } = new List<string>();
+        }
+
+        // The target branch and its tip, read beside a start commit that is not on the branch.
+        private sealed class CitationBranchRevision
+        {
+            public string Branch { get; set; } = String.Empty;
+            public string Commit { get; set; } = String.Empty;
         }
 
         // Names each cited string for a path as written (file:line or file:start-end) with why it does not resolve.
@@ -1213,7 +1310,8 @@ namespace Armada.Core.Services
             }
 
             ChangedPathStatusRead read = await _Git.ReadChangedPathStatusesBetweenCommitsAsync(
-                repositoryPath, recorded, current, _MaxAnchorMovePaths, _AnchorMoveReadTimeout, _AnchorMoveOutputLimitBytes, token).ConfigureAwait(false);
+                repositoryPath, recorded, current, PreparationAnchorChangeReader.MaxChangedPaths, PreparationAnchorChangeReader.ReadTimeout,
+                PreparationAnchorChangeReader.OutputLimitBytes, token).ConfigureAwait(false);
             if (!read.Available)
             {
                 AddIssue(result, code, "provisioning", ReadinessSeverityEnum.Error,
@@ -1223,11 +1321,8 @@ namespace Armada.Core.Services
             }
 
             List<string> watched = CollectDependentPaths(objective);
-            List<string> touched = read.Entries
-                .SelectMany(entry => new[] { entry.Path, entry.PreviousPath })
-                .Where(path => !String.IsNullOrWhiteSpace(path) && watched.Any(item => PathCovers(item, path!)))
-                .Cast<string>()
-                .Distinct(StringComparer.Ordinal)
+            List<string> touched = PreparationAnchorChangeReader.ChangedPaths(read)
+                .Where(path => watched.Any(item => PreparationAnchorChangeReader.PathCovers(item, path)))
                 .ToList();
             int changedCount = read.TotalCount ?? read.Entries.Count;
             if (touched.Count > 0)
@@ -1281,32 +1376,14 @@ namespace Armada.Core.Services
             foreach (ObjectivePreparationClaim claim in objective.Preparation?.Claims ?? new List<ObjectivePreparationClaim>())
             {
                 if (claim == null) continue;
-                paths.AddRange(ContextPackManifest.ExtractAssignedPaths(claim.Text));
-                foreach (string evidence in claim.EvidenceLinks ?? new List<string>())
-                    paths.AddRange(ContextPackManifest.ExtractAssignedPaths(evidence));
+                paths.AddRange(PreparationAnchorChangeReader.ClaimPaths(claim, out bool _));
             }
-            return paths
-                .Select(path => path.Replace('\\', '/').Trim().TrimStart('/'))
-                .Where(path => path.Length > 0 && !path.StartsWith("../", StringComparison.Ordinal))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        // A dependent path covers a changed path when it names the same file, names it by a trailing suffix
-        // (a bare file name or a partial path), or names a directory that holds it.
-        private static bool PathCovers(string dependent, string changed)
-        {
-            string path = changed.Replace('\\', '/').TrimStart('/');
-            string entry = dependent.TrimEnd('/');
-            if (entry.Length == 0) return false;
-            if (String.Equals(path, entry, StringComparison.OrdinalIgnoreCase)) return true;
-            if (path.EndsWith("/" + entry, StringComparison.OrdinalIgnoreCase)) return true;
-            return path.StartsWith(entry + "/", StringComparison.OrdinalIgnoreCase);
+            return PreparationAnchorChangeReader.NormalizePaths(paths);
         }
 
         private static bool IsFullCommit(string value)
         {
-            return value.Length == 40 && value.All(Uri.IsHexDigit);
+            return PreparationAnchorChangeReader.IsFullCommit(value);
         }
 
         /// <summary>
@@ -2162,7 +2239,7 @@ namespace Armada.Core.Services
 
         private string RepositoryPath(Vessel vessel)
         {
-            return vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
+            return PreparationAnchorChangeReader.RepositoryPath(vessel, _Settings);
         }
 
         private static bool RevisionMatches(string left, string right)

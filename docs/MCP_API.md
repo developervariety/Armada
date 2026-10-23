@@ -1722,6 +1722,13 @@ Send every nested value that must remain: `requiredForDispatch`,
 `source`, `target`, `claims`, `preflight`, and `stageSkip`. Omitted preparation
 members reset to their model defaults or `null`. The MCP input schema exposes
 each member, including all preflight-answer and stored stage-skip fields.
+A replacement that moves the `source` or `target` anchor to another commit of
+the same vessel and ref marks a dependent claim `NeedsRecheck` only when the
+files changed between the two commits include a path the claim cites in its
+text or evidence; other claims keep their state. A claim that cites no path, an
+unreadable or oversized change, and a `startFromRef` or `vesselIds` change mark
+every dependent claim `NeedsRecheck`. The invalidation reason names the changed
+cited paths.
 `confirmStageSkip: true` explicitly confirms the skip supplied in preparation,
 or the existing skip when preparation is omitted. Armada records the authenticated
 operator, server time, and a server-issued proof; inbound `confirmedBy`,

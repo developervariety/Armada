@@ -1560,6 +1560,99 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Source revision is unresolved", FindClaim(unresolved, "opc_unresolved").InvalidationReason ?? String.Empty);
             }).ConfigureAwait(false);
 
+            await RunTest("A re-pinned preparation anchor invalidates only the claims whose cited paths the move changed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CommitPairFixture fixture = await CommitPairFixture.CreateAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    objectives.AnchorChanges = new PreparationAnchorChangeReader(new GitService(logging), new ArmadaSettings());
+                    string tenantId = "ten_objective_repin";
+                    string userId = "usr_objective_repin";
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("repin-vessel", "https://example.test/repin.git")
+                    {
+                        TenantId = tenantId,
+                        LocalPath = fixture.BarePath
+                    }).ConfigureAwait(false);
+                    DateTime verifiedUtc = DateTime.UtcNow.AddMinutes(-10);
+
+                    // Stage to Bulk adds only bulk/ files.
+                    ObjectivePreparationClaim PathClaim(string id, string text, string evidence) => new ObjectivePreparationClaim
+                    {
+                        Id = id,
+                        Kind = ObjectivePreparationClaimKindEnum.SourcePath,
+                        Text = text,
+                        EvidenceLinks = new List<string> { evidence },
+                        DependsOn = ObjectivePreparationDependencyEnum.Source | ObjectivePreparationDependencyEnum.Target,
+                        State = ObjectivePreparationClaimStateEnum.Verified,
+                        VerifiedUtc = verifiedUtc
+                    };
+                    ObjectivePreparationAnchor Anchor(string commit) => new ObjectivePreparationAnchor { VesselId = vessel.Id, Ref = "main", ResolvedCommit = commit };
+                    string bulkFile = "bulk/a-file-with-a-long-descriptive-name-number-00.txt";
+                    Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Re-pinned preparation",
+                        Preparation = new ObjectivePreparation
+                        {
+                            Source = Anchor(fixture.StageCommit),
+                            Target = Anchor(fixture.StageCommit),
+                            Claims = new List<ObjectivePreparationClaim>
+                            {
+                                PathClaim("opc_unchanged", "The handler in new/name.txt is reused as is.", fixture.StageCommit.Substring(0, 7) + ":keep.txt:1"),
+                                PathClaim("opc_changed", "The bulk loader reads " + bulkFile + ".", fixture.StageCommit.Substring(0, 7) + ":" + bulkFile + ":1"),
+                                PathClaim("opc_pathless", "The owner approved the rollout.", "Owner ruling in the planning thread")
+                            }
+                        }
+                    }).ConfigureAwait(false);
+
+                    Objective repinned = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                    {
+                        Preparation = new ObjectivePreparation
+                        {
+                            Source = Anchor(fixture.BulkCommit),
+                            Target = Anchor(fixture.BulkCommit),
+                            Claims = created.Preparation.Claims
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertEqual(fixture.BulkCommit, repinned.Preparation.Target?.ResolvedCommit, "the anchor moves");
+                    ObjectivePreparationClaim unchanged = FindClaim(repinned, "opc_unchanged");
+                    AssertEqual(ObjectivePreparationClaimStateEnum.Verified, unchanged.State,
+                        "a claim whose cited paths the move did not change stays verified");
+                    AssertEqual(verifiedUtc, unchanged.VerifiedUtc, "the unchanged claim keeps its verification time");
+                    AssertTrue(unchanged.InvalidationReason == null, "the unchanged claim carries no invalidation reason");
+                    ObjectivePreparationClaim changed = FindClaim(repinned, "opc_changed");
+                    AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, changed.State, "a claim citing a changed path needs a recheck");
+                    AssertContains("`" + bulkFile + "`", changed.InvalidationReason ?? String.Empty, "the reason names the changed cited path");
+                    AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(repinned, "opc_pathless").State,
+                        "a claim that cites no path cannot be shown to hold and needs a recheck");
+
+                    // Base to Stage renames old/name.txt to new/name.txt: a claim citing the old name needs a recheck.
+                    ObjectivePreparationClaim renamedClaim = PathClaim("opc_renamed", "The handler lives in old/name.txt.", "old/name.txt:1");
+                    renamedClaim.DependsOn = ObjectivePreparationDependencyEnum.Target;
+                    Objective renamed = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Re-pinned across a rename",
+                        Preparation = new ObjectivePreparation
+                        {
+                            Target = Anchor(fixture.BaseCommit),
+                            Claims = new List<ObjectivePreparationClaim> { renamedClaim }
+                        }
+                    }).ConfigureAwait(false);
+                    AssertEqual(ObjectivePreparationClaimStateEnum.Verified, FindClaim(renamed, "opc_renamed").State, "the renamed-path claim starts verified");
+                    Objective renamedRepin = await objectives.UpdateAsync(auth, renamed.Id, new ObjectiveUpsertRequest
+                    {
+                        Preparation = new ObjectivePreparation { Target = Anchor(fixture.StageCommit), Claims = renamed.Preparation.Claims }
+                    }).ConfigureAwait(false);
+                    AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(renamedRepin, "opc_renamed").State,
+                        "a claim citing a path the move renamed away needs a recheck");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preparation write bounds reject excessive claims and claim text", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

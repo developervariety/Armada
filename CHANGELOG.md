@@ -632,6 +632,22 @@ upstream integrations and excludes changes already present at that baseline.
   most 500 rows and the entity lists at most 1000; a larger `pageSize` is
   served at the limit and the response carries `RequestedPageSize` and
   `MaxPageSize`, which are absent otherwise.
+
+- Objective preflight question 1 reads a citation that fails at a start commit
+  off the vessel's default branch again at the branch tip, and passes it when it
+  resolves there. A recovery start on a mission branch whose brief merges the
+  branch first no longer fails question 1 on files and lines only the branch
+  holds; the fact names the branch and commit where each such citation
+  resolved, and a failure names both refs it read.
+
+- Re-pinning a preparation anchor to another commit of the same branch marks a
+  dependent claim `NeedsRecheck` only when the move changed a path the claim
+  cites (a rename or delete counts for its old path), and the reason names those
+  paths. A claim whose cited paths are unchanged stays `Verified`. A claim that
+  cites no path, an unreadable or oversized change, and a start ref or vessel
+  change still mark every dependent claim. The dispatch preview and the write
+  path share one changed-path rule.
+
 - A definition-of-done gate's one re-run after a host-load time limit holds the
   host to itself. The re-run asks the host command lock for the whole host
   (`HostWideCommandLock.AcquireAloneAsync`): it keeps its place in line, starts

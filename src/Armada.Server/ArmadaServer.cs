@@ -453,6 +453,7 @@ namespace Armada.Server
             else
                 _Logging.Warn(_Header + "merge queue " + _MergeQueue.GetType().Name + " takes no integration validator; queue landings are measured only by the merge-queue test command");
             _ObjectiveService = new ObjectiveService(_Database);
+            _ObjectiveService.AnchorChanges = new PreparationAnchorChangeReader(_Git, _Settings);
             _ObjectiveDispatchPreviewService = new ObjectiveDispatchPreviewService(
                 _Database,
                 _WorkflowProfileService,

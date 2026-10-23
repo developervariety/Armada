@@ -1512,6 +1512,65 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Preflight citations from a start ref off the target branch pass when they resolve at the branch tip, and the fact names the ref", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    const string recoveryCommit = "1111111111111111111111111111111111111111";
+                    const string branchTip = "2222222222222222222222222222222222222222";
+                    harness.Git.RevisionCommitShas[harness.RepositoryDirectory + "|" + recoveryCommit] = recoveryCommit;
+                    harness.Git.RevisionCommitShas[harness.RepositoryDirectory + "|refs/heads/main"] = branchTip;
+                    harness.Git.AncestorResults[recoveryCommit + "|" + branchTip] = false;
+                    harness.Git.FoundTermsOnRevision.Add("ProbeAccess");
+
+                    // The recovery commit moved the declaration to line 30; the branch holds it at line 10, and
+                    // only the branch has the operations document the brief cites.
+                    List<string> ProbeLines(int declarationLine)
+                    {
+                        List<string> lines = new List<string> { "class Probe {" };
+                        for (int line = 2; line < declarationLine; line++) lines.Add("    void Filler" + line + "() { }");
+                        lines.Add("    bool ProbeAccess() { return true; }");
+                        lines.Add("}");
+                        return lines;
+                    }
+                    harness.Git.PathsAtRevision.Add(recoveryCommit + "|src/Probe.cs");
+                    harness.Git.PathsAtRevision.Add(branchTip + "|src/Probe.cs");
+                    harness.Git.PathsAtRevision.Add(branchTip + "|docs/ops.md");
+                    harness.Git.FileLinesAtRevision[recoveryCommit + "|src/Probe.cs"] = ProbeLines(30);
+                    harness.Git.FileLinesAtRevision[branchTip + "|src/Probe.cs"] = ProbeLines(10);
+
+                    Objective objective = harness.CreateReadyObjective("facts-recovery-start-citation-preview");
+                    objective.StartFromRef = recoveryCommit;
+                    objective.Description = "Merge main first. `ProbeAccess` (`src/Probe.cs:10`) checkpoints on close; document it in docs/ops.md:3.";
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(recoveryCommit, result.ResolvedStartCommit, "the preview starts from the recovery commit");
+                    ObjectiveDispatchPreflightFact fact = result.Preflight.Facts.Single(item => item.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Pass, fact.Status,
+                        "citations that resolve at the target branch tip pass for a start ref off the branch. Detail: " + fact.Detail);
+                    AssertContains("`src/Probe.cs` resolves at branch main (" + branchTip.Substring(0, 12) + ")", fact.Detail,
+                        "the fact names the ref where the moved citation resolves");
+                    AssertContains("`docs/ops.md` resolves at branch main", fact.Detail, "the fact names the ref for a file only the branch holds");
+
+                    // A citation that holds at neither revision still fails, and the fact names both refs.
+                    objective.Description = "Merge main first. `ProbeAccess` (`src/Probe.cs:10`) is documented in docs/gone.md:3.";
+                    ObjectiveDispatchPreview missing = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact missingFact = missing.Preflight.Facts.Single(item => item.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Fail, missingFact.Status, "a file neither revision holds fails question 1");
+                    AssertContains("docs/gone.md", missingFact.Detail, "the miss names the file");
+                    AssertContains("Read at the start ref " + recoveryCommit.Substring(0, 12) + " and at branch main", missingFact.Detail,
+                        "the failure names both refs it read");
+
+                    // A start commit on the target branch is read at the start commit only.
+                    harness.Git.AncestorResults[recoveryCommit + "|" + branchTip] = true;
+                    objective.Description = "`ProbeAccess` (`src/Probe.cs:10`) checkpoints on close.";
+                    ObjectiveDispatchPreview onBranch = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, onBranch.Preflight.Facts.Single(item => item.QuestionNumber == 1).Status,
+                        "a start commit on the branch is judged at the start commit, where the citation does not hold");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preflight citations pass a range inside the body of the declaration they name", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

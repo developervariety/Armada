@@ -136,7 +136,13 @@ was dispatched, and otherwise names the constraint with counts;
 not dispatch, each with its reason and the preview's first error code. A prepared
 objective whose verified branch moved stays ready when no changed file is one the
 objective cites, claims or is assigned (`preparation_target_revision_moved`, a
-Warning); a change to such a file is an Error that names it. Note that an
+Warning); a change to such a file is an Error that names it. When an operator
+re-pins a preparation anchor to another commit of the same branch, a claim that
+depends on that anchor needs a recheck only when the move changed a path the
+claim cites (a rename or delete counts for its old path); a claim whose cited
+paths are unchanged stays `Verified` and the anchor moves. A claim that cites no
+path, a move whose changed files cannot be read in full, and a change of
+`StartFromRef` or vessel mark every dependent claim `NeedsRecheck`. Note that an
 objective must name exactly one vessel to auto-dispatch: set `VesselIds` to the
 vessel whose repository receives the commit. An objective can also carry a
 `StartFromRef`: the first stage's branch is cut from that ref instead of the
@@ -158,7 +164,12 @@ and the tier floor a pinned model no captain runs sets. A compatible captain
 does not have to be idle for the objective to be ready; idle state is capacity.
 Operator and autonomous objective dispatch use this same preflight.
 The Jev text check can add blocking issues, but its Q4 dock-observability and Q13 owner-question findings are warnings. Deterministic preflight facts and recorded owner answers remain authoritative.
-Question 1 resolves ordinary citations at the target repository revision. A
+Question 1 resolves ordinary citations at the target repository revision: the
+resolved `StartFromRef`, or the default branch tip. When the start commit is not
+on the vessel's default branch (a recovery start on a mission branch whose brief
+merges the branch first), a citation that fails at the start commit is read
+again at the branch tip and passes when it resolves there; the fact names the
+branch and commit where it resolved, and a failure names both refs it read. A
 citation the target does not track resolves in the trees a dock provisions
 beside it: a `../<Sibling>/...` path, or a path whose first segment is a
 declared sibling's directory name, at that sibling repository's verified tip

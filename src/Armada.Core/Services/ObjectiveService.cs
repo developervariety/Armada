@@ -73,6 +73,13 @@ namespace Armada.Core.Services
         };
 
         /// <summary>
+        /// Reads the paths a preparation anchor's branch move changed, so a re-pinned anchor invalidates only
+        /// the claims that cite a changed path. Null leaves every claim that depends on a changed anchor
+        /// needing a recheck; the admiral sets it at startup.
+        /// </summary>
+        public PreparationAnchorChangeReader? AnchorChanges { get; set; }
+
+        /// <summary>
         /// Instantiate.
         /// </summary>
         /// <param name="database">Database driver.</param>
@@ -870,15 +877,26 @@ namespace Armada.Core.Services
             {
                 ObjectivePreparation preparation = objective.Preparation!;
                 bool sourceChanged = !AnchorsEqual(priorSourceAnchor, preparation.Source);
-                bool targetChanged = !AnchorsEqual(priorTargetAnchor, preparation.Target)
-                    || (request.StartFromRef != null && !String.Equals(priorStartFromRef, objective.StartFromRef, StringComparison.Ordinal))
+                bool targetAnchorChanged = !AnchorsEqual(priorTargetAnchor, preparation.Target);
+                bool dispatchTargetChanged = (request.StartFromRef != null && !String.Equals(priorStartFromRef, objective.StartFromRef, StringComparison.Ordinal))
                     || (request.VesselIds != null
                         && !priorVesselIds.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(objective.VesselIds));
+                bool targetChanged = targetAnchorChanged || dispatchTargetChanged;
+                // A changed start ref or vessel is a different dispatch target, not a branch move, so only a
+                // pure anchor commit move is compared path by path.
+                IReadOnlyList<string>? sourceMovedPaths = sourceChanged
+                    ? await ReadAnchorMovePathsAsync(auth, priorSourceAnchor, preparation.Source, token).ConfigureAwait(false)
+                    : null;
+                IReadOnlyList<string>? targetMovedPaths = targetAnchorChanged && !dispatchTargetChanged
+                    ? await ReadAnchorMovePathsAsync(auth, priorTargetAnchor, preparation.Target, token).ConfigureAwait(false)
+                    : null;
                 InvalidatePreparationClaims(
                     preparation,
                     priorClaimVerification,
                     sourceChanged,
                     targetChanged,
+                    sourceMovedPaths,
+                    targetMovedPaths,
                     DateTime.UtcNow);
             }
             // Validate only link fields the caller supplied. Persisted objectives can contain
@@ -2702,11 +2720,56 @@ namespace Armada.Core.Services
                 && String.Equals(left.ResolvedCommit, right.ResolvedCommit, StringComparison.OrdinalIgnoreCase);
         }
 
+        // Paths a branch move changed, when the anchor kept its vessel and ref and only its recorded commit
+        // moved, and the whole change was read. Null means the move cannot be compared path by path, and every
+        // dependent claim is invalidated as before.
+        private async Task<IReadOnlyList<string>?> ReadAnchorMovePathsAsync(
+            AuthContext auth,
+            ObjectivePreparationAnchor? prior,
+            ObjectivePreparationAnchor? current,
+            CancellationToken token)
+        {
+            if (AnchorChanges == null || prior == null || current == null) return null;
+            if (String.IsNullOrWhiteSpace(prior.VesselId)
+                || !String.Equals(prior.VesselId, current.VesselId, StringComparison.OrdinalIgnoreCase)
+                || String.IsNullOrWhiteSpace(prior.Ref)
+                || !String.Equals(prior.Ref, current.Ref, StringComparison.Ordinal))
+                return null;
+            if (!PreparationAnchorChangeReader.IsFullCommit(prior.ResolvedCommit)
+                || !PreparationAnchorChangeReader.IsFullCommit(current.ResolvedCommit))
+                return null;
+
+            try
+            {
+                Vessel? vessel = auth.IsAdmin
+                    ? await _Database.Vessels.ReadAsync(prior.VesselId, token).ConfigureAwait(false)
+                    : String.IsNullOrWhiteSpace(auth.TenantId)
+                        ? null
+                        : auth.IsTenantAdmin
+                            ? await _Database.Vessels.ReadAsync(auth.TenantId!, prior.VesselId, token).ConfigureAwait(false)
+                            : String.IsNullOrWhiteSpace(auth.UserId)
+                                ? null
+                                : await _Database.Vessels.ReadAsync(auth.TenantId!, auth.UserId!, prior.VesselId, token).ConfigureAwait(false);
+                if (vessel == null) return null;
+                return await AnchorChanges.ReadChangedPathsAsync(vessel, prior.ResolvedCommit, current.ResolvedCommit, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _Logging?.Warn(_Header + "preparation anchor move could not be compared, so every dependent claim needs a recheck: " + ex.Message);
+                return null;
+            }
+        }
+
+        // A claim that depends on a changed anchor needs a recheck, unless the change is a branch move whose
+        // changed paths were read in full and touch none of the paths the claim cites. A claim that cites no
+        // path always needs a recheck, because nothing names what it rests on.
         private static void InvalidatePreparationClaims(
             ObjectivePreparation preparation,
             Dictionary<string, DateTime?> priorClaimVerification,
             bool sourceChanged,
             bool targetChanged,
+            IReadOnlyList<string>? sourceMovedPaths,
+            IReadOnlyList<string>? targetMovedPaths,
             DateTime invalidatedUtc)
         {
             if (!sourceChanged && !targetChanged) return;
@@ -2714,11 +2777,6 @@ namespace Armada.Core.Services
             ObjectivePreparationDependencyEnum changed = ObjectivePreparationDependencyEnum.None;
             if (sourceChanged) changed |= ObjectivePreparationDependencyEnum.Source;
             if (targetChanged) changed |= ObjectivePreparationDependencyEnum.Target;
-            string reason = sourceChanged && targetChanged
-                ? "Source and target preparation anchors changed."
-                : sourceChanged
-                    ? "Source preparation anchor changed."
-                    : "Target preparation anchor changed.";
 
             foreach (ObjectivePreparationClaim claim in preparation.Claims)
             {
@@ -2728,10 +2786,43 @@ namespace Armada.Core.Services
                     && claim.VerifiedUtc.HasValue
                     && (!priorVerifiedUtc.HasValue || claim.VerifiedUtc.Value > priorVerifiedUtc.Value);
                 if (explicitlyReverified) continue;
+
+                bool sourceInvalidates = sourceChanged
+                    && (claim.DependsOn & ObjectivePreparationDependencyEnum.Source) != 0
+                    && !(sourceMovedPaths != null && PreparationAnchorChangeReader.ClaimUnaffected(claim, sourceMovedPaths));
+                bool targetInvalidates = targetChanged
+                    && (claim.DependsOn & ObjectivePreparationDependencyEnum.Target) != 0
+                    && !(targetMovedPaths != null && PreparationAnchorChangeReader.ClaimUnaffected(claim, targetMovedPaths));
+                if (!sourceInvalidates && !targetInvalidates) continue;
+
+                string reason = sourceInvalidates && targetInvalidates
+                    ? "Source and target preparation anchors changed."
+                    : sourceInvalidates
+                        ? "Source preparation anchor changed."
+                        : "Target preparation anchor changed.";
+                List<string> touched = TouchedClaimPaths(claim,
+                    sourceInvalidates ? sourceMovedPaths : null,
+                    targetInvalidates ? targetMovedPaths : null);
+                if (touched.Count > 0)
+                    reason += " The move changed cited path(s): " + String.Join(", ", touched.Take(5).Select(path => "`" + path + "`"))
+                        + (touched.Count > 5 ? " and " + (touched.Count - 5) + " more" : String.Empty) + ".";
                 claim.State = ObjectivePreparationClaimStateEnum.NeedsRecheck;
                 claim.InvalidatedUtc = invalidatedUtc;
-                claim.InvalidationReason = reason;
+                claim.InvalidationReason = reason.Length > _MaxPreparationReasonChars ? reason.Substring(0, _MaxPreparationReasonChars) : reason;
             }
+        }
+
+        private static List<string> TouchedClaimPaths(
+            ObjectivePreparationClaim claim,
+            IReadOnlyList<string>? sourceMovedPaths,
+            IReadOnlyList<string>? targetMovedPaths)
+        {
+            List<string> cited = PreparationAnchorChangeReader.ClaimPaths(claim, out bool _);
+            return (sourceMovedPaths ?? new List<string>())
+                .Concat(targetMovedPaths ?? new List<string>())
+                .Where(changedPath => cited.Any(path => PreparationAnchorChangeReader.PathCovers(path, changedPath)))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
         }
 
         private static List<string> DistinctNormalized(IEnumerable<string>? values)
