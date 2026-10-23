@@ -512,6 +512,18 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Keep an unchanged Linter review bounded without waiving explicit checks or the automatic gates.
+        /// Shared by the embedded persona, fallback and code-owned output contract.
+        /// </summary>
+        internal const string LinterVerificationRule =
+            "Run all checks explicitly required by the mission brief, acceptance criteria, and repository instructions. " +
+            "If you change any tracked file, run the repository's full check script, such as `scripts/check.sh`; " +
+            "if none exists, run the build. If you leave the tracked tree unchanged, use static review and focused " +
+            "checks appropriate to your findings. Do not run the whole suite solely because this is a Linter stage. " +
+            "Report the commands you ran and their results. Automatic DoD gates and required structured Checks " +
+            "remain required; this instruction does not waive them.";
+
+        /// <summary>
         /// Resolve the persona output contract for a mission mode. In Audit and Research modes the
         /// deliverable is a report, so a producing persona must not be told to make changes: the
         /// Worker contract would otherwise instruct a read-only captain to "make the requested
@@ -584,7 +596,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.TestEngineer =>
                     "Before your result line, include short `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Linter =>
-                    "Evaluate the changed code and documentation for style and correctness, staying strictly inside the files this mission changed. Fix clear in-scope violations and flag judgment calls. Verify with the repository check script (for example `scripts/check.sh`) in full when it has one. Before your result line, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                    "Evaluate the changed code and documentation for style and correctness, staying strictly inside the files this mission changed. Fix clear in-scope violations and flag judgment calls. " + LinterVerificationRule + " Before your result line, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Judge =>
                     "Your response must contain these exact section headings: " + JudgeReviewSections.Headings(false) + ". " + MissionService.AcceptanceCriteriaWalkInstruction + " A NOT MET line forbids PASS. When a fix you require cannot be made without breaking a stated acceptance criterion, write a standalone line `" + JudgeCriterionConflicts.LinePrefix + " <criterion>" + JudgeCriterionConflicts.Separator + "<conflict>` for it and end with NEEDS_REVISION, so an operator reviews the criterion. When the mission description contains [DOD:DOC-ONLY] and the diff is non-code, do not run the full suite. When the brief's `" + JudgeCheckEvidence.Heading + "` section names a passing independent UnitTest Check for the commit under review, cite that Check as your test evidence and run only focused tests for the changed code, giving each command and its result; run the full suite when no such Check exists for that commit or the diff changes test infrastructure or build configuration. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted, except for [DOD:DOC-ONLY] non-code diffs. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + BuildJudgeLensDirective(judgePrimaryLens),
                 _ => String.Empty
@@ -623,7 +635,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.UsabilityEngineer => "You are an Armada usability engineer agent. Improve the work through the lens of usability, consistency, and edge-case handling, include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Worker => "You are an Armada worker agent. Implement the requested code changes carefully, stay within scope, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.TestEngineer => "You are an Armada test engineer agent. Write tests for the current mission scope, cover negative and edge paths for validation, timeout, cancellation, retry, cleanup, and error-handling changes when applicable, include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
-                PersonaCatalog.Linter => "You are an Armada linter agent. Evaluate the changed code and documentation for style and correctness, fix clear in-scope violations and flag judgment calls, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
+                PersonaCatalog.Linter => "You are an Armada linter agent. Evaluate the changed code and documentation for style and correctness, fix clear in-scope violations and flag judgment calls. " + LinterVerificationRule + " Include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Judge => "You are an Armada judge agent. Review the completed work for completeness, correctness, test adequacy, and failure modes. Assume there may be a hidden bug. Use " + JudgeReviewSections.Headings(false) + " sections. " + MissionService.AcceptanceCriteriaWalkInstruction + " NOT MET forbids PASS. When the mission is [DOD:DOC-ONLY] and the diff is non-code, do not run the full suite. End with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run." + JudgeLensAndBoundedRule,
                 _ => "You are an Armada captain executing a mission. Follow these instructions carefully."
             };

@@ -1475,8 +1475,7 @@ namespace Armada.Core.Services
                     "- **Fix** clear, safe, in-scope violations in the changed files, and commit only those fixes.\n" +
                     "- **Flag, do not guess.** Report a judgment call, a behavior change, or anything outside the diff " +
                     "as a finding instead of editing it.\n" +
-                    "- **Verify** with the repository's own check script (for example `scripts/check.sh`) in full when it has one, " +
-                    "else the build; never leave the tree worse than you found it.\n" +
+                    "- **Verify.** " + MissionPromptBuilder.LinterVerificationRule + "\n" +
                     "\n" +
                     "## Required Response Format\n" +
                     "Use these exact section headings, and write \"None\" in a section with no findings:\n" +

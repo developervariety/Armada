@@ -92,6 +92,13 @@ namespace Armada.Test.Unit.Suites.Services
                     }
 
                     AssertContains("## Your Role: Linter", handoffPreamble, "Linter handoff preamble names the role");
+                    foreach (string surface in new[] { embeddedPrompt, fallbackPrompt, MissionPromptBuilder.GetPersonaOutputContract("Linter") })
+                    {
+                        AssertContains("If you leave the tracked tree unchanged", surface, "an unchanged Linter is not ordered to run a duplicate suite");
+                        AssertContains("If you change any tracked file", surface, "a committing Linter retains full verification");
+                        AssertContains("Run all checks explicitly required", surface, "explicit mission and repository checks still apply");
+                        AssertContains("Automatic DoD gates and required structured Checks remain required", surface, "automatic gates remain enforced");
+                    }
                     AssertContains("## Recall Existing Memory", embeddedPrompt, "The Linter is a working persona and reads memory");
                     AssertContains("linter agent", launchPrompt, "The launch prompt role line names the Linter");
                 }
