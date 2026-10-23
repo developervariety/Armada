@@ -169,12 +169,14 @@ resolved `StartFromRef`, or the default branch tip. When the start commit is not
 on the vessel's default branch (a recovery start on a mission branch whose brief
 merges the branch first), a citation that fails at the start commit is read
 again at the branch tip and passes when it resolves there; the fact names the
-branch and commit where it resolved, and a failure names both refs it read. A
-citation the target does not track resolves in the trees a dock provisions
+branch and commit where it resolved, and a failure names both refs it read.
+Every question-1 fact names the commit it read. A citation the target does not
+track resolves in the trees a dock provisions
 beside it: a `../<Sibling>/...` path, or a path whose first segment is a
 declared sibling's directory name, at that sibling repository's verified tip
 (or under its declared extraction artifact paths); a bare file name in any
-declared sibling; and a path whose first segment names an evidence root that
+declared sibling, where a name that matches several of the sibling's files means
+the one whose lines hold the citation, as in the target; and a path whose first segment names an evidence root that
 applies to the vessel. A path that traverses above its root, or that names no
 declared sibling or evidence root, remains unresolved. When the question-1 fact
 fails only on citations outside the target repository

@@ -633,6 +633,12 @@ upstream integrations and excludes changes already present at that baseline.
   served at the limit and the response carries `RequestedPageSize` and
   `MaxPageSize`, which are absent otherwise.
 
+- Objective preflight question 1 resolves a bare cited file name that matches
+  several files of a declared sibling by the rule the target repository uses:
+  the one file whose lines hold the citation, an ambiguity Warning when several
+  do, and a failure listing the candidates when none does. Such a name is never
+  reported as a missing file. Every question-1 fact names the commit it read.
+
 - Objective preflight question 1 reads a citation that fails at a start commit
   off the vessel's default branch again at the branch tip, and passes it when it
   resolves there. A recovery start on a mission branch whose brief merges the

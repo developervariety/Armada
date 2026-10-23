@@ -1566,8 +1566,10 @@ namespace Armada.Test.Unit.Suites.Services
                     harness.Git.AncestorResults[recoveryCommit + "|" + branchTip] = true;
                     objective.Description = "`ProbeAccess` (`src/Probe.cs:10`) checkpoints on close.";
                     ObjectiveDispatchPreview onBranch = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
-                    AssertEqual(PreflightFactStatusEnum.Fail, onBranch.Preflight.Facts.Single(item => item.QuestionNumber == 1).Status,
+                    ObjectiveDispatchPreflightFact onBranchFact = onBranch.Preflight.Facts.Single(item => item.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Fail, onBranchFact.Status,
                         "a start commit on the branch is judged at the start commit, where the citation does not hold");
+                    AssertContains("Read at commit " + recoveryCommit.Substring(0, 12) + ".", onBranchFact.Detail, "the fact names the commit it read");
                 }
             }).ConfigureAwait(false);
 
@@ -1895,6 +1897,27 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(missingFact.FailsOnlyOutsideTarget, "the only failure lies outside the target repository");
                     AssertFalse(missing.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode),
                         "a q1 model reading does not block on a citation outside the target repository");
+
+                    // A bare name that matches several of the sibling's files resolves to the one whose lines hold the
+                    // citation, as it does in the target repository, never "file missing".
+                    harness.Git.TrackedPathCandidatesByRepository[siblingDirectory + "|Handlers.cs"] =
+                        new List<string> { "output/src/Handlers.cs", "tools/Handlers.cs" };
+                    List<string> longHandlers = Enumerable.Range(1, 1000).Select(line => "    int Step" + line + "() { return " + line + "; }").ToList();
+                    harness.Git.FileLinesOnRevision["output/src/Handlers.cs"] = longHandlers;
+                    harness.Git.FileLinesOnRevision["tools/Handlers.cs"] = longHandlers.Take(58).ToList();
+                    objective.Description = "Services/Foo.cs:10 mirrors the source handler at Handlers.cs:912.";
+                    ObjectiveDispatchPreview several = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact severalFact = several.Preflight.Facts.Single(item => item.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Pass, severalFact.Status,
+                        "a bare name resolves to the one sibling file whose lines hold the citation. Detail: " + severalFact.Detail);
+                    AssertContains("as `../ReferenceTree/output/src/Handlers.cs`", severalFact.Detail, "the fact names the file that holds the line");
+
+                    objective.Description = "Services/Foo.cs:10 mirrors the source handler at Handlers.cs:5000.";
+                    ObjectiveDispatchPreview noneHold = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact noneFact = noneHold.Preflight.Facts.Single(item => item.QuestionNumber == 1);
+                    AssertEqual(PreflightFactStatusEnum.Fail, noneFact.Status, "no sibling candidate holds the cited line");
+                    AssertContains("ambiguous file name in declared sibling `../ReferenceTree`", noneFact.Detail, "the miss is ambiguous, not a missing file");
+                    AssertContains("`../ReferenceTree/tools/Handlers.cs`", noneFact.Detail, "the miss lists the candidates");
 
                     // A target-repository citation that does not resolve keeps the model gate.
                     objective.Description = "Change Services/Gone.cs:4 to sum the lots.";

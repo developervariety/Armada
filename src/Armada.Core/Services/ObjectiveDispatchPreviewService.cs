@@ -457,8 +457,14 @@ namespace Armada.Core.Services
             List<string> ambiguities = new List<string>();
             CitationBranchRevision? branchRevision = await ResolveCitationBranchRevisionAsync(
                 vessel, repositoryPath, result.ResolvedStartCommit, token).ConfigureAwait(false);
+            string readLabel = targetRevision;
+            if (String.Equals(targetRevision, "HEAD", StringComparison.Ordinal))
+            {
+                string? headCommit = NormalizeEmpty(await _Git.GetRevisionCommitShaAsync(repositoryPath, "HEAD", token).ConfigureAwait(false));
+                if (headCommit != null) readLabel = headCommit;
+            }
             result.Preflight.Facts.Add(await BuildCitationResolvesFact(auth, objective, vessel, preflight, repositoryPath,
-                targetRevision, branchRevision, description, drifts, ambiguities, token).ConfigureAwait(false));
+                targetRevision, readLabel, branchRevision, description, drifts, ambiguities, token).ConfigureAwait(false));
             if (ambiguities.Count > 0)
             {
                 AddIssue(result, CitationAmbiguousIssueCode, "preflight", ReadinessSeverityEnum.Warning,
@@ -662,6 +668,7 @@ namespace Armada.Core.Services
             ObjectivePreflight preflight,
             string repositoryPath,
             string targetRevision,
+            string readLabel,
             CitationBranchRevision? branchRevision,
             string description,
             List<string> drifts,
@@ -732,7 +739,7 @@ namespace Armada.Core.Services
             if (issues.Count == 0)
             {
                 fact.Status = PreflightFactStatusEnum.Pass;
-                List<string> parts = new List<string> { "Every cited path:line and backticked identifier resolves at the target tip." };
+                List<string> parts = new List<string> { "Every cited path:line and backticked identifier resolves at the target tip (" + RevisionLabel(readLabel) + ")." };
                 parts.AddRange(notes);
                 if (drifts.Count > 0) parts.Add(drifts.Count + " cited symbol(s) moved by a few lines (" + CitationDriftIssueCode + ").");
                 if (ambiguities.Count > 0) parts.Add(ambiguities.Count + " cited file name(s) are ambiguous (" + CitationAmbiguousIssueCode + ").");
@@ -743,12 +750,19 @@ namespace Armada.Core.Services
                 fact.Status = PreflightFactStatusEnum.Fail;
                 fact.FailsOnlyOutsideTarget = outsideIssues == issues.Count;
                 List<string> parts = new List<string>(issues);
-                if (branchRevision != null)
-                    parts.Add("Read at the start ref " + ShortCommit(targetRevision) + " and at branch " + branchRevision.Branch
-                        + " (" + ShortCommit(branchRevision.Commit) + ").");
+                parts.Add(branchRevision != null
+                    ? "Read at the start ref " + ShortCommit(targetRevision) + " and at branch " + branchRevision.Branch
+                        + " (" + ShortCommit(branchRevision.Commit) + ")."
+                    : "Read at " + RevisionLabel(readLabel) + ".");
                 fact.Detail = String.Join(" ", parts);
             }
             return fact;
+        }
+
+        // Names the revision a citation was read at: a commit by its short id, the repository HEAD by name.
+        private static string RevisionLabel(string revision)
+        {
+            return IsFullCommit(revision) ? "commit " + ShortCommit(revision) : revision;
         }
 
         // The target branch tip to read citations at as well, when the start commit is not on that branch.
@@ -797,10 +811,15 @@ namespace Armada.Core.Services
                 byPath[path] = reading;
                 if (path.StartsWith("../", StringComparison.Ordinal))
                 {
-                    OutsideCitation parent = await ResolveOutsideTargetAsync(auth, vessel, path, token).ConfigureAwait(false);
+                    OutsideCitation parent = await ResolveOutsideTargetAsync(auth, vessel, path,
+                        ranges.Where(range => range.Path == path).ToList(), token).ConfigureAwait(false);
                     if (parent.FoundAt != null)
                     {
                         reading.Notes.Add("`" + path + "` resolves in " + parent.RootLabel + ".");
+                    }
+                    else if (parent.AmbiguousCandidates.Count > 0)
+                    {
+                        AddSiblingAmbiguity(reading, description, path, parent);
                     }
                     else
                     {
@@ -828,10 +847,15 @@ namespace Armada.Core.Services
                     {
                         // A path the target does not track may name a declared sibling checkout or evidence
                         // root, the same trees a dock provisions beside the repository.
-                        OutsideCitation outside = await ResolveOutsideTargetAsync(auth, vessel, path, token).ConfigureAwait(false);
+                        OutsideCitation outside = await ResolveOutsideTargetAsync(auth, vessel, path,
+                            ranges.Where(range => range.Path == path).ToList(), token).ConfigureAwait(false);
                         if (outside.FoundAt != null)
                         {
                             reading.Notes.Add("`" + path + "` resolves in " + outside.RootLabel + " as `" + outside.FoundAt + "`.");
+                        }
+                        else if (outside.AmbiguousCandidates.Count > 0)
+                        {
+                            AddSiblingAmbiguity(reading, description, path, outside);
                         }
                         else if (outside.NamesRoot)
                         {
@@ -899,6 +923,22 @@ namespace Armada.Core.Services
             return readings;
         }
 
+        // A name that matched several files of a declared sibling is ambiguous: a warning when several hold the
+        // cited lines, a failure naming the candidates when none does. Never a missing file.
+        private static void AddSiblingAmbiguity(CitationReading reading, string description, string path, OutsideCitation outside)
+        {
+            string listed = String.Join(", ", outside.AmbiguousCandidates.Select(candidate => "`" + candidate + "`"));
+            if (outside.NoCandidateHolds)
+            {
+                AddUnresolved(reading.Issues, description, path, "ambiguous file name in " + outside.RootLabel + ", and no candidate holds the cited lines (" + listed + ")");
+                reading.Outside = true;
+            }
+            else
+            {
+                reading.Ambiguities.Add("`" + path + "` is an ambiguous file name in " + outside.RootLabel + ": " + listed + ".");
+            }
+        }
+
         // One cited path (with its cited line ranges) or identifier, as read at one revision.
         private sealed class CitationReading
         {
@@ -944,6 +984,7 @@ namespace Armada.Core.Services
             AuthContext auth,
             Vessel vessel,
             string citedPath,
+            IReadOnlyList<CitedLineRange> ranges,
             CancellationToken token)
         {
             OutsideCitation result = new OutsideCitation();
@@ -965,9 +1006,13 @@ namespace Armada.Core.Services
                     result.RootLabel = "declared sibling `" + declared + "`";
                     string relative = normalized.Substring(declared.Length + 1);
                     if (!IsContainedRelativePath(relative)) continue;
-                    string? found = await FindInSiblingAsync(auth, sibling, relative, token).ConfigureAwait(false);
-                    if (found == null) continue;
-                    result.FoundAt = declared + "/" + found;
+                    SiblingLookup lookup = await FindInSiblingAsync(auth, sibling, relative, ranges, token).ConfigureAwait(false);
+                    if (lookup.Found == null)
+                    {
+                        RecordSiblingAmbiguity(result, lookup, declared);
+                        continue;
+                    }
+                    result.FoundAt = declared + "/" + lookup.Found;
                     result.RootLabel = "declared sibling `" + declared + "`";
                     return result;
                 }
@@ -998,10 +1043,14 @@ namespace Armada.Core.Services
             {
                 foreach (SiblingRepo sibling in siblings)
                 {
-                    string? found = await FindInSiblingAsync(auth, sibling, citedPath, token).ConfigureAwait(false);
-                    if (found == null) continue;
+                    SiblingLookup lookup = await FindInSiblingAsync(auth, sibling, citedPath, ranges, token).ConfigureAwait(false);
                     string declared = NormalizeRelativePath(sibling.RelativePath);
-                    result.FoundAt = declared + "/" + found;
+                    if (lookup.Found == null)
+                    {
+                        RecordSiblingAmbiguity(result, lookup, declared);
+                        continue;
+                    }
+                    result.FoundAt = declared + "/" + lookup.Found;
                     result.RootLabel = "declared sibling `" + declared + "`";
                     return result;
                 }
@@ -1009,31 +1058,75 @@ namespace Armada.Core.Services
             return result;
         }
 
-        // The sibling-relative path a citation names inside one declared sibling, or null when the sibling does
-        // not hold it or cannot be read at a verified tip.
-        private async Task<string?> FindInSiblingAsync(AuthContext auth, SiblingRepo sibling, string relative, CancellationToken token)
+        // The sibling-relative path a citation names inside one declared sibling, or no path when the sibling does
+        // not hold it or cannot be read at a verified tip. A name that matches several of the sibling's files
+        // resolves by the same rule as in the target repository: the one file whose lines hold the citations, and
+        // otherwise the candidates are reported as ambiguous, never as a missing file.
+        private async Task<SiblingLookup> FindInSiblingAsync(
+            AuthContext auth,
+            SiblingRepo sibling,
+            string relative,
+            IReadOnlyList<CitedLineRange> ranges,
+            CancellationToken token)
         {
+            SiblingLookup lookup = new SiblingLookup();
             Vessel? siblingVessel = await ResolveVesselReferenceAsync(auth, sibling.VesselRef, token).ConfigureAwait(false);
-            if (siblingVessel == null) return null;
+            if (siblingVessel == null) return lookup;
             string repository = RepositoryPath(siblingVessel);
             string? tip = NormalizeEmpty(await _Git.GetRevisionCommitShaAsync(repository, "HEAD", token).ConfigureAwait(false));
-            if (tip == null) return null;
-            if (await _Git.PathExistsOnRevisionAsync(repository, tip, relative, token).ConfigureAwait(false)) return relative;
+            if (tip == null) return lookup;
+            if (await _Git.PathExistsOnRevisionAsync(repository, tip, relative, token).ConfigureAwait(false))
+            {
+                lookup.Found = relative;
+                return lookup;
+            }
             string? suffix = NormalizeEmpty(await _Git.ResolveTrackedPathSuffixAsync(repository, tip, relative, token).ConfigureAwait(false));
-            if (suffix != null) return suffix;
+            if (suffix != null)
+            {
+                lookup.Found = suffix;
+                return lookup;
+            }
+
+            List<string> candidates = await _Git.ListTrackedPathCandidatesAsync(repository, tip, relative, token).ConfigureAwait(false);
+            if (candidates.Count >= 2)
+            {
+                List<string> holding = await CitedLineRangeChecker.CandidatesHoldingAsync(ranges, candidates,
+                    candidate => _Git.ReadFileLinesOnRevisionAsync(repository, tip, candidate, token)).ConfigureAwait(false);
+                if (holding.Count == 1)
+                {
+                    lookup.Found = holding[0];
+                    return lookup;
+                }
+                lookup.NoCandidateHolds = holding.Count == 0;
+                lookup.Candidates = holding.Count > 1 ? holding : candidates;
+                return lookup;
+            }
 
             // Extraction artifacts are untracked output a dock receives from the sibling's working checkout.
             string? workingDirectory = NormalizeEmpty(siblingVessel.WorkingDirectory);
-            if (workingDirectory == null) return null;
+            if (workingDirectory == null) return lookup;
             foreach (string artifact in sibling.ExtractionArtifactPaths ?? new List<string>())
             {
                 string root = NormalizeRelativePath(artifact);
                 if (root.Length == 0) continue;
                 if (!relative.Equals(root, StringComparison.Ordinal) && !relative.StartsWith(root + "/", StringComparison.Ordinal)) continue;
                 if (_ExecutionEnvironment.PathExists(Path.Combine(workingDirectory, relative.Replace('/', Path.DirectorySeparatorChar))))
-                    return relative;
+                {
+                    lookup.Found = relative;
+                    return lookup;
+                }
             }
-            return null;
+            return lookup;
+        }
+
+        // Keeps the first sibling whose several same-named files left a citation unresolved, so the miss names
+        // those candidates instead of a missing file.
+        private static void RecordSiblingAmbiguity(OutsideCitation result, SiblingLookup lookup, string declared)
+        {
+            if (lookup.Candidates.Count == 0 || result.AmbiguousCandidates.Count > 0) return;
+            result.AmbiguousCandidates = lookup.Candidates.Select(candidate => declared + "/" + candidate).ToList();
+            result.NoCandidateHolds = lookup.NoCandidateHolds;
+            result.RootLabel = "declared sibling `" + declared + "`";
         }
 
         private static bool IsContainedRelativePath(string relative)
@@ -1051,6 +1144,16 @@ namespace Armada.Core.Services
             public bool NamesRoot { get; set; } = false;
             public string RootLabel { get; set; } = "the declared sibling checkouts";
             public string? FoundAt { get; set; } = null;
+            public List<string> AmbiguousCandidates { get; set; } = new List<string>();
+            public bool NoCandidateHolds { get; set; } = false;
+        }
+
+        // One sibling's answer for a cited name: the file it names, or the candidates that left it unresolved.
+        private sealed class SiblingLookup
+        {
+            public string? Found { get; set; } = null;
+            public List<string> Candidates { get; set; } = new List<string>();
+            public bool NoCandidateHolds { get; set; } = false;
         }
 
         /// <summary>

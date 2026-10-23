@@ -78,12 +78,15 @@ target repository revision, the resolved start commit. When that commit is not
 an ancestor of the vessel's default branch tip, each citation that fails there
 is checked again at the branch tip, and a citation that resolves at either
 passes; the fact names the branch and commit where it resolved, and a failure
-names both refs. A citation the target does not track is checked in
+names both refs. Every question-1 fact names the commit it read. A citation the
+target does not track is checked in
 the trees a dock provisions beside the repository. A `../<Sibling>/...` path, or
 a path whose first segment is the directory name of a sibling the target vessel
 declares, is checked at that sibling's verified tip, and under its declared
 extraction artifact paths in the sibling's working checkout. A bare file name is
-searched in every declared sibling. A path whose first segment names an
+searched in every declared sibling; a name that matches several of a sibling's
+files follows the same candidate rule as in the target repository (below), so
+it is never reported as a missing file. A path whose first segment names an
 evidence root that applies to the vessel is checked under that root. Armada
 rejects paths that traverse above the root they name. A miss under a declared
 sibling or evidence root is named against that root, and the fact reports

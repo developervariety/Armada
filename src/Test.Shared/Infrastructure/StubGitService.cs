@@ -441,8 +441,16 @@ namespace Test.Shared.Infrastructure
         /// <summary>Tracked files ListTrackedPathCandidatesAsync returns, keyed by the path as named.</summary>
         public Dictionary<string, List<string>> TrackedPathCandidates { get; } = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Tracked files ListTrackedPathCandidatesAsync returns for one repository only, keyed by
+        /// <c>repository|path as named</c>; consulted before <see cref="TrackedPathCandidates"/>.
+        /// </summary>
+        public Dictionary<string, List<string>> TrackedPathCandidatesByRepository { get; } = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
         public Task<List<string>> ListTrackedPathCandidatesAsync(string worktreePath, string revision, string relativePath, CancellationToken token = default)
         {
+            if (TrackedPathCandidatesByRepository.TryGetValue(worktreePath + "|" + relativePath, out List<string>? scoped))
+                return Task.FromResult(new List<string>(scoped));
             return Task.FromResult(TrackedPathCandidates.TryGetValue(relativePath, out List<string>? candidates)
                 ? new List<string>(candidates)
                 : new List<string>());
