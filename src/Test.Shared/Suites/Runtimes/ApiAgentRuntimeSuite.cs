@@ -61,6 +61,183 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("read_file_default_pages_cover_all_lines", "Default read_file pages return exact content with a continuation at line 201", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    string[] lines = new string[450];
+                    for (int index = 0; index < lines.Length; index++) lines[index] = "source-" + (index + 1);
+                    File.WriteAllText(Path.Combine(dir, "source.cs"), String.Join("\n", lines), new UTF8Encoding(false));
+
+                    ToolResult first = await ReadFileAsync(dir, "source.cs").ConfigureAwait(false);
+                    ToolResult second = await ReadFileAsync(dir, "source.cs", 201).ConfigureAwait(false);
+                    ToolResult third = await ReadFileAsync(dir, "source.cs", 401).ConfigureAwait(false);
+                    ToolResult full = await ReadFileAsync(dir, "source.cs", 1, -1).ConfigureAwait(false);
+
+                    AssertTrue(first.Success, first.Content);
+                    AssertTrue(second.Success, second.Content);
+                    AssertTrue(third.Success, third.Content);
+                    AssertTrue(full.Success, full.Content);
+                    AssertEqual(FormatNumberedLines(lines, 0, 200), NumberedBody(first.Content), "The first page has exact numbered content.");
+                    AssertContains("offset=201", first.Content, "The first page points to the next line.");
+                    AssertEqual(FormatNumberedLines(lines, 200, 200), NumberedBody(second.Content), "The second page has exact numbered content.");
+                    AssertContains("offset=401", second.Content, "The second page points to the next line.");
+                    AssertEqual(FormatNumberedLines(lines, 400, 50), NumberedBody(third.Content), "The final page completes the file without a repeated or missing line.");
+                    AssertFalse(third.Content.Contains("output paged", StringComparison.Ordinal), "The final page has no continuation note.");
+                    AssertEqual(FormatNumberedLines(lines, 0, lines.Length), NumberedBody(full.Content), "An explicit negative limit reads the complete large file.");
+                    AssertFalse(full.Content.Contains("output paged", StringComparison.Ordinal), "An explicit negative limit bypasses default paging.");
+                    AssertEqual(FormatNumberedLines(lines, 0, lines.Length),
+                        NumberedBody(first.Content) + NumberedBody(second.Content) + NumberedBody(third.Content),
+                        "All pages reconstruct the original content exactly once.");
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
+            cases.Add(CaseAsync("read_file_character_budget_preserves_lines_and_continues", "Character-bounded default pages keep whole lines and resume without gaps", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    string[] lines = new string[35];
+                    for (int index = 0; index < lines.Length; index++)
+                        lines[index] = "line-" + (index + 1) + "-" + new string('x', 1_200);
+                    File.WriteAllText(Path.Combine(dir, "wide.txt"), String.Join("\n", lines), new UTF8Encoding(false));
+
+                    StringBuilder reconstructed = new StringBuilder();
+                    int offset = 1;
+                    while (offset <= lines.Length)
+                    {
+                        ToolResult page = await ReadFileAsync(dir, "wide.txt", offset == 1 ? null : offset).ConfigureAwait(false);
+                        AssertTrue(page.Success, page.Content);
+                        AssertTrue(page.Content.Length <= 24_000, "The full response, including continuation text, stays within the character budget.");
+                        List<int> numbers = NumberedLineNumbers(page.Content);
+                        AssertTrue(numbers.Count > 0, "A normal source line fits on each page.");
+                        AssertEqual(offset, numbers[0], "The next page starts at the first omitted line.");
+                        AssertEqual(offset + numbers.Count - 1, numbers[numbers.Count - 1], "A page contains contiguous line numbers.");
+                        reconstructed.Append(NumberedBody(page.Content));
+                        offset = numbers[numbers.Count - 1] + 1;
+                        if (offset <= lines.Length)
+                            AssertContains("offset=" + offset, page.Content, "The page states the exact next offset.");
+                    }
+
+                    AssertEqual(FormatNumberedLines(lines, 0, lines.Length), reconstructed.ToString(),
+                        "Character paging preserves every full source line exactly once.");
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
+            cases.Add(CaseAsync("read_file_oversized_line_requires_explicit_range", "An oversized source line is omitted by default and can be read with an explicit one-line range", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    string oversized = new string('x', 50_000);
+                    File.WriteAllText(Path.Combine(dir, "minified.js"), oversized + "\ntail", new UTF8Encoding(false));
+
+                    ToolResult page = await ReadFileAsync(dir, "minified.js").ConfigureAwait(false);
+                    AssertTrue(page.Success, page.Content);
+                    AssertTrue(page.Content.Length <= 24_000, "An oversized line cannot bypass the default response budget.");
+                    AssertFalse(page.Content.Contains(oversized, StringComparison.Ordinal), "The oversized line is not partially returned by a default read.");
+                    AssertContains("offset=1", page.Content, "Continuation points to the oversized line.");
+                    AssertContains("explicit limit=1", page.Content, "The response explains how to request the whole line.");
+
+                    ToolResult explicitLine = await ReadFileAsync(dir, "minified.js", 1, 1).ConfigureAwait(false);
+                    AssertTrue(explicitLine.Success, explicitLine.Content);
+                    AssertEqual("     1\t" + oversized + "\n", explicitLine.Content, "An explicit one-line range returns the complete oversized line.");
+                    ToolResult continuation = await ReadFileAsync(dir, "minified.js", 2, 1).ConfigureAwait(false);
+                    AssertTrue(continuation.Success, continuation.Content);
+                    AssertEqual("     2\ttail\n", continuation.Content, "The explicit range can continue at the next line.");
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
+            cases.Add(CaseAsync("read_file_instruction_files_are_complete_by_default", "All six runtime instruction file names bypass default paging", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    string[] names = new[] { "CLAUDE.md", "CODEX.md", "CURSOR.md", "AGENTS.md", "GEMINI.md", "MUX.md" };
+                    string[] lines = new string[350];
+                    for (int index = 0; index < lines.Length; index++) lines[index] = "instruction-" + (index + 1);
+
+                    foreach (string name in names)
+                    {
+                        File.WriteAllText(Path.Combine(dir, name), String.Join("\n", lines), new UTF8Encoding(false));
+                        ToolResult result = await ReadFileAsync(dir, name).ConfigureAwait(false);
+                        AssertTrue(result.Success, name + ": " + result.Content);
+                        AssertEqual(FormatNumberedLines(lines, 0, lines.Length), NumberedBody(result.Content), name + " returns every line by default.");
+                        AssertContains("instruction-350", result.Content, name + " includes the final instruction.");
+                        AssertFalse(result.Content.Contains("output paged", StringComparison.Ordinal), name + " has no continuation note.");
+
+                        ToolResult explicitRange = await ReadFileAsync(dir, name, 2, 1).ConfigureAwait(false);
+                        AssertTrue(explicitRange.Success, name + ": " + explicitRange.Content);
+                        AssertEqual("     2\t" + lines[1] + "\n", explicitRange.Content,
+                            name + " honors an explicit positive limit.");
+                    }
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
+            cases.Add(CaseAsync("read_file_explicit_ranges_and_errors_preserve_terminal_bytes", "Explicit ranges, full reads, invalid bounds, and terminal newline bytes keep their contract", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                string path = Path.Combine(dir, "terminal.txt");
+                byte[] original = Encoding.UTF8.GetBytes("first\r\nsecond\r\nthird\r\n");
+                try
+                {
+                    File.WriteAllBytes(path, original);
+                    ToolResult smallDefault = await ReadFileAsync(dir, "terminal.txt").ConfigureAwait(false);
+                    AssertTrue(smallDefault.Success, smallDefault.Content);
+                    AssertEqual("     1\tfirst\n     2\tsecond\n     3\tthird\n     4\t\n", smallDefault.Content,
+                        "A default small-file read preserves the terminal newline as an empty numbered line.");
+
+                    ToolResult range = await ReadFileAsync(dir, "terminal.txt", 2, 2).ConfigureAwait(false);
+                    AssertTrue(range.Success, range.Content);
+                    AssertEqual("     2\tsecond\n     3\tthird\n", range.Content, "An explicit positive limit reads the requested range exactly.");
+
+                    ToolResult full = await ReadFileAsync(dir, "terminal.txt", 1, -1).ConfigureAwait(false);
+                    AssertTrue(full.Success, full.Content);
+                    AssertEqual("     1\tfirst\n     2\tsecond\n     3\tthird\n     4\t\n", full.Content,
+                        "An explicit negative limit returns the complete file, including its terminal newline representation.");
+                    AssertFalse(full.Content.Contains("output paged", StringComparison.Ordinal), "An explicit negative full-read limit does not page.");
+
+                    ToolResult invalidOffset = await ReadFileAsync(dir, "terminal.txt", 0, 1).ConfigureAwait(false);
+                    AssertFalse(invalidOffset.Success, "Offset zero is invalid.");
+                    AssertContains("offset must be at least", invalidOffset.Content);
+                    ToolResult invalidLimit = await ReadFileAsync(dir, "terminal.txt", 1, 0).ConfigureAwait(false);
+                    AssertFalse(invalidLimit.Success, "Limit zero is invalid.");
+                    AssertContains("limit must be positive or omitted", invalidLimit.Content);
+
+                    ToolResult largeLimit = await ReadFileAsync(dir, "terminal.txt", 2, Int32.MaxValue).ConfigureAwait(false);
+                    AssertTrue(largeLimit.Success, largeLimit.Content);
+                    AssertEqual("     2\tsecond\n     3\tthird\n     4\t\n", largeLimit.Content,
+                        "A large positive limit reads the available remainder without integer overflow.");
+
+                    ToolResult largeBounds = await ReadFileAsync(dir, "terminal.txt", Int32.MaxValue, Int32.MaxValue).ConfigureAwait(false);
+                    AssertTrue(largeBounds.Success, largeBounds.Content);
+                    AssertEqual(String.Empty, NumberedBody(largeBounds.Content),
+                        "Maximum integer bounds do not overflow into a nonempty range.");
+                    AssertTrue(ByteArraysEqual(original, File.ReadAllBytes(path)), "Reads do not change CRLF or terminal newline bytes.");
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
             cases.Add(CaseAsync("workspace_symlink_escape_is_rejected", "Workspace file tools reject symlink escapes", TestTags.Negative, async () =>
             {
                 string dir = NewTempDir();
@@ -862,6 +1039,46 @@ namespace Test.Shared.Suites.Runtimes
         private static string ParseArgs(string json)
         {
             return json;
+        }
+
+        private static Task<ToolResult> ReadFileAsync(string workingDirectory, string filePath, int? offset = null, int? limit = null)
+        {
+            string arguments = JsonSerializer.Serialize(new { file_path = filePath, offset, limit });
+            BuiltInToolRegistry registry = new BuiltInToolRegistry(null);
+            return registry.ExecuteAsync("read-file-test", "read_file", arguments, workingDirectory, CancellationToken.None);
+        }
+
+        private static string FormatNumberedLines(string[] lines, int startIndex, int count)
+        {
+            StringBuilder expected = new StringBuilder();
+            int endIndex = Math.Min(lines.Length, startIndex + count);
+            for (int index = startIndex; index < endIndex; index++)
+                expected.Append(String.Format("{0,6}\t{1}\n", index + 1, lines[index]));
+            return expected.ToString();
+        }
+
+        private static string NumberedBody(string content)
+        {
+            StringBuilder body = new StringBuilder();
+            foreach (string line in content.Split('\n'))
+            {
+                int tabIndex = line.IndexOf('\t');
+                if (tabIndex <= 0 || !Int32.TryParse(line.Substring(0, tabIndex).Trim(), out int _)) continue;
+                body.Append(line).Append('\n');
+            }
+            return body.ToString();
+        }
+
+        private static List<int> NumberedLineNumbers(string content)
+        {
+            List<int> numbers = new List<int>();
+            foreach (string line in content.Split('\n'))
+            {
+                int tabIndex = line.IndexOf('\t');
+                if (tabIndex > 0 && Int32.TryParse(line.Substring(0, tabIndex).Trim(), out int number))
+                    numbers.Add(number);
+            }
+            return numbers;
         }
 
         private static ModelEndpoint NewEndpoint(string name)

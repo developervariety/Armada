@@ -49,6 +49,10 @@ Stored-prompt migration tests read a fixed historical fixture and verify its
 known hash. Do not derive historical input from the current default prompt.
 This keeps the migration proof independent of current prompt text.
 
+The shared `Runtimes.ApiAgentRuntime` suite exercises workspace file reads
+through the registered tool. It checks numbered page contents and continuation,
+character limits, explicit ranges, instruction-file defaults and input validation.
+
 ## Gate Host
 
 The gate is the four runners together: `unit` (sharded), `automated`, `runtimes` and `shared`. A commit passes only when all four pass in one combined run. Run the gate on a Linux host, not on a macOS workstation.

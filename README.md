@@ -97,6 +97,10 @@ marks caller-filtered tool catalogs as private cache entries.
 Both versions serialize SQLite writes through a FIFO gate shared by each database
 file. The fork includes shared persistence methods, migrations, expiry deletes and live restore. Reads stay independent and existing durability settings apply.
 
+Both versions bound default workspace file reads and provide continuation offsets.
+The fork keeps strict UTF-8, workspace path checks and byte limits, and reads
+all six runtime instruction filenames in full by default within those limits.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the
@@ -336,6 +340,11 @@ ships no harness plugin. These are shape rules, not typed decisions.
   through the run identifier it inherits; on macOS it escapes, and on Windows
   only the live tree is killed (see "Child processes"). Output is
   read in fixed-size chunks, so a line longer than the cap is cut while it is read.
+- `read_file` defaults to at most 200 numbered lines and 24,000 characters,
+  with a continuation offset. An explicit positive `limit` selects a range;
+  `limit=-1` requests the remaining file. `CLAUDE.md`, `AGENTS.md`, `CODEX.md`,
+  `CURSOR.md`, `GEMINI.md` and `MUX.md` default to complete reads. Existing input
+  and output byte limits apply to every read.
 - `edit_file` and `multi_edit` refuse empty `old_string`. Each `multi_edit` step
   must match exactly once in the content the earlier steps produced. An ambiguous
   match reports its count and at most 20 candidate lines.

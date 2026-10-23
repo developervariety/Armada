@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Workspace `read_file` defaults to bounded pages with continuation offsets.
+  Runtime instruction files remain complete by default within existing byte
+  limits. Explicit ranges, path checks and strict UTF-8 remain in effect.
+
 - Caller-filtered MCP tool lists use private cache scope. Shared caches cannot
   serve one caller's tool catalog to another caller.
 
