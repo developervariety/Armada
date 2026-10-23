@@ -185,17 +185,25 @@ and a reason that names the voyage and its status, and nothing changes.
 Assignment cancels a `Pending` mission of an ended voyage, so a restart there
 cannot run. Dispatch a new voyage, or a rescue, for that work instead.
 
-One ended voyage is reopened instead: a `Failed` voyage whose mission is a
-downstream stage `Cancelled` with `Blocked by failed dependency`. Its dependency
-chain must reach, through `Failed` or `Cancelled` stages, a stage of the same
-voyage that handed off work with a commit, and no skipped stage may have moved
-the branch past that commit (it carries the same commit, or it never started).
-The restarted stage then depends on that stage, so it runs on that commit; each
-skipped stage is recorded `Cancelled` with `Superseded by an operator restart`
-and its earlier status and reason; the voyage returns to `InProgress`; its
-Checks are armed again; and a `voyage.reopened` event is written. A `Complete`
-voyage, a `Cancelled` voyage, a stage an operator cancelled, and a skipped stage
-that moved the branch stay refused with `voyage_ended`.
+One ended voyage is reopened instead: a `Failed` voyage whose mission is the
+stage that failed on its own (`Failed`, with no terminal-voyage reconciliation
+marker), or a downstream stage `Cancelled` with `Blocked by failed dependency`.
+A stage with a dependency must reach, through `Failed` or `Cancelled` stages, a
+stage of the same voyage that handed off work with a commit: one that is
+`WorkProduced`, `Complete` or `PullRequestOpen`, or one the terminal-voyage
+rule moved to `Failed` or `Cancelled` with `terminal_voyage_work_unlanded`. No
+skipped stage may have moved the branch past that commit (it carries the same
+commit, or it never started). A failed first stage, with no dependency, runs
+again from its own start. Otherwise the restarted stage depends on that stage,
+so it runs on that commit, and a stage the terminal-voyage rule had moved
+returns to `WorkProduced`. Each skipped stage is recorded `Cancelled` with
+`Superseded by an operator restart` and its earlier status and reason; every
+later stage `Cancelled` with `Blocked by failed dependency` behind the
+restarted stage returns to `Pending`, so the rest of the chain runs again; the
+voyage returns to `InProgress`; its Checks are armed again; and a
+`voyage.reopened` event is written. A `Complete` voyage, a `Cancelled` voyage,
+a stage an operator cancelled, a stage the terminal-voyage rule failed, and a
+skipped stage that moved the branch stay refused with `voyage_ended`.
 
 `armada_mission_output` pages the authoritative safe report artifact. Follow
 `NextOffset` until `HasMore` is false. Then verify `Sha256`, `Finalized`, and

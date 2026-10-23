@@ -40,14 +40,19 @@ upstream integrations and excludes changes already present at that baseline.
   definition-of-done setting `RerunFailingClassesOnce` switches the gate and the
   Checks together.
 
-- An operator restart of a downstream stage that was cancelled behind a failed
-  upstream stage reopens its `Failed` voyage. The stage runs on the commit of
-  the nearest earlier stage that handed off work, each skipped stage is
+- An operator restart of the stage that failed a `Failed` voyage, or of a
+  downstream stage cancelled behind it, reopens the voyage. The stage runs on
+  the commit of the nearest earlier stage that handed off work (a failed first
+  stage runs from its own start); an earlier stage that the terminal-voyage
+  rule moved off `WorkProduced` because its work was not landed counts as
+  handing off its commit and returns to `WorkProduced`. Each skipped stage is
   recorded `Cancelled` as superseded by the restart with its earlier reason,
-  the voyage returns to `InProgress`, its Checks are armed again, and a
-  `voyage.reopened` event is written. A skipped stage that moved the branch, a
-  `Complete` or `Cancelled` voyage, and a stage an operator cancelled stay
-  refused with `voyage_ended`.
+  every later stage cancelled behind the restarted stage returns to `Pending`
+  and runs again, the voyage returns to `InProgress`, its Checks are armed
+  again, and a `voyage.reopened` event is written. A skipped stage that moved
+  the branch, a `Complete` or `Cancelled` voyage, a stage an operator
+  cancelled, and a stage the terminal-voyage rule failed stay refused with
+  `voyage_ended`.
 
 - A prepared objective whose recorded branch moved stays dispatchable when the
   move changed no file it depends on. The dispatch preview reads the files that

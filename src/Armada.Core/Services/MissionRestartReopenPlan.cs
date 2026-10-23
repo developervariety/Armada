@@ -18,7 +18,8 @@ namespace Armada.Core.Services
         public string? Refusal { get; private set; } = null;
 
         /// <summary>
-        /// The nearest upstream stage that handed off verified work; the restarted mission depends on it.
+        /// The nearest upstream stage that handed off verified work; the restarted mission depends on it. Null when the
+        /// restarted mission is a failed first stage, which runs again from its own start.
         /// </summary>
         public Mission? Anchor { get; private set; } = null;
 
@@ -59,6 +60,15 @@ namespace Armada.Core.Services
                 Anchor = anchor ?? throw new ArgumentNullException(nameof(anchor)),
                 Superseded = superseded ?? throw new ArgumentNullException(nameof(superseded))
             };
+        }
+
+        /// <summary>
+        /// An accepted plan for a failed first stage: it has no upstream stage and runs again from its own start.
+        /// </summary>
+        /// <returns>The plan.</returns>
+        public static MissionRestartReopenPlan ReopenFromStart()
+        {
+            return new MissionRestartReopenPlan();
         }
 
         #endregion

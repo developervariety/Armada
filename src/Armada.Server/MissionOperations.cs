@@ -256,9 +256,10 @@ namespace Armada.Server
         /// restart signal owned by the mission's owner, write a <c>mission.restarted</c> event, and broadcast the
         /// change. A LandingFailed mission is refused with a pointer to retry-landing. A mission whose voyage has ended
         /// (Complete, Failed or Cancelled) is refused with the voyage's status and a pointer to a new voyage, because
-        /// assignment cancels a Pending mission of an ended voyage. The exception is a downstream stage cancelled by an
-        /// upstream failure on a Failed voyage: it is restarted on the last verified stage's commit and the voyage is
-        /// reopened (<see cref="MissionRestartService.PlanUpstreamFailureReopenAsync"/>), with a voyage.reopened event.
+        /// assignment cancels a Pending mission of an ended voyage. The exception is a Failed voyage's failed stage, or a
+        /// downstream stage cancelled behind it: it is restarted on the last verified stage's commit, the later stages
+        /// cancelled behind it return to Pending, and the voyage is reopened
+        /// (<see cref="MissionRestartService.PlanUpstreamFailureReopenAsync"/>), with a voyage.reopened event.
         /// A refusal changes nothing.
         /// </summary>
         /// <param name="mission">Mission, already read under the caller's scope.</param>
@@ -307,7 +308,7 @@ namespace Armada.Server
                 Voyage? reopened = await restarter.ReadVoyageAsync(restarted, token).ConfigureAwait(false);
                 await Notifier.EmitAsync("voyage.reopened",
                     "Voyage " + voyage.Id + " reopened from " + voyage.Status + " to restart mission " + restarted.Id
-                    + " on " + restarted.DependsOnMissionId,
+                    + (String.IsNullOrWhiteSpace(restarted.DependsOnMissionId) ? " from its own start" : " on " + restarted.DependsOnMissionId),
                     "voyage", voyage.Id, null, restarted.Id, restarted.VesselId, voyage.Id).ConfigureAwait(false);
                 if (reopened != null) Notifier.VoyageChanged(reopened);
             }
