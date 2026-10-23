@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Text;
+    using System.Threading;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -12,7 +13,8 @@ namespace Armada.Core.Services
     /// between them is counted as omitted and named by a marker when the text is rendered.
     /// </summary>
     /// <remarks>
-    /// Not thread-safe: each stream has its own capture, fed by one reader.
+    /// Not thread-safe: each stream has its own capture, fed by one reader. Only <see cref="LastAppendTimestamp"/>
+    /// may be read while the reader appends.
     /// </remarks>
     public sealed class BoundedTextCapture
     {
@@ -30,6 +32,12 @@ namespace Armada.Core.Services
         /// <summary>Which part of an over-budget stream is kept.</summary>
         public BoundedOutputShapeEnum Shape => _Shape;
 
+        /// <summary>
+        /// <see cref="System.Diagnostics.Stopwatch.GetTimestamp"/> when text was last added, or 0 before any text.
+        /// Safe to read from another thread while the reader appends.
+        /// </summary>
+        public long LastAppendTimestamp => Interlocked.Read(ref _LastAppendTimestamp);
+
         #endregion
 
         #region Private-Members
@@ -44,6 +52,7 @@ namespace Armada.Core.Services
         private long _TailBytes = 0;
         private bool _HeadFull = false;
         private long _OmittedBytes = 0;
+        private long _LastAppendTimestamp = 0;
 
         #endregion
 
@@ -82,6 +91,7 @@ namespace Armada.Core.Services
         public void Append(ReadOnlySpan<char> text)
         {
             if (text.IsEmpty) return;
+            Interlocked.Exchange(ref _LastAppendTimestamp, System.Diagnostics.Stopwatch.GetTimestamp());
 
             if (!_HeadFull)
             {

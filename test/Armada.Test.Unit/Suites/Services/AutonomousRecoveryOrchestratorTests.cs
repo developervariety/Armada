@@ -188,6 +188,49 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(summary.Contains("Timeout", StringComparison.Ordinal), "The blocked policy must name the gate class. Summary: " + summary);
             }).ConfigureAwait(false);
 
+            // A time limit that still read as host load on the gate's own re-run, which held the host alone, is the
+            // host's load, not the work's: one rescue carries the work through a fresh gate. A plain Timeout stays
+            // blocked (the test above), and a rescue that times out again stops at the auto-rescue block.
+            await RunTest("A gate Timeout that still read as host load on its re-run dispatches one rescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_gate_load_timeout", "usr_gate_load_timeout").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_gate_load_timeout", "usr_gate_load_timeout").ConfigureAwait(false);
+                DefinitionOfDoneResult gateResult = DefinitionOfDoneResult.Fail("unit-test", -1,
+                    "unit-test command timed out after 1200 seconds. The command was still writing output at the limit.\n"
+                    + "      Request finished HTTP/1.1 GET http://localhost:5000/api/example - 200",
+                    DefinitionOfDoneFailureClassEnum.Timeout);
+                gateResult.TimedOut = true;
+                gateResult.TimedOutWhileProgressing = true;
+                gateResult.HostLoadTimeout = true;
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, MissionService.BuildDodFailureReason(gateResult)).ConfigureAwait(false);
+                failed.Persona = "Worker";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+                await SeedEligibleRecoveryRosterAsync(testDb, vessel).ConfigureAwait(false);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A host-load time limit is carried through one fresh gate. Reason: " + failed.FailureReason);
+                AssertEqual(failed.Id, admiral.DispatchedMissions[0].ParentMissionId, "The rescue is for the timed-out mission.");
+                EnumerationResult<ArmadaEvent> blocked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = failed.Id,
+                    EventType = "autonomous_recovery.blocked",
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(0, blocked.Objects.Count, "The host-load time limit is not refused as gate_class_not_rescuable.");
+
+                Mission rescueFailed = await CreateRescueMissionAsync(testDb, vessel, failed.Id, MissionService.BuildDodFailureReason(gateResult)).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(rescueFailed, false).ConfigureAwait(false);
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A rescue that times out the same way is not rescued again.");
+            }).ConfigureAwait(false);
+
             await RunTest("Gate failure on a missing .NET runtime or testhost exit blocks the rescue", async () =>
             {
                 DefinitionOfDoneFailureClassifier classifier = new DefinitionOfDoneFailureClassifier();

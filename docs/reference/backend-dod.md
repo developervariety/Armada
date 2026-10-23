@@ -92,43 +92,60 @@ records nothing.
 reads the load again. The run stood under load when the 1-minute or the
 15-minute average (the third field) is above the threshold; the 15-minute
 average counts because the 1-minute average falls as soon as the timed-out
-command's own processes exit. After a run under load the gate does not report
-that result:
+command's own processes exit. Two more facts about the timed-out command make
+its time limit read as host load rather than a hang:
+
+- **It shared the host.** Another build or test command held a host command
+  slot at the same time as the timed-out command, at any moment while it ran
+  (`TimedOutOnSharedHost` on the result; the timeout message adds `Another
+  build or test command held a host command slot while this command ran.`).
+  With `HostCommandSlots` above 1, two gates of one vessel can hold slots
+  together. A lock inside the vessel's own commands, such as a `flock` around
+  its suite, then makes one gate's suite wait for the other's inside its time
+  limit, at any load average.
+- **It was still writing output.** The command wrote to standard output or
+  standard error within a quarter of its time limit, and at most 60 seconds,
+  before the limit fired (`TimedOutWhileProgressing`; the message adds `The
+  command was still writing output at the limit.`). A suite printing test
+  traffic at its limit was working, not hung.
+
+After a run under load, on a shared host, or with live output, the gate does
+not report that result:
 
 1. It releases the host-wide command slot and keeps its dock lease.
-2. It reads the load again every 30 seconds until the 1-minute average is at
-   or below the logical core count, for at most 20 minutes. At 20 minutes it
-   stops waiting even when load is still high.
+2. Only after a run under load: it reads the load again every 30 seconds until
+   the 1-minute average is at or below the logical core count, for at most 20
+   minutes. At 20 minutes it stops waiting even when load is still high.
 3. It records event `mission.definition_of_done_load_rerun`. The payload is a
-   `DefinitionOfDoneLoadRerunRecord`, schema version 2: the reason
-   `host_overloaded`, whether the command shared the host (`SharedHostSlot`),
-   the command that timed out, the 1-minute and 15-minute load at the timeout, the load at the
+   `DefinitionOfDoneLoadRerunRecord`, schema version 3: the reason
+   (`host_overloaded`, else `host_slot_shared`, else `output_progressing`),
+   whether the command shared the host (`SharedHostSlot`), whether it was
+   writing output (`OutputProgressing`), `RerunAlone` (true), the command that
+   timed out, the 1-minute and 15-minute load at the timeout, the load at the
    re-run, the core count, both thresholds, whether load fell, and the seconds
    waited.
-4. It runs the whole evaluation once more, through the host-wide slot. That
-   result is the gate outcome and is recorded as the evaluation event. A
-   second time limit fails the mission like any other; there is no third run.
+4. It runs the whole evaluation once more **with the host to itself**: the
+   re-run asks the host-wide command lock for the whole host. It keeps its place
+   in line, starts only when no other build or test command holds a slot, and no
+   other command is granted a slot while it runs; requests behind it wait. So
+   neither another command's load nor a lock both commands take can reach the
+   re-run. Its time limits start when it holds the host, as every command's do.
+   Its result is the gate outcome and is recorded as the evaluation event; there
+   is no third run.
 
-**After a time limit on a shared host.** The gate also records whether
-another build or test command held a host command slot at the same time as
-the timed-out command, at any moment while it ran (`TimedOutOnSharedHost` on
-the result; the timeout message adds `Another build or test command held a
-host command slot while this command ran.`). With `HostCommandSlots` above 1,
-two gates of one vessel can hold slots together. A lock inside the vessel's own
-commands, such as a `flock` around its suite, then makes one gate's suite wait
-for the other's inside its time limit, at any load average. So a time limit on
-a shared host is not reported either, even at normal load: the gate releases
-the host slot, records `mission.definition_of_done_load_rerun` with reason
-`host_slot_shared` and no load wait, and runs the whole evaluation once more,
-queuing for the host slot again. That result stands; there is no third run. A
-run under load that also shared the host uses the load wait above and records
-reason `host_overloaded` with `SharedHostSlot` true.
+When the re-run also fails as `Timeout`, and its own time limit still reads as
+host load (the host ran overloaded, or the command was still writing output),
+the result carries `HostLoadTimeout` and the mission failure reason's first
+line ends with `(host_load_timeout: ...)`. Autonomous recovery reads that
+marker and rescues the work once (see `docs/armada-ops.md`, "Blocked gate
+recovery"). A second time limit on a silent command fails the mission as a
+plain `Timeout`.
 
-A time limit hit at normal load on a command that held the host alone fails at
-once. While the gate waits for load
-it is still a running gate: it shows in `RunningGates`, and cancelling the
-mission stops the wait and records `Cancelled`. The interrupted-gate re-run
-follows the same rules.
+A time limit hit at normal load on a silent command that held the host alone
+fails at once. While the gate waits for load or for the host it is still a
+running gate: it shows in `RunningGates`, and cancelling the mission stops the
+wait and records `Cancelled`. The interrupted-gate re-run follows the same
+rules.
 
 **After an isolated re-run that fails again.** When a red unit-test suite (the
 vessel's own or a consumer's) is re-run once with only its failing tests, the
@@ -185,7 +202,11 @@ granted in request order. A gate takes a slot at its first command and holds
 it until the gate ends, so its commands run back to back; work that asked
 before the gate began runs first. A count above 1 lets several full suites run
 at once, which risks false `Timeout` failures on a host without the CPU, memory
-and disk to run them inside `CommandTimeoutSeconds`.
+and disk to run them inside `CommandTimeoutSeconds`. A gate's one re-run after
+a host-load time limit holds the whole host: it is granted when no slot is
+held, no other request is granted while it runs, and the requests behind it
+keep their order. Its holder entry reads `definition-of-done gate re-run, alone
+on the host, for mission <id>`.
 `DefinitionOfDone.HostCommandMemoryFloorMb`
 (`definitionOfDone.hostCommandMemoryFloorMb`) holds a free slot until the host
 has that many megabytes of available memory (`MemAvailable` in

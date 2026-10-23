@@ -126,6 +126,7 @@ namespace Armada.Core.Services
                         result.TimedOut = !result.Cancelled;
                         inputStop.Cancel();
                         if (result.TimedOut && ownsProcessGroup) result.ProcessesAtTimeout = SnapshotGroup(process);
+                        if (result.TimedOut) result.OutputQuietAtTimeout = ReadOutputQuiet(stdoutCapture, stderrCapture);
                         result.KillError = Kill(process, ownsProcessGroup);
                         if (containmentId != null) Sweep(containmentId, result);
                         result.StillRunningAfterKill = !await WaitForExitAsync(process, request.KillDrainTimeout).ConfigureAwait(false);
@@ -306,6 +307,16 @@ namespace Armada.Core.Services
             {
                 return ex.GetType().Name + ": " + ex.Message;
             }
+        }
+
+        /// <summary>
+        /// How long ago either stream last received text, or null when neither did or the streams were combined.
+        /// </summary>
+        private static TimeSpan? ReadOutputQuiet(BoundedTextCapture? stdoutCapture, BoundedTextCapture? stderrCapture)
+        {
+            long last = Math.Max(stdoutCapture?.LastAppendTimestamp ?? 0, stderrCapture?.LastAppendTimestamp ?? 0);
+            if (last == 0) return null;
+            return Stopwatch.GetElapsedTime(last);
         }
 
         /// <summary>

@@ -46,6 +46,10 @@ namespace Armada.Core.Services
     /// <see cref="SharedSince"/> answers whether another request held a slot at the same time as the lease at any
     /// moment after that mark. A command that hit its time limit while it shared the host may have spent that time
     /// on the other command's load or on a lock both commands take.
+    ///
+    /// A request can ask to hold the host alone (<see cref="AcquireAloneAsync"/>). It keeps its place in line;
+    /// when it is first, it is granted only once no slot is held, and while it holds, no other request is granted.
+    /// A request behind it waits, so a request that holds the host alone cannot be starved by later requests.
     /// </remarks>
     public static class HostWideCommandLock
     {
@@ -294,7 +298,25 @@ namespace Armada.Core.Services
         /// <param name="token">Cancellation token. Cancelling a waiting request removes it from the queue.</param>
         /// <returns>A disposable lease; dispose it to release the slot.</returns>
         /// <remarks>The time from request to grant or cancellation is recorded in <see cref="ArmadaMetrics.HostSlotWait"/>.</remarks>
-        public static async Task<IDisposable> AcquireAsync(string? ownerKey, string? ownerDescription, CancellationToken token = default)
+        public static Task<IDisposable> AcquireAsync(string? ownerKey, string? ownerDescription, CancellationToken token = default)
+        {
+            return AcquireCoreAsync(ownerKey, ownerDescription, false, token);
+        }
+
+        /// <summary>
+        /// Acquire the whole host: a slot granted only when no other request holds one, and kept while no other
+        /// request is granted. The request keeps its place in line; requests behind it wait until it is released.
+        /// </summary>
+        /// <param name="ownerKey">Stable key of the requester, used to find its place in the queue.</param>
+        /// <param name="ownerDescription">What the requester runs, shown to anyone waiting behind it.</param>
+        /// <param name="token">Cancellation token. Cancelling a waiting request removes it from the queue.</param>
+        /// <returns>A disposable lease; dispose it to release the host.</returns>
+        public static Task<IDisposable> AcquireAloneAsync(string? ownerKey, string? ownerDescription, CancellationToken token = default)
+        {
+            return AcquireCoreAsync(ownerKey, ownerDescription, true, token);
+        }
+
+        private static async Task<IDisposable> AcquireCoreAsync(string? ownerKey, string? ownerDescription, bool alone, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
             LinkedListNode<Request>? node = null;
@@ -304,7 +326,7 @@ namespace Armada.Core.Services
 
             lock (_Sync)
             {
-                request = new Request(ownerKey, ownerDescription, _Clock());
+                request = new Request(ownerKey, ownerDescription, _Clock()) { Alone = alone };
                 node = _Waiters.AddLast(request);
                 GrantWaiting(granted);
             }
@@ -462,8 +484,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Move waiters to holders, first in line first, while a slot is free and memory admits the first
-        /// request. A request held for memory ends the loop, so no later request passes it. Call under
-        /// <see cref="_Sync"/>; complete the returned requests outside it.
+        /// request. A request held for memory ends the loop, so no later request passes it. A holder that holds
+        /// the host alone ends the loop, and so does a first request that asks for the host alone while any slot
+        /// is held. Call under <see cref="_Sync"/>; complete the returned requests outside it.
         /// </summary>
         private static void GrantWaiting(List<Request> granted)
         {
@@ -471,6 +494,8 @@ namespace Armada.Core.Services
             while (_Holders.Count < _SlotCount && _Waiters.First != null)
             {
                 Request next = _Waiters.First.Value;
+                if (_Holders.Exists(holder => holder.Alone)) break;
+                if (next.Alone && _Holders.Count > 0) break;
                 DateTime now = _Clock();
                 bool underFloor = false;
                 if (_MemoryFloorMb > 0)
@@ -625,6 +650,9 @@ namespace Armada.Core.Services
             public DateTime? MemoryHeldSinceUtc { get; set; }
 
             public bool GrantedUnderMemoryFloor { get; set; }
+
+            /// <summary>True when the request holds the host alone: no other request is granted while it holds.</summary>
+            public bool Alone { get; init; }
 
             /// <summary>How many times this request began or ended holding a slot together with another request.</summary>
             public long ShareEvents { get; set; }

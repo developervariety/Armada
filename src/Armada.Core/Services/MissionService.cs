@@ -14051,7 +14051,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private static string BuildDodFailureReason(DefinitionOfDoneResult result)
+        internal static string BuildDodFailureReason(DefinitionOfDoneResult result)
         {
             string label = result.CommandLabel ?? "unknown";
             string tail = String.IsNullOrWhiteSpace(result.OutputTail) ? "" : "\n" + result.OutputTail.Trim();
@@ -14061,8 +14061,14 @@ namespace Armada.Core.Services
             string timedOut = result.TimedOut && failureClass != DefinitionOfDoneFailureClassEnum.Timeout
                 ? " and also hit its time limit, so some tests did not finish"
                 : String.Empty;
+            // A time limit that still read as host load on the gate's re-run says so on the first line, where recovery
+            // reads it.
+            string hostLoad = result.HostLoadTimeout && failureClass == DefinitionOfDoneFailureClassEnum.Timeout
+                ? " (" + DefinitionOfDoneFailureClassifier.HostLoadTimeoutMarker
+                    + ": on the gate's re-run the command was still writing output, or shared or overloaded the host, at its time limit)"
+                : String.Empty;
             return "DoD gate failed: classification=" + failureClass + "; " + label +
-                " command exited " + result.ExitCode + timedOut + tail;
+                " command exited " + result.ExitCode + timedOut + hostLoad + tail;
         }
 
         private static string ApplyReviewFeedback(string? description, string reviewComment)

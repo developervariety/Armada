@@ -78,6 +78,22 @@ namespace Armada.Core.Models
         public bool TimedOutOnSharedHost { get; set; }
 
         /// <summary>
+        /// True when the command that hit its time limit was still writing output shortly before the limit, so it
+        /// was working rather than hung. Such a command needed more time than the limit gave it on this host, so the
+        /// gate runs once more before it reports it.
+        /// </summary>
+        public bool TimedOutWhileProgressing { get; set; }
+
+        /// <summary>
+        /// True when this result is a time limit the gate reports after its one re-run, and that re-run's own time
+        /// limit still reads as host load: the host ran overloaded, another command shared the host, or the command
+        /// was still writing output. The recorded failure reason carries
+        /// <see cref="Armada.Core.Services.DefinitionOfDoneFailureClassifier.HostLoadTimeoutMarker"/>, which autonomous
+        /// recovery reads as a host-load time limit that one rescue may carry through a fresh gate.
+        /// </summary>
+        public bool HostLoadTimeout { get; set; }
+
+        /// <summary>
         /// Non-null when the gate was skipped rather than run (e.g., persona not applicable,
         /// doc-only marker present). A skipped gate is treated as passed.
         /// </summary>

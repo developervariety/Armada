@@ -51,6 +51,12 @@ namespace Armada.Server
         internal const string PostTestStepRetryReason = "post_test_step_retry";
 
         /// <summary>
+        /// Stable reason a rescue carries when the gate's time limit still read as host load on the gate's own
+        /// re-run, so the work is carried through one fresh gate.
+        /// </summary>
+        internal const string HostLoadTimeoutRetryReason = "host_load_timeout_retry";
+
+        /// <summary>
         /// Decision reason recorded when the failed stage ended with <c>[ARMADA:RESULT] BLOCKED</c>: it waits on
         /// an owner answer, and a rescue would re-run it without one.
         /// </summary>
@@ -1430,6 +1436,14 @@ namespace Armada.Server
             if (hasGateClass && gateClass == DefinitionOfDoneFailureClassEnum.PostTestStep)
                 return RecoveryDecision.Rescue(PostTestStepRetryReason
                     + ": every test passed and only the step after the tests failed, so the work is re-run through a fresh gate");
+            // A time limit that read as host load on the gate's own re-run, which held the host alone, is the host's
+            // load and not the work's. One rescue carries the same work through a fresh gate; a rescue that times
+            // out again stops at the auto-rescue block above.
+            if (hasGateClass
+                && gateClass == DefinitionOfDoneFailureClassEnum.Timeout
+                && DefinitionOfDoneFailureClassifier.IsHostLoadTimeout(reason))
+                return RecoveryDecision.Rescue(HostLoadTimeoutRetryReason
+                    + ": the gate's time limit still read as host load on its re-run with the host to itself, so the work is re-run through a fresh gate once");
             if (hasGateClass
                 && (gateClass == DefinitionOfDoneFailureClassEnum.Infra || gateClass == DefinitionOfDoneFailureClassEnum.Timeout))
                 return RecoveryDecision.Blocked("gate_class_not_rescuable: definition-of-done gate failure class " + gateClass

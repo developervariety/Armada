@@ -98,13 +98,25 @@ class and the original diagnostics. The operator corrects the host or workflow
 configuration and reruns the gate. `Compile` and `TestFail` remain eligible for
 rescue under the other recovery rules.
 
-A `Timeout` recorded while the host was overloaded, or while another build or
-test command held a host command slot at the same time, has already been run
-twice: the gate runs once more before it reports the failure (after load falls,
-when the host was overloaded), and records
-`mission.definition_of_done_load_rerun` with the reason `host_overloaded` or
-`host_slot_shared` (see `docs/reference/backend-dod.md`). A `Timeout` that
-reaches this block with that event beside it timed out on both runs.
+A `Timeout` recorded while the host was overloaded, while another build or
+test command held a host command slot at the same time, or while the command
+was still writing output, has already been run twice: the gate runs once more
+with the host to itself before it reports the failure (after load falls, when
+the host was overloaded), and records `mission.definition_of_done_load_rerun`
+with the reason `host_overloaded`, `host_slot_shared` or `output_progressing`
+(see `docs/reference/backend-dod.md`). A `Timeout` that reaches this block with
+that event beside it timed out on both runs.
+
+A `Timeout` whose re-run still read as host load keeps one rescue. Its failure
+reason's first line carries `(host_load_timeout: ...)`: on the re-run, which
+held the host alone, the host ran overloaded or the command was still writing
+output at its limit. The rescue decision reason is `host_load_timeout_retry:`,
+and the rescue carries the same work through a fresh gate. A rescue that times
+out again is not rescued again (the auto-rescue block).
+
+A failed stage whose voyage ended `Failed` can also be restarted by an operator
+(`restart_mission`): the restart reopens the voyage and runs the later stages
+that were cancelled behind it again, whatever the failure class.
 
 A `PostTestStep` failure keeps the rescue. Every test passed and only a step
 after the tests failed, on the gate's run and on its one retry (see

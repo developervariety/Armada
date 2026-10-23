@@ -103,6 +103,13 @@ namespace Armada.Core.Services
         /// </summary>
         public const string ConsumerPostTestStepFailedLabelPrefix = "consumer_post_test_step_failed: ";
 
+        /// <summary>
+        /// Marker the first line of a <see cref="DefinitionOfDoneFailureClassEnum.Timeout"/> failure reason carries when
+        /// the time limit still read as host load on the gate's one re-run (see
+        /// <see cref="Armada.Core.Models.DefinitionOfDoneResult.HostLoadTimeout"/>).
+        /// </summary>
+        public const string HostLoadTimeoutMarker = "host_load_timeout";
+
         #endregion
 
         #region Public-Methods
@@ -137,6 +144,24 @@ namespace Armada.Core.Services
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Whether a recorded failure reason is a <see cref="DefinitionOfDoneFailureClassEnum.Timeout"/> gate failure
+        /// whose time limit read as host load on the gate's re-run. Only the reason's first line is read, so the
+        /// marker printed in a command's output tail never counts.
+        /// </summary>
+        /// <param name="failureReason">Recorded mission failure reason.</param>
+        /// <returns>True for a host-load time limit.</returns>
+        public static bool IsHostLoadTimeout(string? failureReason)
+        {
+            if (!TryReadRecordedClass(failureReason, out DefinitionOfDoneFailureClassEnum failureClass)) return false;
+            if (failureClass != DefinitionOfDoneFailureClassEnum.Timeout) return false;
+
+            string trimmed = failureReason!.TrimStart();
+            int newline = trimmed.IndexOfAny(new[] { '\r', '\n' });
+            string firstLine = newline < 0 ? trimmed : trimmed.Substring(0, newline);
+            return firstLine.Contains(HostLoadTimeoutMarker, StringComparison.Ordinal);
         }
 
         /// <summary>

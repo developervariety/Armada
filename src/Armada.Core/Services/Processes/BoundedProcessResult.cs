@@ -76,6 +76,13 @@ namespace Armada.Core.Services
         /// <summary>Why writing standard input failed; null when it succeeded or there was none.</summary>
         public string? StandardInputError { get; set; } = null;
 
+        /// <summary>
+        /// How long the run had written nothing to standard output or standard error when it hit its time limit, read
+        /// just before the kill. Null when the run did not time out, wrote nothing at all, or combined its streams. A
+        /// short value means the command was still producing output, so it was working rather than hung.
+        /// </summary>
+        public TimeSpan? OutputQuietAtTimeout { get; set; } = null;
+
         /// <summary>Time from start to the end of the run.</summary>
         public TimeSpan Duration { get; set; } = TimeSpan.Zero;
 

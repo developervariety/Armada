@@ -584,6 +584,25 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A definition-of-done gate's one re-run after a host-load time limit holds the
+  host to itself. The re-run asks the host command lock for the whole host
+  (`HostWideCommandLock.AcquireAloneAsync`): it keeps its place in line, starts
+  when no other build or test command holds a slot, and no other command is
+  granted a slot while it runs. A re-run that queued for an ordinary slot could
+  start beside another gate of the same vessel and wait out that gate's suite
+  lock inside its own time limit, so it timed out exactly like the first run.
+  A command still writing output at its time limit (within a quarter of the
+  limit, at most 60 seconds) also triggers the re-run, with reason
+  `output_progressing`; the result carries `TimedOutWhileProgressing`, the
+  timeout message says so, and `BoundedProcessResult.OutputQuietAtTimeout`
+  reports the silence. `mission.definition_of_done_load_rerun` is schema version
+  3 and adds `OutputProgressing` and `RerunAlone`.
+- A gate `Timeout` whose re-run still reads as host load is rescued once. The
+  result carries `HostLoadTimeout`, the failure reason's first line carries
+  `(host_load_timeout: ...)`, and autonomous recovery dispatches one rescue with
+  reason `host_load_timeout_retry:` instead of refusing it as
+  `gate_class_not_rescuable`. A plain `Timeout` on a silent command is still
+  refused, and a rescue that times out again is not rescued again.
 - A reconnecting WebSocket client no longer loses history to one Check log. A
   change event carried the whole Check output (up to 4 MiB), and a frame larger
   than the 1 MiB replay limit emptied the replay history, so a subscription
