@@ -92,6 +92,35 @@ namespace Armada.Core.Services.Archive
         }
 
         /// <inheritdoc />
+        public async Task<ArchivePutResult> VerifyStoredAsync(string key, long bytes, string sha256, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(key)) throw new ArgumentNullException(nameof(key));
+            if (String.IsNullOrWhiteSpace(sha256)) throw new ArgumentNullException(nameof(sha256));
+            Credentials credentials;
+            try
+            {
+                credentials = ReadCredentials();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return ArchivePutResult.Failed(key, "credentials_missing", ex.Message);
+            }
+
+            try
+            {
+                return await HeadAndCompareAsync(key, bytes, sha256.ToLowerInvariant(), credentials, token).ConfigureAwait(false);
+            }
+            catch (HttpRequestException ex)
+            {
+                return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: " + ex.Message);
+            }
+            catch (TaskCanceledException ex) when (!token.IsCancellationRequested)
+            {
+                return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back in time: " + ex.Message);
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<ArchivePutResult> PutBytesAsync(string key, byte[] content, string contentType, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(key)) throw new ArgumentNullException(nameof(key));
@@ -247,9 +276,18 @@ namespace Armada.Core.Services.Archive
             }
 
             // Read the stored object back: the store must hold exactly the bytes and the hash sent.
+            ArchivePutResult verified = await HeadAndCompareAsync(key, bytes, sha256, credentials, token).ConfigureAwait(false);
+            if (verified.Verified) verified.ETag = etag;
+            return verified;
+        }
+
+        private async Task<ArchivePutResult> HeadAndCompareAsync(string key, long bytes, string sha256, Credentials credentials, CancellationToken token)
+        {
             using (HttpRequestMessage head = BuildRequest(HttpMethod.Head, key, null, credentials, _EmptySha256, null))
             using (HttpResponseMessage response = await _Http.SendAsync(head, token).ConfigureAwait(false))
             {
+                if (response.StatusCode == HttpStatusCode.NotFound)
+                    return ArchivePutResult.Failed(key, "not_found", "no stored object '" + key + "'");
                 if (!response.IsSuccessStatusCode)
                     return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: HTTP " + (int)response.StatusCode);
                 long stored = response.Content.Headers.ContentLength ?? -1;
@@ -260,7 +298,7 @@ namespace Armada.Core.Services.Archive
                     return ArchivePutResult.Failed(key, "sha256_mismatch", "stored object '" + key + "' records SHA-256 '" + storedSha + "', local content is " + sha256);
             }
 
-            return new ArchivePutResult { Key = key, Verified = true, Bytes = bytes, Sha256 = sha256, ETag = etag };
+            return new ArchivePutResult { Key = key, Verified = true, Bytes = bytes, Sha256 = sha256 };
         }
 
         private HttpRequestMessage BuildRequest(HttpMethod method, string? key, SortedDictionary<string, string>? query, Credentials credentials,

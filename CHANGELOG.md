@@ -603,6 +603,25 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- The disk-lifecycle instruction category covers each mission's brief-file
+  folders (`<mission>.mission` and `<mission>.memory` beside the instruction
+  snapshot). Each folder is one item under `instructionRetentionDays`, aged by
+  its newest file, archived file by file and then freed.
+- A history folder whose files are all verified in the archive is freed even
+  when directories inside it lack owner write: the pass gives each directory
+  inside the folder owner read, write and execute first, never changes the
+  folder that holds it, and never follows a symlink. An archived item that
+  still cannot be freed is named in the report's `Errors`, counted in
+  `ArchiveFreeFailures`, recorded as one `disk_lifecycle.archive_free_failed`
+  event and posted in the pass's board note. A file whose key already holds the
+  same size and SHA-256 is not uploaded again (`IArchiveSink.VerifyStoredAsync`;
+  the report counts it in `ArchiveReusedItems`), so the next pass frees the
+  item without a second upload.
+- A disk-lifecycle pass archives at most `diskLifecycle.archiveMaxFilesPerPass`
+  files (default 1000), because the pass runs inside the health loop. Further
+  expired history is recorded `deferred` and left for the next pass; the report
+  sets `ArchiveCapped` and `ArchiveDeferredItems`, the report event names the
+  deferred count, and its payload carries the archive counts.
 - An objective write that changes a confirmed stage skip without
   `confirmStageSkip` says that it dropped the confirmation: the returned
   `stageSkip.confirmationNotice` names what changed (the stages or the reason)

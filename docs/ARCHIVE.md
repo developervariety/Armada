@@ -47,6 +47,10 @@ Every key starts with `archive.keyPrefix`.
   (`ArchivePutResult.Verified`). A failure carries a `FailureCode` such as
   `upload_failed`, `size_mismatch`, `sha256_mismatch` or `credentials_missing`.
   A caller frees its local copy only on a verified result.
+- `IArchiveSink.VerifyStoredAsync` checks whether a key already holds content
+  of the given size and SHA-256, without uploading. A history pass asks it
+  before each upload and sends no upload for a file that is already stored, so
+  a pass that retries an archived item uploads nothing twice.
 - `IArchiveSink.GetBytesAsync` reads one object's content, returns null for a
   missing key and refuses an object above the caller's size limit.
 - `IDataExpiryObserver` receives each database row that data expiry is about to
@@ -73,7 +77,9 @@ runs as `Keep` or `Delete` and is named in the report's `Errors`.
 ## What is history
 
 The disk-lifecycle pass treats these as history: mission logs, diff snapshots,
-instruction snapshots and kept handoff texts (`logs/handoffs`, bounded by the
+instruction snapshots, each mission's brief-file folders beside its snapshot
+(`<mission>.mission` and `<mission>.memory`, one item per folder, aged by its
+newest file) and kept handoff texts (`logs/handoffs`, bounded by the
 instruction retention), dock metadata and stage-start records, final messages
 (`logs/final-messages`, bounded by the mission-log retention), whole
 operator-evidence folders idle past `diskLifecycle.operatorEvidenceRetentionDays`,
@@ -83,7 +89,12 @@ roots and the `.git`, `bin`, `obj` and `node_modules` payload of operator
 evidence are not history: they are freed as before, with no upload.
 
 An archived operator-evidence folder uploads every file outside its payload
-directories, and is removed only when every upload is verified. A session root
+directories, and is removed only when every upload is verified. A brief-file
+folder uploads every file. Before a verified folder is removed, each directory
+inside it is given owner read, write and execute, because a read-only
+directory blocks removing its entries. The folder that holds the item is never
+changed, symlinks are neither followed nor changed, and the operating system
+refuses the change on a directory the admiral does not own. A session root
 is an absolute folder; its files are uploaded under
 `raw/captainSessions-<name>/` with their path relative to the root, and are
 freed only after a verified upload, whatever the mode.
@@ -121,10 +132,28 @@ ignores case.
 ## Failures
 
 A history pass that fails to verify any upload records one
-`disk_lifecycle.archive_failed` event and posts one board note. Both name the
-run, the count and up to five kept files with their failure codes. The report
-carries `ArchivedItems`, `ArchivedBytes`, `ArchiveFailures` and
-`ArchiveManifestKey`.
+`disk_lifecycle.archive_failed` event. A pass that verified every file of an
+item but could not remove the item records one
+`disk_lifecycle.archive_free_failed` event and names each such item in the
+report's `Errors`; the item stays, and the next pass retries the removal
+without uploading its files again. Each event names the run, the count and up
+to five items with their failures, and the pass posts one board note that
+carries both. The report carries `ArchivedItems` (files verified in the
+archive by the pass, uploaded now or already stored), `ArchiveReusedItems`
+(those already stored, so not uploaded), `ArchivedBytes`, `ArchiveFailures`,
+`ArchiveFreeFailures` and `ArchiveManifestKey`.
+
+A pass runs inside the admiral's health loop, so it archives at most
+`diskLifecycle.archiveMaxFilesPerPass` files (default 1000). Once it reaches
+that bound it starts no further history item: each one is counted reclaimable,
+recorded with the disposition `deferred`, and left for the next pass. A folder
+already started is finished. Operator evidence is archived before the other
+history categories, so a backlog of small files cannot hold its few large
+folders back. The report sets `ArchiveCapped` and counts the
+deferred items in `ArchiveDeferredItems`, and the pass's report event says how
+many items it deferred. Every other scan step has no item bound. The report
+keeps the first 2000 per-item actions and the first 200 errors; the category
+counts and `ErrorCount` cover every item.
 
 ## Archive expiry
 

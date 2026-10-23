@@ -527,6 +527,148 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Expired brief-file folders beside instruction snapshots are archived and freed, recent ones are kept", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string instructions = Path.Combine(layout.Settings.LogDirectory, "instructions");
+                    string oldMemory = Path.Combine(instructions, "msn_old.memory");
+                    string oldMission = Path.Combine(instructions, "msn_old.mission");
+                    string freshMemory = Path.Combine(instructions, "msn_fresh.memory");
+                    CreateRetentionFile(oldMemory, "01-core.md", DateTime.UtcNow.AddDays(-20));
+                    CreateRetentionFile(oldMemory, "02-mission.md", DateTime.UtcNow.AddDays(-20));
+                    CreateRetentionFile(oldMission, "brief.md", DateTime.UtcNow.AddDays(-20));
+                    CreateRetentionFile(freshMemory, "01-core.md", DateTime.UtcNow.AddDays(-20));
+                    CreateRetentionFile(freshMemory, "02-mission.md", DateTime.UtcNow);
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    layout.Settings.DiskLifecycle.InstructionRetentionDays = 7;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    List<string> keys = sink.Objects.Keys.Where(k => k.StartsWith("armada/raw/instructions/", StringComparison.Ordinal)).ToList();
+                    AssertTrue(keys.Any(k => k.EndsWith("/msn_old.memory/01-core.md", StringComparison.Ordinal)), "A file of an expired memory folder is archived: " + String.Join(", ", keys));
+                    AssertTrue(keys.Any(k => k.EndsWith("/msn_old.mission/brief.md", StringComparison.Ordinal)), "A file of an expired description folder is archived");
+                    AssertEqual(3, keys.Count, "Only the expired folders' files are archived: " + String.Join(", ", keys));
+                    AssertFalse(Directory.Exists(oldMemory), "The archived memory folder is freed");
+                    AssertFalse(Directory.Exists(oldMission), "The archived description folder is freed");
+                    AssertTrue(File.Exists(Path.Combine(freshMemory, "01-core.md")), "A folder with a recent file is kept whole");
+                    DiskLifecycleCategory category = live.Categories.Single(c => c.Category == "instructions");
+                    AssertEqual(2, category.ReclaimableItems, "Each expired folder is one reclaimable item");
+                    AssertEqual(1, category.ProtectedItems, "The recent folder is one protected item");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An archived item that cannot be freed is reported and retried without a second upload; read-only folders inside an item do not block its removal", async () =>
+            {
+                // The owner bits mean nothing to a privileged process, so the scenario cannot arise there.
+                if (OperatingSystem.IsWindows() || Environment.IsPrivilegedProcess) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+                string missions = Path.Combine(layout.Settings.LogDirectory, "missions");
+                UnixFileMode readOnlyDirectory = UnixFileMode.UserRead | UnixFileMode.UserExecute;
+                UnixFileMode writableDirectory = readOnlyDirectory | UnixFileMode.UserWrite;
+
+                try
+                {
+                    string evidence = CreateEvidenceFolder(Path.Combine(layout.Settings.LogDirectory, "operator-evidence"), "proof-ro", DateTime.UtcNow.AddDays(-20));
+                    string lockedSource = Path.Combine(evidence, "checkout", "src");
+                    File.SetUnixFileMode(lockedSource, readOnlyDirectory);
+                    File.SetUnixFileMode(Path.Combine(evidence, "checkout"), readOnlyDirectory);
+                    string log = CreateRetentionFile(missions, "msn_locked.log", DateTime.UtcNow.AddDays(-40));
+                    File.SetUnixFileMode(missions, readOnlyDirectory);
+
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    FakeBoardNotePoster notes = new FakeBoardNotePoster();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    service.BoardNotes = notes;
+                    layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport first = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertFalse(Directory.Exists(evidence), "An archived folder holding read-only folders is freed");
+                    AssertTrue(File.Exists(log), "A file whose removal is refused stays");
+                    AssertEqual(readOnlyDirectory, File.GetUnixFileMode(missions) & writableDirectory, "The folder that holds the item is not changed");
+                    AssertEqual(1, first.ArchiveFreeFailures, "The report counts the item that could not be freed");
+                    AssertTrue(first.Errors.Any(e => e.Contains(log, StringComparison.Ordinal)), "The report's errors name the item: " + String.Join(" | ", first.Errors));
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_free_failed", 10).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "One free-failure event is recorded");
+                    AssertTrue(events[0].Message!.Contains(log, StringComparison.Ordinal), "The event names the item");
+                    AssertEqual(1, notes.Posts.Count, "One board note is posted");
+                    AssertTrue(notes.Posts[0].Contains(log, StringComparison.Ordinal), "The note names the item: " + notes.Posts[0]);
+
+                    int logUploads = sink.Puts.Count(k => k.EndsWith("/msn_locked.log", StringComparison.Ordinal));
+                    File.SetUnixFileMode(missions, writableDirectory);
+                    DiskLifecycleReport second = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertFalse(File.Exists(log), "The next pass frees the item");
+                    AssertEqual(logUploads, sink.Puts.Count(k => k.EndsWith("/msn_locked.log", StringComparison.Ordinal)), "The next pass does not upload the verified file again");
+                    AssertEqual(1, second.ArchiveReusedItems, "The report counts the file found already archived");
+                    AssertEqual(0, second.ArchiveFreeFailures, "Nothing is left unfreed");
+                }
+                finally
+                {
+                    if (Directory.Exists(layout.Settings.DataDirectory))
+                    {
+                        foreach (string directory in Directory.EnumerateDirectories(layout.Settings.DataDirectory, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }))
+                            File.SetUnixFileMode(directory, File.GetUnixFileMode(directory) | writableDirectory);
+                    }
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A pass archives at most its file bound, reports the deferred items, and the next pass continues", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string missions = Path.Combine(layout.Settings.LogDirectory, "missions");
+                    List<string> logs = new List<string>
+                    {
+                        CreateRetentionFile(missions, "msn_a.log", DateTime.UtcNow.AddDays(-40)),
+                        CreateRetentionFile(missions, "msn_b.log", DateTime.UtcNow.AddDays(-40)),
+                        CreateRetentionFile(missions, "msn_c.log", DateTime.UtcNow.AddDays(-40))
+                    };
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    layout.Settings.DiskLifecycle.ArchiveMaxFilesPerPass = 2;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport first = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertEqual(1, logs.Count(File.Exists), "Two logs are archived and freed, one is kept");
+                    AssertTrue(first.ArchiveCapped, "The report says the pass reached its bound");
+                    AssertEqual(1, first.ArchiveDeferredItems, "The report counts the deferred item");
+                    AssertTrue(first.Actions.Any(a => a.Disposition == "deferred" && logs.Contains(a.Path) && File.Exists(a.Path)), "The deferred item is recorded by path");
+                    ArmadaEvent? recorded = (await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.reconcile", 5).ConfigureAwait(false)).FirstOrDefault();
+                    AssertNotNull(recorded, "The pass records its report event");
+                    AssertContains("deferred to the next pass", recorded!.Message ?? String.Empty, "The report event says items were deferred");
+
+                    DiskLifecycleReport second = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertEqual(0, logs.Count(File.Exists), "The next pass archives and frees the deferred log");
+                    AssertFalse(second.ArchiveCapped, "A pass under its bound is not capped");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("An unreadable folder is reported by name, not as nothing to reclaim", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;

@@ -40,6 +40,17 @@ namespace Armada.Test.Unit.TestHelpers
         }
 
         /// <inheritdoc />
+        public Task<ArchivePutResult> VerifyStoredAsync(string key, long bytes, string sha256, CancellationToken token = default)
+        {
+            if (!Objects.TryGetValue(key, out byte[]? content))
+                return Task.FromResult(ArchivePutResult.Failed(key, "not_found", "no stored object " + key));
+            string stored = Hash(content);
+            if (content.LongLength != bytes || !String.Equals(stored, sha256, StringComparison.Ordinal))
+                return Task.FromResult(ArchivePutResult.Failed(key, "sha256_mismatch", "the stored object does not match the local file"));
+            return Task.FromResult(new ArchivePutResult { Key = key, Verified = true, Bytes = content.LongLength, Sha256 = stored });
+        }
+
+        /// <inheritdoc />
         public Task<ArchivePutResult> PutBytesAsync(string key, byte[] content, string contentType, CancellationToken token = default)
         {
             return Task.FromResult(Store(key, content, Hash(content)));

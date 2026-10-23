@@ -90,12 +90,18 @@ namespace Armada.Core.Models
         public string HistoryMode { get; set; } = "Keep";
 
         /// <summary>
-        /// History files uploaded and verified by this pass.
+        /// History files this pass verified in the archive, uploaded now or already stored.
         /// </summary>
         public int ArchivedItems { get; set; } = 0;
 
         /// <summary>
-        /// Bytes of history uploaded and verified by this pass.
+        /// Files counted in <see cref="ArchivedItems"/> whose verified object already existed, so this
+        /// pass sent no upload for them.
+        /// </summary>
+        public int ArchiveReusedItems { get; set; } = 0;
+
+        /// <summary>
+        /// Bytes of history this pass verified in the archive.
         /// </summary>
         public long ArchivedBytes { get; set; } = 0;
 
@@ -103,6 +109,24 @@ namespace Armada.Core.Models
         /// History uploads that failed verification. Each failed file is kept.
         /// </summary>
         public int ArchiveFailures { get; set; } = 0;
+
+        /// <summary>
+        /// History items whose files are all verified in the archive but whose local copy could not be
+        /// removed. Each is named in <see cref="Errors"/>, and the next pass retries the removal.
+        /// </summary>
+        public int ArchiveFreeFailures { get; set; } = 0;
+
+        /// <summary>
+        /// True when the pass reached <c>diskLifecycle.archiveMaxFilesPerPass</c> and deferred expired
+        /// history to the next pass.
+        /// </summary>
+        public bool ArchiveCapped { get; set; } = false;
+
+        /// <summary>
+        /// Expired history items the pass deferred to the next pass because it reached the file bound.
+        /// Each is counted reclaimable and recorded with the disposition <c>deferred</c>.
+        /// </summary>
+        public int ArchiveDeferredItems { get; set; } = 0;
 
         /// <summary>
         /// Object key of the manifest this pass uploaded, or null when it archived nothing.

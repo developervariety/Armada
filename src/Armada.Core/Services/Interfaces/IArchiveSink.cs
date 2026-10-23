@@ -24,6 +24,16 @@ namespace Armada.Core.Services.Interfaces
         Task<ArchivePutResult> PutFileAsync(string key, string localPath, string sha256, CancellationToken token = default);
 
         /// <summary>
+        /// Check whether a key already holds exactly the given content, without uploading anything.
+        /// </summary>
+        /// <param name="key">Object key.</param>
+        /// <param name="bytes">Size of the local content.</param>
+        /// <param name="sha256">Lower-case hex SHA-256 of the local content.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Verified when the stored size and SHA-256 match; otherwise a named failure, <c>not_found</c> when the key holds no object.</returns>
+        Task<ArchivePutResult> VerifyStoredAsync(string key, long bytes, string sha256, CancellationToken token = default);
+
+        /// <summary>
         /// Upload in-memory content (a trace record or a manifest) under a key and verify it.
         /// </summary>
         /// <param name="key">Object key.</param>

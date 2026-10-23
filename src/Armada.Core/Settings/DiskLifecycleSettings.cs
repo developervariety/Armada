@@ -158,6 +158,18 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Most history files one pass archives. The pass runs inside the health loop, so a large
+        /// backlog is worked off over several passes instead of holding the loop for hours. Once the
+        /// bound is reached, every further expired history item is deferred to the next pass and the
+        /// report says so. A folder already started is finished. Defaults to 1000.
+        /// </summary>
+        public int ArchiveMaxFilesPerPass
+        {
+            get => _ArchiveMaxFilesPerPass;
+            set => _ArchiveMaxFilesPerPass = Math.Max(1, Math.Min(1000000, value));
+        }
+
+        /// <summary>
         /// Free space, in GB, on the log volume below which a pass runs in low-space mode and uses
         /// <see cref="LowSpacePayloadRetentionHours"/> for operator-evidence payload. Zero turns
         /// low-space mode off. Defaults to 20.
@@ -214,6 +226,7 @@ namespace Armada.Core.Settings
         private int _MinBackupCount = 2;
         private int _OperatorEvidencePayloadRetentionHours = 24;
         private int _OperatorEvidenceRetentionDays = 0;
+        private int _ArchiveMaxFilesPerPass = 1000;
         private int _LowSpaceThresholdGb = 20;
         private int _LowSpacePayloadRetentionHours = 6;
         private List<DiskLifecycleRetentionRoot> _ExtraRetentionRoots = new List<DiskLifecycleRetentionRoot>();

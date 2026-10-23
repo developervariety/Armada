@@ -224,7 +224,7 @@ namespace Armada.Core.Services
             if (archive.Enabled && !archive.IsConfigured)
                 RecordError("archive is enabled but endpoint, bucket or credentialsFile is missing; history is " + (_HistoryMode == HistoryRetentionModeEnum.Keep ? "kept" : "deleted") + " without a copy");
             if (delete && _HistoryMode == HistoryRetentionModeEnum.Archive)
-                _ArchivePass = new HistoryArchivePass(_ArchiveSinkFactory(archive), archive, report.ScannedUtc);
+                _ArchivePass = new HistoryArchivePass(_ArchiveSinkFactory(archive), archive, report.ScannedUtc, section.ArchiveMaxFilesPerPass);
 
             if (OnPassStarted != null)
                 await OnPassStarted(token).ConfigureAwait(false);
@@ -243,6 +243,9 @@ namespace Armada.Core.Services
                 await ScanOrphanDocks(section, delete, report, token).ConfigureAwait(false);
                 await ScanIntegrationWorktrees(section, delete, report, token).ConfigureAwait(false);
                 await ScanMergeQueueWorktrees(section, delete, report, token).ConfigureAwait(false);
+                // Operator evidence is the first history category: its folders are few and large, so a
+                // backlog of small history files cannot hold them past the archive file bound for days.
+                await ScanOperatorEvidence(section, delete, report, token).ConfigureAwait(false);
                 await ScanMissionLogs(section, delete, report, token).ConfigureAwait(false);
                 await ScanDiffSnapshots(section, delete, report, token).ConfigureAwait(false);
                 await ScanInstructionSnapshots(section, delete, report, token).ConfigureAwait(false);
@@ -250,7 +253,6 @@ namespace Armada.Core.Services
                 await ScanFinalMessages(section, delete, report, token).ConfigureAwait(false);
                 await ScanTempArtifacts(section, delete, report, token).ConfigureAwait(false);
                 await ScanBackups(section, delete, report, token).ConfigureAwait(false);
-                await ScanOperatorEvidence(section, delete, report, token).ConfigureAwait(false);
                 await ScanExtraRetentionRoots(section, delete, report, token).ConfigureAwait(false);
                 await ScanSessionRoots(delete, report, token).ConfigureAwait(false);
                 ScanBareRepos(report);
@@ -575,6 +577,10 @@ namespace Armada.Core.Services
             string root = Path.Combine(_Settings.LogDirectory, "instructions");
             TimeSpan retention = TimeSpan.FromDays(Math.Max(0, section.InstructionRetentionDays));
             await ScanExpiredFiles(root, "*", retention, delete, report, category, token, history: true).ConfigureAwait(false);
+            // Each mission also keeps the description and memory files its brief listed in folders beside
+            // the snapshot (<mission>.mission, <mission>.memory). They are part of the same brief, so each
+            // folder is one item under the same retention, aged by its newest file.
+            await ScanExpiredHistoryFolders(root, retention, delete, report, category, "brief files folder expired by retention policy", token).ConfigureAwait(false);
             // The complete text of a cut handoff is brief material like an instruction snapshot, so the same
             // retention bounds it.
             string handoffs = Path.Combine(_Settings.LogDirectory, MissionService.HandoffFullTextDirectoryName);
@@ -899,7 +905,7 @@ namespace Armada.Core.Services
                     string folderReason = "operator evidence idle past " + section.OperatorEvidenceRetentionDays + " days";
                     if (_HistoryMode != HistoryRetentionModeEnum.Delete)
                     {
-                        await DisposeEvidenceFolderAsync(category, root, full, bytes, delete, report, folderReason, token).ConfigureAwait(false);
+                        await DisposeHistoryFolderAsync(category, root, full, bytes, delete, report, folderReason, skipPayload: true, token).ConfigureAwait(false);
                         continue;
                     }
 
@@ -1180,6 +1186,54 @@ namespace Armada.Core.Services
                 {
                     RecordAction(report, category, full, "dry-run-reclaim", "expired by retention policy");
                 }
+            }
+        }
+
+        // Each direct subfolder of a history root is one item, aged by the newest file anywhere inside it.
+        private async Task ScanExpiredHistoryFolders(string root, TimeSpan retention, bool delete, DiskLifecycleReport report, DiskLifecycleCategory category, string reason, CancellationToken token)
+        {
+            if (!Directory.Exists(root)) return;
+
+            DateTime cutoff = DateTime.UtcNow.Subtract(retention);
+            List<string> folders = SafeEnumerateDirectories(root);
+            folders.Sort(StringComparer.Ordinal);
+            foreach (string folder in folders)
+            {
+                if (token.IsCancellationRequested) break;
+
+                string full = Path.GetFullPath(folder);
+                if (IsSymlink(full))
+                {
+                    RecordAction(report, category, full, "skipped", "symlink; never followed");
+                    continue;
+                }
+
+                if (NewestWriteTimeUtc(full, cutoff) > cutoff)
+                {
+                    category.ProtectedItems++;
+                    continue;
+                }
+
+                long bytes = SafeGetDirectoryBytes(full);
+                category.TotalBytes += bytes;
+                category.TotalItems++;
+                if (_HistoryMode != HistoryRetentionModeEnum.Delete)
+                {
+                    await DisposeHistoryFolderAsync(category, root, full, bytes, delete, report, reason, skipPayload: false, token).ConfigureAwait(false);
+                    continue;
+                }
+
+                category.ReclaimableBytes += bytes;
+                category.ReclaimableItems++;
+                if (!delete)
+                {
+                    RecordAction(report, category, full, "dry-run-reclaim", reason);
+                    continue;
+                }
+
+                string? failure = FreeHistoryDirectory(full);
+                if (failure != null) RecordError(category.Category + ": could not remove " + full + ": " + failure);
+                RecordAction(report, category, full, failure == null ? "reclaimed" : "skipped", failure == null ? reason : "directory removal failed: " + failure);
             }
         }
 
@@ -1496,6 +1550,13 @@ namespace Armada.Core.Services
             }
 
             HistoryArchivePass pass = _ArchivePass ?? throw new InvalidOperationException("archive mode without an archive pass");
+            if (pass.Exhausted)
+            {
+                pass.Defer();
+                RecordAction(report, category, full, "deferred", reason + "; the pass reached its archive file bound, so the next pass archives it");
+                return;
+            }
+
             ArchivePutResult put = await pass.ArchiveFileAsync(ArchiveCategory(category), root, full, token).ConfigureAwait(false);
             if (!put.Verified)
             {
@@ -1503,14 +1564,22 @@ namespace Armada.Core.Services
                 return;
             }
 
-            bool removed = await RemoveFileSafeAsync(full, token).ConfigureAwait(false);
-            RecordAction(report, category, full, removed ? "reclaimed" : "skipped", removed ? reason + "; archived to " + put.Key + ", then freed" : "archived to " + put.Key + "; removal failed");
+            string? freeFailure = FreeHistoryFile(full);
+            if (freeFailure != null)
+            {
+                pass.RecordFreeFailure(full, freeFailure);
+                RecordError(category.Category + ": archived to " + put.Key + " but could not be freed: " + full + ": " + freeFailure);
+            }
+            RecordAction(report, category, full, freeFailure == null ? "reclaimed" : "skipped",
+                freeFailure == null ? reason + "; archived to " + put.Key + ", then freed" : "archived to " + put.Key + "; removal failed: " + freeFailure);
         }
 
-        // An idle operator-evidence folder is history. Every file outside its payload directories
-        // (clones and build outputs) is archived first; any deny-listed file or failed upload keeps
-        // the whole folder.
-        private async Task DisposeEvidenceFolderAsync(DiskLifecycleCategory category, string root, string full, long bytes, bool delete, DiskLifecycleReport report, string reason, CancellationToken token)
+        // A history folder (an idle operator-evidence folder, a mission's brief files) is archived file by
+        // file before it is freed: every file, or with skipPayload every file outside the payload
+        // directories (clones and build outputs). Any deny-listed file or failed upload keeps the whole
+        // folder. A folder whose files are all verified but that cannot be removed is named in the
+        // report's errors and the pass's failure event, and the next pass retries it.
+        private async Task DisposeHistoryFolderAsync(DiskLifecycleCategory category, string root, string full, long bytes, bool delete, DiskLifecycleReport report, string reason, bool skipPayload, CancellationToken token)
         {
             if (_HistoryMode == HistoryRetentionModeEnum.Keep)
             {
@@ -1519,7 +1588,8 @@ namespace Armada.Core.Services
                 return;
             }
 
-            HashSet<string> payload = new HashSet<string>(FindPayloadDirectories(full).Select(d => Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar), StringComparer.Ordinal);
+            List<string> payloadDirectories = skipPayload ? FindPayloadDirectories(full) : new List<string>();
+            HashSet<string> payload = new HashSet<string>(payloadDirectories.Select(d => Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar), StringComparer.Ordinal);
             List<string> files = new List<string>();
             foreach (string file in SafeEnumerateFilesRecursive(full, "*"))
             {
@@ -1544,6 +1614,13 @@ namespace Armada.Core.Services
             }
 
             HistoryArchivePass pass = _ArchivePass ?? throw new InvalidOperationException("archive mode without an archive pass");
+            if (pass.Exhausted)
+            {
+                pass.Defer();
+                RecordAction(report, category, full, "deferred", reason + "; the pass reached its archive file bound, so the next pass archives it");
+                return;
+            }
+
             foreach (string file in files)
             {
                 if (token.IsCancellationRequested) return;
@@ -1555,8 +1632,104 @@ namespace Armada.Core.Services
                 }
             }
 
-            bool removed = await RemoveDirectorySafeAsync(full, token).ConfigureAwait(false);
-            RecordAction(report, category, full, removed ? "reclaimed" : "skipped", removed ? reason + "; " + files.Count + " files archived, then freed" : "archived; directory removal failed");
+            string? freeFailure = FreeHistoryDirectory(full);
+            if (freeFailure != null)
+            {
+                pass.RecordFreeFailure(full, freeFailure);
+                RecordError(category.Category + ": " + files.Count + " files archived but the folder could not be freed: " + full + ": " + freeFailure);
+            }
+            RecordAction(report, category, full, freeFailure == null ? "reclaimed" : "skipped",
+                freeFailure == null ? reason + "; " + files.Count + " files archived, then freed" : files.Count + " files archived; directory removal failed: " + freeFailure);
+        }
+
+        // Frees a history file whose verified copy is in the archive. Returns null when the file is gone,
+        // otherwise the failure.
+        private string? FreeHistoryFile(string path)
+        {
+            if (!IsPathAllowed(path)) return "refusing to remove a symlink or a path outside the allowed roots";
+            try
+            {
+                if (OperatingSystem.IsWindows()) File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex.GetType().Name + ": " + ex.Message;
+            }
+        }
+
+        // Frees a history folder whose files are all verified in the archive. A directory inside the
+        // folder that lacks owner read, write or execute blocks removing its entries, so each one is given
+        // those owner bits first. Only the folder and the directories inside it are changed; symlinks are
+        // neither followed nor changed, and the operating system refuses the change on a directory the
+        // admiral does not own. Returns null when the folder is gone, otherwise the failure, naming any
+        // directory whose mode could not be changed.
+        private string? FreeHistoryDirectory(string path)
+        {
+            if (!IsPathAllowed(path)) return "refusing to remove a symlink or a path outside the allowed roots";
+            string? modeFailure = null;
+            if (OperatingSystem.IsWindows())
+            {
+                foreach (string file in SafeEnumerateFilesRecursive(path, "*"))
+                {
+                    try { File.SetAttributes(file, FileAttributes.Normal); } catch (Exception ex) { modeFailure ??= file + ": " + ex.Message; }
+                }
+            }
+            else
+            {
+                modeFailure = MakeDirectoriesOwnerWritable(path);
+            }
+
+            try
+            {
+                Directory.Delete(path, true);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex.GetType().Name + ": " + ex.Message + (modeFailure == null ? "" : "; could not make writable: " + modeFailure);
+            }
+        }
+
+        [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+        private static string? MakeDirectoriesOwnerWritable(string root)
+        {
+            const UnixFileMode needed = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+            string? firstFailure = null;
+            int failures = 0;
+            Stack<string> pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                string current = pending.Pop();
+                try
+                {
+                    UnixFileMode mode = File.GetUnixFileMode(current);
+                    if ((mode & needed) != needed) File.SetUnixFileMode(current, mode | needed);
+                }
+                catch (Exception ex)
+                {
+                    failures++;
+                    firstFailure ??= current + ": " + ex.Message;
+                }
+
+                try
+                {
+                    foreach (string child in Directory.EnumerateDirectories(current))
+                    {
+                        if (IsSymlink(child)) continue;
+                        pending.Push(child);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failures++;
+                    firstFailure ??= current + ": " + ex.Message;
+                }
+            }
+            if (firstFailure == null) return null;
+            return firstFailure + (failures > 1 ? " (and " + (failures - 1) + " more)" : "");
         }
 
         // Uploads the pass manifest and reports failed uploads as an event and a board note, so a
@@ -1568,8 +1741,12 @@ namespace Armada.Core.Services
             if (pass == null) return;
 
             report.ArchivedItems = pass.Uploaded;
+            report.ArchiveReusedItems = pass.Reused;
             report.ArchivedBytes = pass.UploadedBytes;
             report.ArchiveFailures = pass.Failures.Count;
+            report.ArchiveFreeFailures = pass.FreeFailures.Count;
+            report.ArchiveDeferredItems = pass.Deferred;
+            report.ArchiveCapped = pass.Deferred > 0;
 
             ArchivePutResult? manifest = null;
             try
@@ -1592,48 +1769,75 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (pass.Failures.Count == 0 && manifestFailure == null) return;
+            if (pass.Failures.Count == 0 && manifestFailure == null && pass.FreeFailures.Count == 0) return;
 
-            List<string> lines = pass.Failures
-                .Take(_MaxReportedArchiveFailures)
-                .Select(f => f.Key + ": " + f.Value.FailureCode + (String.IsNullOrEmpty(f.Value.FailureMessage) ? "" : " (" + f.Value.FailureMessage + ")"))
-                .ToList();
-            if (manifestFailure != null) lines.Add(manifestFailure);
-            string summary = "History archive: " + pass.Failures.Count + " upload(s) failed verification in disk-lifecycle run " + pass.RunId
-                + "; each file is kept locally. " + String.Join("; ", lines)
-                + (pass.Failures.Count > _MaxReportedArchiveFailures ? "; and " + (pass.Failures.Count - _MaxReportedArchiveFailures) + " more" : "");
-
-            try
+            List<string> notes = new List<string>();
+            if (pass.Failures.Count > 0 || manifestFailure != null)
             {
-                await _Database.Events.CreateAsync(new ArmadaEvent
+                List<string> lines = pass.Failures
+                    .Take(_MaxReportedArchiveFailures)
+                    .Select(f => f.Key + ": " + f.Value.FailureCode + (String.IsNullOrEmpty(f.Value.FailureMessage) ? "" : " (" + f.Value.FailureMessage + ")"))
+                    .ToList();
+                if (manifestFailure != null) lines.Add(manifestFailure);
+                string summary = "History archive: " + pass.Failures.Count + " upload(s) failed verification in disk-lifecycle run " + pass.RunId
+                    + "; each file is kept locally. " + String.Join("; ", lines)
+                    + (pass.Failures.Count > _MaxReportedArchiveFailures ? "; and " + (pass.Failures.Count - _MaxReportedArchiveFailures) + " more" : "");
+                notes.Add(summary);
+                await RecordArchiveEventAsync("disk_lifecycle.archive_failed", summary, JsonSerializer.Serialize(new
                 {
-                    EventType = "disk_lifecycle.archive_failed",
-                    EntityType = "system",
-                    Message = summary,
-                    Payload = JsonSerializer.Serialize(new
-                    {
-                        runId = pass.RunId,
-                        failures = pass.Failures.Count,
-                        uploaded = pass.Uploaded,
-                        manifestFailure = manifestFailure,
-                        items = pass.Failures.Take(_MaxReportedArchiveFailures).Select(f => new { path = f.Key, key = f.Value.Key, code = f.Value.FailureCode, message = f.Value.FailureMessage })
-                    })
-                }, token).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (!(ex is OperationCanceledException))
-            {
-                _Logging.Warn(_Header + "could not record archive-failure event: " + ex.Message);
+                    runId = pass.RunId,
+                    failures = pass.Failures.Count,
+                    uploaded = pass.Uploaded,
+                    manifestFailure = manifestFailure,
+                    items = pass.Failures.Take(_MaxReportedArchiveFailures).Select(f => new { path = f.Key, key = f.Value.Key, code = f.Value.FailureCode, message = f.Value.FailureMessage })
+                }), token).ConfigureAwait(false);
             }
 
-            IBoardNotePoster? notes = BoardNotes;
-            if (notes == null) return;
+            if (pass.FreeFailures.Count > 0)
+            {
+                List<string> lines = pass.FreeFailures
+                    .Take(_MaxReportedArchiveFailures)
+                    .Select(f => f.Key + ": " + f.Value)
+                    .ToList();
+                string summary = "History archive: " + pass.FreeFailures.Count + " archived item(s) could not be freed locally in disk-lifecycle run " + pass.RunId
+                    + "; every file is verified in the archive, and the next pass retries the removal without uploading again. " + String.Join("; ", lines)
+                    + (pass.FreeFailures.Count > _MaxReportedArchiveFailures ? "; and " + (pass.FreeFailures.Count - _MaxReportedArchiveFailures) + " more" : "");
+                notes.Add(summary);
+                await RecordArchiveEventAsync("disk_lifecycle.archive_free_failed", summary, JsonSerializer.Serialize(new
+                {
+                    runId = pass.RunId,
+                    freeFailures = pass.FreeFailures.Count,
+                    items = pass.FreeFailures.Take(_MaxReportedArchiveFailures).Select(f => new { path = f.Key, message = f.Value })
+                }), token).ConfigureAwait(false);
+            }
+
+            IBoardNotePoster? poster = BoardNotes;
+            if (poster == null) return;
             try
             {
-                await notes.PostBroadcastAsync(summary, null, null, token).ConfigureAwait(false);
+                await poster.PostBroadcastAsync(String.Join(" ", notes), null, null, token).ConfigureAwait(false);
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {
                 _Logging.Warn(_Header + "could not post archive-failure board note: " + ex.Message);
+            }
+        }
+
+        private async Task RecordArchiveEventAsync(string eventType, string message, string payload, CancellationToken token)
+        {
+            try
+            {
+                await _Database.Events.CreateAsync(new ArmadaEvent
+                {
+                    EventType = eventType,
+                    EntityType = "system",
+                    Message = message,
+                    Payload = payload
+                }, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                _Logging.Warn(_Header + "could not record " + eventType + " event: " + ex.Message);
             }
         }
 
@@ -1673,6 +1877,7 @@ namespace Armada.Core.Services
                     Message = (deleted
                         ? "Disk lifecycle reconciliation " + (report.DryRun ? "dry-run " : "") + "completed: " + report.ReclaimableItems + " reclaimable items, " + FormatBytes(report.TotalReclaimableBytes)
                         : "Disk lifecycle scan completed: " + report.ReclaimableItems + " reclaimable items, " + FormatBytes(report.TotalReclaimableBytes))
+                        + (report.ArchiveCapped ? "; archive file bound reached, " + report.ArchiveDeferredItems + " history item" + (report.ArchiveDeferredItems == 1 ? "" : "s") + " deferred to the next pass" : "")
                         + (report.ErrorCount > 0 ? "; " + report.ErrorCount + " error" + (report.ErrorCount == 1 ? "" : "s") + ", first: " + report.Errors[0] : ""),
                     Payload = JsonSerializer.Serialize(new
                     {
@@ -1685,6 +1890,13 @@ namespace Armada.Core.Services
                         protectedItems = report.ProtectedItems,
                         errorCount = report.ErrorCount,
                         errors = report.Errors,
+                        historyMode = report.HistoryMode,
+                        archivedItems = report.ArchivedItems,
+                        archiveReusedItems = report.ArchiveReusedItems,
+                        archiveFailures = report.ArchiveFailures,
+                        archiveFreeFailures = report.ArchiveFreeFailures,
+                        archiveCapped = report.ArchiveCapped,
+                        archiveDeferredItems = report.ArchiveDeferredItems,
                         categories = perCategory
                     })
                 };
