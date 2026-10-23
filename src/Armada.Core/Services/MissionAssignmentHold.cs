@@ -54,6 +54,13 @@ namespace Armada.Core.Services
         /// <summary>The Architect plan marks this mission to run after the implementation work.</summary>
         public const string ArchitectSequenced = "architect_sequenced";
 
+        /// <summary>
+        /// A reassigned root (stage-1) mission's retained dock authorized continuing its committed branch, but that
+        /// branch no longer resolves in the vessel repository. The mission is held rather than cut from the default
+        /// branch, which would orphan its committed work.
+        /// </summary>
+        public const string RootContinuationRefMissing = "root_continuation_ref_missing";
+
         #endregion
 
         #region Public-Methods

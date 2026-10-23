@@ -964,7 +964,58 @@ namespace Armada.Core.Services
                 && !dependencyIsCrossVessel
                 && !String.IsNullOrEmpty(dependencyBranchName)
                 && String.Equals(mission.BranchName, dependencyBranchName, StringComparison.Ordinal);
-            string branchName = preserveInheritedBranch
+
+            // A root (stage-1) mission -- one with no dependency to inherit a branch from -- that is
+            // being REASSIGNED keeps its committed work on its own persisted branch. A restart resets
+            // such a mission to Pending but retains its branch and its active dock, so the replacement
+            // captain must continue that branch, not cut a fresh one from the default branch and orphan
+            // the committed work. Continuation is authorized only by the mission's own RETAINED ACTIVE
+            // dock on this vessel, tenant and branch: a bare branch name left on the row by an aborted
+            // earlier attempt retains no such dock and still gets a fresh captain branch. This is kept
+            // separate from the inherited-branch rule above; it never relaxes it. The saved ref is
+            // resolved BEFORE provisioning, and if it no longer resolves the mission is held rather than
+            // cut from the default branch, because that would silently abandon the work.
+            bool preserveReassignedRootBranch = false;
+            if (String.IsNullOrEmpty(mission.DependsOnMissionId)
+                && !String.IsNullOrEmpty(mission.BranchName)
+                && !String.IsNullOrEmpty(mission.DockId))
+            {
+                Dock? retainedDock = await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
+                bool dockAuthorizesContinuation = retainedDock != null
+                    && retainedDock.Active
+                    && String.Equals(retainedDock.VesselId, mission.VesselId, StringComparison.Ordinal)
+                    && String.Equals(retainedDock.BranchName, mission.BranchName, StringComparison.Ordinal)
+                    && String.Equals(retainedDock.TenantId, vessel.TenantId, StringComparison.Ordinal);
+                if (dockAuthorizesContinuation)
+                {
+                    string savedBranchRepoPath = !String.IsNullOrEmpty(vessel.LocalPath)
+                        ? vessel.LocalPath!
+                        : Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
+                    string? savedBranchHead = _Git == null
+                        ? null
+                        : await _Git.GetRevisionCommitShaAsync(savedBranchRepoPath, mission.BranchName!, token).ConfigureAwait(false);
+                    if (String.IsNullOrEmpty(savedBranchHead))
+                    {
+                        await HoldForAssignmentAsync(mission, MissionAssignmentHold.RootContinuationRefMissing, mission.BranchName,
+                            "A restart retained this root mission's committed branch " + mission.BranchName
+                            + " and its active dock, but that branch no longer resolves in the vessel repository; "
+                            + "holding rather than cutting a fresh branch from the default branch, which would orphan the committed work.",
+                            token).ConfigureAwait(false);
+                        await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
+                        return false;
+                    }
+
+                    preserveReassignedRootBranch = true;
+                    _Logging.Info(_Header + "mission " + mission.Id + " continues its retained root branch " + mission.BranchName
+                        + " (head " + savedBranchHead + ") under replacement captain " + captain.Id + " after reassignment");
+                }
+            }
+
+            // Reuse the saved branch for an inherited stage OR a reassigned root continuation; both
+            // attach the new worktree to an existing branch head rather than cutting from the default
+            // branch. Branch-retention on a later failure/revert keys on this same combined flag.
+            bool preserveSavedBranch = preserveInheritedBranch || preserveReassignedRootBranch;
+            string branchName = preserveSavedBranch
                 ? mission.BranchName!
                 : BuildMissionBranchName(captain, mission);
             mission.BranchName = branchName;
@@ -982,7 +1033,7 @@ namespace Armada.Core.Services
             // requested commit. An unresolvable ref fails the mission by name; it never falls back to
             // the default branch, because a captain working on the wrong base reads as a captain
             // defect two stages later.
-            if (!preserveInheritedBranch
+            if (!preserveSavedBranch
                 && !String.IsNullOrWhiteSpace(mission.StartFromRef))
             {
                 resolvedStartCommit = await _Docks.PrepareBranchFromRefAsync(vessel, branchName, mission.StartFromRef!.Trim(), token).ConfigureAwait(false);
@@ -1047,14 +1098,14 @@ namespace Armada.Core.Services
                     await WaitForPredecessorDockAsync(mission, captain, holdingStage, ex.Message, token).ConfigureAwait(false);
                     return false;
                 }
-                await FailDockProvisionAsync(mission, captain, preserveInheritedBranch, ex.Message, token).ConfigureAwait(false);
+                await FailDockProvisionAsync(mission, captain, preserveSavedBranch, ex.Message, token).ConfigureAwait(false);
                 return false;
             }
 
             if (dock == null)
             {
                 _Logging.Warn(_Header + "dock provisioning failed for captain " + captain.Id + " vessel " + vessel.Id + " mission " + mission.Id + " -- reverting to Pending");
-                await FailDockProvisionAsync(mission, captain, preserveInheritedBranch, "dock provisioning failed", token).ConfigureAwait(false);
+                await FailDockProvisionAsync(mission, captain, preserveSavedBranch, "dock provisioning failed", token).ConfigureAwait(false);
                 return false;
             }
 
@@ -1076,7 +1127,7 @@ namespace Armada.Core.Services
             // fails, so no failure point leaves a half-assigned row. The captain claim goes first: it is
             // the compare-and-set that keeps one captain from serving two missions, and until it holds
             // the mission row must not record a dock for that captain.
-            if (!await TryCommitAssignmentAsync(mission, captain, dock, preserveInheritedBranch, token).ConfigureAwait(false))
+            if (!await TryCommitAssignmentAsync(mission, captain, dock, preserveSavedBranch, token).ConfigureAwait(false))
                 return false;
             _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
@@ -1208,7 +1259,7 @@ namespace Armada.Core.Services
 
                 mission.Status = MissionStatusEnum.Pending;
                 mission.CaptainId = null;
-                if (!preserveInheritedBranch)
+                if (!preserveSavedBranch)
                     mission.BranchName = null;
                 mission.DockId = null;
                 mission.ProcessId = null;
@@ -2067,7 +2118,7 @@ namespace Armada.Core.Services
             Mission mission,
             Captain captain,
             Dock dock,
-            bool preserveInheritedBranch,
+            bool preserveSavedBranch,
             CancellationToken token)
         {
             try
@@ -2077,7 +2128,7 @@ namespace Armada.Core.Services
                 {
                     _Logging.Warn(_Header + "captain_claim_lost: captain " + captain.Id + " was claimed by another mission before mission "
                         + mission.Id + " committed its assignment; returning the mission to Pending");
-                    await RevertUncommittedAssignmentAsync(mission, preserveInheritedBranch, MissionAssignmentStateEnum.WaitingForIdleCaptain).ConfigureAwait(false);
+                    await RevertUncommittedAssignmentAsync(mission, preserveSavedBranch, MissionAssignmentStateEnum.WaitingForIdleCaptain).ConfigureAwait(false);
                     await DiscardUncommittedDockAsync(mission, dock).ConfigureAwait(false);
                     return false;
                 }
@@ -2100,7 +2151,7 @@ namespace Armada.Core.Services
                 // Either write may have applied before the fault, so undo both conditionally.
                 _Logging.Warn(_Header + "assignment_commit_failed: mission " + mission.Id + " captain " + captain.Id + ": " + ex.Message);
                 await ReleaseClaimIfHeldAsync(captain.Id, mission.Id).ConfigureAwait(false);
-                await RevertUncommittedAssignmentAsync(mission, preserveInheritedBranch, MissionAssignmentStateEnum.Pending).ConfigureAwait(false);
+                await RevertUncommittedAssignmentAsync(mission, preserveSavedBranch, MissionAssignmentStateEnum.Pending).ConfigureAwait(false);
                 await DiscardUncommittedDockAsync(mission, dock).ConfigureAwait(false);
                 return false;
             }
@@ -2112,12 +2163,12 @@ namespace Armada.Core.Services
         /// writer set since then is kept. Undo writes ignore the pass's cancellation token so an
         /// aborted pass still undoes what it wrote.
         /// </summary>
-        private async Task RevertUncommittedAssignmentAsync(Mission mission, bool preserveInheritedBranch, MissionAssignmentStateEnum assignmentState)
+        private async Task RevertUncommittedAssignmentAsync(Mission mission, bool preserveSavedBranch, MissionAssignmentStateEnum assignmentState)
         {
             mission.Status = MissionStatusEnum.Pending;
             mission.AssignmentState = assignmentState;
             mission.CaptainId = null;
-            if (!preserveInheritedBranch)
+            if (!preserveSavedBranch)
                 mission.BranchName = null;
             mission.DockId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
@@ -2238,7 +2289,7 @@ namespace Armada.Core.Services
         private async Task FailDockProvisionAsync(
             Mission mission,
             Captain captain,
-            bool preserveInheritedBranch,
+            bool preserveSavedBranch,
             string cause,
             CancellationToken token)
         {
@@ -2249,7 +2300,7 @@ namespace Armada.Core.Services
 
             mission.AssignmentState = MissionAssignmentStateEnum.Failed;
             mission.CaptainId = null;
-            if (!preserveInheritedBranch) mission.BranchName = null;
+            if (!preserveSavedBranch) mission.BranchName = null;
             mission.DockId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             mission.FailureReason = heldNow ? cause : (String.IsNullOrEmpty(cause) ? mission.FailureReason : cause);
