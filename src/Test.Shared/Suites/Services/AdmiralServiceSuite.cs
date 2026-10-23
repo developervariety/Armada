@@ -413,6 +413,59 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("health_check_async_stage_watchdog_cancels_blocked_downstream_stages", "HealthCheckAsync StageWatchdog CancelsBlockedDownstreamStages", TestTags.Positive, async () =>
+            {
+                // The stage watchdog fails a stale assigned stage that lost its captain heartbeat but keeps the
+                // voyage alive so autonomous recovery can rescue it. The stages waiting behind the failed stage can
+                // never run, so they must be cancelled; otherwise the voyage stays active and keeps holding a
+                // sibling lane while nothing in it can make progress.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.StageWatchdogTimeoutMinutes = 5;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Voyage voyage = new Voyage("Watchdog-failed worker with downstream stages");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage);
+
+                    Mission worker = new Mission("Worker");
+                    worker.VoyageId = voyage.Id;
+                    worker.Status = MissionStatusEnum.Assigned;
+                    worker.CaptainId = null;
+                    worker.ProcessId = null;
+                    worker = await db.Missions.CreateAsync(worker);
+                    await SetMissionLastUpdateUtcAsync(testDb, worker.Id, DateTime.UtcNow.AddMinutes(-6));
+
+                    Mission tester = new Mission("TestEngineer");
+                    tester.VoyageId = voyage.Id;
+                    tester.Status = MissionStatusEnum.Pending;
+                    tester.DependsOnMissionId = worker.Id;
+                    tester = await db.Missions.CreateAsync(tester);
+
+                    Mission judge = new Mission("Judge");
+                    judge.VoyageId = voyage.Id;
+                    judge.Status = MissionStatusEnum.Pending;
+                    judge.DependsOnMissionId = tester.Id;
+                    judge = await db.Missions.CreateAsync(judge);
+
+                    await service.HealthCheckAsync();
+
+                    Mission? failedWorker = await db.Missions.ReadAsync(worker.Id);
+                    Mission? cancelledTester = await db.Missions.ReadAsync(tester.Id);
+                    Mission? cancelledJudge = await db.Missions.ReadAsync(judge.Id);
+                    AssertEqual(MissionStatusEnum.Failed, failedWorker!.Status, "The stage watchdog fails the stale worker without a captain heartbeat");
+                    AssertEqual(MissionStatusEnum.Cancelled, cancelledTester!.Status, "The stage directly behind the failed worker is cancelled, not left Pending");
+                    AssertEqual(MissionStatusEnum.Cancelled, cancelledJudge!.Status, "The stage transitively behind the failed worker is cancelled too");
+
+                    // Every mission is now terminal, so the voyage stops counting as an active lane.
+                    Voyage? result = await db.Voyages.ReadAsync(voyage.Id);
+                    AssertFalse(ObjectiveService.IsActiveVoyageStatus(result!.Status), "The voyage no longer holds a sibling lane once its blocked stages are cancelled");
+                }
+            }));
+
             cases.Add(CaseAsync("health_check_async_assigned_orphan_without_started_process_reverts_to_pending", "HealthCheckAsync AssignedOrphanWithoutStartedProcess RevertsToPending", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

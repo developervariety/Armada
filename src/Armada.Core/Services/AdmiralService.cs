@@ -2302,6 +2302,12 @@ namespace Armada.Core.Services
                                 await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (captain stalled, recovery exhausted)",
                                     entityType: "mission", entityId: mission.Id,
                                     captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
+
+                                // The voyage is kept alive so autonomous recovery can rescue the failed stage from
+                                // its saved work, so the stages waiting behind it would otherwise park forever and
+                                // keep the voyage counting as an active lane. Cancel them through the one dependent
+                                // walker, exactly as every other voyage-preserving failure path does.
+                                await CancelDirectDependentsAsync(mission, mission.FailureReason ?? "Captain stalled, recovery exhausted", token).ConfigureAwait(false);
                             }
 
                             // Kill the stalled process
@@ -2936,6 +2942,12 @@ namespace Armada.Core.Services
                     entityType: "mission", entityId: mission.Id,
                     missionId: mission.Id, vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "stage watchdog failed mission " + mission.Id + " after " + _Settings.StageWatchdogTimeoutMinutes + " minute(s) without captain/process heartbeat");
+
+                // The watchdog fails the stage but leaves the voyage alive for autonomous recovery, so the
+                // stages behind it would otherwise park forever and keep the voyage counting as an active lane.
+                // Cancel them through the one dependent walker, exactly as every other voyage-preserving failure
+                // path does.
+                await CancelDirectDependentsAsync(mission, mission.FailureReason ?? "stage_watchdog_no_captain_heartbeat", token).ConfigureAwait(false);
             }
         }
 

@@ -652,6 +652,15 @@ upstream integrations and excludes changes already present at that baseline.
   names the complete log's size and the call that fetches it, and takes the same
   `includeOutput=true` opt-in to return the complete log and `outputTailLines` to
   widen the tail.
+- A voyage whose stage failed through a stalled captain with recovery exhausted,
+  or through the stage watchdog firing with no captain heartbeat, now cancels the
+  stages waiting behind the failed stage. Both paths keep the voyage alive so
+  autonomous recovery can rescue the work, but previously left the blocked
+  downstream stages Pending for ever, so the voyage stayed active and kept holding
+  a fleet and sibling-lane slot while nothing in it could run. They now cancel the
+  stranded stages through the same dependent walker every other voyage-preserving
+  failure path uses, so the voyage reaches a terminal state and frees its lane; the
+  failed stage, any produced work, and the separate rescue voyage are untouched.
 
 - The Judge-PASS acceptance-criteria walk measures the linked objective's live
   criteria at check time, not the dispatch-time snapshot. When an operator

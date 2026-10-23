@@ -68,6 +68,15 @@ The marked rescue root names the additional failed-parent grant. Existing
 direct-parent and dependency reads remain available within each caller's
 normal evidence scope.
 
+When a stage fails and its voyage is kept alive so a rescue can take over the
+work, the stages waiting behind the failed stage can never run, so Armada
+cancels them through the one dependent walker. This holds however the stage
+failed, including a stalled captain whose recovery is exhausted and a stage
+watchdog that fires with no captain heartbeat, so the parent voyage reaches a
+terminal state and stops counting toward the fleet and sibling-lane limits once
+nothing in it can make progress. The rescue voyage is separate and runs to
+completion on its own.
+
 For a premise check's selected fact and unknown identity, use
 [the premise contract](MCP_API.md#armada_check_premise). The default TestEngineer
 role respects explicit objective limits on test changes and preserves required,
