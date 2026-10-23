@@ -873,16 +873,17 @@ abbreviation resolves to the one full id the caller can see (its own owner for a
 mission caller, its normal read scope for an operator), and the normal scope
 check then applies. Records the caller cannot see are never candidates, so an
 abbreviation of another owner's record reads as `not_found`. When two visible
-records share the abbreviation, the read returns `Reason` `ambiguous_id` and no
-record; pass the full id. An objective that cites an abbreviated id links the one
+records share the abbreviation, the read returns `Reason` `ambiguous_id`,
+`Candidates` with the full ids it matches, and no record; pass the full id. An objective that cites an abbreviated id links the one
 record it resolves to, the same as the full id, and an ambiguous citation links
 nothing.
 
 Every MCP tool resolves abbreviated ids the same way before it runs. Each
 argument named `id` or ending in `Id` or `Ids`, at any depth, whose value is an
 abbreviation is replaced by the full id, so a write stores the full id. No
-visible match returns `Reason` `not_found`, two return `ambiguous_id`, and the
-tool does not run. Mission, voyage, objective, check-run, incident, merge-entry,
+visible match returns `Reason` `not_found`, two return `ambiguous_id` with
+`Candidates`, and the tool does not run. The REST GET-by-id routes apply the
+same rule (`REST_API.md`, "Record IDs"). Mission, voyage, objective, check-run, incident, merge-entry,
 signal, captain, vessel, fleet, dock, release and deployment ids resolve; any
 other id is passed as given. Delete and purge tools take full ids only: an
 abbreviation there returns `Code` `full_id_required` with text that says to use

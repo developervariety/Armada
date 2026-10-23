@@ -49,8 +49,10 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Objective").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
 
-                Objective? objective = await _objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                Objective? objective = await _objectives.ReadAsync(ctx, recordId.Id).ConfigureAwait(false);
                 if (objective == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -149,8 +151,10 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Objective").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
 
-                Objective? objective = await _objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                Objective? objective = await _objectives.ReadAsync(ctx, recordId.Id).ConfigureAwait(false);
                 if (objective == null)
                 {
                     req.Http.Response.StatusCode = 404;

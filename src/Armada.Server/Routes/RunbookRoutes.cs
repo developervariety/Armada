@@ -351,7 +351,7 @@ namespace Armada.Server.Routes
             if (Int32.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
             if (Int32.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
-                query.PageSize = Math.Clamp(pageSize, 1, 500);
+                query.PageSize = Math.Max(1, pageSize);
             if (Boolean.TryParse(QueryValueReader.Read(req, "active"), out bool active))
                 query.Active = active;
             if (Enum.TryParse(QueryValueReader.Read(req, "defaultCheckType"), true, out CheckRunTypeEnum defaultCheckType))
@@ -367,7 +367,7 @@ namespace Armada.Server.Routes
             if (Int32.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
             if (Int32.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
-                query.PageSize = Math.Clamp(pageSize, 1, 500);
+                query.PageSize = Math.Max(1, pageSize);
             if (Enum.TryParse(QueryValueReader.Read(req, "status"), true, out RunbookExecutionStatusEnum status))
                 query.Status = status;
 

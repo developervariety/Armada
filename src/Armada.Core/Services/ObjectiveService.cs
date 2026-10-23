@@ -668,7 +668,8 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(search))
             {
                 filtered = filtered.Where(item =>
-                    ContainsIgnoreCase(item.Title, search)
+                    ContainsIgnoreCase(item.Id, search)
+                    || ContainsIgnoreCase(item.Title, search)
                     || ContainsIgnoreCase(item.Description, search)
                     || ContainsIgnoreCase(item.Owner, search)
                     || ContainsIgnoreCase(item.Category, search)
@@ -694,20 +695,7 @@ namespace Armada.Core.Services
                 .ThenByDescending(item => item.Id, StringComparer.Ordinal)
                 .ToList();
 
-            int pageSize = query.PageSize < 1 ? 50 : Math.Min(query.PageSize, 500);
-            int pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
-            int offset = (pageNumber - 1) * pageSize;
-            List<Objective> page = ordered.Skip(offset).Take(pageSize).ToList();
-
-            return new EnumerationResult<Objective>
-            {
-                PageNumber = pageNumber,
-                PageSize = pageSize,
-                TotalRecords = ordered.Count,
-                TotalPages = pageSize > 0 ? (int)Math.Ceiling((double)ordered.Count / pageSize) : 0,
-                Objects = page,
-                TotalMs = 0
-            };
+            return EnumerationResult<Objective>.Page(ordered, query.PageNumber, query.PageSize);
         }
 
         /// <summary>

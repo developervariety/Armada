@@ -145,7 +145,13 @@ namespace Armada.Core.Authorization
         private static AbbreviatedIdResolution Settle(string id, List<string> visible)
         {
             if (visible.Count == 1) return new AbbreviatedIdResolution { Id = visible[0], Resolved = true };
-            return new AbbreviatedIdResolution { Id = id, Ambiguous = visible.Count > 1 };
+            bool ambiguous = visible.Count > 1;
+            return new AbbreviatedIdResolution
+            {
+                Id = id,
+                Ambiguous = ambiguous,
+                Candidates = ambiguous ? visible.OrderBy(candidate => candidate, StringComparer.Ordinal).ToList() : new List<string>()
+            };
         }
 
         private static DateTime ReadCreationTime(string abbreviated)

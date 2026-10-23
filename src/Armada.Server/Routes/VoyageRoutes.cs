@@ -416,6 +416,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Voyage").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
                 int pageNumber = 1;
                 int pageSize = 100;
                 string? number = QueryValueReader.Read(req, "pageNumber");
@@ -427,7 +429,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "pageNumber must be positive and pageSize must be between 1 and 100." };
                 }
-                string id = req.Parameters["id"];
+                string id = recordId.Id;
                 VoyageReadScope? readScope = await ReadVoyageReadScopeAsync(ctx, id).ConfigureAwait(false);
                 Voyage? voyage = readScope?.Voyage;
                 if (voyage == null)
@@ -457,7 +459,9 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string id = req.Parameters["id"];
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Voyage").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                string id = recordId.Id;
                 VoyageReadScope? readScope = await ReadVoyageReadScopeAsync(ctx, id).ConfigureAwait(false);
                 Voyage? voyage = readScope?.Voyage;
                 if (voyage == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" }; }

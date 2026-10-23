@@ -94,20 +94,7 @@ namespace Armada.Core.Services
                 .ThenBy(item => item.FileName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            int pageSize = query.PageSize < 1 ? 50 : Math.Min(query.PageSize, 500);
-            int pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
-            int offset = (pageNumber - 1) * pageSize;
-            List<Runbook> page = ordered.Skip(offset).Take(pageSize).ToList();
-
-            return new EnumerationResult<Runbook>
-            {
-                PageNumber = pageNumber,
-                PageSize = pageSize,
-                TotalRecords = ordered.Count,
-                TotalPages = pageSize > 0 ? (int)Math.Ceiling((double)ordered.Count / pageSize) : 0,
-                Objects = page,
-                TotalMs = 0
-            };
+            return EnumerationResult<Runbook>.Page(ordered, query.PageNumber, query.PageSize);
         }
 
         /// <summary>
@@ -229,20 +216,7 @@ namespace Armada.Core.Services
                 .ThenByDescending(item => item.Id, StringComparer.Ordinal)
                 .ToList();
 
-            int pageSize = query.PageSize < 1 ? 50 : Math.Min(query.PageSize, 500);
-            int pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
-            int offset = (pageNumber - 1) * pageSize;
-            List<RunbookExecution> page = ordered.Skip(offset).Take(pageSize).ToList();
-
-            return new EnumerationResult<RunbookExecution>
-            {
-                PageNumber = pageNumber,
-                PageSize = pageSize,
-                TotalRecords = ordered.Count,
-                TotalPages = pageSize > 0 ? (int)Math.Ceiling((double)ordered.Count / pageSize) : 0,
-                Objects = page,
-                TotalMs = 0
-            };
+            return EnumerationResult<RunbookExecution>.Page(ordered, query.PageNumber, query.PageSize);
         }
 
         /// <summary>

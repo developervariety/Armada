@@ -195,6 +195,7 @@ namespace Armada.Test.Unit.TestHelpers
             CaptainAdministration = captainAdministration;
             WebSocket.CaptainAdministration = captainAdministration;
 
+            ObjectiveService objectives = new ObjectiveService(Driver);
             McpToolRegistrar.RegisterAll(
                 (name, _, _, handler) => { Mcp[name] = McpTestCaller.Wrap(handler); },
                 Driver,
@@ -212,14 +213,14 @@ namespace Armada.Test.Unit.TestHelpers
                 missionService: missionService,
                 statusTransitions: transitions,
                 captainAdministration: captainAdministration,
-                missionOperations: Operations);
+                missionOperations: Operations,
+                objectiveService: objectives);
 
             WorkflowProfileService workflowProfiles = new WorkflowProfileService(Driver, logging);
             VesselReadinessService readiness = new VesselReadinessService(Driver, workflowProfiles, logging);
             CheckRunService checkRuns = new CheckRunService(Driver, workflowProfiles, readiness, logging);
             DeploymentEnvironmentService environments = new DeploymentEnvironmentService(Driver, workflowProfiles, logging);
             DeploymentService deployments = new DeploymentService(Driver, workflowProfiles, environments, checkRuns, logging);
-            ObjectiveService objectives = new ObjectiveService(Driver);
             GitHubIntegrationService gitHub = new GitHubIntegrationService(Driver, objectives, checkRuns, deployments, Settings, logging);
             LandingPreviewService landingPreview = new LandingPreviewService(Driver, logging, Settings);
             AuthenticationService authentication = new AuthenticationService(Driver, _SessionTokens, Settings, logging);
@@ -244,6 +245,8 @@ namespace Armada.Test.Unit.TestHelpers
                 emitEvent, null, logging, _RestJsonOptions, transitions, Operations).Register(_Server, authenticate, authz);
             new VoyageRoutes(Driver, Admiral.Service, emitEvent, null, logging, objectives, null, Settings, _RestJsonOptions,
                 operations: Operations).Register(_Server, authenticate, authz);
+            new ObjectiveRoutes(Driver, objectives, gitHub, new ObjectiveDispatchPreviewService(Driver, workflowProfiles, readiness, Git, Settings))
+                .Register(_Server, authenticate, authz);
             new MergeQueueRoutes(Driver, MergeQueue, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
             new DockRoutes(Driver, Docks, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);
             new EventRoutes(Driver, emitEvent, _RestJsonOptions).Register(_Server, authenticate, authz);

@@ -328,6 +328,37 @@ Query string parameters **override** body values on POST enumerate endpoints, al
 }
 ```
 
+### Page Size Limit
+
+Every list has a largest page size: 1000 for the entity lists in the table above, and 500 for objectives, incidents, runbooks and runbook executions. A larger `pageSize` is served at the limit and the envelope says so with two extra fields, which are present only then:
+
+```json
+{
+  "PageNumber": 1,
+  "PageSize": 500,
+  "RequestedPageSize": 1000,
+  "MaxPageSize": 500,
+  "TotalRecords": 1600,
+  "Objects": [ ... ]
+}
+```
+
+Page through with `pageNumber` to read the rest. Check runs, deployments, environments, releases, skills, project profiles and request history also serve at most 500 rows a page, without these fields.
+
+---
+
+## Record IDs
+
+A full record id is the prefix, an eight-character creation-time part and a random tail, such as `vyg_mabc1234_<tail>`. Every GET-by-id route for voyages (`/api/v1/voyages/{id}` and `/mission-summary`), missions (`/api/v1/missions/{id}` and each of its GET sub-routes) and objectives (`/api/v1/objectives/{id}` and `/api/v1/backlog/{id}`, each with `/dispatch-preview` and `/refinement-sessions`) also accepts the abbreviation: the prefix and the time part, such as `vyg_mabc1234`. The rule is the one the MCP tools apply (`MCP_API.md`), counted over the records the caller can see:
+
+| Visible records the abbreviation names | Response |
+|---|---|
+| One | The record, read by its full id (`200`) |
+| None | `404` `NotFound`, as for an unknown full id |
+| Two or more | `409` `Conflict`; `Data.Reason` is `ambiguous_id` and `Data.Candidates` lists the full ids |
+
+Any other partial id is not resolved and reads as not found. Write and delete routes take full ids.
+
 ---
 
 ## Error Responses

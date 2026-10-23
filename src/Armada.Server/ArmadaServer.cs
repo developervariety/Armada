@@ -1604,7 +1604,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Objectives
-            new ObjectiveRoutes(_ObjectiveService, _GitHubIntegrationService, _ObjectiveDispatchPreviewService)
+            new ObjectiveRoutes(_Database, _ObjectiveService, _GitHubIntegrationService, _ObjectiveDispatchPreviewService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             new ObjectiveRefinementRoutes(_Database, _ObjectiveRefinementSessions, _ObjectiveService, _JsonOptions)

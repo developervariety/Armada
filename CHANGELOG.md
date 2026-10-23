@@ -617,6 +617,21 @@ upstream integrations and excludes changes already present at that baseline.
   fetch. `armada_coordination_read` takes `messageId` and returns that one note
   whole, and a read that previews broadcast notes carries a `TruncationHint`
   naming `messageId` and `includeFullContent=true`.
+- REST GET-by-id routes for voyages, missions and objectives (including the
+  backlog routes and their GET sub-routes) accept an abbreviated id, the prefix
+  and eight-character creation-time part such as `vyg_mabc1234`, under the rule
+  the MCP tools apply. One visible match reads that record by its full id, no
+  match answers `404`, and two or more answer `409` `Conflict` with
+  `Data.Reason` `ambiguous_id` and the candidate full ids in
+  `Data.Candidates`. An MCP `ambiguous_id` refusal lists the same `Candidates`.
+- The objective list `search` matches the objective id and any prefix of it,
+  on REST (`/api/v1/objectives`, `/api/v1/backlog`, their `enumerate` routes)
+  and `list_objectives`.
+- A list page size above the limit is reported, not silently clamped. The
+  objective, backlog, incident, runbook and runbook-execution lists serve at
+  most 500 rows and the entity lists at most 1000; a larger `pageSize` is
+  served at the limit and the response carries `RequestedPageSize` and
+  `MaxPageSize`, which are absent otherwise.
 - A definition-of-done gate's one re-run after a host-load time limit holds the
   host to itself. The re-run asks the host command lock for the whole host
   (`HostWideCommandLock.AcquireAloneAsync`): it keeps its place in line, starts

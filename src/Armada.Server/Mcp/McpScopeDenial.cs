@@ -1,5 +1,8 @@
 namespace Armada.Server.Mcp
 {
+    using System.Collections.Generic;
+    using System.Text.Json.Serialization;
+
     /// <summary>
     /// Result of a captain read that the evidence scope refuses. <see cref="Error"/> keeps the plain
     /// not-found text; <see cref="Reason"/> says why. A record of another owner, an absent record and a
@@ -27,6 +30,10 @@ namespace Armada.Server.Mcp
         /// <summary>What the caller can do about the denial.</summary>
         public string Detail { get; set; } = "";
 
+        /// <summary>Full ids of the visible records an ambiguous abbreviation names; omitted for any other reason.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<string>? Candidates { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -48,12 +55,14 @@ namespace Armada.Server.Mcp
 
         /// <summary>Create the denial for an abbreviated id that names more than one visible record.</summary>
         /// <param name="error">Plain error text.</param>
-        public static McpScopeDenial CreateAmbiguous(string error)
+        /// <param name="candidates">Full ids of the visible records the abbreviation names.</param>
+        public static McpScopeDenial CreateAmbiguous(string error, List<string> candidates)
         {
             return new McpScopeDenial
             {
                 Error = error,
                 Reason = Ambiguous,
+                Candidates = candidates,
                 Detail = "The abbreviated id matches more than one record visible to this caller. Pass the full id."
             };
         }

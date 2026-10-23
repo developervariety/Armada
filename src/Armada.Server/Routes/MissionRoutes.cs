@@ -444,7 +444,9 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string id = req.Parameters["id"];
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
                 mission.DiffSnapshot = null;
@@ -468,8 +470,10 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
 
-                string id = req.Parameters["id"];
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
@@ -510,7 +514,9 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string missionId = req.Parameters["id"];
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                string missionId = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, missionId).ConfigureAwait(false);
                 if (mission == null)
                 {
@@ -544,8 +550,10 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
 
-                string id = req.Parameters["id"];
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
@@ -589,8 +597,10 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
 
-                string id = req.Parameters["id"];
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
@@ -616,8 +626,10 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
 
-                string id = req.Parameters["id"];
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
@@ -643,8 +655,10 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
 
-                string id = req.Parameters["id"];
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null)
                 {
@@ -1093,7 +1107,9 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string id = req.Parameters["id"];
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
@@ -1139,6 +1155,8 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
                 string? maxPathsValue = QueryValueReader.Read(req, "maxPaths");
                 int? maxPaths = null;
                 if (maxPathsValue != null)
@@ -1154,7 +1172,7 @@ namespace Armada.Server.Routes
                 // REST and MCP read a change summary through one reader, which resolves the mission through the
                 // caller's scope and the vessel and both commits from recorded mission evidence.
                 MissionChangeSummary summary = await MissionChangeSummaryReader.ReadAsync(
-                    _database, _settings.LogDirectory, _git, ctx, req.Parameters["id"], maxPaths,
+                    _database, _settings.LogDirectory, _git, ctx, recordId.Id, maxPaths,
                     null, _logging, req.Http.Token).ConfigureAwait(false);
                 if (String.Equals(summary.Reason, MissionChangeSummary.MissionNotFoundReason, StringComparison.Ordinal))
                     req.Http.Response.StatusCode = 404;
@@ -1178,7 +1196,9 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string id = req.Parameters["id"];
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
@@ -1245,7 +1265,9 @@ namespace Armada.Server.Routes
                 {
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
-                string id = req.Parameters["id"];
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _database, "Mission").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                string id = recordId.Id;
                 Mission? mission = await McpMissionEvidenceScope.ReadMissionAsync(_database, ctx, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 

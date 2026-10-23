@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Collections.Generic;
 
     /// <summary>
     /// Outcome of resolving a record id that may be abbreviated: the id to use, and whether an abbreviation
@@ -24,6 +25,11 @@ namespace Armada.Core.Models
         /// True when the id was an abbreviation and resolved to exactly one visible record.
         /// </summary>
         public bool Resolved { get; set; } = false;
+
+        /// <summary>
+        /// Full ids of the visible records an ambiguous abbreviation names; empty unless <see cref="Ambiguous"/> is true.
+        /// </summary>
+        public List<string> Candidates { get; set; } = new List<string>();
 
         #endregion
     }

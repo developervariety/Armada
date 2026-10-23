@@ -141,20 +141,7 @@ namespace Armada.Core.Services
                     .ToList();
             }
 
-            int pageSize = query.PageSize < 1 ? 50 : Math.Min(query.PageSize, 500);
-            int pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;
-            int offset = (pageNumber - 1) * pageSize;
-            List<Incident> page = ordered.Skip(offset).Take(pageSize).ToList();
-
-            return new EnumerationResult<Incident>
-            {
-                PageNumber = pageNumber,
-                PageSize = pageSize,
-                TotalRecords = ordered.Count,
-                TotalPages = pageSize > 0 ? (int)Math.Ceiling((double)ordered.Count / pageSize) : 0,
-                Objects = page,
-                TotalMs = 0
-            };
+            return EnumerationResult<Incident>.Page(ordered, query.PageNumber, query.PageSize);
         }
 
         /// <summary>

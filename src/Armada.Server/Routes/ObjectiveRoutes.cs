@@ -7,6 +7,7 @@ namespace Armada.Server.Routes
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
     using Armada.Core.Authorization;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -17,6 +18,7 @@ namespace Armada.Server.Routes
     /// </summary>
     public class ObjectiveRoutes
     {
+        private readonly DatabaseDriver _Database;
         private readonly ObjectiveService _Objectives;
         private readonly GitHubIntegrationService _GitHub;
         private readonly ObjectiveDispatchPreviewService _DispatchPreview;
@@ -31,10 +33,12 @@ namespace Armada.Server.Routes
         /// Instantiate.
         /// </summary>
         public ObjectiveRoutes(
+            DatabaseDriver database,
             ObjectiveService objectives,
             GitHubIntegrationService gitHub,
             ObjectiveDispatchPreviewService dispatchPreview)
         {
+            _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Objectives = objectives ?? throw new ArgumentNullException(nameof(objectives));
             _GitHub = gitHub ?? throw new ArgumentNullException(nameof(gitHub));
             _DispatchPreview = dispatchPreview ?? throw new ArgumentNullException(nameof(dispatchPreview));
@@ -80,7 +84,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("priority", "Optional priority filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("effort", "Optional effort filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("targetVersion", "Optional target-version filter", false))
-                .WithParameter(OpenApiParameterMetadata.Query("search", "Optional free-text search", false))
+                .WithParameter(OpenApiParameterMetadata.Query("search", "Optional free-text search over the id, title, description and other text fields; an id prefix matches", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<Objective>>("Paginated objectives"))
                 .WithSecurity("ApiKey"));
 
@@ -129,7 +133,9 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _Database, "Objective").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                Objective? objective = await _Objectives.ReadAsync(ctx, recordId.Id).ConfigureAwait(false);
                 if (objective == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -151,7 +157,9 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _Database, "Objective").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                Objective? objective = await _Objectives.ReadAsync(ctx, recordId.Id).ConfigureAwait(false);
                 if (objective == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -297,7 +305,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("priority", "Optional priority filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("effort", "Optional effort filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("targetVersion", "Optional target-version filter", false))
-                .WithParameter(OpenApiParameterMetadata.Query("search", "Optional free-text search", false))
+                .WithParameter(OpenApiParameterMetadata.Query("search", "Optional free-text search over the id, title, description and other text fields; an id prefix matches", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<Objective>>("Paginated backlog items"))
                 .WithSecurity("ApiKey"));
 
@@ -346,7 +354,9 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _Database, "Objective").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                Objective? objective = await _Objectives.ReadAsync(ctx, recordId.Id).ConfigureAwait(false);
                 if (objective == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -368,7 +378,9 @@ namespace Armada.Server.Routes
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return RouteAuthRefusal.FromStatus(req);
-                Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                RouteRecordIdResult recordId = await RouteRecordId.ResolveAsync(req, ctx, _Database, "Objective").ConfigureAwait(false);
+                if (recordId.Refusal != null) return recordId.Refusal;
+                Objective? objective = await _Objectives.ReadAsync(ctx, recordId.Id).ConfigureAwait(false);
                 if (objective == null)
                 {
                     req.Http.Response.StatusCode = 404;
@@ -485,7 +497,7 @@ namespace Armada.Server.Routes
             if (Int32.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
             if (Int32.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
-                query.PageSize = Math.Clamp(pageSize, 1, 500);
+                query.PageSize = Math.Max(1, pageSize);
             if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
             if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))

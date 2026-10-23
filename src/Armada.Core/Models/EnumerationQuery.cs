@@ -29,18 +29,31 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Number of results per page. Default is 10. Min 1, max 1000.
+        /// Largest page size an enumeration query serves.
+        /// </summary>
+        public const int MaxPageSize = 1000;
+
+        /// <summary>
+        /// Number of results per page. Default is 10. Min 1, max <see cref="MaxPageSize"/>; a larger value is
+        /// served at the maximum and kept in <see cref="RequestedPageSize"/>.
         /// </summary>
         public int PageSize
         {
             get => _PageSize;
             set
             {
+                RequestedPageSize = value > MaxPageSize ? value : (int?)null;
                 if (value < 1) _PageSize = 1;
-                else if (value > 1000) _PageSize = 1000;
+                else if (value > MaxPageSize) _PageSize = MaxPageSize;
                 else _PageSize = value;
             }
         }
+
+        /// <summary>
+        /// Page size the caller asked for when it exceeded <see cref="MaxPageSize"/>; null otherwise.
+        /// </summary>
+        [JsonIgnore]
+        public int? RequestedPageSize { get; private set; } = null;
 
         /// <summary>
         /// Sort order. Default is CreatedDescending (newest first).

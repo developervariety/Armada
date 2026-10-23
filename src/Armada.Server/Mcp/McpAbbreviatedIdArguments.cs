@@ -78,7 +78,7 @@ namespace Armada.Server.Mcp
                     string given = value.GetValue<string>();
                     AbbreviatedIdResolution resolved = await AbbreviatedIdResolver.ResolveForCallerAsync(database, caller, given).ConfigureAwait(false);
                     string notFound = DescribeRecord(given) + " not found";
-                    if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous(notFound);
+                    if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous(notFound, resolved.Candidates);
                     if (!resolved.Resolved) return McpScopeDenial.Create(notFound, false);
                     value.ReplaceWith(resolved.Id);
                 }

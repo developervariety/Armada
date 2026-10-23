@@ -137,7 +137,7 @@ namespace Armada.Server.Mcp
         public static async Task<McpScopeDenial> DenyMissionAsync(DatabaseDriver database, AuthContext caller, string? id)
         {
             AbbreviatedIdResolution resolved = await AbbreviatedIdResolver.ResolveForCallerAsync(database, caller, id).ConfigureAwait(false);
-            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Mission not found");
+            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Mission not found", resolved.Candidates);
             id = resolved.Id;
             Mission? record = String.IsNullOrWhiteSpace(id) ? null : await database.Missions.ReadAsync(id).ConfigureAwait(false);
             return McpScopeDenial.Create("Mission not found", IsOwnedOutOfScope(caller, record?.TenantId, record?.UserId, record != null));
@@ -147,7 +147,7 @@ namespace Armada.Server.Mcp
         public static async Task<McpScopeDenial> DenyObjectiveAsync(DatabaseDriver database, AuthContext caller, string? id)
         {
             AbbreviatedIdResolution resolved = await AbbreviatedIdResolver.ResolveForCallerAsync(database, caller, id).ConfigureAwait(false);
-            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Objective not found");
+            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Objective not found", resolved.Candidates);
             id = resolved.Id;
             Objective? record = String.IsNullOrWhiteSpace(id) ? null : await database.Objectives.ReadAsync(id).ConfigureAwait(false);
             return McpScopeDenial.Create("Objective not found", IsOwnedOutOfScope(caller, record?.TenantId, record?.UserId, record != null));
@@ -157,7 +157,7 @@ namespace Armada.Server.Mcp
         public static async Task<McpScopeDenial> DenyVoyageAsync(DatabaseDriver database, AuthContext caller, string? id)
         {
             AbbreviatedIdResolution resolved = await AbbreviatedIdResolver.ResolveForCallerAsync(database, caller, id).ConfigureAwait(false);
-            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Voyage not found");
+            if (resolved.Ambiguous) return McpScopeDenial.CreateAmbiguous("Voyage not found", resolved.Candidates);
             id = resolved.Id;
             Voyage? record = String.IsNullOrWhiteSpace(id) ? null : await database.Voyages.ReadAsync(id).ConfigureAwait(false);
             return McpScopeDenial.Create("Voyage not found", IsOwnedOutOfScope(caller, record?.TenantId, record?.UserId, record != null));

@@ -95,6 +95,14 @@ Compatibility objective routes:
 - `POST /api/v1/objectives/reorder`
 - `POST /api/v1/objectives/import/github`
 
+The list routes and `list_objectives` take a `search` term that matches the
+objective id (a full id or any prefix of it, such as the abbreviation
+`obj_mabc1234`) as well as the title, description and other text fields. The
+largest page is 500 rows; a larger `pageSize` is served at 500 and reported
+with `RequestedPageSize` and `MaxPageSize` in the response (`REST_API.md`,
+"Page Size Limit"). The GET-by-id routes accept an abbreviated id
+(`REST_API.md`, "Record IDs").
+
 Create, update and delete on both route families, and the matching MCP tools,
 run through one set of objective service methods. A missing title, an unknown
 enum value, or a linked record outside the caller's scope returns `400`; an

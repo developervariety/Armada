@@ -234,7 +234,7 @@ namespace Armada.Server.Routes
             if (Int32.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
             if (Int32.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
-                query.PageSize = Math.Clamp(pageSize, 1, 500);
+                query.PageSize = Math.Max(1, pageSize);
             if (Enum.TryParse(QueryValueReader.Read(req, "status"), true, out IncidentStatusEnum status))
                 query.Status = status;
             if (Enum.TryParse(QueryValueReader.Read(req, "severity"), true, out IncidentSeverityEnum severity))
