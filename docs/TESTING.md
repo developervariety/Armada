@@ -287,6 +287,17 @@ Armada supports four database backends: SQLite, PostgreSQL, SQL Server, and MySQ
 - **Test.Database** tests the database driver layer directly and runs the same cases against each backend. The operational cases create, read, update, reopen through a fresh driver, filter and delete each stored record type, including skills, project profiles, playbooks, landing jobs, Judge follow-ups and the coordination board (rooms, participants, messages, claims). Round-trip cases compare every public property of the record and require every timestamp to read back as the same instant with `DateTimeKind.Utc`. The mission summary case checks that every Mission-shaped summary read (by id, and the unscoped, tenant and user lists) returns every light field of the full row with the voyage filter applied, leaves the description, diff snapshot and agent output unset, and never loads those columns: it stores several megabytes of heavy text and requires each summary read and the grouped voyage count to allocate under a quarter of it. Planning sessions and their transcripts are stored and checked on all four backends. Pipeline stages that share an order read back in their submitted order on every backend. A case for a record type a backend does not store (the coordination board on MySQL and SQL Server) is a named skip with its reason, counted in the summary, never a pass. The automated suite asserts that board refusal on those two backends: a global administrator's board read returns `501` with a message naming the provider.
 - **Test.Automated** tests the full stack (REST API, MCP tools, WebSocket) and can target any database backend via the `--type` argument.
 
+### SQLite writer ordering
+
+The concurrent-access suite exercises direct and shared transactional writes
+through separate drivers on the same file. A trigger records commit order;
+reads and another database file remain usable while writes wait. Request-history
+checks cancel a queued write, force a detail insertion to fail, verify rollback
+and complete a following write. Migration checks queue startup, dispose another
+driver and reopen the migrated file. These SQLite-only cases report named skips
+on other providers. The unit gate suite checks file and shared-memory aliases,
+private-memory independence, FIFO handoff, cancellation and nested-entry refusal.
+
 ### CI Recommendations
 
 - Run **Test.Database** against all 4 backends to ensure driver correctness across SQLite, PostgreSQL, SQL Server, and MySQL.

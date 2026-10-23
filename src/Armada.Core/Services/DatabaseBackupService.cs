@@ -222,16 +222,23 @@ namespace Armada.Core.Services
                 }
 
                 string safetyPath = Path.Combine(backupsDirectory, "pre-restore-" + DateTime.UtcNow.ToString("yyyy-MM-dd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".zip");
-                DatabaseBackupResult safety = await BackupAsync(safetyPath, token).ConfigureAwait(false);
-
-                // The online backup API writes into the live database through a connection, so open connections
-                // held by the admiral stay valid; a file copy over an open database is unsafe and can fail.
-                using (SqliteConnection source = new SqliteConnection("Data Source=" + extractedDatabase + ";Mode=ReadOnly;Pooling=False"))
+                DatabaseBackupResult safety;
                 using (SqliteConnection target = new SqliteConnection("Data Source=" + database.Filename))
                 {
-                    await source.OpenAsync(token).ConfigureAwait(false);
                     await target.OpenAsync(token).ConfigureAwait(false);
-                    source.BackupDatabase(target);
+                    using (IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(target, token).ConfigureAwait(false))
+                    {
+                        safety = await BackupAsync(safetyPath, token).ConfigureAwait(false);
+
+                        // Keep writes behind the safety snapshot until replacement finishes. The online backup
+                        // API preserves connections held by the server while replacing the live database.
+                        using (SqliteConnection source = new SqliteConnection("Data Source=" + extractedDatabase + ";Mode=ReadOnly;Pooling=False"))
+                        {
+                            await source.OpenAsync(token).ConfigureAwait(false);
+                            token.ThrowIfCancellationRequested();
+                            source.BackupDatabase(target);
+                        }
+                    }
                 }
 
                 if (mergedSettings != null) await WriteSettingsAtomicallyAsync(mergedSettings, token).ConfigureAwait(false);

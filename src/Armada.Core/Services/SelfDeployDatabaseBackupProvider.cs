@@ -207,7 +207,11 @@ namespace Armada.Core.Services
             {
                 await source.OpenAsync(token).ConfigureAwait(false);
                 await target.OpenAsync(token).ConfigureAwait(false);
-                source.BackupDatabase(target);
+                using (IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(target, token).ConfigureAwait(false))
+                {
+                    token.ThrowIfCancellationRequested();
+                    source.BackupDatabase(target);
+                }
             }
 
             ValidateFile(artifactPath);

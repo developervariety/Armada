@@ -60,32 +60,35 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                using (SqliteCommand cmd = conn.CreateCommand())
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 {
-                    cmd.CommandText = @"INSERT INTO coordination_leases (name, holder, tenant_id, acquired_utc, expires_utc)
-                            VALUES (@name, @holder, @tenant_id, @acquired_utc, @expires_utc)
-                            ON CONFLICT(name) DO UPDATE SET
-                                holder = excluded.holder,
-                                tenant_id = excluded.tenant_id,
-                                acquired_utc = excluded.acquired_utc,
-                                expires_utc = excluded.expires_utc
-                            WHERE coordination_leases.expires_utc <= @now;";
-                    StoredValueBinder.Value(cmd, "@name", name);
-                    StoredValueBinder.Value(cmd, "@holder", holder);
-                    StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
-                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@acquired_utc", "acquired_utc", now);
-                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@expires_utc", "expires_utc", expires);
-                    SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = @"INSERT INTO coordination_leases (name, holder, tenant_id, acquired_utc, expires_utc)
+                                VALUES (@name, @holder, @tenant_id, @acquired_utc, @expires_utc)
+                                ON CONFLICT(name) DO UPDATE SET
+                                    holder = excluded.holder,
+                                    tenant_id = excluded.tenant_id,
+                                    acquired_utc = excluded.acquired_utc,
+                                    expires_utc = excluded.expires_utc
+                                WHERE coordination_leases.expires_utc <= @now;";
+                        StoredValueBinder.Value(cmd, "@name", name);
+                        StoredValueBinder.Value(cmd, "@holder", holder);
+                        StoredValueBinder.Value(cmd, "@tenant_id", tenantId);
+                        SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@acquired_utc", "acquired_utc", now);
+                        SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@expires_utc", "expires_utc", expires);
+                        SqliteDatabaseDriver.StoredBinder.For(cmd, "coordination_leases").Utc("@now", "expires_utc", now);
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
 
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT holder FROM coordination_leases WHERE name = @name;";
-                    StoredValueBinder.Value(cmd, "@name", name);
-                    object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
-                    if (result == null || result == DBNull.Value) return false;
-                    return String.Equals(result.ToString(), holder, StringComparison.Ordinal);
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = "SELECT holder FROM coordination_leases WHERE name = @name;";
+                        StoredValueBinder.Value(cmd, "@name", name);
+                        object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
+                        if (result == null || result == DBNull.Value) return false;
+                        return String.Equals(result.ToString(), holder, StringComparison.Ordinal);
+                    }
                 }
             }
         }
@@ -102,6 +105,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE coordination_leases SET expires_utc = @new_expires
@@ -125,6 +129,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE name = @name AND holder = @holder;";
@@ -166,6 +171,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE expires_utc <= @now;";

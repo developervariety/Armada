@@ -27,6 +27,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO judge_follow_ups
@@ -76,6 +77,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE judge_follow_ups SET
@@ -102,6 +104,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE judge_follow_ups
@@ -124,6 +127,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE judge_follow_ups SET audit_verdict = @audit_verdict,

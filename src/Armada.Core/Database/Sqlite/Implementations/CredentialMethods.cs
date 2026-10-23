@@ -55,6 +55,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO credentials (id, tenant_id, user_id, name, bearer_token, is_protected, active, created_utc, last_update_utc)
@@ -147,6 +148,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"UPDATE credentials SET
@@ -175,6 +177,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM credentials WHERE tenant_id = @tenantId AND id = @id;";

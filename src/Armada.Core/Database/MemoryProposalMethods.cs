@@ -54,29 +54,32 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = "INSERT INTO memory_proposals (" + _Columns + ") VALUES (@id, @tenant_id, @user_id, @source, @source_key, @title, @body, @target_hint, @confidence, @related_record_ids_json, @state, @dismissed_by, @dismissed_reason, @dismissed_utc, @promoted_by, @promoted_commit_sha, @promoted_utc, @created_utc, @last_update_utc);";
-                    ProductionFactSql.Add(command, "@id", proposal.Id);
-                    ProductionFactSql.Add(command, "@tenant_id", proposal.TenantId);
-                    ProductionFactSql.Add(command, "@user_id", proposal.UserId);
-                    ProductionFactSql.Add(command, "@source", proposal.Source);
-                    ProductionFactSql.Add(command, "@source_key", proposal.SourceKey);
-                    ProductionFactSql.Add(command, "@title", proposal.Title);
-                    ProductionFactSql.Add(command, "@body", proposal.Body);
-                    ProductionFactSql.Add(command, "@target_hint", proposal.TargetHint);
-                    ProductionFactSql.Add(command, "@confidence", proposal.Confidence);
-                    ProductionFactSql.Add(command, "@related_record_ids_json", JsonSerializer.Serialize(proposal.RelatedRecordIds));
-                    ProductionFactSql.Add(command, "@state", proposal.State.ToString());
-                    ProductionFactSql.Add(command, "@dismissed_by", proposal.DismissedBy);
-                    ProductionFactSql.Add(command, "@dismissed_reason", proposal.DismissedReason);
-                    ProductionFactSql.AddUtc(command, "@dismissed_utc", proposal.DismissedUtc, _Provider);
-                    ProductionFactSql.Add(command, "@promoted_by", proposal.PromotedBy);
-                    ProductionFactSql.Add(command, "@promoted_commit_sha", proposal.PromotedCommitSha);
-                    ProductionFactSql.AddUtc(command, "@promoted_utc", proposal.PromotedUtc, _Provider);
-                    ProductionFactSql.AddUtc(command, "@created_utc", proposal.CreatedUtc, _Provider);
-                    ProductionFactSql.AddUtc(command, "@last_update_utc", proposal.LastUpdateUtc, _Provider);
-                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "INSERT INTO memory_proposals (" + _Columns + ") VALUES (@id, @tenant_id, @user_id, @source, @source_key, @title, @body, @target_hint, @confidence, @related_record_ids_json, @state, @dismissed_by, @dismissed_reason, @dismissed_utc, @promoted_by, @promoted_commit_sha, @promoted_utc, @created_utc, @last_update_utc);";
+                        ProductionFactSql.Add(command, "@id", proposal.Id);
+                        ProductionFactSql.Add(command, "@tenant_id", proposal.TenantId);
+                        ProductionFactSql.Add(command, "@user_id", proposal.UserId);
+                        ProductionFactSql.Add(command, "@source", proposal.Source);
+                        ProductionFactSql.Add(command, "@source_key", proposal.SourceKey);
+                        ProductionFactSql.Add(command, "@title", proposal.Title);
+                        ProductionFactSql.Add(command, "@body", proposal.Body);
+                        ProductionFactSql.Add(command, "@target_hint", proposal.TargetHint);
+                        ProductionFactSql.Add(command, "@confidence", proposal.Confidence);
+                        ProductionFactSql.Add(command, "@related_record_ids_json", JsonSerializer.Serialize(proposal.RelatedRecordIds));
+                        ProductionFactSql.Add(command, "@state", proposal.State.ToString());
+                        ProductionFactSql.Add(command, "@dismissed_by", proposal.DismissedBy);
+                        ProductionFactSql.Add(command, "@dismissed_reason", proposal.DismissedReason);
+                        ProductionFactSql.AddUtc(command, "@dismissed_utc", proposal.DismissedUtc, _Provider);
+                        ProductionFactSql.Add(command, "@promoted_by", proposal.PromotedBy);
+                        ProductionFactSql.Add(command, "@promoted_commit_sha", proposal.PromotedCommitSha);
+                        ProductionFactSql.AddUtc(command, "@promoted_utc", proposal.PromotedUtc, _Provider);
+                        ProductionFactSql.AddUtc(command, "@created_utc", proposal.CreatedUtc, _Provider);
+                        ProductionFactSql.AddUtc(command, "@last_update_utc", proposal.LastUpdateUtc, _Provider);
+                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
                 }
             }
             return proposal;
@@ -122,18 +125,21 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = "UPDATE memory_proposals SET state = @dismissed, dismissed_by = @dismissed_by, dismissed_reason = @dismissed_reason, dismissed_utc = @dismissed_utc, last_update_utc = @last_update_utc WHERE id = @id AND state = @open;";
-                    ProductionFactSql.Add(command, "@dismissed", MemoryProposalStateEnum.Dismissed.ToString());
-                    ProductionFactSql.Add(command, "@dismissed_by", Bound(dismissedBy, MemoryProposal.MaximumReasonLength));
-                    ProductionFactSql.Add(command, "@dismissed_reason", Bound(reason, MemoryProposal.MaximumReasonLength));
-                    ProductionFactSql.AddUtc(command, "@dismissed_utc", dismissedUtc, _Provider);
-                    ProductionFactSql.AddUtc(command, "@last_update_utc", dismissedUtc, _Provider);
-                    ProductionFactSql.Add(command, "@id", id.Trim());
-                    ProductionFactSql.Add(command, "@open", MemoryProposalStateEnum.Open.ToString());
-                    int changed = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    return changed == 1;
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "UPDATE memory_proposals SET state = @dismissed, dismissed_by = @dismissed_by, dismissed_reason = @dismissed_reason, dismissed_utc = @dismissed_utc, last_update_utc = @last_update_utc WHERE id = @id AND state = @open;";
+                        ProductionFactSql.Add(command, "@dismissed", MemoryProposalStateEnum.Dismissed.ToString());
+                        ProductionFactSql.Add(command, "@dismissed_by", Bound(dismissedBy, MemoryProposal.MaximumReasonLength));
+                        ProductionFactSql.Add(command, "@dismissed_reason", Bound(reason, MemoryProposal.MaximumReasonLength));
+                        ProductionFactSql.AddUtc(command, "@dismissed_utc", dismissedUtc, _Provider);
+                        ProductionFactSql.AddUtc(command, "@last_update_utc", dismissedUtc, _Provider);
+                        ProductionFactSql.Add(command, "@id", id.Trim());
+                        ProductionFactSql.Add(command, "@open", MemoryProposalStateEnum.Open.ToString());
+                        int changed = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        return changed == 1;
+                    }
                 }
             }
         }
@@ -148,18 +154,21 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = "UPDATE memory_proposals SET state = @promoted, promoted_by = @promoted_by, promoted_commit_sha = @promoted_commit_sha, promoted_utc = @promoted_utc, last_update_utc = @last_update_utc WHERE id = @id AND state = @open;";
-                    ProductionFactSql.Add(command, "@promoted", MemoryProposalStateEnum.Promoted.ToString());
-                    ProductionFactSql.Add(command, "@promoted_by", Bound(promotedBy, MemoryProposal.MaximumReasonLength));
-                    ProductionFactSql.Add(command, "@promoted_commit_sha", commitSha.Trim().ToLowerInvariant());
-                    ProductionFactSql.AddUtc(command, "@promoted_utc", promotedUtc, _Provider);
-                    ProductionFactSql.AddUtc(command, "@last_update_utc", promotedUtc, _Provider);
-                    ProductionFactSql.Add(command, "@id", id.Trim());
-                    ProductionFactSql.Add(command, "@open", MemoryProposalStateEnum.Open.ToString());
-                    int changed = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    return changed == 1;
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "UPDATE memory_proposals SET state = @promoted, promoted_by = @promoted_by, promoted_commit_sha = @promoted_commit_sha, promoted_utc = @promoted_utc, last_update_utc = @last_update_utc WHERE id = @id AND state = @open;";
+                        ProductionFactSql.Add(command, "@promoted", MemoryProposalStateEnum.Promoted.ToString());
+                        ProductionFactSql.Add(command, "@promoted_by", Bound(promotedBy, MemoryProposal.MaximumReasonLength));
+                        ProductionFactSql.Add(command, "@promoted_commit_sha", commitSha.Trim().ToLowerInvariant());
+                        ProductionFactSql.AddUtc(command, "@promoted_utc", promotedUtc, _Provider);
+                        ProductionFactSql.AddUtc(command, "@last_update_utc", promotedUtc, _Provider);
+                        ProductionFactSql.Add(command, "@id", id.Trim());
+                        ProductionFactSql.Add(command, "@open", MemoryProposalStateEnum.Open.ToString());
+                        int changed = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        return changed == 1;
+                    }
                 }
             }
         }

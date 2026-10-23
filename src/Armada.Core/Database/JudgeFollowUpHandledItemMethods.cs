@@ -71,18 +71,21 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    using (DbCommand command = connection.CreateCommand())
+                    using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
                     {
-                        command.Transaction = transaction;
-                        command.CommandText = "DELETE FROM judge_follow_up_handled_items WHERE follow_up_id = @follow_up_id AND item_number = @item_number;";
-                        ProductionFactSql.Add(command, "@follow_up_id", item.FollowUpId);
-                        ProductionFactSql.Add(command, "@item_number", item.ItemNumber);
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "DELETE FROM judge_follow_up_handled_items WHERE follow_up_id = @follow_up_id AND item_number = @item_number;";
+                            ProductionFactSql.Add(command, "@follow_up_id", item.FollowUpId);
+                            ProductionFactSql.Add(command, "@item_number", item.ItemNumber);
+                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                        await InsertAsync(connection, transaction, item, token).ConfigureAwait(false);
+                        await transaction.CommitAsync(token).ConfigureAwait(false);
                     }
-                    await InsertAsync(connection, transaction, item, token).ConfigureAwait(false);
-                    await transaction.CommitAsync(token).ConfigureAwait(false);
                 }
             }
         }

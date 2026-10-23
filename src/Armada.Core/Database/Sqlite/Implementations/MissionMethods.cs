@@ -56,15 +56,18 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                using (SqliteCommand cmd = conn.CreateCommand())
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id, process_started_utc, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, reconciled_utc, reconciled_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, start_from_ref, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, retry_skip_captain_ids, preserved_run_output, tier, requested_captain_id, held_for_operator_review, held_for_operator_review_reason, assignment_hold_reason, assignment_hold_entity_id)
-                            VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @process_started_utc, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @reconciled_utc, @reconciled_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @mission_mode, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @start_from_ref, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc, @retry_skip_captain_ids, @preserved_run_output, @tier, @requested_captain_id, @held_for_operator_review, @held_for_operator_review_reason, @assignment_hold_reason, @assignment_hold_entity_id);";
-                    MissionColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, process_id, process_started_utc, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, reconciled_utc, reconciled_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, start_from_ref, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, retry_skip_captain_ids, preserved_run_output, tier, requested_captain_id, held_for_operator_review, held_for_operator_review_reason, assignment_hold_reason, assignment_hold_entity_id)
+                                VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @process_id, @process_started_utc, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @reconciled_utc, @reconciled_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @mission_mode, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @start_from_ref, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc, @retry_skip_captain_ids, @preserved_run_output, @tier, @requested_captain_id, @held_for_operator_review, @held_for_operator_review_reason, @assignment_hold_reason, @assignment_hold_entity_id);";
+                        MissionColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
 
-                await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token).ConfigureAwait(false);
+                    await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token).ConfigureAwait(false);
+                }
             }
 
             return mission;
@@ -143,7 +146,10 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-                await UpdateAsync(conn, null).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
+                {
+                    await UpdateAsync(conn, null).ConfigureAwait(false);
+                }
             }
 
             if (affected == 0) mission.LastUpdateUtc = previousUpdateUtc;
@@ -217,26 +223,29 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
-
-                string? voyageId = null;
-                using (SqliteCommand lookup = conn.CreateCommand())
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 {
-                    lookup.CommandText = "SELECT voyage_id FROM missions WHERE id = @id;";
-                    StoredValueBinder.Value(lookup, "@id", id);
-                    object? result = await lookup.ExecuteScalarAsync(token).ConfigureAwait(false);
-                    if (result != null && result != DBNull.Value)
-                        voyageId = result.ToString();
-                }
 
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "UPDATE missions SET admission_revision = admission_revision + 1, last_update_utc = @last_update_utc WHERE id = @id;";
-                    StoredValueBinder.Value(cmd, "@id", id);
-                    SqliteDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
+                    string? voyageId = null;
+                    using (SqliteCommand lookup = conn.CreateCommand())
+                    {
+                        lookup.CommandText = "SELECT voyage_id FROM missions WHERE id = @id;";
+                        StoredValueBinder.Value(lookup, "@id", id);
+                        object? result = await lookup.ExecuteScalarAsync(token).ConfigureAwait(false);
+                        if (result != null && result != DBNull.Value)
+                            voyageId = result.ToString();
+                    }
 
-                await TouchVoyageAsync(conn, voyageId, lastUpdateUtc, token).ConfigureAwait(false);
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = "UPDATE missions SET admission_revision = admission_revision + 1, last_update_utc = @last_update_utc WHERE id = @id;";
+                        StoredValueBinder.Value(cmd, "@id", id);
+                        SqliteDatabaseDriver.StoredBinder.For(cmd, "missions").Utc("@last_update_utc", "last_update_utc", lastUpdateUtc);
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+
+                    await TouchVoyageAsync(conn, voyageId, lastUpdateUtc, token).ConfigureAwait(false);
+                }
             }
         }
 
@@ -248,6 +257,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM missions WHERE id = @id;";
@@ -593,6 +603,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND id = @id;";
@@ -787,6 +798,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";

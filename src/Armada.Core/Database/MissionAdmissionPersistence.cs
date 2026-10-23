@@ -88,7 +88,10 @@ namespace Armada.Core.Database
                 Add(command, "@branch_name", expected.BranchName, DbType.String);
                 Add(command, "@process", expected.ProcessId, DbType.Int32);
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
+                {
+                    return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                }
             }
         }
 

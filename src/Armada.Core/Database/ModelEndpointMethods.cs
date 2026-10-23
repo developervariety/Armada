@@ -88,6 +88,7 @@ namespace Armada.Core.Database
         {
             if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
             using (DbConnection connection = await _Rows.Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             using (DbCommand command = connection.CreateCommand())
             {
                 command.CommandText = HealthSql;

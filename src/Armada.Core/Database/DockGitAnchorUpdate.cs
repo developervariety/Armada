@@ -44,7 +44,10 @@ namespace Armada.Core.Database
                 StoredValueBinder.Value(command, "@expected", expected.StoredJson ?? expectedJson);
                 StoredValueBinder.Value(command, "@completed", completedJson);
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
+                {
+                    return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                }
             }
         }
 

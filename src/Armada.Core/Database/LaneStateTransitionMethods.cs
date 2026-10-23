@@ -40,20 +40,23 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = "INSERT INTO lane_state_transitions (" + _Columns + ") VALUES (@id, @lane_key, @eligible_count, @occupied, @capacity, @block_reason, @eligible_source_families, @is_checkpoint, @valid_for_seconds, @created_utc);";
-                    ProductionFactSql.Add(command, "@id", transition.Id);
-                    ProductionFactSql.Add(command, "@lane_key", transition.LaneKey);
-                    ProductionFactSql.Add(command, "@eligible_count", transition.EligibleCount);
-                    ProductionFactSql.Add(command, "@occupied", transition.Occupied);
-                    ProductionFactSql.Add(command, "@capacity", transition.Capacity);
-                    ProductionFactSql.Add(command, "@block_reason", transition.BlockReason.ToString());
-                    ProductionFactSql.Add(command, "@eligible_source_families", transition.EligibleSourceFamilies);
-                    ProductionFactSql.AddBool(command, "@is_checkpoint", transition.Checkpoint, _Provider);
-                    ProductionFactSql.Add(command, "@valid_for_seconds", transition.ValidForSeconds);
-                    ProductionFactSql.AddUtc(command, "@created_utc", transition.CreatedUtc, _Provider);
-                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "INSERT INTO lane_state_transitions (" + _Columns + ") VALUES (@id, @lane_key, @eligible_count, @occupied, @capacity, @block_reason, @eligible_source_families, @is_checkpoint, @valid_for_seconds, @created_utc);";
+                        ProductionFactSql.Add(command, "@id", transition.Id);
+                        ProductionFactSql.Add(command, "@lane_key", transition.LaneKey);
+                        ProductionFactSql.Add(command, "@eligible_count", transition.EligibleCount);
+                        ProductionFactSql.Add(command, "@occupied", transition.Occupied);
+                        ProductionFactSql.Add(command, "@capacity", transition.Capacity);
+                        ProductionFactSql.Add(command, "@block_reason", transition.BlockReason.ToString());
+                        ProductionFactSql.Add(command, "@eligible_source_families", transition.EligibleSourceFamilies);
+                        ProductionFactSql.AddBool(command, "@is_checkpoint", transition.Checkpoint, _Provider);
+                        ProductionFactSql.Add(command, "@valid_for_seconds", transition.ValidForSeconds);
+                        ProductionFactSql.AddUtc(command, "@created_utc", transition.CreatedUtc, _Provider);
+                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
                 }
             }
             return transition;

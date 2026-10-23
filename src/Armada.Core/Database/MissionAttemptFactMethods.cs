@@ -37,22 +37,25 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = "INSERT INTO mission_attempt_facts (" + _Columns + ") VALUES (@id, @tenant_id, @user_id, @mission_id, @voyage_id, @vessel_id, @root_mission_id, @parent_mission_id, @fact_type, @is_rescue, @reason_code, @created_utc);";
-                    ProductionFactSql.Add(command, "@id", fact.Id);
-                    ProductionFactSql.Add(command, "@tenant_id", fact.TenantId);
-                    ProductionFactSql.Add(command, "@user_id", fact.UserId);
-                    ProductionFactSql.Add(command, "@mission_id", fact.MissionId);
-                    ProductionFactSql.Add(command, "@voyage_id", fact.VoyageId);
-                    ProductionFactSql.Add(command, "@vessel_id", fact.VesselId);
-                    ProductionFactSql.Add(command, "@root_mission_id", fact.RootMissionId);
-                    ProductionFactSql.Add(command, "@parent_mission_id", fact.ParentMissionId);
-                    ProductionFactSql.Add(command, "@fact_type", fact.FactType.ToString());
-                    ProductionFactSql.AddBool(command, "@is_rescue", fact.IsRescue, _Provider);
-                    ProductionFactSql.Add(command, "@reason_code", fact.ReasonCode);
-                    ProductionFactSql.AddUtc(command, "@created_utc", fact.CreatedUtc, _Provider);
-                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "INSERT INTO mission_attempt_facts (" + _Columns + ") VALUES (@id, @tenant_id, @user_id, @mission_id, @voyage_id, @vessel_id, @root_mission_id, @parent_mission_id, @fact_type, @is_rescue, @reason_code, @created_utc);";
+                        ProductionFactSql.Add(command, "@id", fact.Id);
+                        ProductionFactSql.Add(command, "@tenant_id", fact.TenantId);
+                        ProductionFactSql.Add(command, "@user_id", fact.UserId);
+                        ProductionFactSql.Add(command, "@mission_id", fact.MissionId);
+                        ProductionFactSql.Add(command, "@voyage_id", fact.VoyageId);
+                        ProductionFactSql.Add(command, "@vessel_id", fact.VesselId);
+                        ProductionFactSql.Add(command, "@root_mission_id", fact.RootMissionId);
+                        ProductionFactSql.Add(command, "@parent_mission_id", fact.ParentMissionId);
+                        ProductionFactSql.Add(command, "@fact_type", fact.FactType.ToString());
+                        ProductionFactSql.AddBool(command, "@is_rescue", fact.IsRescue, _Provider);
+                        ProductionFactSql.Add(command, "@reason_code", fact.ReasonCode);
+                        ProductionFactSql.AddUtc(command, "@created_utc", fact.CreatedUtc, _Provider);
+                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
                 }
             }
             return fact;

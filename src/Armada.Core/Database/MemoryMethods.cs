@@ -64,6 +64,7 @@ namespace Armada.Core.Database
             if (memory == null) throw new ArgumentNullException(nameof(memory));
 
             using (DbConnection connection = await _Rows.Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
             {
                 await _Rows.InsertAsync(memory, connection, transaction, token).ConfigureAwait(false);
@@ -109,6 +110,7 @@ namespace Armada.Core.Database
             // MySQL reports changed rows rather than matched rows, which is the same count here because every
             // guarded update advances the version.
             using (DbConnection connection = await _Rows.Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
             {
                 int rows;
@@ -142,6 +144,7 @@ namespace Armada.Core.Database
             // Tags go first, and only for a memory the tenant owns, so the delete holds on a store whose tag rows
             // reference their memory without a cascade.
             using (DbConnection connection = await _Rows.Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
             {
                 using (DbCommand command = connection.CreateCommand())

@@ -75,6 +75,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SchemaMigrationTests());
             runner.AddSuite(new PostgresBooleanColumnTypeTests());
             runner.AddSuite(new StoredScopeSqlTests());
+            runner.AddSuite(new SqliteWriteGateTests());
             runner.AddSuite(new McpEnumerateChecksProjectionTests());
             runner.AddSuite(new McpEnumerateScopeTests());
             runner.AddSuite(new VesselArchitectCapColumnTests());

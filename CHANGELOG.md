@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- SQLite write operations share one cancellable FIFO gate per open database file.
+  The gate covers direct and shared persistence, migrations, expiry deletes
+  and live restore. Expiry keeps verified export and trace recording before deletion. Reads stay independent; transactions retain their turn
+  through commit or rollback. Existing durability settings remain in effect.
+
 - Consumer verification rebases absolute workflow environment paths from each
   host checkout into its provisioned candidate worktree. Build, tests and retries
   read the proposed dependency instead of an unrelated accepted checkout.

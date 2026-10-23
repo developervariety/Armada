@@ -46,11 +46,14 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = "INSERT INTO harbor_jobs (" + _Columns + ") VALUES (@job_id, @runner_id, @launch_key, @tenant_id, @user_id, @enrollment_generation, @session_generation, @state, @process_id, @exit_code, @failure_reason, @next_output_sequence, @mission_id, @captain_id, @revision, @created_utc, @last_update_utc, @completed_utc);";
-                    Bind(command, record);
-                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "INSERT INTO harbor_jobs (" + _Columns + ") VALUES (@job_id, @runner_id, @launch_key, @tenant_id, @user_id, @enrollment_generation, @session_generation, @state, @process_id, @exit_code, @failure_reason, @next_output_sequence, @mission_id, @captain_id, @revision, @created_utc, @last_update_utc, @completed_utc);";
+                        Bind(command, record);
+                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
                 }
             }
         }
@@ -62,15 +65,18 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = @"UPDATE harbor_jobs SET session_generation = @session_generation, state = @state,
-                        process_id = @process_id, exit_code = @exit_code, failure_reason = @failure_reason,
-                        next_output_sequence = @next_output_sequence, revision = @revision,
-                        last_update_utc = @last_update_utc, completed_utc = @completed_utc
-                        WHERE job_id = @job_id AND revision < @revision;";
-                    Bind(command, record);
-                    return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = @"UPDATE harbor_jobs SET session_generation = @session_generation, state = @state,
+                            process_id = @process_id, exit_code = @exit_code, failure_reason = @failure_reason,
+                            next_output_sequence = @next_output_sequence, revision = @revision,
+                            last_update_utc = @last_update_utc, completed_utc = @completed_utc
+                            WHERE job_id = @job_id AND revision < @revision;";
+                        Bind(command, record);
+                        return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                    }
                 }
             }
         }
@@ -132,12 +138,15 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = "UPDATE harbor_jobs SET state = 'Lost', failure_reason = @failure_reason, revision = revision + 1, last_update_utc = @now_utc, completed_utc = @now_utc WHERE state IN " + _ActiveStates + ";";
-                    ProductionFactSql.Add(command, "@failure_reason", reason.Trim());
-                    ProductionFactSql.AddUtc(command, "@now_utc", nowUtc, _Provider);
-                    return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "UPDATE harbor_jobs SET state = 'Lost', failure_reason = @failure_reason, revision = revision + 1, last_update_utc = @now_utc, completed_utc = @now_utc WHERE state IN " + _ActiveStates + ";";
+                        ProductionFactSql.Add(command, "@failure_reason", reason.Trim());
+                        ProductionFactSql.AddUtc(command, "@now_utc", nowUtc, _Provider);
+                        return await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
                 }
             }
         }

@@ -48,6 +48,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection connection = new SqliteConnection(_Driver.ConnectionString))
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 using (SqliteTransaction transaction = connection.BeginTransaction())
                 {
                     using (SqliteCommand insert = connection.CreateCommand())
@@ -94,6 +95,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             using (SqliteConnection connection = new SqliteConnection(_Driver.ConnectionString))
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
+                using (System.IDisposable? writeLease = await Armada.Core.Database.Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 using (SqliteCommand command = connection.CreateCommand())
                 {
                     command.CommandText = @"UPDATE harbor_runner_enrollments SET active = 0, generation = generation + 1,

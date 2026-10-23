@@ -7,6 +7,7 @@ namespace Test.Shared.Suites.Database
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
+    using Microsoft.Data.Sqlite;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -140,6 +141,91 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(SqliteCaseAsync("sqlite_queued_cancellation_and_transaction_fault_release_file_gate", "SQLite queued cancellation and transaction fault release file gate", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (SqliteConnection holder = new SqliteConnection(testDb.ConnectionString))
+                {
+                    await holder.OpenAsync().ConfigureAwait(false);
+                    using (SqliteCommand trigger = holder.CreateCommand())
+                    {
+                        trigger.CommandText = "CREATE TRIGGER fail_gate_detail BEFORE INSERT ON request_history_detail " +
+                            "BEGIN SELECT RAISE(ABORT, 'injected detail failure'); END;";
+                        await trigger.ExecuteNonQueryAsync().ConfigureAwait(false);
+                    }
+
+                    IDisposable held = await SqliteWriteGate.EnterAsync(holder, CancellationToken.None).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("SQLite gate did not return a lease.");
+                    List<Task> pending = new List<Task>();
+                    try
+                    {
+                        RequestHistoryEntry cancelledEntry = BuildEntry("GET", "/gate/cancelled", 200, "usr_cancelled");
+                        using (CancellationTokenSource cancellation = new CancellationTokenSource())
+                        {
+                            TaskCompletionSource<bool> cancelledStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                            Task<RequestHistoryRecord> cancelled = StartIndependent(
+                                () => testDb.Driver.RequestHistory.CreateAsync(cancelledEntry, BuildDetail(cancelledEntry.Id, "{}"), cancellation.Token),
+                                cancelledStarted);
+                            pending.Add(cancelled);
+                            await cancelledStarted.Task.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                            AssertFalse(cancelled.IsCompleted, "Queued request-history write must wait before cancellation");
+                            cancellation.Cancel();
+                            try
+                            {
+                                await cancelled.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                                throw new InvalidOperationException("Queued request-history write did not cancel.");
+                            }
+                            catch (OperationCanceledException)
+                            {
+                            }
+                        }
+
+                        RequestHistoryEntry faultEntry = BuildEntry("POST", "/gate/fault", 200, "usr_fault");
+                        TaskCompletionSource<bool> faultStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        Task<RequestHistoryRecord> faulted = StartIndependent(
+                            () => testDb.Driver.RequestHistory.CreateAsync(faultEntry, BuildDetail(faultEntry.Id, "{}")), faultStarted);
+                        pending.Add(faulted);
+                        await faultStarted.Task.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                        AssertFalse(faulted.IsCompleted, "Faulting request-history write must wait for the held file gate");
+
+                        TaskCompletionSource<bool> followerStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        Task<Fleet> follower = StartIndependent(() => testDb.Driver.Fleets.CreateAsync(new Fleet("after-gate-fault")), followerStarted);
+                        pending.Add(follower);
+                        await followerStarted.Task.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                        AssertFalse(follower.IsCompleted, "Following direct write must queue behind request-history write");
+                        held.Dispose();
+                        try
+                        {
+                            await faulted.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                            throw new InvalidOperationException("Injected detail failure did not fail request-history create.");
+                        }
+                        catch (SqliteException exception)
+                        {
+                            AssertTrue(exception.Message.Contains("injected detail failure", StringComparison.Ordinal), "The detail trigger must cause the transaction failure");
+                        }
+                        await follower.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+
+                        AssertNull(await testDb.Driver.RequestHistory.ReadAsync(cancelledEntry.Id).ConfigureAwait(false));
+                        AssertNull(await testDb.Driver.RequestHistory.ReadAsync(faultEntry.Id).ConfigureAwait(false));
+                        using (SqliteCommand details = holder.CreateCommand())
+                        {
+                            details.CommandText = "SELECT COUNT(*) FROM request_history_detail WHERE request_history_id IN (@cancelled, @fault);";
+                            details.Parameters.AddWithValue("@cancelled", cancelledEntry.Id);
+                            details.Parameters.AddWithValue("@fault", faultEntry.Id);
+                            object? count = await details.ExecuteScalarAsync().ConfigureAwait(false);
+                            AssertEqual(0L, Convert.ToInt64(count));
+                        }
+                        List<Fleet> fleets = await testDb.Driver.Fleets.EnumerateAsync().ConfigureAwait(false);
+                        AssertNotNull(fleets.Find(item => item.Name == "after-gate-fault"));
+                    }
+                    finally
+                    {
+                        held.Dispose();
+                        await DrainAsync(pending).ConfigureAwait(false);
+                    }
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "RequestHistory Database",
@@ -193,6 +279,40 @@ namespace Test.Shared.Suites.Database
                 displayName: displayName,
                 executeAsync: (CancellationToken ct) => body(),
                 tags: new List<string> { tag });
+        }
+
+        private static Task<T> StartIndependent<T>(Func<Task<T>> operation, TaskCompletionSource<bool> started)
+        {
+            Task<Task<T>> outer;
+            using (ExecutionContext.SuppressFlow())
+            {
+                outer = Task.Factory.StartNew(() =>
+                {
+                    Task<T> pending = operation();
+                    started.TrySetResult(true);
+                    return pending;
+                }, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
+            }
+            return outer.Unwrap();
+        }
+
+        private static async Task DrainAsync(List<Task> tasks)
+        {
+            if (tasks.Count == 0) return;
+            try { await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false); }
+            catch (Exception exception)
+            {
+                // The test body checks operation failures; cleanup must still report an unfinished operation.
+                if (tasks.Exists(task => !task.IsCompleted))
+                    throw new InvalidOperationException("Queued SQLite test work did not finish during cleanup.", exception);
+            }
+        }
+
+        private static TestCaseDescriptor SqliteCaseAsync(string caseId, string displayName, string tag, Func<Task> body)
+        {
+            if (TestDatabaseConfig.IsSqlite) return CaseAsync(caseId, displayName, tag, body);
+            return new TestCaseDescriptor(SuiteId, caseId, displayName, _ => Task.CompletedTask,
+                new List<string> { tag }, true, "Requires SQLite file-gate behavior.");
         }
 
         #endregion

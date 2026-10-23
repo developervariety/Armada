@@ -52,51 +52,54 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    using (DbCommand command = connection.CreateCommand())
-                    {
-                        command.Transaction = transaction;
-                        command.CommandText = "DELETE FROM trace_records WHERE id = @id;";
-                        ProductionFactSql.Add(command, "@id", record.Id);
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    }
-                    using (DbCommand command = connection.CreateCommand())
-                    {
-                        command.Transaction = transaction;
-                        command.CommandText = "INSERT INTO trace_records (" + _Columns + ") VALUES (@id, @kind, @tenant_id, @status, @subject_created_utc, @subject_last_update_utc, @recorded_utc, @document);";
-                        ProductionFactSql.Add(command, "@id", record.Id);
-                        ProductionFactSql.Add(command, "@kind", record.Kind.ToString());
-                        ProductionFactSql.Add(command, "@tenant_id", record.TenantId);
-                        ProductionFactSql.Add(command, "@status", ProductionFactSql.BoundCode(record.Status, 64));
-                        ProductionFactSql.AddUtc(command, "@subject_created_utc", record.SubjectCreatedUtc, _Provider);
-                        ProductionFactSql.AddUtc(command, "@subject_last_update_utc", record.SubjectLastUpdateUtc, _Provider);
-                        ProductionFactSql.AddUtc(command, "@recorded_utc", record.RecordedUtc, _Provider);
-                        ProductionFactSql.Add(command, "@document", document);
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    }
-                    using (DbCommand command = connection.CreateCommand())
-                    {
-                        command.Transaction = transaction;
-                        command.CommandText = "DELETE FROM trace_links WHERE source_id = @id;";
-                        ProductionFactSql.Add(command, "@id", record.Id);
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    }
-                    foreach (TraceLink link in DistinctLinks(record.Document.Links))
+                    using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
                     {
                         using (DbCommand command = connection.CreateCommand())
                         {
                             command.Transaction = transaction;
-                            command.CommandText = "INSERT INTO trace_links (source_id, source_kind, target_id, target_kind, relation) VALUES (@source_id, @source_kind, @target_id, @target_kind, @relation);";
-                            ProductionFactSql.Add(command, "@source_id", record.Id);
-                            ProductionFactSql.Add(command, "@source_kind", record.Kind.ToString());
-                            ProductionFactSql.Add(command, "@target_id", link.Id);
-                            ProductionFactSql.Add(command, "@target_kind", link.Kind.ToString());
-                            ProductionFactSql.Add(command, "@relation", ProductionFactSql.BoundCode(link.Relation, 64) ?? String.Empty);
+                            command.CommandText = "DELETE FROM trace_records WHERE id = @id;";
+                            ProductionFactSql.Add(command, "@id", record.Id);
                             await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                         }
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "INSERT INTO trace_records (" + _Columns + ") VALUES (@id, @kind, @tenant_id, @status, @subject_created_utc, @subject_last_update_utc, @recorded_utc, @document);";
+                            ProductionFactSql.Add(command, "@id", record.Id);
+                            ProductionFactSql.Add(command, "@kind", record.Kind.ToString());
+                            ProductionFactSql.Add(command, "@tenant_id", record.TenantId);
+                            ProductionFactSql.Add(command, "@status", ProductionFactSql.BoundCode(record.Status, 64));
+                            ProductionFactSql.AddUtc(command, "@subject_created_utc", record.SubjectCreatedUtc, _Provider);
+                            ProductionFactSql.AddUtc(command, "@subject_last_update_utc", record.SubjectLastUpdateUtc, _Provider);
+                            ProductionFactSql.AddUtc(command, "@recorded_utc", record.RecordedUtc, _Provider);
+                            ProductionFactSql.Add(command, "@document", document);
+                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "DELETE FROM trace_links WHERE source_id = @id;";
+                            ProductionFactSql.Add(command, "@id", record.Id);
+                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                        foreach (TraceLink link in DistinctLinks(record.Document.Links))
+                        {
+                            using (DbCommand command = connection.CreateCommand())
+                            {
+                                command.Transaction = transaction;
+                                command.CommandText = "INSERT INTO trace_links (source_id, source_kind, target_id, target_kind, relation) VALUES (@source_id, @source_kind, @target_id, @target_kind, @relation);";
+                                ProductionFactSql.Add(command, "@source_id", record.Id);
+                                ProductionFactSql.Add(command, "@source_kind", record.Kind.ToString());
+                                ProductionFactSql.Add(command, "@target_id", link.Id);
+                                ProductionFactSql.Add(command, "@target_kind", link.Kind.ToString());
+                                ProductionFactSql.Add(command, "@relation", ProductionFactSql.BoundCode(link.Relation, 64) ?? String.Empty);
+                                await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                            }
+                        }
+                        await transaction.CommitAsync(token).ConfigureAwait(false);
                     }
-                    await transaction.CommitAsync(token).ConfigureAwait(false);
                 }
             }
         }
@@ -156,21 +159,24 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                for (int start = 0; start < distinct.Count; start += _IdBatchSize)
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    List<string> batch = distinct.Skip(start).Take(_IdBatchSize).ToList();
-                    List<string> names = batch.Select((_, index) => "@id" + index.ToString(CultureInfo.InvariantCulture)).ToList();
-                    using (DbCommand command = connection.CreateCommand())
+                    for (int start = 0; start < distinct.Count; start += _IdBatchSize)
                     {
-                        command.CommandText = "DELETE FROM trace_links WHERE source_id IN (" + String.Join(", ", names) + ");";
-                        for (int index = 0; index < batch.Count; index++) ProductionFactSql.Add(command, names[index], batch[index]);
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    }
-                    using (DbCommand command = connection.CreateCommand())
-                    {
-                        command.CommandText = "DELETE FROM trace_records WHERE id IN (" + String.Join(", ", names) + ");";
-                        for (int index = 0; index < batch.Count; index++) ProductionFactSql.Add(command, names[index], batch[index]);
-                        deleted += await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        List<string> batch = distinct.Skip(start).Take(_IdBatchSize).ToList();
+                        List<string> names = batch.Select((_, index) => "@id" + index.ToString(CultureInfo.InvariantCulture)).ToList();
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.CommandText = "DELETE FROM trace_links WHERE source_id IN (" + String.Join(", ", names) + ");";
+                            for (int index = 0; index < batch.Count; index++) ProductionFactSql.Add(command, names[index], batch[index]);
+                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.CommandText = "DELETE FROM trace_records WHERE id IN (" + String.Join(", ", names) + ");";
+                            for (int index = 0; index < batch.Count; index++) ProductionFactSql.Add(command, names[index], batch[index]);
+                            deleted += await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
                     }
                 }
             }
@@ -249,25 +255,28 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    using (DbCommand command = connection.CreateCommand())
+                    using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
                     {
-                        command.Transaction = transaction;
-                        command.CommandText = "DELETE FROM trace_cursors WHERE name = @name;";
-                        ProductionFactSql.Add(command, "@name", name);
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "DELETE FROM trace_cursors WHERE name = @name;";
+                            ProductionFactSql.Add(command, "@name", name);
+                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.Transaction = transaction;
+                            command.CommandText = "INSERT INTO trace_cursors (name, value, updated_utc) VALUES (@name, @value, @updated_utc);";
+                            ProductionFactSql.Add(command, "@name", name);
+                            ProductionFactSql.Add(command, "@value", value);
+                            ProductionFactSql.AddUtc(command, "@updated_utc", DateTime.UtcNow, _Provider);
+                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                        await transaction.CommitAsync(token).ConfigureAwait(false);
                     }
-                    using (DbCommand command = connection.CreateCommand())
-                    {
-                        command.Transaction = transaction;
-                        command.CommandText = "INSERT INTO trace_cursors (name, value, updated_utc) VALUES (@name, @value, @updated_utc);";
-                        ProductionFactSql.Add(command, "@name", name);
-                        ProductionFactSql.Add(command, "@value", value);
-                        ProductionFactSql.AddUtc(command, "@updated_utc", DateTime.UtcNow, _Provider);
-                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    }
-                    await transaction.CommitAsync(token).ConfigureAwait(false);
                 }
             }
         }

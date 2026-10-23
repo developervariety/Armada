@@ -93,6 +93,9 @@ Both versions check REST and MCP authorization contracts. The fork checks the
 registered API exposure and real MCP catalog, keeps its tenant and mission scope
 rules, and authenticates captain session tokens through the shared service.
 
+Both versions serialize SQLite writes through a FIFO gate shared by each database
+file. The fork includes shared persistence methods, migrations, expiry deletes and live restore. Reads stay independent and existing durability settings apply.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the
@@ -483,6 +486,20 @@ Armada persists state through database drivers for SQLite, PostgreSQL, MySQL, an
 `armada.db` is a SQLite example or test artifact; it is not the database used
 by the active server. Confirm the configured database type before inspecting or
 deleting any database-looking file.
+
+### SQLite write ordering
+
+SQLite writers enter one process-local FIFO gate for the opened database file.
+Driver instances, relative paths and file URI aliases share its gate. Each
+transaction holds its turn through commit or rollback. Cancellation removes a
+queued write, and a failed write releases its turn. Reads and writes to other
+files remain independent. Other database providers use their own concurrency.
+
+Startup holds a turn through schema migration. Expiry completes verified archive
+export and trace recording before each delete queues for a turn. Live restore holds the target's
+turn from its safety backup through replacement. Driver disposal leaves other
+users of the same file active. Gate records use weak references with periodic
+cleanup; SQLite retains its existing cross-process locking and durability.
 
 ---
 

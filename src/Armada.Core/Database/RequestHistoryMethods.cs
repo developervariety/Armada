@@ -83,6 +83,7 @@ namespace Armada.Core.Database
             if (entry == null) throw new ArgumentNullException(nameof(entry));
 
             using (DbConnection connection = await _Entries.Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             using (DbTransaction transaction = await connection.BeginTransactionAsync(token).ConfigureAwait(false))
             {
                 await _Entries.InsertAsync(entry, connection, transaction, token).ConfigureAwait(false);

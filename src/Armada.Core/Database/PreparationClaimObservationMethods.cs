@@ -37,23 +37,26 @@ namespace Armada.Core.Database
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = connection.CreateCommand())
+                using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
                 {
-                    command.CommandText = "INSERT INTO preparation_claim_observations (" + _Columns + ") VALUES (@id, @tenant_id, @user_id, @objective_id, @claim_id, @claim_kind, @source_family, @voyage_id, @source_commit, @target_commit, @evidence_fingerprint, @observation, @created_utc);";
-                    ProductionFactSql.Add(command, "@id", observation.Id);
-                    ProductionFactSql.Add(command, "@tenant_id", observation.TenantId);
-                    ProductionFactSql.Add(command, "@user_id", observation.UserId);
-                    ProductionFactSql.Add(command, "@objective_id", observation.ObjectiveId);
-                    ProductionFactSql.Add(command, "@claim_id", observation.ClaimId);
-                    ProductionFactSql.Add(command, "@claim_kind", observation.ClaimKind.ToString());
-                    ProductionFactSql.Add(command, "@source_family", observation.SourceFamily);
-                    ProductionFactSql.Add(command, "@voyage_id", observation.VoyageId);
-                    ProductionFactSql.Add(command, "@source_commit", observation.SourceCommit);
-                    ProductionFactSql.Add(command, "@target_commit", observation.TargetCommit);
-                    ProductionFactSql.Add(command, "@evidence_fingerprint", observation.EvidenceFingerprint);
-                    ProductionFactSql.Add(command, "@observation", observation.Observation.ToString());
-                    ProductionFactSql.AddUtc(command, "@created_utc", observation.CreatedUtc, _Provider);
-                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.CommandText = "INSERT INTO preparation_claim_observations (" + _Columns + ") VALUES (@id, @tenant_id, @user_id, @objective_id, @claim_id, @claim_kind, @source_family, @voyage_id, @source_commit, @target_commit, @evidence_fingerprint, @observation, @created_utc);";
+                        ProductionFactSql.Add(command, "@id", observation.Id);
+                        ProductionFactSql.Add(command, "@tenant_id", observation.TenantId);
+                        ProductionFactSql.Add(command, "@user_id", observation.UserId);
+                        ProductionFactSql.Add(command, "@objective_id", observation.ObjectiveId);
+                        ProductionFactSql.Add(command, "@claim_id", observation.ClaimId);
+                        ProductionFactSql.Add(command, "@claim_kind", observation.ClaimKind.ToString());
+                        ProductionFactSql.Add(command, "@source_family", observation.SourceFamily);
+                        ProductionFactSql.Add(command, "@voyage_id", observation.VoyageId);
+                        ProductionFactSql.Add(command, "@source_commit", observation.SourceCommit);
+                        ProductionFactSql.Add(command, "@target_commit", observation.TargetCommit);
+                        ProductionFactSql.Add(command, "@evidence_fingerprint", observation.EvidenceFingerprint);
+                        ProductionFactSql.Add(command, "@observation", observation.Observation.ToString());
+                        ProductionFactSql.AddUtc(command, "@created_utc", observation.CreatedUtc, _Provider);
+                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
                 }
             }
             return observation;

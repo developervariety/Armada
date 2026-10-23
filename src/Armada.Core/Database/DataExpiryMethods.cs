@@ -189,21 +189,25 @@ namespace Armada.Core.Database
         private async Task ExecuteAsync(DbConnection connection, string table, DataExpiryResult? result, string sql, string timestampTable,
             DateTime cutoff, DataExpiryCutoffs cutoffs, CancellationToken token, IDataExpiryRowExporter? exporter = null)
         {
+            // Export observers can persist trace records. Complete those writes before this delete queues.
             if (exporter != null)
                 await ExportAsync(connection, table, sql, timestampTable, cutoff, cutoffs, exporter, token).ConfigureAwait(false);
 
-            using (DbCommand command = CreateCommand(connection, sql, timestampTable, cutoff, cutoffs))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             {
-                int deleted;
-                try
+                using (DbCommand command = CreateCommand(connection, sql, timestampTable, cutoff, cutoffs))
                 {
-                    deleted = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    int deleted;
+                    try
+                    {
+                        deleted = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                    catch (DbException ex)
+                    {
+                        throw new InvalidOperationException("data expiry of " + table + " failed on " + _Provider + ": " + ex.Message, ex);
+                    }
+                    result?.Add(table, deleted);
                 }
-                catch (DbException ex)
-                {
-                    throw new InvalidOperationException("data expiry of " + table + " failed on " + _Provider + ": " + ex.Message, ex);
-                }
-                result?.Add(table, deleted);
             }
         }
 

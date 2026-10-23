@@ -123,109 +123,112 @@ namespace Armada.Core.Database.Sqlite
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
-                using (SqliteCommand walCmd = conn.CreateCommand())
+                using (IDisposable? writeLease = await SqliteWriteGate.EnterAsync(conn, token).ConfigureAwait(false))
                 {
-                    walCmd.CommandText = "PRAGMA journal_mode=WAL;";
-                    await walCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
-
-                using (SqliteCommand fkCmd = conn.CreateCommand())
-                {
-                    fkCmd.CommandText = "PRAGMA foreign_keys=ON;";
-                    await fkCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
-
-                // Create migration tracking table
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = SchemaMigrationsTable;
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
-
-                // Apply pending migrations. The ledger read refuses a skipped lower version.
-                List<SchemaMigration> migrations = TableQueries.GetMigrations();
-                int currentVersion = await AppliedMigrationLedger.ReadCurrentVersionAsync(conn, migrations, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
-                int applied = 0;
-
-                foreach (SchemaMigration migration in migrations)
-                {
-                    if (migration.Version == 52)
-                        await DefaultDatabaseIdentity.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, MigrationCheckpoint, token).ConfigureAwait(false);
-                    if (migration.Version > currentVersion) MigrationCheckpoint?.Invoke(migration.Version, -1);
-                    if (migration.Version <= currentVersion) continue;
-
-                    _Logging.Info(_Header + "applying migration v" + migration.Version + ": " + migration.Description);
-
-                    using (SqliteTransaction tx = conn.BeginTransaction(deferred: false))
+                    using (SqliteCommand walCmd = conn.CreateCommand())
                     {
-                        // Another initializer can commit while this connection waits for the
-                        // SQLite write lock. Read the ledger again inside that lock.
-                        using (SqliteCommand versionCommand = conn.CreateCommand())
+                        walCmd.CommandText = "PRAGMA journal_mode=WAL;";
+                        await walCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+
+                    using (SqliteCommand fkCmd = conn.CreateCommand())
+                    {
+                        fkCmd.CommandText = "PRAGMA foreign_keys=ON;";
+                        await fkCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+
+                    // Create migration tracking table
+                    using (SqliteCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = SchemaMigrationsTable;
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+
+                    // Apply pending migrations. The ledger read refuses a skipped lower version.
+                    List<SchemaMigration> migrations = TableQueries.GetMigrations();
+                    int currentVersion = await AppliedMigrationLedger.ReadCurrentVersionAsync(conn, migrations, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                    int applied = 0;
+
+                    foreach (SchemaMigration migration in migrations)
+                    {
+                        if (migration.Version == 52)
+                            await DefaultDatabaseIdentity.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, MigrationCheckpoint, token).ConfigureAwait(false);
+                        if (migration.Version > currentVersion) MigrationCheckpoint?.Invoke(migration.Version, -1);
+                        if (migration.Version <= currentVersion) continue;
+
+                        _Logging.Info(_Header + "applying migration v" + migration.Version + ": " + migration.Description);
+
+                        using (SqliteTransaction tx = conn.BeginTransaction(deferred: false))
                         {
-                            versionCommand.Transaction = tx;
-                            versionCommand.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
-                            int lockedVersion = Convert.ToInt32(await versionCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
-                            if (migration.Version <= lockedVersion) continue;
-                        }
-                        if (migration.Version == 88)
-                            await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
-                        if (migration.Version == 89)
-                            await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, true, token).ConfigureAwait(false);
-                        if (migration.Version == 90)
-                            await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
-                        if (migration.Version == 104)
-                            await MemoryProposalSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
-                        if (migration.Version == 115)
-                            await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
-                        for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
-                        {
-                            string sql = migration.Statements[statementOrdinal];
+                            // Another initializer can commit while this connection waits for the
+                            // SQLite write lock. Read the ledger again inside that lock.
+                            using (SqliteCommand versionCommand = conn.CreateCommand())
+                            {
+                                versionCommand.Transaction = tx;
+                                versionCommand.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
+                                int lockedVersion = Convert.ToInt32(await versionCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
+                                if (migration.Version <= lockedVersion) continue;
+                            }
+                            if (migration.Version == 88)
+                                await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                            if (migration.Version == 89)
+                                await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, true, token).ConfigureAwait(false);
+                            if (migration.Version == 90)
+                                await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                            if (migration.Version == 104)
+                                await MemoryProposalSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                            if (migration.Version == 115)
+                                await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                            for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
+                            {
+                                string sql = migration.Statements[statementOrdinal];
+                                using (SqliteCommand cmd = conn.CreateCommand())
+                                {
+                                    cmd.Transaction = tx;
+                                    cmd.CommandText = sql;
+                                    try
+                                    {
+                                        if (migration.Version == 83 || migration.Version == 84 || migration.Version == 85 || migration.Version == 87 || (migration.Version == 89 && statementOrdinal == 0))
+                                            await AdditiveColumnMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, sql, token).ConfigureAwait(false);
+                                        else
+                                            await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                                        MigrationCheckpoint?.Invoke(migration.Version, statementOrdinal);
+                                    }
+                                    catch (SqliteException ex) when (ex.SqliteErrorCode == 1 && ex.Message.Contains("duplicate column name"))
+                                    {
+                                        // Column already exists in the CREATE TABLE definition.
+                                        // This happens when migrations add columns that were later
+                                        // incorporated into the initial schema. Safe to skip.
+                                        _Logging.Info(_Header + "migration v" + migration.Version + ": column already exists, skipping");
+                                    }
+                                }
+                            }
+
+                            // Record migration
                             using (SqliteCommand cmd = conn.CreateCommand())
                             {
                                 cmd.Transaction = tx;
-                                cmd.CommandText = sql;
-                                try
-                                {
-                                    if (migration.Version == 83 || migration.Version == 84 || migration.Version == 85 || migration.Version == 87 || (migration.Version == 89 && statementOrdinal == 0))
-                                        await AdditiveColumnMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, sql, token).ConfigureAwait(false);
-                                    else
-                                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                                    MigrationCheckpoint?.Invoke(migration.Version, statementOrdinal);
-                                }
-                                catch (SqliteException ex) when (ex.SqliteErrorCode == 1 && ex.Message.Contains("duplicate column name"))
-                                {
-                                    // Column already exists in the CREATE TABLE definition.
-                                    // This happens when migrations add columns that were later
-                                    // incorporated into the initial schema. Safe to skip.
-                                    _Logging.Info(_Header + "migration v" + migration.Version + ": column already exists, skipping");
-                                }
+                                cmd.CommandText = "INSERT INTO schema_migrations (version, description, applied_utc) VALUES (@v, @d, @t);";
+                                cmd.Parameters.AddWithValue("@v", migration.Version);
+                                cmd.Parameters.AddWithValue("@d", migration.Description);
+                                cmd.Parameters.AddWithValue("@t", ToIso8601(DateTime.UtcNow));
+                                await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                             }
-                        }
 
-                        // Record migration
-                        using (SqliteCommand cmd = conn.CreateCommand())
-                        {
-                            cmd.Transaction = tx;
-                            cmd.CommandText = "INSERT INTO schema_migrations (version, description, applied_utc) VALUES (@v, @d, @t);";
-                            cmd.Parameters.AddWithValue("@v", migration.Version);
-                            cmd.Parameters.AddWithValue("@d", migration.Description);
-                            cmd.Parameters.AddWithValue("@t", ToIso8601(DateTime.UtcNow));
-                            await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                            tx.Commit();
+                            applied++;
+                            MigrationCheckpoint?.Invoke(migration.Version, -2);
                         }
-
-                        tx.Commit();
-                        applied++;
-                        MigrationCheckpoint?.Invoke(migration.Version, -2);
                     }
+
+                    if (applied > 0)
+                        _Logging.Info(_Header + "applied " + applied + " migration(s), schema now at v" + migrations[migrations.Count - 1].Version);
+                    else
+                        _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
+
+                    // The stored column forms the binder writes must match the migrated schema before any write.
+                    await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                 }
-
-                if (applied > 0)
-                    _Logging.Info(_Header + "applied " + applied + " migration(s), schema now at v" + migrations[migrations.Count - 1].Version);
-                else
-                    _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
-
-                // The stored column forms the binder writes must match the migrated schema before any write.
-                await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
             }
 
             _Logging.Info(_Header + "database initialized successfully");

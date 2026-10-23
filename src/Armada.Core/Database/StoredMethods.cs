@@ -54,6 +54,7 @@ namespace Armada.Core.Database
         {
             if (model == null) throw new ArgumentNullException(nameof(model));
             using (DbConnection connection = await Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             using (DbCommand command = connection.CreateCommand())
             {
                 command.CommandText = Table.InsertSql;
@@ -87,6 +88,7 @@ namespace Armada.Core.Database
         {
             if (model == null) throw new ArgumentNullException(nameof(model));
             using (DbConnection connection = await Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             using (DbCommand command = connection.CreateCommand())
             {
                 command.CommandText = Table.UpdateSql;
@@ -251,6 +253,7 @@ namespace Armada.Core.Database
         {
             RequireSameTable(filter);
             using (DbConnection connection = await Dialect.OpenAsync(token).ConfigureAwait(false))
+            using (IDisposable? writeLease = await Sqlite.SqliteWriteGate.EnterAsync(connection, token).ConfigureAwait(false))
             using (DbCommand command = connection.CreateCommand())
             {
                 command.CommandText = "DELETE FROM " + Table.Name + filter.Where + ";";

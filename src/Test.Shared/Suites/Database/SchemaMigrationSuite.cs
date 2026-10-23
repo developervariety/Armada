@@ -227,6 +227,70 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("initialize_waits_for_file_gate_and_other_driver_disposal_preserves_gate", "Initialize waits for file gate and other driver disposal preserves gate", TestTags.Positive, async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_gate_init_" + Guid.NewGuid().ToString("N") + ".db");
+                string connectionString = "Data Source=" + tempFile + ";Pooling=False";
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                DatabaseDriver first = new SqliteDatabaseDriver(connectionString, logging);
+                DatabaseDriver second = new SqliteDatabaseDriver(connectionString, logging);
+
+                try
+                {
+                    await first.InitializeAsync().ConfigureAwait(false);
+                    using (SqliteConnection holder = new SqliteConnection(connectionString))
+                    {
+                        await holder.OpenAsync().ConfigureAwait(false);
+                        IDisposable held = await SqliteWriteGate.EnterAsync(holder, CancellationToken.None).ConfigureAwait(false)
+                            ?? throw new InvalidOperationException("SQLite gate did not return a lease.");
+                        TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        Task? initialization = null;
+                        try
+                        {
+                            using (ExecutionContext.SuppressFlow())
+                            {
+                                initialization = Task.Factory.StartNew(async () =>
+                                {
+                                    Task pending = second.InitializeAsync();
+                                    started.TrySetResult(true);
+                                    await pending.ConfigureAwait(false);
+                                }, CancellationToken.None, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default).Unwrap();
+                            }
+                            await started.Task.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                            AssertFalse(initialization.IsCompleted, "Initialization must wait for the held SQLite file gate");
+                            first.Dispose();
+                        }
+                        finally
+                        {
+                            held.Dispose();
+                            if (initialization != null)
+                            {
+                                await initialization.WaitAsync(TimeSpan.FromSeconds(60)).ConfigureAwait(false);
+                            }
+                        }
+                        if (initialization != null) await initialization.ConfigureAwait(false);
+                    }
+
+                    int version = await second.GetSchemaVersionAsync().ConfigureAwait(false);
+                    AssertTrue(version >= 1, "Waiting initialization must apply the schema");
+                    second.Dispose();
+
+                    using (DatabaseDriver reopened = new SqliteDatabaseDriver(connectionString, logging))
+                    {
+                        await reopened.InitializeAsync().ConfigureAwait(false);
+                        Armada.Core.Models.Fleet fleet = await reopened.Fleets.CreateAsync(new Armada.Core.Models.Fleet("gate-survives-disposal")).ConfigureAwait(false);
+                        AssertNotNull(await reopened.Fleets.ReadAsync(fleet.Id).ConfigureAwait(false));
+                    }
+                }
+                finally
+                {
+                    first.Dispose();
+                    second.Dispose();
+                    try { File.Delete(tempFile); } catch { }
+                }
+            }, sqliteOnly: true));
+
             cases.Add(CaseAsync("initialize_async_migration_records_have_timestamps", "InitializeAsync migration records have timestamps", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
