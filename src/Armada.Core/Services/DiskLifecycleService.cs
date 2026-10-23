@@ -82,6 +82,7 @@ namespace Armada.Core.Services
         private const string _CategoryFinalMessages = "finalMessages";
         private const string _CategorySessionsPrefix = "captainSessions:";
         private const int _MaxReportedArchiveFailures = 5;
+        private const string _ArchiveCapKeptReason = "the object store download or transaction cap is exceeded, so the run stopped verifying; kept locally";
         private const string _OperatorEvidenceFolder = "operator-evidence";
         private const string _KeepMarkerFile = ".armada-keep";
 
@@ -1550,6 +1551,15 @@ namespace Armada.Core.Services
             }
 
             HistoryArchivePass pass = _ArchivePass ?? throw new InvalidOperationException("archive mode without an archive pass");
+            if (pass.CapReached)
+            {
+                // The store refused a read-back for a cap earlier in this run; keep the file locally
+                // without touching the store again, so the run does not send one more capped request.
+                pass.SkipForCap();
+                RecordAction(report, category, full, "kept", reason + "; " + _ArchiveCapKeptReason);
+                return;
+            }
+
             if (pass.Exhausted)
             {
                 pass.Defer();
@@ -1558,6 +1568,13 @@ namespace Armada.Core.Services
             }
 
             ArchivePutResult put = await pass.ArchiveFileAsync(ArchiveCategory(category), root, full, token).ConfigureAwait(false);
+            if (put.FailureCode == ArchivePutResult.CapExceededCode)
+            {
+                pass.SkipForCap();
+                RecordAction(report, category, full, "kept", reason + "; " + _ArchiveCapKeptReason);
+                return;
+            }
+
             if (!put.Verified)
             {
                 RecordAction(report, category, full, "skipped", "archive upload not verified (" + put.FailureCode + "); kept");
@@ -1614,6 +1631,13 @@ namespace Armada.Core.Services
             }
 
             HistoryArchivePass pass = _ArchivePass ?? throw new InvalidOperationException("archive mode without an archive pass");
+            if (pass.CapReached)
+            {
+                pass.SkipForCap();
+                RecordAction(report, category, full, "kept", reason + "; " + _ArchiveCapKeptReason);
+                return;
+            }
+
             if (pass.Exhausted)
             {
                 pass.Defer();
@@ -1625,6 +1649,13 @@ namespace Armada.Core.Services
             {
                 if (token.IsCancellationRequested) return;
                 ArchivePutResult put = await pass.ArchiveFileAsync(ArchiveCategory(category), root, file, token).ConfigureAwait(false);
+                if (put.FailureCode == ArchivePutResult.CapExceededCode)
+                {
+                    pass.SkipForCap();
+                    RecordAction(report, category, full, "kept", reason + "; " + _ArchiveCapKeptReason);
+                    return;
+                }
+
                 if (!put.Verified)
                 {
                     RecordAction(report, category, full, "skipped", "archive upload of " + Path.GetRelativePath(full, file) + " not verified (" + put.FailureCode + "); folder kept");
@@ -1747,6 +1778,8 @@ namespace Armada.Core.Services
             report.ArchiveFreeFailures = pass.FreeFailures.Count;
             report.ArchiveDeferredItems = pass.Deferred;
             report.ArchiveCapped = pass.Deferred > 0;
+            report.ArchiveTransactionCapReached = pass.CapReached;
+            report.ArchiveSkippedForCap = pass.SkippedForCap;
 
             ArchivePutResult? manifest = null;
             try
@@ -1769,9 +1802,27 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (pass.Failures.Count == 0 && manifestFailure == null && pass.FreeFailures.Count == 0) return;
+            if (pass.Failures.Count == 0 && manifestFailure == null && pass.FreeFailures.Count == 0 && !pass.CapReached) return;
 
             List<string> notes = new List<string>();
+            if (pass.CapReached)
+            {
+                // One cap event and one board note for the whole run, not one per file: the condition is
+                // the store's, and the files are all kept locally until the cap is raised.
+                string capSummary = "History archive: the object store download or transaction cap is exceeded in disk-lifecycle run " + pass.RunId
+                    + "; the run stopped verifying after the first cap and kept " + pass.SkippedForCap + " history item" + (pass.SkippedForCap == 1 ? "" : "s")
+                    + " locally. Raise the cap to resume archiving."
+                    + (String.IsNullOrEmpty(pass.CapReason) ? "" : " " + pass.CapReason);
+                notes.Add(capSummary);
+                await RecordArchiveEventAsync("disk_lifecycle.archive_cap_reached", capSummary, JsonSerializer.Serialize(new
+                {
+                    runId = pass.RunId,
+                    skippedForCap = pass.SkippedForCap,
+                    uploaded = pass.Uploaded,
+                    reason = pass.CapReason
+                }), token).ConfigureAwait(false);
+            }
+
             if (pass.Failures.Count > 0 || manifestFailure != null)
             {
                 List<string> lines = pass.Failures
@@ -1878,6 +1929,7 @@ namespace Armada.Core.Services
                         ? "Disk lifecycle reconciliation " + (report.DryRun ? "dry-run " : "") + "completed: " + report.ReclaimableItems + " reclaimable items, " + FormatBytes(report.TotalReclaimableBytes)
                         : "Disk lifecycle scan completed: " + report.ReclaimableItems + " reclaimable items, " + FormatBytes(report.TotalReclaimableBytes))
                         + (report.ArchiveCapped ? "; archive file bound reached, " + report.ArchiveDeferredItems + " history item" + (report.ArchiveDeferredItems == 1 ? "" : "s") + " deferred to the next pass" : "")
+                        + (report.ArchiveTransactionCapReached ? "; archive stopped: object store cap exceeded, " + report.ArchiveSkippedForCap + " history item" + (report.ArchiveSkippedForCap == 1 ? "" : "s") + " kept locally" : "")
                         + (report.ErrorCount > 0 ? "; " + report.ErrorCount + " error" + (report.ErrorCount == 1 ? "" : "s") + ", first: " + report.Errors[0] : ""),
                     Payload = JsonSerializer.Serialize(new
                     {
@@ -1897,6 +1949,8 @@ namespace Armada.Core.Services
                         archiveFreeFailures = report.ArchiveFreeFailures,
                         archiveCapped = report.ArchiveCapped,
                         archiveDeferredItems = report.ArchiveDeferredItems,
+                        archiveTransactionCapReached = report.ArchiveTransactionCapReached,
+                        archiveSkippedForCap = report.ArchiveSkippedForCap,
                         categories = perCategory
                     })
                 };

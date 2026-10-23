@@ -71,9 +71,27 @@ namespace Armada.Core.Services.Archive
         public int Deferred { get; private set; } = 0;
 
         /// <summary>
-        /// Uploads that were not verified, with their local paths.
+        /// Uploads that were not verified, with their local paths. A cap refusal is not counted here:
+        /// it is a whole-store condition reported once through <see cref="CapReached"/>.
         /// </summary>
         public List<KeyValuePair<string, ArchivePutResult>> Failures { get; } = new List<KeyValuePair<string, ArchivePutResult>>();
+
+        /// <summary>
+        /// True once a read-back verify was refused because the object store's download or transaction
+        /// cap is exceeded. The caller stops handing further items to the archive and keeps them locally,
+        /// so the run does not send one more capped request per file.
+        /// </summary>
+        public bool CapReached { get; private set; } = false;
+
+        /// <summary>
+        /// The message of the first cap refusal, reported once for the run.
+        /// </summary>
+        public string? CapReason { get; private set; } = null;
+
+        /// <summary>
+        /// History items kept locally because the cap stopped the run's uploads, counted once per item.
+        /// </summary>
+        public int SkippedForCap { get; private set; } = 0;
 
         #endregion
 
@@ -135,6 +153,12 @@ namespace Armada.Core.Services.Archive
                     result = stored;
                     reused = true;
                 }
+                else if (stored.FailureCode == ArchivePutResult.CapExceededCode)
+                {
+                    // The store refused the read-back for a cap; uploading would be one more capped
+                    // request, so stop here and let the pass short-circuit the rest of the run.
+                    result = stored;
+                }
                 else
                 {
                     result = await _Sink.PutFileAsync(key, fullPath, sha256, token).ConfigureAwait(false);
@@ -153,13 +177,19 @@ namespace Armada.Core.Services.Archive
                 result = ArchivePutResult.Failed(key, "upload_failed", ex.GetType().Name + ": " + ex.Message);
             }
 
+            if (result.FailureCode == ArchivePutResult.CapExceededCode)
+            {
+                CapReached = true;
+                CapReason ??= result.FailureMessage ?? "the object store download or transaction cap is exceeded";
+            }
+
             if (result.Verified)
             {
                 Uploaded++;
                 UploadedBytes += result.Bytes;
                 if (reused) Reused++;
             }
-            else
+            else if (result.FailureCode != ArchivePutResult.CapExceededCode)
             {
                 Failures.Add(new KeyValuePair<string, ArchivePutResult>(fullPath, result));
             }
@@ -187,6 +217,14 @@ namespace Armada.Core.Services.Archive
         public void Defer()
         {
             Deferred++;
+        }
+
+        /// <summary>
+        /// Count one history item kept locally because the object store cap stopped the run's uploads.
+        /// </summary>
+        public void SkipForCap()
+        {
+            SkippedForCap++;
         }
 
         /// <summary>

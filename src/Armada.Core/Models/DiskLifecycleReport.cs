@@ -133,6 +133,18 @@ namespace Armada.Core.Models
         /// </summary>
         public string? ArchiveManifestKey { get; set; } = null;
 
+        /// <summary>
+        /// True when a read-back verify was refused because the object store's download or transaction
+        /// cap is exceeded. The pass stopped verifying after the first such refusal and kept the
+        /// remaining history locally; the cap must be raised before uploads resume.
+        /// </summary>
+        public bool ArchiveTransactionCapReached { get; set; } = false;
+
+        /// <summary>
+        /// History items kept locally because the object store cap stopped the run's uploads.
+        /// </summary>
+        public int ArchiveSkippedForCap { get; set; } = 0;
+
         #endregion
     }
 }

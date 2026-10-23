@@ -32,6 +32,14 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>An upload whose key contains this text fails verification. Null fails none.</summary>
         public string? FailKeysContaining { get; set; } = null;
 
+        /// <summary>When true, every read-back verify is refused with the cap failure code, as the store
+        /// does once its download or transaction cap is exceeded.</summary>
+        public bool CapExceeded { get; set; } = false;
+
+        /// <summary>Count of <see cref="VerifyStoredAsync"/> calls, so a test can prove the run stopped
+        /// hitting the store after the first cap refusal.</summary>
+        public int VerifyCalls { get; private set; } = 0;
+
         /// <inheritdoc />
         public async Task<ArchivePutResult> PutFileAsync(string key, string localPath, string sha256, CancellationToken token = default)
         {
@@ -42,6 +50,9 @@ namespace Armada.Test.Unit.TestHelpers
         /// <inheritdoc />
         public Task<ArchivePutResult> VerifyStoredAsync(string key, long bytes, string sha256, CancellationToken token = default)
         {
+            VerifyCalls++;
+            if (CapExceeded)
+                return Task.FromResult(ArchivePutResult.Failed(key, ArchivePutResult.CapExceededCode, "the object store download or transaction cap is exceeded"));
             if (!Objects.TryGetValue(key, out byte[]? content))
                 return Task.FromResult(ArchivePutResult.Failed(key, "not_found", "no stored object " + key));
             string stored = Hash(content);

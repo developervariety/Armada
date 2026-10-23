@@ -289,7 +289,17 @@ namespace Armada.Core.Services.Archive
                 if (response.StatusCode == HttpStatusCode.NotFound)
                     return ArchivePutResult.Failed(key, "not_found", "no stored object '" + key + "'");
                 if (!response.IsSuccessStatusCode)
+                {
+                    // A download/transaction cap returns 403 with a body that names the cap. That is a
+                    // whole-store condition, not a fault of this object, so it is reported with its own
+                    // code and the caller stops verifying the rest of the run. An auth or signature 403,
+                    // which does not name a cap, stays a per-object verify failure.
+                    string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                    if (response.StatusCode == HttpStatusCode.Forbidden && IsCapExceeded(body))
+                        return ArchivePutResult.Failed(key, ArchivePutResult.CapExceededCode,
+                            "stored object '" + key + "' read-back refused: the object store download or transaction cap is exceeded (HTTP 403 " + ErrorCode(body) + ")");
                     return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: HTTP " + (int)response.StatusCode);
+                }
                 long stored = response.Content.Headers.ContentLength ?? -1;
                 if (stored != bytes)
                     return ArchivePutResult.Failed(key, "size_mismatch", "stored object '" + key + "' is " + stored + " bytes, local content is " + bytes);
@@ -395,6 +405,25 @@ namespace Armada.Core.Services.Archive
             int start = body.IndexOf("<Code>", StringComparison.Ordinal);
             int end = body.IndexOf("</Code>", StringComparison.Ordinal);
             return start >= 0 && end > start ? body.Substring(start + 6, end - start - 6) : String.Empty;
+        }
+
+        // True when a 403 body names a download or transaction cap (the error code or message), rather
+        // than an auth, permission or signature refusal. The store spells the condition several ways, so
+        // the match is on the cap vocabulary common to them.
+        internal static bool IsCapExceeded(string body)
+        {
+            if (String.IsNullOrWhiteSpace(body)) return false;
+            string lower = body.ToLowerInvariant();
+            return lower.Contains("cap exceeded")
+                || lower.Contains("cap_exceeded")
+                || lower.Contains("capexceeded")
+                || lower.Contains("cap is exceeded")
+                || lower.Contains("transaction cap")
+                || lower.Contains("transaction_cap")
+                || lower.Contains("transactioncap")
+                || lower.Contains("download cap")
+                || lower.Contains("storage cap")
+                || lower.Contains("usage cap");
         }
 
         private static byte[] Hmac(byte[] key, string data)

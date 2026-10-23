@@ -633,6 +633,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- A disk-lifecycle history-archive run no longer floods the log and board when
+  the object store's download or transaction cap is exceeded. A read-back verify
+  that returns HTTP 403 with a body naming a cap stops the run's verify loop
+  after the first such refusal and records one cap event and one board note,
+  rather than one capped read-back and one failure line per remaining file. The
+  remaining history is kept locally and counted, and the report flags the cap.
+  A 403 that names an auth, permission or signature error, not a cap, is still
+  reported per object and is never swallowed as a cap.
 - A Judge check-wait re-run no longer loses the run it replaces. When a held
   NEEDS_REVISION (or any in-place Judge re-run) resets the mission for a new
   run, the prior run's review output and verdict are preserved and shown before

@@ -12,6 +12,13 @@ namespace Armada.Core.Models
         #region Public-Members
 
         /// <summary>
+        /// <see cref="FailureCode"/> set when a read-back verify is refused because the object store's
+        /// download or transaction cap is exceeded. This failure is not per-object: the caller stops
+        /// verifying for the rest of the run rather than sending one more capped request per file.
+        /// </summary>
+        public const string CapExceededCode = "cap_exceeded";
+
+        /// <summary>
         /// Object key that was written.
         /// </summary>
         public string Key { get; set; } = String.Empty;

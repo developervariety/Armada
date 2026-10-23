@@ -46,7 +46,10 @@ Every key starts with `archive.keyPrefix`.
   when the stored object's size and SHA-256 match the local content
   (`ArchivePutResult.Verified`). A failure carries a `FailureCode` such as
   `upload_failed`, `size_mismatch`, `sha256_mismatch` or `credentials_missing`.
-  A caller frees its local copy only on a verified result.
+  A caller frees its local copy only on a verified result. A read-back refused
+  with HTTP 403 whose body names a download or transaction cap carries the code
+  `cap_exceeded`; a 403 that names an auth, permission or signature error stays
+  a per-object `verify_failed`.
 - `IArchiveSink.VerifyStoredAsync` checks whether a key already holds content
   of the given size and SHA-256, without uploading. A history pass asks it
   before each upload and sends no upload for a file that is already stored, so
@@ -142,6 +145,16 @@ carries both. The report carries `ArchivedItems` (files verified in the
 archive by the pass, uploaded now or already stored), `ArchiveReusedItems`
 (those already stored, so not uploaded), `ArchivedBytes`, `ArchiveFailures`,
 `ArchiveFreeFailures` and `ArchiveManifestKey`.
+
+When a read-back verify is refused because the object store's download or
+transaction cap is exceeded (HTTP 403 with a cap body), the pass stops verifying
+after the first such refusal rather than sending one more capped request per
+remaining file. It records one `disk_lifecycle.archive_cap_reached` event and
+posts one board note naming the run and the number of history items kept, keeps
+every remaining history item locally, and sets `ArchiveTransactionCapReached`
+and `ArchiveSkippedForCap` on the report. The cap must be raised before uploads
+resume. A 403 that is not a cap (auth, permission or signature) is still
+reported per item as a verify failure.
 
 A pass runs inside the admiral's health loop, so it archives at most
 `diskLifecycle.archiveMaxFilesPerPass` files (default 1000). Once it reaches

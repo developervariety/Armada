@@ -5,11 +5,14 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
+    using System.Net;
+    using System.Net.Http;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Archive;
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -390,6 +393,89 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(events[0].Message!.Contains(failing, StringComparison.Ordinal), "The event names the kept file");
                     AssertEqual(1, notes.Posts.Count, "One board note is posted");
                     AssertTrue(notes.Posts[0].Contains("kept locally", StringComparison.Ordinal), "The note says the file is kept: " + notes.Posts[0]);
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A read-back cap stops the run after the first cap, keeps the rest locally, and reports one cap event and one board note", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string missions = Path.Combine(layout.Settings.LogDirectory, "missions");
+                    List<string> logs = new List<string>
+                    {
+                        CreateRetentionFile(missions, "msn_a.log", DateTime.UtcNow.AddDays(-40)),
+                        CreateRetentionFile(missions, "msn_b.log", DateTime.UtcNow.AddDays(-40)),
+                        CreateRetentionFile(missions, "msn_c.log", DateTime.UtcNow.AddDays(-40))
+                    };
+                    FakeArchiveSink sink = new FakeArchiveSink { CapExceeded = true };
+                    FakeBoardNotePoster notes = new FakeBoardNotePoster();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    service.BoardNotes = notes;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertEqual(3, logs.Count(File.Exists), "Every history file is kept locally when the read-back cap is hit");
+                    AssertEqual(1, sink.VerifyCalls, "The run verifies once and then stops hitting the store, so no further capped request is sent");
+                    AssertFalse(sink.Objects.Keys.Any(k => k.EndsWith(".log", StringComparison.Ordinal)), "No history file is uploaded once the cap is reached");
+                    AssertTrue(live.ArchiveTransactionCapReached, "The report flags the transaction cap");
+                    AssertEqual(3, live.ArchiveSkippedForCap, "The report counts every history item kept for the cap");
+                    AssertEqual(0, live.ArchiveFailures, "A cap is not counted as per-file verify failures");
+                    AssertFalse(live.Actions.Any(a => a.Reason.Contains("verify_failed", StringComparison.Ordinal)), "No per-file verify_failed is recorded for the cap");
+                    List<ArmadaEvent> capEvents = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_cap_reached", 10).ConfigureAwait(false);
+                    AssertEqual(1, capEvents.Count, "Exactly one cap event is recorded for the whole run");
+                    List<ArmadaEvent> failEvents = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
+                    AssertEqual(0, failEvents.Count, "No per-file archive-failure event is recorded for the cap");
+                    AssertEqual(1, notes.Posts.Count, "Exactly one board note is posted for the cap");
+                    AssertTrue(notes.Posts[0].Contains("cap", StringComparison.OrdinalIgnoreCase) && notes.Posts[0].Contains("kept", StringComparison.Ordinal),
+                        "The single note says the files are kept for the cap: " + notes.Posts[0]);
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("The S3 sink reads a 403 cap body as a cap refusal and a non-cap 403 as a per-object verify failure", async () =>
+            {
+                Layout layout = CreateLayout();
+                try
+                {
+                    Directory.CreateDirectory(layout.Settings.DataDirectory);
+                    string credentials = Path.Combine(layout.Settings.DataDirectory, "archive-credentials");
+                    File.WriteAllText(credentials, "accessKeyId=exampleaccess\nsecretAccessKey=examplesecret\n");
+                    ArchiveSettings settings = new ArchiveSettings
+                    {
+                        Enabled = true,
+                        Endpoint = "https://store.example.invalid",
+                        Bucket = "history",
+                        CredentialsFile = credentials
+                    };
+
+                    string capBody = "<Error><Code>403</Code><Message>Cap exceeded. Transaction cap exceeded for this account.</Message></Error>";
+                    using (HttpClient capClient = new HttpClient(new StubHttpMessageHandler(HttpStatusCode.Forbidden, capBody)))
+                    {
+                        S3ArchiveSink sink = new S3ArchiveSink(settings, capClient);
+                        ArchivePutResult result = await sink.VerifyStoredAsync("armada/raw/missionLogs/x/one.log", 10, "abc", CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(ArchivePutResult.CapExceededCode, result.FailureCode, "A 403 whose body names a cap is a cap refusal");
+                        AssertFalse(result.Verified, "A cap refusal is not a verified read-back");
+                    }
+
+                    string authBody = "<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>";
+                    using (HttpClient authClient = new HttpClient(new StubHttpMessageHandler(HttpStatusCode.Forbidden, authBody)))
+                    {
+                        S3ArchiveSink sink = new S3ArchiveSink(settings, authClient);
+                        ArchivePutResult result = await sink.VerifyStoredAsync("armada/raw/missionLogs/x/two.log", 10, "abc", CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual("verify_failed", result.FailureCode, "A 403 that does not name a cap stays a per-object verify failure, not a cap");
+                    }
                 }
                 finally
                 {
@@ -1249,6 +1335,29 @@ namespace Armada.Test.Unit.Suites.Services
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return logging;
+        }
+
+        // Returns one fixed status and body for every request, so a sink test can drive the read-back
+        // verify without a real object store.
+        private sealed class StubHttpMessageHandler : HttpMessageHandler
+        {
+            private readonly HttpStatusCode _Status;
+            private readonly string _Body;
+
+            public StubHttpMessageHandler(HttpStatusCode status, string body)
+            {
+                _Status = status;
+                _Body = body;
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                HttpResponseMessage response = new HttpResponseMessage(_Status)
+                {
+                    Content = new StringContent(_Body)
+                };
+                return Task.FromResult(response);
+            }
         }
 
         private sealed class Layout
