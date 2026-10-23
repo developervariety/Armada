@@ -132,6 +132,38 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.Add(CaseAsync("cancelled_mission_is_not_revived_by_a_stale_update", "A plain update cannot move a Cancelled mission to another status except Pending (a restart); the caller sees Cancelled", TestTags.Reliability, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+                    Mission mission = await db.Missions.CreateAsync(new Mission("Racing completion", "d") { VesselId = prereqs.Vessel.Id, VoyageId = prereqs.Voyage.Id, Status = MissionStatusEnum.InProgress });
+
+                    // A completion reads the mission, then an operator cancels it, then the completion writes its stale copy.
+                    Mission stale = (await db.Missions.ReadAsync(mission.Id))!;
+                    Mission cancel = (await db.Missions.ReadAsync(mission.Id))!;
+                    cancel.Status = MissionStatusEnum.Cancelled;
+                    await db.Missions.UpdateAsync(cancel);
+                    stale.Status = MissionStatusEnum.WorkProduced;
+                    stale.AgentOutput = "late output";
+                    Mission returned = await db.Missions.UpdateAsync(stale);
+
+                    AssertEqual(MissionStatusEnum.Cancelled, (await db.Missions.ReadAsync(mission.Id))!.Status, "the cancellation stands");
+                    AssertEqual(MissionStatusEnum.Cancelled, returned.Status, "the stale writer is told the mission is Cancelled");
+
+                    Mission restart = (await db.Missions.ReadAsync(mission.Id))!;
+                    restart.Status = MissionStatusEnum.Pending;
+                    await db.Missions.UpdateAsync(restart);
+                    AssertEqual(MissionStatusEnum.Pending, (await db.Missions.ReadAsync(mission.Id))!.Status, "a restart may leave Cancelled");
+
+                    Mission other = await db.Missions.CreateAsync(new Mission("Ordinary", "d") { VesselId = prereqs.Vessel.Id, Status = MissionStatusEnum.InProgress });
+                    other.Status = MissionStatusEnum.Failed;
+                    await db.Missions.UpdateAsync(other);
+                    AssertEqual(MissionStatusEnum.Failed, (await db.Missions.ReadAsync(other.Id))!.Status, "other transitions are unaffected");
+                }
+            }));
+
             cases.Add(CaseAsync("mission_create", "Mission_Create", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

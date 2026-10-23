@@ -126,7 +126,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
         public async Task<Mission> UpdateAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            await UpdateWhereAsync(mission, null, token).ConfigureAwait(false);
+            bool written = await UpdateWhereAsync(mission, null, token).ConfigureAwait(false);
+            // A cancelled mission stays cancelled: a stale full-row write (a completion still running when the mission was
+            // cancelled) is refused, and the caller sees the stored status. Only a restart (to Pending) leaves Cancelled.
+            if (!written && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.Pending)
+                mission.Status = MissionStatusEnum.Cancelled;
             return mission;
         }
 
@@ -923,7 +927,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
         private static string ExpectedStatusClause(SqliteCommand cmd, IReadOnlyCollection<MissionStatusEnum>? expectedStatuses)
         {
-            if (expectedStatuses == null) return String.Empty;
+            // A plain full-row update never moves a mission out of Cancelled, except to Pending (a restart).
+            if (expectedStatuses == null) return " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending'))";
             List<string> placeholders = new List<string>();
             int index = 0;
             foreach (MissionStatusEnum expected in expectedStatuses)
