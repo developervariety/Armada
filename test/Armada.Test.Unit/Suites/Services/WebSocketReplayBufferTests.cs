@@ -1,8 +1,12 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Models;
+    using Armada.Core.Settings;
     using Armada.Server.WebSocket;
     using Armada.Test.Common;
 
@@ -85,9 +89,9 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("The production record cap retains no more than 128 frames", () =>
+            await RunTest("The configured record cap bounds the retained frames", () =>
             {
-                WebSocketReplayBuffer buffer = new WebSocketReplayBuffer();
+                WebSocketReplayBuffer buffer = new WebSocketReplayBuffer(new WebSocketSettings { ReplayHistoryEvents = 128 });
                 for (int index = 0; index < 129; index++)
                     buffer.Append((_, cursor) => "frame-" + cursor);
 
@@ -99,9 +103,9 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("The production byte cap retains no more than one MiB", () =>
+            await RunTest("The configured byte cap bounds the retained bytes", () =>
             {
-                WebSocketReplayBuffer buffer = new WebSocketReplayBuffer();
+                WebSocketReplayBuffer buffer = new WebSocketReplayBuffer(new WebSocketSettings { ReplayHistoryBytes = 1024 * 1024 });
                 string largeFrame = new string('x', 600 * 1024);
                 buffer.Append((_, _) => largeFrame + "-first");
                 WebSocketReplayRecord second = buffer.Append((_, _) => largeFrame + "-second");
@@ -128,6 +132,79 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(3L, result.OldestAvailableCursor);
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            await RunTest("A snapshot whose catch-up history was evicted resumes contiguously and names the lost range", () =>
+            {
+                // Events 3 and 4 are appended after the snapshot watermark and evicted before the catch-up is read,
+                // as a slow snapshot read under load does. The client must see one named gap and then a contiguous
+                // stream, so its next live event is not read as a skipped sequence.
+                WebSocketReplayBuffer buffer = new WebSocketReplayBuffer(4, 1024 * 1024, "stream-snapshot");
+                AppendEvent(buffer);
+                AppendEvent(buffer);
+                long watermark = buffer.CurrentCursor;
+                for (int index = 0; index < 6; index++) AppendEvent(buffer);
+
+                WebSocketSubscriptionFrames composed = WebSocketSubscriptionReconciliation.Compose(
+                    buffer,
+                    new WebSocketSubscribeRequest { Route = "subscribe" },
+                    null,
+                    watermark,
+                    DateTime.UtcNow,
+                    new { status = (object?)null },
+                    new AuthContext { IsAuthenticated = true, IsAdmin = true },
+                    64,
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+                List<JsonElement> frames = composed.Frames.Select(Parse).ToList();
+                long cursor = -1;
+                bool ready = false;
+                foreach (JsonElement frame in frames)
+                {
+                    string type = frame.GetProperty("type").GetString()!;
+                    if (type == "status.snapshot")
+                    {
+                        cursor = frame.GetProperty("cursor").GetInt64();
+                    }
+                    else if (type == "stream.ready")
+                    {
+                        AssertEqual(cursor, frame.GetProperty("cursor").GetInt64(), "Ready must name the last delivered cursor.");
+                        ready = true;
+                    }
+                    else if (type != "event.gap")
+                    {
+                        AssertTrue(cursor >= 0, "Events after the gap must follow the snapshot.");
+                        AssertEqual(cursor + 1, frame.GetProperty("cursor").GetInt64(), "Events after the snapshot must be contiguous.");
+                        cursor = frame.GetProperty("cursor").GetInt64();
+                    }
+                }
+
+                AssertTrue(ready, "The subscription must end with stream.ready.");
+                WebSocketReplayRecord live = AppendEvent(buffer);
+                AssertEqual(cursor + 1, live.Cursor, "The first live event must follow the ready cursor without a skip.");
+
+                List<JsonElement> gaps = frames.Where(frame => frame.GetProperty("type").GetString() == "event.gap").ToList();
+                AssertEqual(1, gaps.Count, "One gap notice must name the lost catch-up history.");
+                JsonElement gap = gaps[0].GetProperty("data");
+                AssertEqual("snapshot_overflow", gap.GetProperty("reason").GetString());
+                AssertTrue(gap.TryGetProperty("lostFromCursor", out JsonElement lostFrom) && lostFrom.ValueKind == JsonValueKind.Number,
+                    "The gap must name the first lost cursor.");
+                AssertEqual(3L, lostFrom.GetInt64());
+                AssertEqual(4L, gap.GetProperty("lostToCursor").GetInt64());
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+        }
+
+        private static WebSocketReplayRecord AppendEvent(WebSocketReplayBuffer buffer)
+        {
+            return buffer.Append((stream, cursor) => JsonSerializer.Serialize(new { type = "mission.changed", streamId = stream, cursor = cursor }));
+        }
+
+        private static JsonElement Parse(string frame)
+        {
+            using (JsonDocument document = JsonDocument.Parse(frame))
+            {
+                return document.RootElement.Clone();
+            }
         }
     }
 }

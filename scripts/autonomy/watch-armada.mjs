@@ -102,7 +102,11 @@ export function describeEvent(event, options) {
 
     case "event.gap": {
       const reason = shorten(data.reason || event.message || "event history is not available", 160);
-      return `EVENT GAP${reason ? `: ${reason}` : ""}`;
+      const range = Number.isSafeInteger(data.lostFromCursor) && Number.isSafeInteger(data.lostToCursor)
+        ? ` lost=${data.lostFromCursor}-${data.lostToCursor}`
+        : "";
+      const query = data.recovery?.eventsQuery ? ` reread=${data.recovery.eventsQuery}` : "";
+      return `EVENT GAP${reason ? `: ${reason}` : ""}${range}${query}`;
     }
 
     case "incident.changed": {
@@ -189,6 +193,12 @@ export async function watch(options = {}) {
     }
   };
 
+  // A state already reported on an earlier connection is not news when a reconnect's snapshot lists it again.
+  const reportedBefore = (event) => {
+    const current = eventState(event);
+    return Boolean(current?.key) && knownStates.get(current.key) === current.state;
+  };
+
   const remember = (event) => {
     const current = eventState(event);
     if (!current?.key || current.key.endsWith(":")) return false;
@@ -226,8 +236,9 @@ export async function watch(options = {}) {
     const events = snapshotEvents(reconciliation);
     let terminal = null;
     for (const reconciledEvent of events) {
+      const alreadyReported = reportedBefore(reconciledEvent);
       const changed = remember(reconciledEvent);
-      if (changed || isActionableSnapshotState(reconciledEvent)) {
+      if (changed || (isActionableSnapshotState(reconciledEvent) && !alreadyReported)) {
         const line = describeEvent(reconciledEvent, settings);
         if (line) write(line);
       }

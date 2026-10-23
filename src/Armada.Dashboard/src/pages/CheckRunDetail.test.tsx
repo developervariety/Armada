@@ -90,6 +90,18 @@ test('updates a running check when the server reports a change', async () => {
   expect(screen.getAllByText('Passed').length).toBeGreaterThan(0);
 });
 
+test('a change event without output keeps the shown output and reads the new one', async () => {
+  vi.mocked(getCheckRun).mockResolvedValueOnce({ ...run('Running'), output: 'first line' } as never);
+  renderPage();
+  expect(await screen.findByText(/first line/)).toBeInTheDocument();
+  vi.mocked(getCheckRun).mockResolvedValueOnce({ ...run('Passed'), output: 'first line\nlast line' } as never);
+  act(() => {
+    handlers.forEach((handler) => handler({ type: 'check-run.changed', data: { ...run('Passed'), output: null, outputLength: 20 } }));
+  });
+  expect(await screen.findByText(/last line/)).toBeInTheDocument();
+  expect(screen.getAllByText('Passed').length).toBeGreaterThan(0);
+});
+
 test('says when the previous-run comparison searched only the newest runs', async () => {
   renderPage();
   expect((await screen.findAllByText('Running')).length).toBeGreaterThan(0);

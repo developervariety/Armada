@@ -508,9 +508,13 @@ authoritative state after that disconnect.
 
 Each broadcast has a process `streamId` and a monotonic `cursor`. The watcher
 keeps the last pair in memory and sends it on reconnect. Armada replays the
-available suffix from a bounded 128-event, 1 MiB process buffer. It sends an
-explicit `event.gap` if the process changed, the cursor is invalid, history was
-evicted, or the reconnect output is too large.
+available suffix from a bounded process buffer (8,192 events and 32 MiB by
+default, set by the `webSocket` settings section). It sends an explicit
+`event.gap` if the process changed, the cursor is invalid, history was evicted,
+or the reconnect output is too large. The gap names the lost cursor range and a
+`GET /api/v1/events` time window to re-read, and the watcher prints both on its
+`EVENT GAP` line. The events after the gap continue in cursor order, so the
+watcher does not reconnect for it.
 
 Each subscription also gets an authoritative reconciliation snapshot before
 Armada enables live delivery. A global watch gets all Open and InProgress
@@ -518,7 +522,9 @@ voyages, their missions and Checks, and all captains. `--voyage` gets the exact
 voyage, including a terminal voyage, with its linked missions, Checks, and
 captains. The global view also includes active standalone missions and their
 Checks. The watcher applies this state before it trusts later live events. It
-prints `RECONCILED` after each connect or reconnect. A scoped snapshot for a
+prints `RECONCILED` after each connect or reconnect. It prints a failed or
+stalled state from a snapshot once: a reconnect that lists the same state again
+prints nothing for it. A scoped snapshot for a
 purged voyage is empty and does not stop future live delivery.
 
 ```sh

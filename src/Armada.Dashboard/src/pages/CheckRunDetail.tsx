@@ -136,7 +136,16 @@ export default function CheckRunDetail() {
       if (msg.type !== 'check-run.changed') return;
       const changed = msg.data as CheckRun | undefined;
       if (!changed || changed.id !== id) return;
-      setRun((current) => (!current ? changed : current.id === changed.id ? { ...current, ...changed } : current));
+      // A change event carries the run without its output, which can run to megabytes; keep the shown output
+      // and read the run again for the new one.
+      const outputOmitted = changed.output == null;
+      const { output: _omittedOutput, ...withoutOutput } = changed;
+      const update = outputOmitted ? withoutOutput : changed;
+      setRun((current) => (!current ? changed : current.id === changed.id ? { ...current, ...update } : current));
+      if (!outputOmitted) return;
+      getCheckRun(changed.id)
+        .then((full) => setRun((current) => (current && current.id === full.id ? { ...current, output: full.output } : current)))
+        .catch(() => undefined);
     });
   }, [id, subscribe]);
 

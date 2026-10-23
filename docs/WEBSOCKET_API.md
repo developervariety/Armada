@@ -266,6 +266,35 @@ the snapshot, and `stream.ready`. If complete replay is not possible, it sends
 `event.gap` before the snapshot. Old clients that send only `Route` continue to
 work.
 
+Every event after the snapshot's `cursor` follows in cursor order up to
+`stream.ready`, and the first live event follows the ready `cursor`. Lost
+history never moves these positions back: when events that occurred while the
+snapshot was built were evicted before they could be sent, the gap names them,
+the snapshot `cursor` is the last lost cursor, and the retained events follow.
+A global-administrator session therefore never sees a cursor skip on a live
+connection and never needs to reconnect because of a gap; a scoped session skips
+only the cursors of events it may not read.
+
+#### Replay history and limits
+
+The hub retains recent event frames for replay and catch-up, bounded by count
+and by UTF-8 size; the oldest frames go first. A frame larger than the byte
+limit is never retained, so a resume from before it reports `history_evicted`.
+A `check-run.changed` event carries no Check output, so a large build or test
+log does not fill the history. The `webSocket` section of `settings.json` sets
+the limits; the admiral reads it at startup.
+
+| Setting | Default | Range | Meaning |
+|---|---|---|---|
+| `webSocket.replayHistoryEvents` | `8192` | 128 to 1,000,000 | Most retained event frames |
+| `webSocket.replayHistoryBytes` | `33554432` (32 MiB) | 1 MiB to 1 GiB | Most retained UTF-8 bytes |
+| `webSocket.clientQueueCapacity` | `1024` | 64 to 65,536 | Most frames one session's outbound queue holds; a subscription replays at most this many frames, less four |
+
+A session whose outbound queue fills is closed with status `1008` (policy
+violation) and the reason `Outbound event queue reached its capacity`. The hub
+closes a session with status `1000` only as the answer to a close the client
+started.
+
 When the server cannot build the snapshot, it sends
 `{"type": "subscribe.error", "error": "<reason>", "retryable": true}` and the
 subscription stays inactive, so the client may send `subscribe` again on the
@@ -343,6 +372,44 @@ silently incomplete result.
 The requested history is not complete. `data.reason` is `stream_changed`,
 `cursor_ahead`, `history_evicted`, `snapshot_overflow`, or `replay_overflow`.
 The client must use the following `status.snapshot` as authoritative state.
+
+```json
+{
+  "type": "event.gap",
+  "streamId": "8af7caa37157484ca80587eadac99747",
+  "data": {
+    "reason": "snapshot_overflow",
+    "requestedStreamId": null,
+    "requestedCursor": null,
+    "lostFromCursor": 1319,
+    "lostToCursor": 1320,
+    "lostAfterUtc": "2026-03-07T12:35:31.000Z",
+    "lostBeforeUtc": "2026-03-07T12:35:57.000Z",
+    "oldestCursor": 1321,
+    "currentCursor": 1321,
+    "recovery": {
+      "snapshot": "status.snapshot",
+      "eventsQuery": "/api/v1/events?createdAfter=2026-03-07T12%3A35%3A31.0000000Z&createdBefore=2026-03-07T12%3A35%3A57.0000000Z"
+    }
+  },
+  "timestamp": "2026-03-07T12:35:57.100Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `data.reason` | string | `history_evicted`: events after `requestedCursor` are no longer retained. `snapshot_overflow`: events that occurred while the snapshot was built were not sent. `replay_overflow`: the retained events after `requestedCursor` do not fit the outbound queue. `stream_changed`: the admiral process restarted. `cursor_ahead`: `requestedCursor` is later than the stream |
+| `data.lostFromCursor`, `data.lostToCursor` | number \| null | Inclusive cursor range of the events not delivered; null when the range is unknown (`stream_changed`, `cursor_ahead`) |
+| `data.lostAfterUtc` | string \| null | The lost events occurred after this time; null means after the client's last received event |
+| `data.lostBeforeUtc` | string \| null | The lost events occurred before this time; null when unknown |
+| `data.oldestCursor` | number | Oldest cursor the hub still retains |
+| `data.currentCursor` | number | Most recent cursor |
+| `data.recovery.eventsQuery` | string \| null | REST query of the persisted events in the lost window (`GET /api/v1/events` with `createdAfter` and `createdBefore`; MCP `armada_enumerate` with entity type `events` takes the same bounds). Add `createdAfter` from the last received event when the query has none |
+
+Cursors live in memory only, so a lost cursor cannot be read again. The
+snapshot carries the current voyages, missions, Checks and captains; the events
+query covers the persisted events of the same window; other records are re-read
+through their REST routes.
 
 ### stream.ready
 
@@ -454,7 +521,8 @@ Broadcast when a structured check run is created, imported, updated, or retried.
 | Field | Type | Description |
 |---|---|---|
 | `type` | string | Always `"check-run.changed"` |
-| `data` | object | Full serialized `CheckRun` payload with enum values emitted as strings |
+| `data` | object | Serialized `CheckRun` payload with enum values emitted as strings, without its output: `data.output` is null |
+| `data.outputLength` | number \| null | Length in characters of the output; read the output with `GET /api/v1/check-runs/{id}`. Null when the run printed nothing |
 | `data.queueDurationMs` | number \| null | Time from record creation until the host command slot was acquired |
 | `data.durationMs` | number \| null | Command execution time from `startedUtc` to `completedUtc`, timeouts included; does not include queue wait |
 | `timestamp` | string | ISO 8601 UTC timestamp |

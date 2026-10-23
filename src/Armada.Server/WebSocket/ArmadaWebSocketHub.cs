@@ -34,11 +34,11 @@ namespace Armada.Server.WebSocket
         private readonly DatabaseDriver _Database;
         private readonly IAuthenticationService _Authentication;
         private WebSocketCommandHandler _CommandHandler;
-        private const int ClientOutputQueueCapacity = 256;
+        private readonly int _ClientQueueCapacity;
         private static readonly TimeSpan _DefaultAuthenticationWindow = TimeSpan.FromSeconds(15);
         private ConcurrentDictionary<Guid, ClientConnection> _Sessions = new ConcurrentDictionary<Guid, ClientConnection>();
         private readonly object _BroadcastLock = new object();
-        private readonly WebSocketReplayBuffer _ReplayBuffer = new WebSocketReplayBuffer();
+        private readonly WebSocketReplayBuffer _ReplayBuffer;
         private readonly FleetReconciliationSnapshotService _SnapshotService;
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
@@ -81,6 +81,9 @@ namespace Armada.Server.WebSocket
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
             _SnapshotService = new FleetReconciliationSnapshotService(_Database);
+            WebSocketSettings limits = settings?.WebSocket ?? new WebSocketSettings();
+            _ReplayBuffer = new WebSocketReplayBuffer(limits);
+            _ClientQueueCapacity = limits.ClientQueueCapacity;
 
             _CommandHandler = new WebSocketCommandHandler(
                 _Admiral,
@@ -139,7 +142,7 @@ namespace Armada.Server.WebSocket
         public async Task HandleWebSocketAsync(HttpContextBase ctx, WebSocketSession session)
         {
             WebSocketClientOutputQueue output = new WebSocketClientOutputQueue(
-                ClientOutputQueueCapacity,
+                _ClientQueueCapacity,
                 (message, token) => session.SendTextAsync(message, token));
             ClientConnection connection = new ClientConnection(session, output);
             output.Terminated += failure => HandleOutputTermination(session.Id, connection, failure);
@@ -318,15 +321,17 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Broadcast a structured check-run change to the sessions that may read the check run.
+        /// Broadcast a structured check-run change to the sessions that may read the check run. The event carries
+        /// the run without its output and names the output length; a reader re-reads the output by id.
         /// </summary>
         /// <param name="run">Changed check run.</param>
         public void BroadcastCheckRunChange(CheckRun run)
         {
+            if (run == null) throw new ArgumentNullException(nameof(run));
             WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
                 Type = "check-run.changed",
-                Data = run,
+                Data = run.WithoutOutput(),
                 Timestamp = DateTime.UtcNow
             };
 
@@ -658,6 +663,7 @@ namespace Armada.Server.WebSocket
         {
             WebSocketReplayReadResult? replay = null;
             long snapshotWatermark;
+            DateTime snapshotWatermarkUtc;
             lock (_BroadcastLock)
             {
                 if (!_Sessions.TryGetValue(sessionId, out ClientConnection? pending)) return;
@@ -666,6 +672,7 @@ namespace Armada.Server.WebSocket
                 pending.SubscriptionRequested = true;
                 pending.Subscribed = false;
                 snapshotWatermark = _ReplayBuffer.CurrentCursor;
+                snapshotWatermarkUtc = DateTime.UtcNow;
                 if (!String.IsNullOrWhiteSpace(request.StreamId) && request.Cursor.HasValue)
                     replay = _ReplayBuffer.ReadAfter(request.StreamId, request.Cursor.Value);
             }
@@ -699,66 +706,18 @@ namespace Armada.Server.WebSocket
             lock (_BroadcastLock)
             {
                 if (!_Sessions.TryGetValue(sessionId, out ClientConnection? connection)) return;
-                WebSocketReplayReadResult catchUp = _ReplayBuffer.ReadAfter(_ReplayBuffer.StreamId, snapshotWatermark);
-                string? gapReason = replay?.GapReason;
-                IReadOnlyList<WebSocketReplayRecord> initialRecords = FilterForSession(replay?.Records ?? Array.Empty<WebSocketReplayRecord>(), connection.Auth);
-                IReadOnlyList<WebSocketReplayRecord> catchUpRecords = FilterForSession(catchUp.Records, connection.Auth);
-                long readyCursor = _ReplayBuffer.CurrentCursor;
+                WebSocketSubscriptionFrames composed = WebSocketSubscriptionReconciliation.Compose(
+                    _ReplayBuffer,
+                    request,
+                    replay,
+                    snapshotWatermark,
+                    snapshotWatermarkUtc,
+                    new { status, reconciliation, scoped = !fleetWide },
+                    connection.Auth,
+                    _ClientQueueCapacity,
+                    _JsonOptions);
 
-                if (catchUp.HasGap)
-                {
-                    gapReason = "snapshot_overflow";
-                    catchUpRecords = Array.Empty<WebSocketReplayRecord>();
-                    // Do not acknowledge events that the snapshot and catch-up did not
-                    // cover. The next live event will expose a cursor discontinuity and
-                    // make the client reconnect from this safe watermark.
-                    readyCursor = snapshotWatermark;
-                }
-                if (initialRecords.Count + catchUpRecords.Count > ClientOutputQueueCapacity - 3)
-                {
-                    gapReason = "replay_overflow";
-                    initialRecords = Array.Empty<WebSocketReplayRecord>();
-                }
-
-                List<string> frames = new List<string>();
-                foreach (WebSocketReplayRecord record in initialRecords) frames.Add(record.Frame);
-                if (gapReason != null)
-                {
-                    frames.Add(JsonSerializer.Serialize(new
-                    {
-                        type = "event.gap",
-                        streamId = _ReplayBuffer.StreamId,
-                        data = new
-                        {
-                            reason = gapReason,
-                            requestedStreamId = request.StreamId,
-                            requestedCursor = request.Cursor,
-                            oldestCursor = replay?.OldestAvailableCursor ?? catchUp.OldestAvailableCursor,
-                            currentCursor = _ReplayBuffer.CurrentCursor
-                        },
-                        timestamp = DateTime.UtcNow
-                    }, _JsonOptions));
-                }
-
-                frames.Add(JsonSerializer.Serialize(new
-                {
-                    type = "status.snapshot",
-                    streamId = _ReplayBuffer.StreamId,
-                    cursor = snapshotWatermark,
-                    data = new { status, reconciliation, scoped = !fleetWide },
-                    timestamp = DateTime.UtcNow
-                }, _JsonOptions));
-                foreach (WebSocketReplayRecord record in catchUpRecords) frames.Add(record.Frame);
-                frames.Add(JsonSerializer.Serialize(new
-                {
-                    type = "stream.ready",
-                    streamId = _ReplayBuffer.StreamId,
-                    cursor = readyCursor,
-                    data = new { replayed = initialRecords.Count + catchUpRecords.Count, gapDetected = gapReason != null },
-                    timestamp = DateTime.UtcNow
-                }, _JsonOptions));
-
-                foreach (string frame in frames)
+                foreach (string frame in composed.Frames)
                 {
                     if (connection.Session.IsConnected && connection.Output.TryEnqueue(frame)) continue;
                     failedConnection = connection;
@@ -769,18 +728,6 @@ namespace Armada.Server.WebSocket
 
             if (failedConnection != null)
                 DisconnectConnection(sessionId, failedConnection, "Outbound subscription queue reached its capacity.");
-        }
-
-        private static IReadOnlyList<WebSocketReplayRecord> FilterForSession(IReadOnlyList<WebSocketReplayRecord> records, AuthContext? auth)
-        {
-            // Replayed events obey the same delivery scope as live ones, so reconnecting never reveals
-            // an event the session could not have received.
-            List<WebSocketReplayRecord> allowed = new List<WebSocketReplayRecord>(records.Count);
-            foreach (WebSocketReplayRecord record in records)
-            {
-                if (record.Scope.CanReceive(auth)) allowed.Add(record);
-            }
-            return allowed;
         }
 
         private void EnqueueOrDisconnect(Guid sessionId, string json)

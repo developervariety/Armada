@@ -504,6 +504,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Changed
 
+- WebSocket hub limits are settings: `webSocket.replayHistoryEvents` (default
+  8,192), `webSocket.replayHistoryBytes` (default 32 MiB) and
+  `webSocket.clientQueueCapacity` (default 1,024), read at startup. A
+  `check-run.changed` event carries the Check without its output and names
+  `outputLength`; the dashboard Check page keeps the shown output and reads the
+  new one by id.
+
 - `armada_list_papercuts` groups by vessel by default. A `groupBy` argument
   selects `vessel` (one group per vessel), `category` (one per vessel and
   category) or `title` (one per vessel, category and normalized title, with the
@@ -576,6 +583,25 @@ upstream integrations and excludes changes already present at that baseline.
   request.
 
 ### Fixed
+
+- A reconnecting WebSocket client no longer loses history to one Check log. A
+  change event carried the whole Check output (up to 4 MiB), and a frame larger
+  than the 1 MiB replay limit emptied the replay history, so a subscription
+  that spanned it reported `snapshot_overflow` and the next resume
+  `history_evicted`.
+
+- A subscription whose snapshot catch-up was partly evicted continues in cursor
+  order: the `event.gap` names the lost cursor range (`lostFromCursor`,
+  `lostToCursor`), its time bounds and a `GET /api/v1/events` query to re-read
+  it, the snapshot cursor is the last lost cursor, and the retained events
+  follow. Before, `stream.ready` pointed back at the watermark, so the first
+  live event read as a skipped sequence, the client reconnected, and the
+  reconnect hit `history_evicted` for the same lost events.
+
+- The hub watcher (`scripts/autonomy/watch-armada.mjs`) prints a failed or
+  stalled state from a reconnect snapshot only when it has not printed that
+  state before, so a reconnect no longer repeats every `LandingFailed`
+  mission. Its `EVENT GAP` line names the lost range and the re-read query.
 
 - Objective preflight question 1 resolves a cited path in the trees a dock
   provisions beside the repository: a path under a declared sibling's directory

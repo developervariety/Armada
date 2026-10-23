@@ -803,6 +803,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// WebSocket event hub limits: retained replay history and per-session outbound queue. Read at startup.
+        /// </summary>
+        public WebSocketSettings WebSocket
+        {
+            get => _WebSocket;
+            set => _WebSocket = value ?? new WebSocketSettings();
+        }
+
+        /// <summary>
         /// Near-instant runtime crash-loop detection and captain benching policy.
         /// </summary>
         public CrashLoopDetectionSettings CrashLoopDetection
@@ -1103,6 +1112,7 @@ namespace Armada.Core.Settings
         private List<string> _CaptainEnvironmentScrubNames = new List<string>();
         private ContextRetrievalSettings _ContextRetrieval = new ContextRetrievalSettings();
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
+        private WebSocketSettings _WebSocket = new WebSocketSettings();
         private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
         private ResourcePressureAdmissionSettings _ResourcePressureAdmission = new ResourcePressureAdmissionSettings();
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();

@@ -3,14 +3,13 @@ namespace Armada.Server.WebSocket
     using System;
     using System.Collections.Generic;
     using System.Text;
+    using Armada.Core.Settings;
 
     /// <summary>
     /// Stores a bounded sequence of replayable WebSocket event frames.
     /// </summary>
     internal sealed class WebSocketReplayBuffer
     {
-        private const int DefaultRecordCapacity = 128;
-        private const int DefaultByteCapacity = 1024 * 1024;
         private readonly object _Sync = new object();
         private readonly Queue<WebSocketReplayRecord> _Records = new Queue<WebSocketReplayRecord>();
         private readonly int _RecordCapacity;
@@ -57,10 +56,14 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Instantiate with the production limits and a new process stream identifier.
+        /// Instantiate with the configured limits and a new process stream identifier.
         /// </summary>
-        public WebSocketReplayBuffer()
-            : this(DefaultRecordCapacity, DefaultByteCapacity, Guid.NewGuid().ToString("N"))
+        /// <param name="settings">WebSocket hub limits.</param>
+        public WebSocketReplayBuffer(WebSocketSettings settings)
+            : this(
+                (settings ?? throw new ArgumentNullException(nameof(settings))).ReplayHistoryEvents,
+                settings.ReplayHistoryBytes,
+                Guid.NewGuid().ToString("N"))
         {
         }
 
@@ -97,7 +100,7 @@ namespace Armada.Server.WebSocket
                 string frame = frameFactory(StreamId, cursor)
                     ?? throw new InvalidOperationException("The WebSocket replay frame factory returned null.");
                 int byteCount = Encoding.UTF8.GetByteCount(frame);
-                WebSocketReplayRecord record = new WebSocketReplayRecord(cursor, frame, byteCount, scope ?? WebSocketDeliveryScope.AdminOnly);
+                WebSocketReplayRecord record = new WebSocketReplayRecord(cursor, frame, byteCount, scope ?? WebSocketDeliveryScope.AdminOnly, DateTime.UtcNow);
                 _CurrentCursor = cursor;
 
                 if (byteCount <= _ByteCapacity)
@@ -132,15 +135,16 @@ namespace Armada.Server.WebSocket
                 long oldestAvailableCursor = _Records.Count > 0
                     ? _Records.Peek().Cursor
                     : _CurrentCursor + 1;
+                DateTime? oldestAvailableUtc = _Records.Count > 0 ? _Records.Peek().RecordedUtc : null;
 
                 if (!String.Equals(streamId, StreamId, StringComparison.Ordinal))
-                    return Gap(WebSocketReplayGapReasons.StreamChanged, oldestAvailableCursor);
+                    return Gap(WebSocketReplayGapReasons.StreamChanged, oldestAvailableCursor, oldestAvailableUtc);
 
                 if (cursor > _CurrentCursor)
-                    return Gap(WebSocketReplayGapReasons.CursorAhead, oldestAvailableCursor);
+                    return Gap(WebSocketReplayGapReasons.CursorAhead, oldestAvailableCursor, oldestAvailableUtc);
 
                 if (cursor < oldestAvailableCursor - 1)
-                    return Gap(WebSocketReplayGapReasons.HistoryEvicted, oldestAvailableCursor);
+                    return Gap(WebSocketReplayGapReasons.HistoryEvicted, oldestAvailableCursor, oldestAvailableUtc);
 
                 List<WebSocketReplayRecord> records = new List<WebSocketReplayRecord>();
                 foreach (WebSocketReplayRecord record in _Records)
@@ -153,18 +157,20 @@ namespace Armada.Server.WebSocket
                     oldestAvailableCursor,
                     _CurrentCursor,
                     records,
-                    null);
+                    null,
+                    oldestAvailableUtc);
             }
         }
 
-        private WebSocketReplayReadResult Gap(string reason, long oldestAvailableCursor)
+        private WebSocketReplayReadResult Gap(string reason, long oldestAvailableCursor, DateTime? oldestAvailableUtc)
         {
             return new WebSocketReplayReadResult(
                 StreamId,
                 oldestAvailableCursor,
                 _CurrentCursor,
                 Array.Empty<WebSocketReplayRecord>(),
-                reason);
+                reason,
+                oldestAvailableUtc);
         }
 
         private void TrimToLimits()
@@ -203,18 +209,25 @@ namespace Armada.Server.WebSocket
         public WebSocketDeliveryScope Scope { get; }
 
         /// <summary>
+        /// UTC time the event was appended.
+        /// </summary>
+        public DateTime RecordedUtc { get; }
+
+        /// <summary>
         /// Instantiate.
         /// </summary>
         /// <param name="cursor">Event cursor.</param>
         /// <param name="frame">Serialized event frame.</param>
         /// <param name="byteCount">UTF-8 frame size.</param>
         /// <param name="scope">Who may receive the event; null delivers to global administrators only.</param>
-        public WebSocketReplayRecord(long cursor, string frame, int byteCount, WebSocketDeliveryScope? scope = null)
+        /// <param name="recordedUtc">UTC append time; null means now.</param>
+        public WebSocketReplayRecord(long cursor, string frame, int byteCount, WebSocketDeliveryScope? scope = null, DateTime? recordedUtc = null)
         {
             Cursor = cursor;
             Frame = frame ?? throw new ArgumentNullException(nameof(frame));
             ByteCount = byteCount;
             Scope = scope ?? WebSocketDeliveryScope.AdminOnly;
+            RecordedUtc = recordedUtc ?? DateTime.UtcNow;
         }
     }
 
@@ -232,6 +245,11 @@ namespace Armada.Server.WebSocket
         /// Oldest cursor that can currently be read.
         /// </summary>
         public long OldestAvailableCursor { get; }
+
+        /// <summary>
+        /// UTC time of the oldest retained event, or null when nothing is retained.
+        /// </summary>
+        public DateTime? OldestAvailableUtc { get; }
 
         /// <summary>
         /// Most recently assigned cursor.
@@ -261,13 +279,15 @@ namespace Armada.Server.WebSocket
             long oldestAvailableCursor,
             long currentCursor,
             IReadOnlyList<WebSocketReplayRecord> records,
-            string? gapReason)
+            string? gapReason,
+            DateTime? oldestAvailableUtc = null)
         {
             StreamId = streamId ?? throw new ArgumentNullException(nameof(streamId));
             OldestAvailableCursor = oldestAvailableCursor;
             CurrentCursor = currentCursor;
             Records = records ?? throw new ArgumentNullException(nameof(records));
             GapReason = gapReason;
+            OldestAvailableUtc = oldestAvailableUtc;
         }
     }
 
@@ -290,5 +310,15 @@ namespace Armada.Server.WebSocket
         /// The required event history is no longer retained.
         /// </summary>
         public const string HistoryEvicted = "history_evicted";
+
+        /// <summary>
+        /// Events appended while the subscription snapshot was read were evicted before they could be sent.
+        /// </summary>
+        public const string SnapshotOverflow = "snapshot_overflow";
+
+        /// <summary>
+        /// The retained events after the client cursor do not fit the session's outbound queue.
+        /// </summary>
+        public const string ReplayOverflow = "replay_overflow";
     }
 }

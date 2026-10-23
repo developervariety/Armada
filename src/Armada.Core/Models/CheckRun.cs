@@ -236,5 +236,20 @@ namespace Armada.Core.Models
             if (!StartedUtc.HasValue || !CompletedUtc.HasValue) return;
             DurationMs = Math.Max(0L, Convert.ToInt64(Math.Round((CompletedUtc.Value - StartedUtc.Value).TotalMilliseconds)));
         }
+
+        /// <summary>
+        /// A copy of this run without its <see cref="Output"/>, carrying <see cref="OutputLength"/> instead. A
+        /// change notification sends this copy: the output can run to megabytes, and a reader that needs it
+        /// re-reads the run by id. The copy shares this run's collections and cannot be stored.
+        /// </summary>
+        /// <returns>The copy.</returns>
+        public CheckRun WithoutOutput()
+        {
+            CheckRun copy = (CheckRun)MemberwiseClone();
+            copy.OutputLength = OutputOmitted ? OutputLength : (String.IsNullOrEmpty(Output) ? null : Output.Length);
+            copy.Output = null;
+            copy.OutputOmitted = true;
+            return copy;
+        }
     }
 }

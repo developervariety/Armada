@@ -8,6 +8,7 @@
 //   1. A command.error or subscribe.error frame that answers the watch's subscribe is printed,
 //      and the watch reconnects and goes on to deliver the stream.
 //   2. Repeated refused subscriptions stop the watch with a STOPPED line and exit code 1.
+//   3. A reconnect does not report again an actionable state the watch already reported.
 
 import { watch, MAX_SUBSCRIBE_FAILURES } from "./watch-armada.mjs";
 
@@ -91,6 +92,30 @@ async function run(replies) {
   check("every refused subscribe is printed", printed === MAX_SUBSCRIBE_FAILURES, `printed ${printed}`);
   check("repeated refusals stop the watch with a reason", result.lines.some((line) => line.startsWith("STOPPED: subscribe refused")), result.lines.join(" | "));
   check("repeated refusals exit non-zero", result.exitCode === 1, `exit ${result.exitCode}`);
+}
+
+{
+  // The first connection reports the failed landing, then sees a cursor skip and reconnects; the second
+  // snapshot still lists the same mission in the same state, which is not news.
+  const mission = { id: "msn_example", voyageId: "vyg_example", status: "LandingFailed" };
+  const firstSnapshot = {
+    type: "status.snapshot",
+    streamId: "stream-example",
+    cursor: 1,
+    data: { reconciliation: { voyages: [{ id: "vyg_example", status: "InProgress" }], missions: [mission], captains: [], checkRuns: [] } },
+  };
+  const ready = { type: "stream.ready", streamId: "stream-example", cursor: 1 };
+  const skipped = { type: "mission.changed", streamId: "stream-example", cursor: 3, data: { id: "msn_other", voyageId: "vyg_example", status: "InProgress" } };
+  const secondSnapshot = {
+    type: "status.snapshot",
+    streamId: "stream-example",
+    cursor: 3,
+    data: { reconciliation: { voyages: [{ id: "vyg_example", status: "Complete" }], missions: [mission], captains: [], checkRuns: [] } },
+  };
+  const result = await run([[firstSnapshot, ready, skipped], [secondSnapshot]]);
+  const reported = result.lines.filter((line) => line.startsWith("mission msn_example -> LandingFailed")).length;
+  check("the watch reconnects after a cursor skip", result.opened === 2, `opened ${result.opened}`);
+  check("a reconnect does not report an already reported state again", reported === 1, `reported ${reported}: ${result.lines.join(" | ")}`);
 }
 
 console.log(failures === 0 ? "RESULT: PASS" : `RESULT: FAIL (${failures})`);

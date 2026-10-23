@@ -397,6 +397,63 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(sawSnapshot, "Reconnect should include an authoritative snapshot.");
             }).ConfigureAwait(false);
 
+            await RunTest("Reconnect_AfterLargeCheckOutput_ReplaysWithoutGapAndOmitsTheOutput", async () =>
+            {
+                // A check's output can run to megabytes. Its change event must not carry that output, or one event
+                // fills the replay history and every reconnect across it reports lost events.
+                string streamId;
+                long cursor;
+                using (ClientWebSocket first = await ConnectAsync().ConfigureAwait(false))
+                {
+                    await SendJsonAsync(first, new { Route = "subscribe" }).ConfigureAwait(false);
+                    using CancellationTokenSource firstCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    JsonElement frame;
+                    do
+                    {
+                        frame = await ReceiveWholeFrameAsync(first, firstCts.Token).ConfigureAwait(false);
+                    } while (frame.GetProperty("type").GetString() != "stream.ready");
+
+                    streamId = frame.GetProperty("streamId").GetString()!;
+                    cursor = frame.GetProperty("cursor").GetInt64();
+                }
+
+                const int outputLength = 1536 * 1024;
+                string vesselId = await CreateVesselViaRestAsync("ws-large-check-vessel").ConfigureAwait(false);
+                HttpResponseMessage imported = await _AuthClient.PostAsync("/api/v1/check-runs/import", JsonHelper.ToJsonContent(new
+                {
+                    VesselId = vesselId,
+                    Type = "UnitTest",
+                    Status = "Passed",
+                    ProviderName = "ws-large-output",
+                    ExternalId = Guid.NewGuid().ToString("N"),
+                    Command = "echo large",
+                    Output = new string('x', outputLength)
+                })).ConfigureAwait(false);
+                AssertEqual(201, (int)imported.StatusCode, "The check import should succeed.");
+                CheckRun run = await JsonHelper.DeserializeAsync<CheckRun>(imported).ConfigureAwait(false);
+
+                using ClientWebSocket resumed = await ConnectAsync().ConfigureAwait(false);
+                await SendJsonAsync(resumed, new { Route = "subscribe", streamId, cursor }).ConfigureAwait(false);
+                using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                string? gapReason = null;
+                JsonElement? checkEvent = null;
+                while (true)
+                {
+                    JsonElement frame = await ReceiveWholeFrameAsync(resumed, cts.Token).ConfigureAwait(false);
+                    string? type = frame.GetProperty("type").GetString();
+                    if (type == "event.gap") gapReason = frame.GetProperty("data").GetProperty("reason").GetString();
+                    else if (type == "check-run.changed" && frame.GetProperty("data").GetProperty("id").GetString() == run.Id) checkEvent = frame;
+                    else if (type == "stream.ready") break;
+                }
+
+                AssertNull(gapReason, "A reconnect across a large check output must replay without a gap.");
+                AssertTrue(checkEvent.HasValue, "The reconnect should replay the check change.");
+                JsonElement data = checkEvent!.Value.GetProperty("data");
+                AssertTrue(!data.TryGetProperty("output", out JsonElement output) || output.ValueKind == JsonValueKind.Null,
+                    "The check change event must not carry the output.");
+                AssertEqual(outputLength, data.GetProperty("outputLength").GetInt32(), "The event names the output length so a client can re-read it.");
+            }).ConfigureAwait(false);
+
             await RunTest("RepeatedSubscribe_IsRejectedWithoutMixingSequences", async () =>
             {
                 using ClientWebSocket ws = await ConnectAsync().ConfigureAwait(false);
@@ -1410,6 +1467,25 @@ namespace Armada.Test.Automated.Suites
         {
             byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(value));
             await TestTimeout.WithinAsync("socket.SendAsync", bounded => socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, bounded)).ConfigureAwait(false);
+        }
+
+        private static async Task<JsonElement> ReceiveWholeFrameAsync(ClientWebSocket socket, CancellationToken token)
+        {
+            byte[] buffer = new byte[65536];
+            using (System.IO.MemoryStream message = new System.IO.MemoryStream())
+            {
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), token).ConfigureAwait(false);
+                    message.Write(buffer, 0, result.Count);
+                } while (!result.EndOfMessage);
+
+                using (JsonDocument document = JsonDocument.Parse(message.ToArray()))
+                {
+                    return document.RootElement.Clone();
+                }
+            }
         }
 
         private static async Task<JsonElement> ReceiveFrameAsync(
