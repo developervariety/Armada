@@ -358,7 +358,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("A profile re-run command that fails again keeps the red with the also-failed-alone text", async () =>
+            await RunTest("A profile re-run command that fails again keeps the red with the also-failed-alone text and names the failing test", async () =>
             {
                 if (OperatingSystem.IsWindows()) return;
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -370,7 +370,8 @@ namespace Armada.Test.Unit.Suites.Services
                     await EnsureVesselWithProfileAsync(testDb, "ten_profile_rerun_red", "vsl_profile_rerun_red",
                         worktreePath, SuccessCommand(), testCommand,
                         failedTestLinePattern: _ExampleRunnerPattern,
-                        isolatedTestRerunCommand: "echo \"FAIL Rejects an empty header: assertion failed\" >&2; exit 1").ConfigureAwait(false);
+                        isolatedTestRerunCommand: "echo \"FAIL Rejects an empty header: Sequence contains no elements\"; "
+                            + "i=0; while [ $i -lt 120 ]; do echo \"ok $i - a later suite passes\"; i=$((i+1)); done; exit 1").ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
                         new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
@@ -383,6 +384,11 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(result.Passed, "a failing isolated re-run keeps the red");
                     AssertContains("Isolated re-run of 1 failing test(s) under the current host load also failed", result.OutputTail ?? String.Empty,
                         "the red says the isolated re-run also failed");
+                    // The re-run prints its failure first and many passing lines after it, past the output tail.
+                    AssertContains("Rejects an empty header", result.OutputTail ?? String.Empty,
+                        "the re-run's failure text names the failing test read with the profile pattern, not only the passing tail");
+                    AssertTrue(result.FailedTestNames != null && result.FailedTestNames.Contains("Rejects an empty header"),
+                        "the re-run result carries the failing test name");
                 }
                 finally
                 {

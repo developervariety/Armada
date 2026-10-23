@@ -168,6 +168,10 @@ load-related and should be re-run on a quiet host before it is treated as a
 defect. An unknown load average says a load-related failure cannot be ruled
 out. A quiet host says load is an unlikely cause, which leaves a defect or an
 ordering race in the tests. The same sentence is in the gate log.
+The re-run reads its failing tests with the same workflow-profile
+`FailedTestLinePattern` as the run it repeats, so its failure text leads with
+the failing test names and its result carries them, even when the runner
+prints them early in a long output.
 
 **After a step that fails once every test has passed.** A test command (the
 vessel's own or a consumer's) can exit non-zero after every test it ran passed:

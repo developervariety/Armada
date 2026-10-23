@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -459,7 +460,7 @@ namespace Armada.Test.Unit.Suites.Services
                 _RerunResult = rerunResult;
             }
 
-            protected override Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(string label, string command, string worktreePath, IReadOnlyDictionary<string, string> environment, CancellationToken token)
+            protected override Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(string label, string command, string worktreePath, IReadOnlyDictionary<string, string> environment, Regex? failedTestLinePattern, CancellationToken token)
             {
                 RerunCalls++;
                 LastRerunCommand = command;

@@ -1430,7 +1430,10 @@ namespace Armada.Core.Services
 
             _Logging.Info(_Header + "re-running " + plan.Count + " failing " + plan.Unit + " of " + subject + " in isolation"
                 + (plan.FromProfile ? " through the profile's IsolatedTestRerunCommand" : String.Empty));
-            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", plan.Command, worktreePath, plan.Environment, token).ConfigureAwait(false);
+            // The re-run reads its failing tests with the same profile pattern as the run it repeats, so its
+            // failure text names them even when the runner prints them early in a long output.
+            Regex? failedTestLinePattern = ResolveFailedTestLinePattern(profile, subject);
+            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", plan.Command, worktreePath, plan.Environment, failedTestLinePattern, token).ConfigureAwait(false);
             _Logging.Info(_Header + subject + " isolated re-run passed=" + rerun.Passed);
             if (!rerun.Passed)
             {
@@ -1574,7 +1577,8 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "flake_score " + verdict.Outcome + ": re-running " + plan.Count + " failing " + plan.Unit + " in isolation");
-            DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync(rerunLabel, plan.Command, worktreePath, plan.Environment, token).ConfigureAwait(false);
+            DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync(
+                rerunLabel, plan.Command, worktreePath, plan.Environment, ResolveFailedTestLinePattern(profile, "flake re-run"), token).ConfigureAwait(false);
 
             // Record BOTH results: the original red and the isolated re-run. The re-run is the truth.
             _Logging.Info(_Header + "flake_score re-run outcome passed=" + rerunResult.Passed
@@ -1620,6 +1624,7 @@ namespace Armada.Core.Services
         /// <param name="command">The isolated command: a class-filtered dotnet test command or the profile's IsolatedTestRerunCommand.</param>
         /// <param name="worktreePath">The dock worktree.</param>
         /// <param name="environment">Extra environment for the command, such as the failing names for a profile command.</param>
+        /// <param name="failedTestLinePattern">The suite profile's failing-test line pattern, or null for the built-in matchers.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The re-run result.</returns>
         protected virtual Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(
@@ -1627,9 +1632,10 @@ namespace Armada.Core.Services
             string command,
             string worktreePath,
             IReadOnlyDictionary<string, string> environment,
+            Regex? failedTestLinePattern,
             CancellationToken token)
         {
-            return RunCommandAsync(label, command, worktreePath, token, null, environment);
+            return RunCommandAsync(label, command, worktreePath, token, failedTestLinePattern, environment);
         }
 
         /// <summary>

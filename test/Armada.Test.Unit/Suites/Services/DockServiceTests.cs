@@ -90,7 +90,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ProvisionAsync excludes Armada-staged dock files from the worktree's untracked files", async () =>
+            await RunTest("ProvisionAsync excludes Armada-staged dock files from the worktree's untracked files and lists them for search tools", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -144,6 +144,21 @@ namespace Armada.Test.Unit.Suites.Services
                             AssertFalse(status.Contains(relative, StringComparison.Ordinal), relative + " must not be listed as untracked (status: " + status + ")");
                         AssertFalse(status.Contains("opencode.json", StringComparison.Ordinal), "the seeded OpenCode config must not be listed as untracked");
                         AssertFalse(status.Contains(".armada/boundary", StringComparison.Ordinal), "the boundary files must not be listed as untracked");
+
+                        // Ripgrep-based glob and grep tools read git's exclude file, so the dock carries a
+                        // search-tool ignore file that lists the staged folders again and is itself excluded.
+                        AssertFalse(status.Contains(DockSearchIgnoreFile.FileName, StringComparison.Ordinal), "the search-tool ignore file must not be listed as untracked");
+                        string searchIgnorePath = Path.Combine(worktree, DockSearchIgnoreFile.FileName);
+                        AssertTrue(File.Exists(searchIgnorePath), "the dock carries a search-tool ignore file");
+                        string[] searchIgnoreLines = (await File.ReadAllTextAsync(searchIgnorePath).ConfigureAwait(false)).Split('\n');
+                        foreach (string stagedFolder in GitInfoExclude.ArmadaStagedDockPaths)
+                            AssertTrue(searchIgnoreLines.Contains("!/" + stagedFolder), "the search-tool ignore file lists " + stagedFolder + " again");
+                        string? listed = await TryRunRipgrepFilesAsync(worktree).ConfigureAwait(false);
+                        if (listed != null)
+                        {
+                            foreach (string relative in staged)
+                                AssertContains(relative, listed, "a ripgrep file listing shows the staged file " + relative);
+                        }
                     }
                     finally
                     {
@@ -2786,6 +2801,39 @@ namespace Armada.Test.Unit.Suites.Services
             stored.CaptainId = null;
             await testDb.Driver.Docks.UpdateAsync(stored).ConfigureAwait(false);
             dock.CaptainId = null;
+        }
+
+        // The file list ripgrep prints for a directory, or null when ripgrep is not installed on this host.
+        private static async Task<string?> TryRunRipgrepFilesAsync(string workingDirectory)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "rg",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            startInfo.ArgumentList.Add("--files");
+            startInfo.ArgumentList.Add("--hidden");
+            startInfo.ArgumentList.Add("--no-config");
+
+            try
+            {
+                using (Process process = new Process { StartInfo = startInfo })
+                {
+                    process.Start();
+                    string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                    await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                    await process.WaitForExitAsync().ConfigureAwait(false);
+                    return stdout.Replace('\\', '/');
+                }
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                return null;
+            }
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
