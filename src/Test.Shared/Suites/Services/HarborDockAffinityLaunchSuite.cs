@@ -192,6 +192,35 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(0, scenario.LocalLaunches, "nothing ran on the Admiral host");
             }));
 
+            cases.Add(CaseAsync("refused_recovery_relaunches_as_soon_as_the_harbor_reconnects", "A relaunch refused while the Harbor was offline runs on the next health check after the Harbor reconnects, not after the stall threshold", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                using Scenario scenario = new Scenario(testDb);
+                scenario.Settings.RequireHarborForLaunch = true;
+                List<HarborLaunchRequest> launches = new List<HarborLaunchRequest>();
+                await scenario.LinkAsync("hbr_pinned_r", null, launches).ConfigureAwait(false);
+                await scenario.Manager.OnDisconnectedAsync("hbr_pinned_r").ConfigureAwait(false);
+                RecoveryRecords records = await scenario.CreateStalledMissionAsync("hbr_pinned_r").ConfigureAwait(false);
+
+                await scenario.Captains.TryRecoverAsync(records.Captain).ConfigureAwait(false);
+                AssertNull((await testDb.Driver.Missions.ReadAsync(records.Mission.Id).ConfigureAwait(false))!.ProcessId, "refused while the Harbor is offline");
+
+                // Still offline: the health check leaves it waiting.
+                await scenario.Admiral.HealthCheckAsync().ConfigureAwait(false);
+                AssertEqual(0, launches.Count, "nothing is relaunched while the Harbor is away");
+
+                // The Harbor reconnects. The heartbeat is fresh, so only the reconnect can trigger the relaunch.
+                await scenario.LinkAsync("hbr_pinned_r", null, launches).ConfigureAwait(false);
+                await scenario.Admiral.HealthCheckAsync().ConfigureAwait(false);
+
+                Mission? resumed = await testDb.Driver.Missions.ReadAsync(records.Mission.Id).ConfigureAwait(false);
+                AssertEqual(1, launches.Count, "relaunched on the reconnected Harbor at once");
+                AssertNotNull(resumed!.ProcessId, "the relaunch recorded its process");
+                AssertEqual(0, scenario.LocalLaunches, "nothing ran on the Admiral host");
+                await scenario.Admiral.HealthCheckAsync().ConfigureAwait(false);
+                AssertEqual(1, launches.Count, "the relaunch is not repeated");
+            }));
+
             cases.Add(CaseAsync("refused_recovery_fails_typed_when_attempts_run_out", "Under requireHarborForLaunch, refused stall-recovery relaunches end in StallRecoveryExhausted once the attempts run out", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -458,6 +487,8 @@ namespace Test.Shared.Suites.Services
                 DirCreatingGitService git = new DirCreatingGitService();
                 IDockService docks = new DockService(Logging, db.Driver, Settings, git);
                 Captains = new CaptainService(Logging, db.Driver, Settings, git, docks);
+                // As the Admiral wires it: recovery checks the dock's Harbor through the same resolver.
+                Captains.DockHosts = new DockHostResolver(git, Logging, Manager);
                 Missions = new MissionService(Logging, db.Driver, Settings, docks, Captains, git: git);
                 Admiral = new AdmiralService(Logging, db.Driver, Settings, Captains, Missions, new VoyageService(Logging, db.Driver), docks);
 
@@ -466,6 +497,11 @@ namespace Test.Shared.Suites.Services
                     (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
                 Handler.SetHarborConnections(Manager);
                 Captains.OnLaunchAgent = Handler.HandleLaunchAgentAsync;
+                // As the Admiral wires it, so the health check knows a relaunched Harbor process is live.
+                Admiral.OnIsProcessExitHandled = Handler.IsProcessExitHandled;
+                Admiral.OnIsProcessTracked = Handler.IsProcessTracked;
+                Admiral.OnIsRemoteProcessTracked = Manager.IsProcessTracked;
+                Admiral.OnIsProcessAwaitingReconnect = Manager.IsProcessAwaitingReconnect;
             }
 
             public async Task<RecoveryRecords> CreateStalledMissionAsync(string harborId)

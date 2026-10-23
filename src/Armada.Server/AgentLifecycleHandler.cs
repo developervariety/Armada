@@ -872,9 +872,36 @@ namespace Armada.Server
                 // An exit may have been durably recorded immediately before the old Admiral stopped, but its
                 // asynchronous mission completion was not committed. Replay it through the normal claimed-exit path.
                 if (job.EndedUtc.HasValue)
-                    runtime.OnExited(job.ExitCode ?? -1);
+                    _ = ReplayRecordedExitAsync(runtime, dock.HarborId!, mission.Id, job.ExitCode ?? -1);
             }
             return restored;
+        }
+
+        /// <summary>
+        /// How long the replay of a Harbor job's recorded exit waits for that Harbor to reconnect after an Admiral restart.
+        /// </summary>
+        public TimeSpan RecordedExitReplayWait { get; set; } = TimeSpan.FromMinutes(10);
+
+        /// <summary>
+        /// Replay a Harbor job's exit that was recorded before the Admiral stopped, once its Harbor is connected again.
+        /// Completion checks the stage on the Harbor, commits there and hands off; run before the Harbor is back, it
+        /// would find nothing to talk to and treat the work as unverified. Without the Harbor after the wait, the
+        /// completion runs anyway so the mission is not left in limbo.
+        /// </summary>
+        private async Task ReplayRecordedExitAsync(RemoteAgentRuntime runtime, string harborId, string missionId, int exitCode)
+        {
+            try
+            {
+                DateTime deadline = DateTime.UtcNow + RecordedExitReplayWait;
+                while (_HarborConnections != null && !_HarborConnections.IsConnected(harborId) && DateTime.UtcNow < deadline)
+                    await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+                _Logging.Info(_Header + "replaying the recorded exit of mission " + missionId + " on Harbor " + harborId);
+                runtime.OnExited(exitCode);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not replay the recorded exit of mission " + missionId + ": " + ex.ToString());
+            }
         }
 
         /// <summary>

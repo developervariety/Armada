@@ -970,7 +970,11 @@ namespace Test.Shared.Suites.Services
                     File.WriteAllText(final, "[ARMADA:RESULT] COMPLETE\nDurable final result.");
                     HarborConnectionManager manager = new HarborConnectionManager(new HarborService(testDb.Driver, CreateLogging()), CreateLogging(), null);
                     handler.SetHarborConnections(manager);
+                    // The replay waits for the Harbor to reconnect; none does here, so it runs once the (shortened) wait ends.
+                    handler.RecordedExitReplayWait = TimeSpan.FromMilliseconds(300);
                     AssertEqual(1, await handler.RestoreHarborMissionsAsync().ConfigureAwait(false));
+                    await Task.Delay(100).ConfigureAwait(false);
+                    AssertEqual(0, admiral.ExitInfos.Count, "the exit is not replayed while the Harbor is still away");
                     await WaitForConditionAsync(() => Task.FromResult(admiral.ExitInfos.Count == 1)).ConfigureAwait(false);
                     AssertEqual(0, manager.OwnedJobIds(seed.Dock.HarborId!).Count, "ended job is not advertised as live");
                     AssertContains("Durable final result", handler.GetAndClearMissionOutput(seed.Mission.Id) ?? "");

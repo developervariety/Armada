@@ -30,6 +30,11 @@ namespace Armada.Core.Services
         /// </summary>
         public const string ReworkTitlePrefix = "[Worker] Rework ";
 
+        /// <summary>
+        /// Title marker of the escalated rework attempt.
+        /// </summary>
+        public const string EscalatedMarker = " (escalated)";
+
         #endregion
 
         #region Public-Methods
@@ -170,6 +175,29 @@ namespace Armada.Core.Services
             return SliceRoot(mission, ById(voyageMissions));
         }
 
+        /// <summary>
+        /// Whether a mission is a Judge-requested rework Worker.
+        /// </summary>
+        /// <param name="mission">The mission.</param>
+        /// <returns>True for a rework Worker.</returns>
+        public static bool IsRework(Mission mission)
+        {
+            if (mission == null) return false;
+            // Stored missions from before the rework round was persisted are recognized by their title.
+            return mission.ReworkRound > 0 || (!String.IsNullOrEmpty(mission.Title) && mission.Title.StartsWith(ReworkTitlePrefix, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        /// Whether a rework Worker is the escalated attempt (sent to a different captain).
+        /// </summary>
+        /// <param name="mission">The mission.</param>
+        /// <returns>True for the escalated rework.</returns>
+        public static bool IsEscalatedRework(Mission mission)
+        {
+            if (mission == null) return false;
+            return mission.ReworkEscalated || (!String.IsNullOrEmpty(mission.Title) && mission.Title.Contains(EscalatedMarker, StringComparison.Ordinal));
+        }
+
         #endregion
 
         #region Private-Methods
@@ -191,11 +219,6 @@ namespace Armada.Core.Services
             Dictionary<string, Mission> byId = new Dictionary<string, Mission>(StringComparer.Ordinal);
             foreach (Mission m in missions) byId[m.Id] = m;
             return byId;
-        }
-
-        private static bool IsRework(Mission mission)
-        {
-            return !String.IsNullOrEmpty(mission.Title) && mission.Title.StartsWith(ReworkTitlePrefix, StringComparison.Ordinal);
         }
 
         private static bool IsTerminal(MissionStatusEnum status)

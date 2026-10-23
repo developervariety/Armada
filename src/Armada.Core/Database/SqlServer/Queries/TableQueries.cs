@@ -1730,7 +1730,10 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(89, "Add noop_redispatch_attempts to missions so the no-op budget is counted separately",
                     @"IF COL_LENGTH('missions','noop_redispatch_attempts') IS NULL ALTER TABLE missions ADD noop_redispatch_attempts INT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(90, "Add is_rescue to missions so a rescue is never rescued again, even after its incident is purged",
-                    @"IF COL_LENGTH('missions','is_rescue') IS NULL ALTER TABLE missions ADD is_rescue BIT NOT NULL CONSTRAINT DF_missions_is_rescue DEFAULT 0;")
+                    @"IF COL_LENGTH('missions','is_rescue') IS NULL ALTER TABLE missions ADD is_rescue BIT NOT NULL CONSTRAINT DF_missions_is_rescue DEFAULT 0;"),
+                new SchemaMigration(91, "Add rework_round and rework_escalated to missions so rework state is not read from titles",
+                    @"IF COL_LENGTH('missions','rework_round') IS NULL ALTER TABLE missions ADD rework_round INT NOT NULL CONSTRAINT DF_missions_rework_round DEFAULT 0;",
+                    @"IF COL_LENGTH('missions','rework_escalated') IS NULL ALTER TABLE missions ADD rework_escalated BIT NOT NULL CONSTRAINT DF_missions_rework_escalated DEFAULT 0;")
 
 
             };

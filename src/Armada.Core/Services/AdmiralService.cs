@@ -576,6 +576,11 @@ namespace Armada.Core.Services
             // cancellation still propagates.
             await RunHealthPhaseAsync("lift expired quarantines", () => LiftExpiredQuarantinesAsync(token), token).ConfigureAwait(false);
             await RunHealthPhaseAsync("release recovered stalled captains", () => ReleaseRecoveredStalledCaptainsAsync(token), token).ConfigureAwait(false);
+            await RunHealthPhaseAsync("relaunch captains whose Harbor reconnected", async () =>
+            {
+                int relaunched = await _Captains.RetryRelaunchesAwaitingHarborAsync(token).ConfigureAwait(false);
+                if (relaunched > 0) _Logging.Info(_Header + "relaunched " + relaunched + " captain(s) whose Harbor reconnected");
+            }, token).ConfigureAwait(false);
 
             await RunHealthPhaseAsync("captain health checks", async () =>
             {

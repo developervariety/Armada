@@ -54,6 +54,8 @@ namespace Test.Shared.Suites.Database
                     mission.FailureReason = "Definition-of-Done gate failed (Compile): exit 1";
                     mission.WaitForVoyageWorkers = true;
                     mission.IsRescue = true;
+                    mission.ReworkRound = 2;
+                    mission.ReworkEscalated = true;
                     await db.Missions.CreateAsync(mission);
 
                     Mission? read = await db.Missions.ReadAsync(mission.Id);
@@ -61,6 +63,8 @@ namespace Test.Shared.Suites.Database
                     AssertEqual(MissionFailureKindEnum.Compile, read!.FailureKind, "failure kind persists on create");
                     AssertTrue(read.WaitForVoyageWorkers, "wait flag persists on create");
                     AssertTrue(read.IsRescue, "rescue flag persists on create");
+                    AssertEqual(2, read.ReworkRound, "rework round persists on create");
+                    AssertTrue(read.ReworkEscalated, "escalated rework flag persists on create");
 
                     MissionSummary? summary = await db.Missions.ReadSummaryAsync(mission.Id);
                     AssertNotNull(summary);
@@ -68,10 +72,14 @@ namespace Test.Shared.Suites.Database
 
                     read.FailureKind = MissionFailureKindEnum.JudgeRejected;
                     read.WaitForVoyageWorkers = false;
+                    read.ReworkRound = 3;
+                    read.ReworkEscalated = false;
                     await db.Missions.UpdateAsync(read);
                     Mission? updated = await db.Missions.ReadAsync(mission.Id);
                     AssertEqual(MissionFailureKindEnum.JudgeRejected, updated!.FailureKind, "failure kind persists on update");
                     AssertFalse(updated.WaitForVoyageWorkers, "wait flag clears on update");
+                    AssertEqual(3, updated.ReworkRound, "rework round persists on update");
+                    AssertFalse(updated.ReworkEscalated, "escalated rework flag clears on update");
 
                     updated.FailureKind = null;
                     await db.Missions.UpdateAsync(updated);
@@ -85,6 +93,7 @@ namespace Test.Shared.Suites.Database
                     AssertNull(plainRead!.FailureKind, "a new mission has no failure kind");
                     AssertFalse(plainRead.WaitForVoyageWorkers, "a new mission does not wait for voyage workers");
                     AssertFalse(plainRead.IsRescue, "a new mission is not a rescue");
+                    AssertEqual(0, plainRead.ReworkRound, "a new mission is not a rework");
                 }
             }));
 

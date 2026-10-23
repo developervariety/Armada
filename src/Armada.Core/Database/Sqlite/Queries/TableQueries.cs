@@ -2066,7 +2066,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(89, "Add noop_redispatch_attempts to missions so the no-op budget is counted separately",
                     @"ALTER TABLE missions ADD COLUMN noop_redispatch_attempts INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(90, "Add is_rescue to missions so a rescue is never rescued again, even after its incident is purged",
-                    @"ALTER TABLE missions ADD COLUMN is_rescue INTEGER NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN is_rescue INTEGER NOT NULL DEFAULT 0;"),
+                new SchemaMigration(91, "Add rework_round and rework_escalated to missions so rework state is not read from titles",
+                    @"ALTER TABLE missions ADD COLUMN rework_round INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE missions ADD COLUMN rework_escalated INTEGER NOT NULL DEFAULT 0;")
 
 
 

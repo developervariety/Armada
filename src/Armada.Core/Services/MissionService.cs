@@ -4733,7 +4733,7 @@ namespace Armada.Core.Services
             if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && idleCaptains.Any(c => c.Id == mission.RequestedCaptainId && CaptainVisibleToMission(c, mission) &&
                 (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)))
                 return true;
-            if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && (mission.Title.Contains(_EscalatedMarker, StringComparison.Ordinal)
+            if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && (IntegrationBarrier.IsEscalatedRework(mission)
                 || (mission.Description ?? "").Contains("## Escalated to ", StringComparison.Ordinal))) return false;
 
             if (await HasStrictCaptainOverrideAsync(mission, token).ConfigureAwait(false)) return false;
@@ -4877,7 +4877,7 @@ namespace Armada.Core.Services
                     return preferred;
 
                 // Recovery must wait for its chosen alternative, never silently rerun the failed captain.
-                if (mission.Title.Contains(_EscalatedMarker, StringComparison.Ordinal) || (mission.Description ?? "").Contains("## Escalated to ", StringComparison.Ordinal)) return null;
+                if (IntegrationBarrier.IsEscalatedRework(mission) || (mission.Description ?? "").Contains("## Escalated to ", StringComparison.Ordinal)) return null;
                 if (await HasStrictCaptainOverrideAsync(mission, token).ConfigureAwait(false)) return null;
                 Captain? requested = await _Database.Captains.ReadAsync(requestedCaptainId, token).ConfigureAwait(false);
                 if (requested == null)
@@ -5206,7 +5206,7 @@ namespace Armada.Core.Services
                 return new IntegrationBarrierState();
             // Structured flag only (set from the architect plan's waitForOtherMissions, or once from the legacy
             // marker-format description when the architect output was parsed). Description wording is never read here.
-            if (!mission.WaitForVoyageWorkers && !mission.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal))
+            if (!mission.WaitForVoyageWorkers && !IntegrationBarrier.IsRework(mission))
                 return new IntegrationBarrierState();
 
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
@@ -5435,9 +5435,9 @@ namespace Armada.Core.Services
                 workerChain.Add(cursor.Id);
                 // A fresh Worker is the boundary of this implementation slice. Its dependency may be a
                 // passing Judge from another Architect slice, whose rework budget is independent.
-                if (!cursor.Title.StartsWith(_ReworkTitlePrefix, StringComparison.Ordinal)) break;
+                if (!IntegrationBarrier.IsRework(cursor)) break;
                 rounds++;
-                escalated |= cursor.Title.Contains(_EscalatedMarker, StringComparison.Ordinal);
+                escalated |= IntegrationBarrier.IsEscalatedRework(cursor);
             }
 
             if (worker == null) return Unavailable("Automatic Judge rework is unavailable because the reviewed Worker could not be found in the dependency chain.");
@@ -5490,6 +5490,8 @@ namespace Armada.Core.Services
             rework.VoyageId = judge.VoyageId;
             rework.VesselId = judge.VesselId;
             rework.Persona = PersonaCatalog.Worker;
+            rework.ReworkRound = round;
+            rework.ReworkEscalated = escalateTo != null;
             rework.Tier = worker.Tier;
             rework.WaitForVoyageWorkers = worker.WaitForVoyageWorkers;
             rework.RequestedCaptainId = escalateTo;
@@ -5555,7 +5557,7 @@ namespace Armada.Core.Services
 
         private const string _ReworkTitlePrefix = IntegrationBarrier.ReworkTitlePrefix;
 
-        private const string _EscalatedMarker = " (escalated)";
+        private const string _EscalatedMarker = IntegrationBarrier.EscalatedMarker;
 
         private static bool IsAncestorOf(Mission candidate, Mission descendant, Dictionary<string, Mission> byId)
         {
@@ -5604,6 +5606,12 @@ namespace Armada.Core.Services
                 Dock? dock = await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
                 Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
                 if (dock == null || vessel == null || String.IsNullOrEmpty(dock.WorktreePath)) return null;
+
+                // A Harbor whose link is down for a moment (an Admiral restart, a network blip) is waited for: the check
+                // not being able to run is an infrastructure condition, not something to send the captain back over.
+                if (!await WaitForDockHarborAsync(dock, token).ConfigureAwait(false))
+                    return "The stage check could not run because Harbor " + dock.HarborId + " did not reconnect within "
+                        + (int)HarborReconnectWait.TotalSeconds + " seconds. Its success has not been verified; rerun the configured checks once the Harbor is back.";
 
                 AuthContext system = new AuthContext { IsAuthenticated = true, IsAdmin = true, TenantId = vessel.TenantId };
                 WorkflowProfile? profile = await new WorkflowProfileService(_Database, _Logging).ResolveForVesselAsync(system, vessel, null, token).ConfigureAwait(false);
@@ -5726,6 +5734,29 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "mission " + mission.Id + ": could not commit leftover changes in dock " + dock.Id + ": " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// How long a stage check waits for a dock's disconnected Harbor to come back before giving up.
+        /// </summary>
+        public TimeSpan HarborReconnectWait { get; set; } = TimeSpan.FromMinutes(3);
+
+        private async Task<bool> WaitForDockHarborAsync(Dock dock, CancellationToken token)
+        {
+            if (DockHosts?.Harbors == null || !DockHostResolver.IsHarborDock(dock)) return true;
+            DateTime deadline = DateTime.UtcNow + HarborReconnectWait;
+            bool logged = false;
+            while (!DockHosts.Harbors.IsConnected(dock.HarborId!))
+            {
+                if (DateTime.UtcNow >= deadline) return false;
+                if (!logged)
+                {
+                    _Logging.Info(_Header + "waiting for Harbor " + dock.HarborId + " to reconnect before checking dock " + dock.Id);
+                    logged = true;
+                }
+                await Task.Delay(TimeSpan.FromSeconds(2), token).ConfigureAwait(false);
+            }
+            return true;
         }
 
         private DockHost? HarborHostFor(Dock? dock)

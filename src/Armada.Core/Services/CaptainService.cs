@@ -31,6 +31,8 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private string _Header = "[CaptainService] ";
+        // Captains whose recovery relaunch was refused while their dock's Harbor was offline, keyed to that Harbor.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _AwaitingHarbor = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
@@ -149,9 +151,30 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<int> RetryRelaunchesAwaitingHarborAsync(CancellationToken token = default)
+        {
+            if (_AwaitingHarbor.IsEmpty || DockHosts?.Harbors == null) return 0;
+            int relaunched = 0;
+            foreach (KeyValuePair<string, string> waiting in _AwaitingHarbor.ToArray())
+            {
+                if (!DockHosts.Harbors.IsConnected(waiting.Value)) continue;
+                if (!_AwaitingHarbor.TryRemove(waiting.Key, out _)) continue;
+                Captain? captain = await _Database.Captains.ReadAsync(waiting.Key, token).ConfigureAwait(false);
+                // Only a captain still holding its mission with no process is waiting; anything else has moved on.
+                if (captain == null || captain.State != CaptainStateEnum.Working || captain.ProcessId.HasValue || String.IsNullOrEmpty(captain.CurrentMissionId)) continue;
+                if (captain.RecoveryAttempts >= _Settings.MaxRecoveryAttempts) continue;
+                _Logging.Info(_Header + "Harbor " + waiting.Value + " is back; relaunching captain " + captain.Id + " now rather than at the next stall check");
+                await TryRecoverAsync(captain, token).ConfigureAwait(false);
+                relaunched++;
+            }
+            return relaunched;
+        }
+
+        /// <inheritdoc />
         public async Task TryRecoverAsync(Captain captain, CancellationToken token = default)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
+            _AwaitingHarbor.TryRemove(captain.Id, out _);
 
             try
             {
@@ -305,7 +328,8 @@ namespace Armada.Core.Services
                         // requireHarborForLaunch refused the relaunch because the user's Harbor is unavailable. Spend
                         // this attempt and wait: the captain stays Working with no process, and the next stall check
                         // retries recovery, so a Harbor that reconnects within the remaining attempts gets the mission back.
-                        _Logging.Warn(_Header + "recovery relaunch for captain " + captain.Id + " refused (attempt " + captain.RecoveryAttempts + "/" + _Settings.MaxRecoveryAttempts + "); retrying at the next stall check: " + refused.Message);
+                        _Logging.Warn(_Header + "recovery relaunch for captain " + captain.Id + " refused (attempt " + captain.RecoveryAttempts + "/" + _Settings.MaxRecoveryAttempts + "); retrying when the Harbor reconnects, or at the next stall check: " + refused.Message);
+                        if (!String.IsNullOrEmpty(dock.HarborId)) _AwaitingHarbor[captain.Id] = dock.HarborId!;
                         captain.ProcessId = null;
                         captain.LastHeartbeatUtc = DateTime.UtcNow;
                         captain.LastUpdateUtc = DateTime.UtcNow;

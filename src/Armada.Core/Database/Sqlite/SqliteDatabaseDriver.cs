@@ -725,6 +725,8 @@ namespace Armada.Core.Database.Sqlite
             try { object v = reader["output_repair_attempts"]; if (v != DBNull.Value) mission.OutputRepairAttempts = Convert.ToInt32(v); } catch { }
             try { object v = reader["noop_redispatch_attempts"]; if (v != DBNull.Value) mission.NoOpRedispatchAttempts = Convert.ToInt32(v); } catch { }
             try { mission.IsRescue = reader["is_rescue"] != DBNull.Value && Convert.ToInt64(reader["is_rescue"]) == 1; } catch { }
+            try { mission.ReworkRound = reader["rework_round"] != DBNull.Value ? Convert.ToInt32(reader["rework_round"]) : 0; } catch { }
+            try { mission.ReworkEscalated = reader["rework_escalated"] != DBNull.Value && Convert.ToInt64(reader["rework_escalated"]) == 1; } catch { }
             try
             {
                 string? missionTier = NullableString(reader["tier"]);

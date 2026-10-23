@@ -128,6 +128,25 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("aaa111", String.Join(",", state.SettledCommits.Select(m => m.CommitHash)), "the integration's own commit is not a sibling's");
             }));
 
+            cases.Add(CaseAsync("rework_identity_survives_a_retitle", "A rework recognized by its stored round keeps its identity and barrier after an operator renames it; an old rework is still recognized by its title", TestTags.Positive, () =>
+            {
+                Plan plan = new Plan();
+                Mission integration = plan.Integration();
+                Mission judge = plan.Stage(integration, "Judge", MissionStatusEnum.WorkProduced, null, 11);
+                Mission rework = plan.Stage(judge, "Worker", MissionStatusEnum.Pending, null, 12);
+                rework.Title = "Renamed by an operator";
+                rework.ReworkRound = 1;
+                rework.ReworkEscalated = true;
+                AssertTrue(IntegrationBarrier.IsRework(rework));
+                AssertTrue(IntegrationBarrier.IsEscalatedRework(rework));
+                AssertTrue(IntegrationBarrier.Applies(rework, plan.Missions), "the renamed rework still inherits the barrier");
+                Mission legacy = new Mission(IntegrationBarrier.ReworkTitlePrefix + "2" + IntegrationBarrier.EscalatedMarker + ": X", "d");
+                AssertTrue(IntegrationBarrier.IsRework(legacy), "a rework stored before the round was persisted is read from its title");
+                AssertTrue(IntegrationBarrier.IsEscalatedRework(legacy));
+                AssertFalse(IntegrationBarrier.IsRework(new Mission("Plain [Worker]", "d")));
+                return Task.CompletedTask;
+            }));
+
             cases.Add(CaseAsync("ordinary_worker_has_no_barrier", "A Worker that is not the final integration slice has no barrier", TestTags.Negative, async () =>
             {
                 Plan plan = new Plan();

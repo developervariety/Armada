@@ -34,6 +34,14 @@ namespace Armada.Core.Services.Interfaces
         Task TryRecoverAsync(Captain captain, CancellationToken token = default);
 
         /// <summary>
+        /// Relaunch captains whose recovery was refused because their dock's Harbor was offline, once that Harbor is
+        /// connected again, instead of leaving them until the next stall check.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of captains relaunched.</returns>
+        Task<int> RetryRelaunchesAwaitingHarborAsync(CancellationToken token = default) => Task.FromResult(0);
+
+        /// <summary>
         /// Release a captain after mission completion and reset recovery counter.
         /// </summary>
         /// <param name="captain">Captain to release.</param>

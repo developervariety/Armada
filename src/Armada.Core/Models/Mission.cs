@@ -130,6 +130,22 @@ namespace Armada.Core.Models
         public bool IsRescue { get; set; } = false;
 
         /// <summary>
+        /// For a Worker the Judge sent back for rework, its rework round (1 for the first); 0 for any other mission. Stored
+        /// so rework state never depends on the title, which an operator can change.
+        /// </summary>
+        public int ReworkRound
+        {
+            get => _ReworkRound;
+            set => _ReworkRound = value < 0 ? 0 : value;
+        }
+
+        /// <summary>
+        /// True for a rework Worker that went to a different captain because the earlier rounds did not resolve the Judge's
+        /// findings (the escalated attempt, after which the rework budget is spent).
+        /// </summary>
+        public bool ReworkEscalated { get; set; } = false;
+
+        /// <summary>
         /// Optional required capability tier. Dispatch routes the mission to an idle captain at or above
         /// this tier (preferring the lowest eligible tier). Null means Standard.
         /// </summary>
@@ -325,6 +341,7 @@ namespace Armada.Core.Models
 
         #region Private-Members
 
+        private int _ReworkRound = 0;
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.MissionIdPrefix, 24);
         private string _Title = "New Mission";
         private DateTime? _StartedUtc = null;
