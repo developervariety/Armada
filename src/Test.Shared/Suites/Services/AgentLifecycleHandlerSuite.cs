@@ -1180,7 +1180,7 @@ namespace Test.Shared.Suites.Services
         }
 
         /// <summary>
-        /// Factory that builds a real API runtime whose scripted model reads <c>large.txt</c> eight times and then
+        /// Factory that builds a real API runtime whose scripted model explicitly reads all of <c>large.txt</c> eight times and then
         /// finishes, so the conversation crosses the compaction threshold inside the production loop.
         /// </summary>
         private sealed class CompactionScriptRuntimeFactory : AgentRuntimeFactory
@@ -1211,7 +1211,7 @@ namespace Test.Shared.Suites.Services
                     {
                         Id = "read_" + call,
                         Name = "read_file",
-                        ArgumentsJson = "{\"file_path\":\"large.txt\"}"
+                        ArgumentsJson = "{\"file_path\":\"large.txt\",\"limit\":-1}"
                     });
                 }
 
