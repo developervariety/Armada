@@ -3412,6 +3412,25 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Count of missions whose handoff was re-driven.</returns>
+        public async Task<int> SettleStagesBehindFailedDependenciesAsync(CancellationToken token = default)
+        {
+            List<Mission> pending = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
+            HashSet<string> settled = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Mission stage in pending.Where(m => !String.IsNullOrEmpty(m.DependsOnMissionId) && !String.IsNullOrEmpty(m.VoyageId)))
+            {
+                if (settled.Contains(stage.DependsOnMissionId!)) continue;
+                Mission? dependency = await _Database.Missions.ReadAsync(stage.DependsOnMissionId!, token).ConfigureAwait(false);
+                if (dependency == null) continue;
+                if (dependency.Status != MissionStatusEnum.Failed && dependency.Status != MissionStatusEnum.LandingFailed && dependency.Status != MissionStatusEnum.Cancelled) continue;
+                settled.Add(dependency.Id);
+                _Logging.Warn(_Header + "mission " + dependency.Id + " ended " + dependency.Status + " without settling the stages after it; settling them now");
+                await CancelDependentPipelineStagesAsync(dependency, token).ConfigureAwait(false);
+                await UpdateVoyageTerminalStatusAsync(dependency.VoyageId, token).ConfigureAwait(false);
+            }
+            return settled.Count;
+        }
+
+        /// <inheritdoc />
         public async Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default)
         {
             int redriven = 0;

@@ -248,6 +248,29 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("stopped_stage_settles_the_stages_after_it", "A stage failed by stopping its captain (which does not cascade) has its waiting stages settled by the health check: cancelled by default, Blocked when configured", TestTags.Negative, async () =>
+            {
+                foreach (bool block in new[] { false, true })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    Harness h = new Harness(testDb, new DirCreatingGitService());
+                    h.Settings.BlockDependentsOfFailedStages = block;
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("pipeline") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission("Feature [Worker]", "Do it.") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.Failed, FailureKind = MissionFailureKindEnum.OperatorAction }).ConfigureAwait(false);
+                    Mission judge = await testDb.Driver.Missions.CreateAsync(new Mission("Feature [Judge]", "Review.") { VesselId = vessel.Id, VoyageId = voyage.Id, Persona = "Judge", DependsOnMissionId = worker.Id }).ConfigureAwait(false);
+
+                    AssertEqual(1, await h.Missions.SettleStagesBehindFailedDependenciesAsync().ConfigureAwait(false));
+                    Mission? settledJudge = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    AssertEqual(block ? MissionStatusEnum.Blocked : MissionStatusEnum.Cancelled, settledJudge!.Status);
+                    AssertEqual(MissionFailureKindEnum.DependencyFailed, settledJudge.FailureKind);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    if (block) AssertNotEqual(VoyageStatusEnum.Failed, after!.Status, "Blocked keeps the voyage open");
+                    else AssertEqual(VoyageStatusEnum.Failed, after!.Status, "with nothing left active the voyage settles Failed");
+                    AssertEqual(0, await h.Missions.SettleStagesBehindFailedDependenciesAsync().ConfigureAwait(false), "nothing left to settle");
+                }
+            }));
+
             cases.Add(CaseAsync("blocked_verifier_sends_work_back_before_the_judge", "A Test Engineer that reports a blocking product defect sends the work back to the Worker at once; a new Test Engineer checks the rework and the Judge waits for it", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

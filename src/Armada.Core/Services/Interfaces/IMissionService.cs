@@ -115,6 +115,15 @@ namespace Armada.Core.Services.Interfaces
         Task<int> RecoverDanglingHandoffsAsync(CancellationToken token = default);
 
         /// <summary>
+        /// Settle Pending pipeline stages whose dependency already ended Failed, LandingFailed or Cancelled but whose own
+        /// state was never updated (a failure path that did not cascade, such as stopping the captain): they are
+        /// cancelled, or Blocked when <c>BlockDependentsOfFailedStages</c> is on, exactly as the failure would have done.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of failed or cancelled missions whose waiting stages were settled.</returns>
+        Task<int> SettleStagesBehindFailedDependenciesAsync(CancellationToken token = default) => Task.FromResult(0);
+
+        /// <summary>
         /// Approve a mission that is waiting at a review gate.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>

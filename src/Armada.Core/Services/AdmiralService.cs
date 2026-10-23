@@ -612,6 +612,14 @@ namespace Armada.Core.Services
             // reassigned before the health check could detect the old process exit.
             await RunHealthPhaseAsync("orphaned mission recovery", () => RecoverOrphanedMissionsAsync(token), token).ConfigureAwait(false);
 
+            // A stage that failed or was cancelled by a path that did not cascade (stopping its captain) must not leave the
+            // stages after it Pending forever.
+            await RunHealthPhaseAsync("stages behind failed dependencies", async () =>
+            {
+                int settled = await _Missions.SettleStagesBehindFailedDependenciesAsync(token).ConfigureAwait(false);
+                if (settled > 0) _Logging.Info(_Header + "settled the waiting stages of " + settled + " failed or cancelled mission(s)");
+            }, token).ConfigureAwait(false);
+
             // Re-drive pipeline handoffs that dangled: WorkProduced missions whose downstream
             // Pending stage was never prepared and would otherwise never be dispatched.
             await RunHealthPhaseAsync("dangling handoff recovery", async () =>
