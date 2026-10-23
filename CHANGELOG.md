@@ -622,6 +622,11 @@ upstream integrations and excludes changes already present at that baseline.
   expired history is recorded `deferred` and left for the next pass; the report
   sets `ArchiveCapped` and `ArchiveDeferredItems`, the report event names the
   deferred count, and its payload carries the archive counts.
+- A gate's isolated re-run that fails again names its failing tests. The
+  re-run read its output without the workflow profile's
+  `FailedTestLinePattern`, so a runner whose failure lines only that pattern
+  reads left the failure text with a tail of later passing suites and no
+  failing test name. Both isolated re-run paths now pass the profile pattern.
 - The Judge-finding extraction that numbers findings for the Challenger and
   the rescue brief no longer splits evidence into findings. Items under a
   lead-in that introduces a counterexample or reproduction are context unless
