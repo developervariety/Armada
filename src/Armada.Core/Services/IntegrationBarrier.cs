@@ -99,7 +99,8 @@ namespace Armada.Core.Services
             foreach (Mission candidate in voyageMissions)
             {
                 if (own.Contains(candidate.Id)) continue;
-                if (PersonaCatalog.Matches(candidate.Persona, PersonaCatalog.Architect)) continue;
+                // Planning stages are not slices; their commit is the base every slice already starts from.
+                if (PersonaCatalog.Matches(candidate.Persona, PersonaCatalog.Architect) || PersonaCatalog.Matches(candidate.Persona, PersonaCatalog.ProductManager)) continue;
                 Mission? root = SliceRoot(candidate, byId);
                 if (root != null && root.Id == ownRoot) continue;
                 others.Add(candidate);

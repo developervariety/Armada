@@ -198,7 +198,8 @@ namespace Test.Shared.Suites.Services
 
             public Plan()
             {
-                Architect = Add(new Mission("Plan", "Plan") { Persona = "Architect", Status = MissionStatusEnum.WorkProduced }, 0);
+                Mission manager = Add(new Mission("Brief", "Brief") { Persona = "Product Manager", Status = MissionStatusEnum.WorkProduced, CommitHash = "base000" }, 0);
+                Architect = Add(new Mission("Plan", "Plan") { Persona = "Architect", Status = MissionStatusEnum.WorkProduced, DependsOnMissionId = manager.Id, CommitHash = "base000" }, 0);
             }
 
             public Mission Slice(string name, MissionStatusEnum status, string? commit, int minute)
