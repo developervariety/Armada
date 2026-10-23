@@ -147,6 +147,53 @@ namespace Test.Shared.Suites.Database
                     bool matchingWritten = await db.Missions.TryUpdateIfStatusAsync(afterStale, MissionStatusEnum.Cancelled);
                     AssertTrue(matchingWritten, "a write expecting the stored status is applied");
                     AssertEqual("Written while Cancelled", (await db.Missions.ReadAsync(mission.Id))!.Title);
+                    afterStale.Status = MissionStatusEnum.Assigned;
+                    AssertTrue(await db.Missions.TryUpdateIfStatusAsync(afterStale, MissionStatusEnum.Cancelled), "an explicit matching status write keeps its transition contract");
+                    AssertEqual(MissionStatusEnum.Assigned, (await db.Missions.ReadAsync(mission.Id))!.Status);
+                }
+            }));
+
+            cases.Add(CaseAsync("mission_cancelled_refuses_stale_full_row_writes", "Cancelled mission refuses stale full-row writes and permits restart", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+                    Mission mission = new Mission("Cancellation wins");
+                    mission.VesselId = prereqs.Vessel.Id;
+                    mission.VoyageId = prereqs.Voyage.Id;
+                    await db.Missions.CreateAsync(mission);
+                    Mission stale = (await db.Missions.ReadAsync(mission.Id))!;
+                    mission.Status = MissionStatusEnum.Cancelled;
+                    mission.FailureReason = "Cancelled by operator";
+                    await db.Missions.UpdateAsync(mission);
+                    Mission cancelled = (await db.Missions.ReadAsync(mission.Id))!;
+                    DateTime voyageUpdate = (await db.Voyages.ReadAsync(prereqs.Voyage.Id))!.LastUpdateUtc;
+                    DateTime callerUpdate = stale.LastUpdateUtc;
+                    foreach (MissionStatusEnum status in Enum.GetValues<MissionStatusEnum>())
+                    {
+                        if (status == MissionStatusEnum.Pending || status == MissionStatusEnum.Cancelled) continue;
+                        stale.Status = status;
+                        stale.Title = "Stale writer";
+                        Mission returned = await db.Missions.UpdateAsync(stale);
+                        Mission stored = (await db.Missions.ReadAsync(mission.Id))!;
+                        AssertEqual(MissionStatusEnum.Cancelled, stored.Status, status.ToString());
+                        AssertEqual(MissionStatusEnum.Cancelled, returned.Status, "caller observes cancellation");
+                        AssertEqual(cancelled.Title, stored.Title);
+                        AssertEqual(cancelled.FailureReason, stored.FailureReason);
+                        AssertEqual(cancelled.LastUpdateUtc, stored.LastUpdateUtc);
+                        AssertEqual(callerUpdate, stale.LastUpdateUtc);
+                        AssertEqual(voyageUpdate, (await db.Voyages.ReadAsync(prereqs.Voyage.Id))!.LastUpdateUtc);
+                    }
+                    Mission missing = new Mission("Missing row") { VoyageId = prereqs.Voyage.Id, Status = MissionStatusEnum.WorkProduced };
+                    await db.Missions.UpdateAsync(missing);
+                    AssertEqual(MissionStatusEnum.WorkProduced, missing.Status, "missing row is not reported as cancelled");
+                    AssertEqual(voyageUpdate, (await db.Voyages.ReadAsync(prereqs.Voyage.Id))!.LastUpdateUtc);
+                    cancelled.Status = MissionStatusEnum.Pending;
+                    cancelled.Title = "Explicit restart";
+                    await db.Missions.UpdateAsync(cancelled);
+                    AssertEqual(MissionStatusEnum.Pending, (await db.Missions.ReadAsync(mission.Id))!.Status);
+                    AssertEqual("Explicit restart", (await db.Missions.ReadAsync(mission.Id))!.Title);
                 }
             }));
 

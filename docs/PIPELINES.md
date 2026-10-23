@@ -549,3 +549,15 @@ Either ruling closes the incident and records the ruling as its postmortem.
 Closing the incident by hand while the hold stands is refused with
 `criterion_review_hold_open`. The `revision_kind` decision is not consulted
 for a verdict held this way.
+
+## Cancellation and stored mission updates
+
+An ordinary full-row mission update preserves a stored `Cancelled` mission unless
+the requested status is `Cancelled` or `Pending`. `Pending` is the restart path.
+A refused write changes no stored field or mission or voyage timestamp. The
+returned mission carries the current stored status. A missing row does not become
+a cancelled mission. An explicit status-conditioned update still requires its
+expected status to match and keeps its transition contract.
+
+Completion and review approval stop when their write observes a different stored
+status. Pipeline handoff also checks cancellation before it prepares dependents.

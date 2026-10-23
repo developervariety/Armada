@@ -1429,6 +1429,7 @@ namespace Armada.Core.Services
                 mission.FailureReason = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                if (mission.Status != MissionStatusEnum.Complete) return mission;
 
                 await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
 
@@ -1453,6 +1454,7 @@ namespace Armada.Core.Services
             mission.FailureReason = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (mission.Status != MissionStatusEnum.WorkProduced) return mission;
 
             if (dock == null)
             {
@@ -2663,6 +2665,11 @@ namespace Armada.Core.Services
             ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (mission.Status != MissionStatusEnum.WorkProduced)
+            {
+                _Logging.Info(_Header + "completion stopped for mission " + mission.Id + ": stored status is " + mission.Status);
+                return;
+            }
             _Logging.Info(_Header + "mission " + mission.Id + " work produced by captain " + captain.Id);
 
             // Get dock for diff capture (prefer mission-level DockId, fall back to captain-level)
@@ -6875,10 +6882,12 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<bool> TryHandoffToNextStageAsync(Mission completedMission, HandoffHoldRelease? heldRelease, CancellationToken token)
         {
-            if (String.IsNullOrEmpty(completedMission.VoyageId)) return false;
+            if (String.IsNullOrEmpty(completedMission.VoyageId) || completedMission.Status == MissionStatusEnum.Cancelled) return false;
 
             // Find missions that depend on this completed mission
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(completedMission.VoyageId, token).ConfigureAwait(false);
+            Mission? storedUpstream = voyageMissions.FirstOrDefault(m => m.Id == completedMission.Id);
+            if (storedUpstream?.Status == MissionStatusEnum.Cancelled) return false;
             List<Mission> dependentMissions = voyageMissions.Where(m =>
                 m.DependsOnMissionId == completedMission.Id &&
                 m.Status == MissionStatusEnum.Pending).ToList();

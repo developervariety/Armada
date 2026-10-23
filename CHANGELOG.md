@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- An ordinary full-row mission update cannot move a cancelled mission to another
+  status except `Pending` for restart. A refused write preserves all stored
+  fields and timestamps, and returns the current stored status to its caller.
+  Explicit status-conditioned writes keep their existing contract. Completion,
+  review approval and pipeline handoff stop when they observe cancellation.
+
 - User passwords use salted PBKDF2-HMAC-SHA256 storage on all four database
   providers. Startup upgrades legacy SHA-256 rows; login also upgrades weaker
   hashes. Password-only conditional updates preserve concurrent account changes.

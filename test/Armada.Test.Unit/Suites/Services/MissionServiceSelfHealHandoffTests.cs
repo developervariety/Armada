@@ -1155,6 +1155,37 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Completion_CancellationWinsAtWrite_DoesNotPublishAnOutcome", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/worker-cancel-race", MissionStatusEnum.InProgress).ConfigureAwait(false);
+                    Captain captain = await CreateIdleCaptainAsync(testDb.Driver, "completion-captain", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
+                    captain.CurrentMissionId = worker.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    int outcomes = 0;
+                    missions.OnMissionOutcome = (_, _) => { outcomes++; return Task.CompletedTask; };
+
+                    // Commit a competing cancellation at the completion write boundary.
+                    using (Microsoft.Data.Sqlite.SqliteConnection connection = new Microsoft.Data.Sqlite.SqliteConnection(testDb.ConnectionString))
+                    {
+                        await connection.OpenAsync().ConfigureAwait(false);
+                        using (Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand())
+                        {
+                            command.CommandText = "CREATE TRIGGER cancellation_wins BEFORE UPDATE ON missions WHEN OLD.id = '" + worker.Id
+                                + "' AND OLD.status = 'InProgress' AND NEW.status = 'WorkProduced' BEGIN UPDATE missions SET status = 'Cancelled' WHERE id = OLD.id; SELECT RAISE(IGNORE); END;";
+                            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                        }
+                    }
+                    await missions.HandleCompletionAsync(captain, worker.Id).ConfigureAwait(false);
+                    AssertEqual(0, outcomes, "A completion whose first write loses to cancellation stops before outcome callbacks.");
+                    AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!.Status);
+                }
+            });
+
             await RunTest("RecoverDanglingHandoffs_UpstreamGateNeverRecorded_HoldsInsteadOfRedriving", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

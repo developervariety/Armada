@@ -119,7 +119,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
         /// <inheritdoc />
         public async Task<Mission> UpdateAsync(Mission mission, CancellationToken token = default)
         {
-            await UpdateCoreAsync(mission, null, token).ConfigureAwait(false);
+            if (await UpdateCoreAsync(mission, null, token).ConfigureAwait(false) == 0)
+            {
+                Mission? stored = await ReadAsync(mission.Id, token).ConfigureAwait(false);
+                if (stored != null) mission.Status = stored.Status;
+            }
             return mission;
         }
 
@@ -192,7 +196,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             started_utc = @started_utc,
                             completed_utc = @completed_utc,
                             last_update_utc = @last_update_utc
-                            WHERE id = @id" + (expectedStatus.HasValue ? " AND status = @expected_status" : "") + ";";
+                            WHERE id = @id" + (expectedStatus.HasValue ? " AND status = @expected_status" : " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending'))") + ";";
                     MissionColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
                     if (expectedStatus.HasValue) StoredValueBinder.Value(cmd, "@expected_status", expectedStatus.Value.ToString());
                     affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
