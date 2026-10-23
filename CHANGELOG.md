@@ -6,7 +6,13 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
-### Handoff and dispatch hardening for mixed runtimes
+No changes yet.
+
+---
+
+## v1.1.0 (2026-10-15)
+
+### Delivery and handoff hardening for mixed runtimes
 
 Mixed fleets (Claude Code, Codex, Mux, API endpoints, local and cloud models) now fail narrowly and recover by themselves instead of cascading. The audit and its status are in `archive/HANDOFF_EXAMINATION_RESULTS.md`.
 
@@ -24,6 +30,8 @@ Mixed fleets (Claude Code, Codex, Mux, API endpoints, local and cloud models) no
 - **Gemini, Cursor and OpenCode failures are classified.** These text-mode CLIs had no provider-error parsing, so every non-zero exit was a crash. Their stderr is now read for explicit signals only: an HTTP error status written as a status, a Google RPC status (`RESOURCE_EXHAUSTED`, `UNAUTHENTICATED`, `PERMISSION_DENIED`, `UNAVAILABLE`, `DEADLINE_EXCEEDED`) or a network error code. A rate limit, an auth failure or an outage then gets the same handling as on Claude Code and Codex. Stdout narration is never parsed. The same applies on a Harbor.
 - **A persona's default captain is a preference again, not a pin.** It used to be written onto each mission together with its tier, so a busy Premium default left a Premium floor that kept the mission Pending while Standard captains sat idle. The default is now consulted on every dispatch tick and never stored on the mission. Operator overrides and escalation targets keep their behavior.
 - **The final integration slice integrates landed, finished work, and stops when a slice fails.** It used to start once every sibling was WorkProduced, Failed or Cancelled: before a sibling's work had finished landing, without a failed slice's work, and, with parallel slices and no automatic landing, without any sibling commits on its branch. It now waits while a sibling's merge-queue entry or completion is unsettled, then starts with the other slices' commits merged into its branch; a conflicting merge is aborted and left to the integration Worker with its files named, and a commit the dock cannot reach refuses the stage with the reason. A failed or landing-failed slice cancels the integration as `DependencyFailed`, and restarting that mission restores it. A slice an operator cancelled is left out and named as dropped. Manual landing and landing mode `None` cannot hold it forever. See docs/PIPELINES.md.
+- **An integration slice lists only real slices.** Its merge list no longer names the Product Manager's (or Architect's) commit, which is the base every slice starts from.
+- **Maintenance.** `MissionService` is split into partial-class files by concern with no behavior change, and the test harness rejects an unknown `ARMADA_TEST_DB_TYPE` instead of running on SQLite; the database suites were run against PostgreSQL 16, MySQL 8.4 and SQL Server 2022.
 - **Mobile:** the app shows the Blocked status, has the Block Stages After a Failure switch in Server > Agent Settings, and its endpoint form carries streaming, first-response timeout, context window and the concurrency cap, so editing an endpoint on a phone no longer resets them.
 - **Dispatch no longer reads each vessel's whole mission history per pending mission.** The vessel lock, broad-scope and shared-branch checks only need the vessel's Assigned and InProgress missions, but every pending mission loaded the vessel's complete history (with stored outputs and diffs) on every dispatch pass. They now read only the active missions.
 - **Harbor jobs never share a process id with local work.** The Admiral keyed running work by one integer across its own processes, API captains' in-process ids and Harbor jobs, and a Harbor job kept the Harbor's own process id, which can equal a process on the Admiral (a Linux container and a Mac number their processes the same way, and both sides number API captains from 2,000,000,000). A Harbor job now gets an Admiral handle from its own range (from 1,000,000,000), restored jobs keep theirs, and API in-process ids start at a different point on each Admiral run.
@@ -156,10 +164,6 @@ Mixed fleets (Claude Code, Codex, Mux, API endpoints, local and cloud models) no
 - **Ask turns on a Harbor know where the code is.** A turn on a Harbor runs in a scratch folder, and a vessel's LocalPath and WorkingDirectory describe the Admiral's machine (empty for a containerized Admiral), so a captain asked about a repository's files had to guess where they were. The turn's prompt now lists the owner's vessels that Harbor has checked out (mapped or found under its root folders) with their paths. The Admiral learns a Harbor's checkouts when it links and keeps them for 10 minutes, so turns do not wait on the Harbor searching its folders.
 - **Approve in Armada on a Harbor.** Missions and Ask turns that run on a Harbor (Claude Code, and Mux 1.5.0 or later on that Harbor) now send their permission prompts to Armada instead of running as Refuse. The Harbor advertises a `cli-permission-prompt` capability listing the runtimes it can do this for, and the launch request carries the policy and prompt timeout. An older Harbor keeps running Approve in Armada as Refuse, so update the Harbor along with the Admiral. An Ask conversation's header now counts a connected Harbor that can prompt, so a Mux captain no longer shows "fell back to Refuse" when the Admiral host has no Mux.
 - A Mux captain's explicit approval policy of `ask` or `auto` no longer applies under Approve in Armada; an explicit `deny` still wins.
-
----
-
-## v1.1.0 (2026-10-15)
 
 ### Administrator storage inventory
 - SQLite storage now reports bounded background exact counts and logical data bytes even when the native runtime lacks dbstat; physical allocation remains separately labeled.

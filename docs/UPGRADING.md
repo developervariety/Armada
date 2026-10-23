@@ -466,3 +466,16 @@ v1.0.0 is the first stable release: security hardening, a frozen and documented 
 ### v1.0.0 to v1.0.1
 
 **Landing modes changed; check yours.** `LocalMerge` no longer pushes: it merges finished work into the vessel's working directory and stops there. The new `MergeAndPush` mode merges and then pushes (what `LocalMerge` did in 1.0.0), and it is the global default. Nothing is migrated, so switch any vessel, voyage, or global `landingMode` that should keep pushing from `LocalMerge` to `MergeAndPush`. The `autoPush`/`autoCreatePullRequests` settings, the "Auto-Create Pull Requests" toggle, and `armada go --push/--pr/--merge` are replaced by landing modes (`armada go --landing-mode`, `armada config set landingMode`). Step-by-step instructions: [MERGING.md](MERGING.md#upgrading-from-100-landing-modes-fixed-in-101).
+
+### v1.0.1 to v1.1.0
+
+**Nothing to migrate by hand.** The new schema migrations (through 91) run automatically at startup, with SQLite backed up first, and every new column has a default. Update each Harbor along with the Admiral; split mode is still experimental and the two are released together.
+
+**Behavior changes worth knowing:**
+- Dispatch is claim-first: a mission is assigned only after its captain is claimed, and captain lifecycle writes are compare-and-swap. A mission can no longer run twice.
+- Every work stage is built and tested before it hands off, whatever runtime ran it, and the next stage starts from the exact commit that passed. Vessels with slow test commands take longer per stage.
+- A cancelled mission stays cancelled: a late status write from a captain no longer revives it.
+- API endpoint captains can stream (opt in per endpoint) and compact their context before it overflows; a transient endpoint outage is ridden through for `TransientOutageGraceMinutes` (10) before the mission fails as `Infra`.
+- An integration slice merges its sibling slices and leaves the planning stages (Architect, Product Manager) out of its merge list.
+
+**New settings worth reviewing:** `TransientOutageGraceMinutes` (default 10) and `BlockDependentsOfFailedStages` (default false; when true, the stages waiting on a failed stage show Blocked until it is restarted instead of being cancelled). Personas gain ordered captain priorities; an empty list keeps the 1.0 default-captain behavior. See [PIPELINES.md](PIPELINES.md) and [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md).

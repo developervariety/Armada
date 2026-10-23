@@ -147,6 +147,24 @@ Armada does not replace your agent. It runs it. The comparison is with the work 
 
 ---
 
+## What's New in v1.1.0
+
+- **Frontier models plan and review, local models do the work.** Personas carry ordered captain priorities, so one pipeline can route an Architect and Judge to a cloud model and its Workers to local ones.
+- **Harbor (experimental split mode).** Captains, git, and docks run on your own machine while the Admiral runs elsewhere, with a macOS menu bar, metrics, and a Harbor-side merge queue.
+- **Mobile app** for iOS and Android at parity with the dashboard, plus Ask Armada over MCP, CLI permission cards, Workspace, token activity calendars, and an administrator storage inventory.
+- **Delivery and handoff hardening for mixed runtimes.** A fleet that mixes Claude Code, Codex, Mux, and API endpoints with local and cloud models now fails narrowly and recovers on its own:
+  - Dispatch is claim-first and compare-and-swap, so a mission never runs twice and a captain is never left Working with no process.
+  - Failures are classified (infrastructure, model, contract, mechanical) and each kind is retried, repaired, or escalated on its own terms; a cancelled mission stays cancelled.
+  - Every work stage is built and tested before it hands off, whatever runtime ran it, and the next stage receives the exact commit that was checked.
+  - API captains can stream (opt in per endpoint), report liveness, compact their context before it overflows, and ride through an endpoint outage for `TransientOutageGraceMinutes`.
+  - Judge, Architect, and verifier output that breaks its contract gets one repair turn; a verifier can report `BLOCKED` instead of a false pass.
+  - An integration slice merges its sibling slices, an Architect fan-out recovers from a lost child, and the optional `BlockDependentsOfFailedStages` setting shows dependents as Blocked until the failed stage is restarted.
+  - Admiral restarts and killed Harbor processes are recovered without orphaned agents or stuck captains.
+
+Every change is in [CHANGELOG.md](CHANGELOG.md#v110-2026-10-15).
+
+---
+
 ## What You Get
 
 **Orchestration**
@@ -410,7 +428,9 @@ armada go "Auth" -t "Add auth middleware" -t "Add login endpoint" -t "Add token 
 Armada recovers from these kinds of trouble without you:
 
 - **Stalled captains.** When a captain produces no output for `StallThresholdMinutes` (10), the Admiral repairs the dock and relaunches the agent in it, up to `MaxRecoveryAttempts` times (default 3). A mission that runs past `MaxMissionRuntimeMinutes` (240) is failed as a runaway.
-- **Endpoint and handoff trouble.** A transient model failure resumes the captain in place after a backoff, and keeps resuming through an outage for `TransientOutageGraceMinutes` (10) before the mission fails as `Infra`; three endpoint-level failures in a row pause new work to that endpoint for two minutes, and an endpoint that failed a recent health check gets no new missions. A Worker that ends with no commit and no completion line is re-dispatched rather than handed off. A captain that keeps failing is excluded or quarantined instead of being picked again. A Judge or Architect whose output breaks its contract gets one repair turn. Every work stage is built and tested before it hands off, whatever runtime ran it. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
+- **Endpoint and handoff trouble.** A transient model failure resumes the captain in place after a backoff, and keeps resuming through an outage for `TransientOutageGraceMinutes` (10) before the mission fails as `Infra`; three endpoint-level failures in a row pause new work to that endpoint for two minutes, and an endpoint that failed a recent health check gets no new missions. A Worker that ends with no commit and no completion line is re-dispatched rather than handed off. A captain that keeps failing is excluded or quarantined instead of being picked again. A Judge or Architect whose output breaks its contract gets one repair turn. Every work stage is built and tested before it hands off, whatever runtime ran it, and the next stage starts from the exact commit that passed. API captains compact their context before it overflows. A verifier that cannot verify reports `BLOCKED` instead of passing. See [docs/CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
+- **Restarts and lost processes.** After an Admiral restart, in-flight missions are reconciled with their captains instead of being abandoned, and a Harbor that was killed reaps the agents it launched when it comes back. A mission that was cancelled is never revived by a late status write.
+- **Failed stages.** When a pipeline stage fails, the stages waiting on it are cancelled by default; set `BlockDependentsOfFailedStages` to show them as Blocked until the failed stage is restarted.
 - **Mechanical failures.** A mission that failed with a compile error, failing tests, a landing conflict, a timeout, or a crash opens an incident, and Armada dispatches a bounded rescue mission for it, up to `MaxMissionRecoveryAttempts` (default 2, maximum 5, 0 disables). Failures that need judgment (scope, Judge verdicts, environment problems) are left for a person.
 
 ---
@@ -893,7 +913,7 @@ When Armada's own source is one of its vessels, set **Self Vessel ID** on the Se
 
 ### Upgrading / Migration
 
-Schema migrations run automatically at startup, and SQLite is backed up first. Upgrade any 0.9.x release directly to 1.0; downgrades are not supported. Backups, restores, supported paths, and the upgrade test are in [docs/UPGRADING.md](docs/UPGRADING.md), and the release-by-release notes (v0.1.0 through v1.0.1) are in [Version-by-version upgrade notes](docs/UPGRADING.md#version-by-version-upgrade-notes). Every change is in [CHANGELOG.md](CHANGELOG.md).
+Schema migrations run automatically at startup, and SQLite is backed up first. Upgrade any 0.9.x release directly to 1.0, and any 1.0.x release directly to 1.1.0 (its migrations run automatically; update each Harbor along with the Admiral); downgrades are not supported. Backups, restores, supported paths, and the upgrade test are in [docs/UPGRADING.md](docs/UPGRADING.md), and the release-by-release notes (v0.1.0 through v1.1.0) are in [Version-by-version upgrade notes](docs/UPGRADING.md#version-by-version-upgrade-notes). Every change is in [CHANGELOG.md](CHANGELOG.md).
 
 **From 1.0.0 to 1.0.1: check your landing modes.** `LocalMerge` no longer pushes; the new `MergeAndPush` mode merges and then pushes (what `LocalMerge` did in 1.0.0) and is the global default. Nothing is migrated, so switch any vessel, voyage, or global `landingMode` that should keep pushing from `LocalMerge` to `MergeAndPush`. See [docs/MERGING.md](docs/MERGING.md#upgrading-from-100-landing-modes-fixed-in-101).
 
