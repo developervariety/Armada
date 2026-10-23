@@ -23,6 +23,15 @@ upstream integrations and excludes changes already present at that baseline.
   same way rather than ignored. A well-formed enabled=true or enabled=false call
   is unchanged.
 
+- A root (stage-1) mission reassigned after a restart continues on its own
+  persisted branch at the committed head instead of cutting a fresh branch from
+  the default branch, so committed work is not orphaned. Continuation is
+  authorized only by the mission's retained active dock on the same vessel,
+  tenant and branch; a stale branch name with no active dock still gets a fresh
+  captain branch. When the retained branch no longer resolves, the mission holds
+  with `root_continuation_ref_missing` rather than restarting from the default
+  branch.
+
 - Consumer verification rebases absolute workflow environment paths from each
   host checkout into its provisioned candidate worktree. Build, tests and retries
   read the proposed dependency instead of an unrelated accepted checkout.

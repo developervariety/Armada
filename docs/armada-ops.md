@@ -269,6 +269,17 @@ chain is not a collision: it returns to Pending with the assignment hold
 bound. That dock is released when the earlier stage's completion handling
 hands off, so the stage is assigned on a later pass.
 
+A restart resets an in-flight mission to Pending and keeps its branch and its
+active dock. A root (stage-1) mission reassigned this way continues on its own
+persisted branch at the committed head; the replacement captain attaches to that
+branch rather than cutting a fresh one from the default branch, so committed work
+is never orphaned. Continuation is authorized only by the mission's own retained
+active dock on the same vessel, tenant and branch, so a stale branch name left on
+the row by an aborted earlier attempt still gets a fresh captain branch. If the
+retained branch no longer resolves in the vessel repository, the mission holds
+with the assignment hold `root_continuation_ref_missing` rather than restarting
+from the default branch.
+
 ## Ref cleanup evidence
 
 See [Branch Cleanup Policy](MERGING.md#branch-cleanup-policy) for managed

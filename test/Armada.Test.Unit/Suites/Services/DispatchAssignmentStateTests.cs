@@ -855,6 +855,172 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // An admiral restart resets an in-flight ROOT (stage-1) mission to Pending but retains its
+            // committed branch and its active dock. The replacement captain must CONTINUE that branch at
+            // its committed head, not cut a fresh branch from the default branch and orphan the work.
+            // Real git proves the head: the saved branch carries a commit that is absent from main.
+            await RunTest("TryAssign_ReassignedRootMissionWithRetainedDock_ContinuesCommittedBranchHead", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    GitService git = new GitService(logging);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string bareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                    string mainHead = RunGitProcess(bareRepo, "rev-parse", "main").Trim();
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("root-continuation-vessel", bareRepo)).ConfigureAwait(false);
+
+                    Mission root = new Mission("Root worker", "Implements the first slice.");
+                    root.VesselId = vessel.Id;
+                    root.Persona = "Worker";
+                    root.Status = MissionStatusEnum.Pending;
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+
+                    // The previous captain committed work on the mission's own root branch; the saved head is
+                    // ahead of main.
+                    string savedBranch = "armada/captain-a/" + root.Id;
+                    string savedHead = CommitAheadOnBranch(bareRepo, savedBranch, "Captain A committed work");
+                    AssertTrue(!String.Equals(savedHead, mainHead, StringComparison.Ordinal), "precondition: the saved branch head is ahead of main");
+
+                    // The restart retained the branch and the active dock, and cleared the captain.
+                    Dock retained = new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId,
+                        BranchName = savedBranch,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_olddock_" + Guid.NewGuid().ToString("N")),
+                        Active = true,
+                    };
+                    retained = await testDb.Driver.Docks.CreateAsync(retained).ConfigureAwait(false);
+                    root.BranchName = savedBranch;
+                    root.DockId = retained.Id;
+                    await testDb.Driver.Missions.UpdateAsync(root).ConfigureAwait(false);
+
+                    // The replacement captain is a DIFFERENT captain -- the exact restart-swap failure.
+                    Captain captainB = await testDb.Driver.Captains.CreateAsync(new Captain("captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(root, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "The root mission must still exist");
+                    AssertTrue(assigned, "The reassigned root mission must be assignable; state=" + readBack!.AssignmentState + " reason: " + (readBack.FailureReason ?? "(none)"));
+                    AssertEqual(savedBranch, readBack!.BranchName ?? "(null)", "The reassigned root mission must keep its persisted branch, not a fresh captain branch");
+
+                    Dock? newDock = await testDb.Driver.Docks.ReadAsync(readBack.DockId ?? "").ConfigureAwait(false);
+                    AssertNotNull(newDock, "A dock must be provisioned for the reassigned mission");
+                    string? provisionedHead = await git.GetHeadCommitHashAsync(newDock!.WorktreePath!).ConfigureAwait(false);
+                    AssertEqual(savedHead, provisionedHead ?? "(null)", "The provisioned checkout must sit on the committed branch head, not on main (" + mainHead + ")");
+                }
+            });
+
+            // NEGATIVE: the retained dock authorizes continuation but the saved branch no longer resolves
+            // in the vessel repository. The mission must HOLD, never silently cut a fresh branch from the
+            // default branch (which would orphan the committed work).
+            await RunTest("TryAssign_ReassignedRootMissionWhoseSavedBranchIsGone_HoldsInsteadOfCuttingFromMain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    GitService git = new GitService(logging);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string bareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("gone-branch-vessel", bareRepo)).ConfigureAwait(false);
+
+                    Mission root = new Mission("Root worker", "Implements the first slice.");
+                    root.VesselId = vessel.Id;
+                    root.Persona = "Worker";
+                    root.Status = MissionStatusEnum.Pending;
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+
+                    string missingBranch = "armada/captain-a/" + root.Id; // never created in the bare repo
+                    Dock retained = new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId,
+                        BranchName = missingBranch,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_olddock_" + Guid.NewGuid().ToString("N")),
+                        Active = true,
+                    };
+                    retained = await testDb.Driver.Docks.CreateAsync(retained).ConfigureAwait(false);
+                    root.BranchName = missingBranch;
+                    root.DockId = retained.Id;
+                    await testDb.Driver.Missions.UpdateAsync(root).ConfigureAwait(false);
+
+                    Captain captainB = await testDb.Driver.Captains.CreateAsync(new Captain("captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(root, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "The root mission must still exist");
+                    AssertFalse(assigned, "A root mission whose saved branch is gone must not be assigned onto a fresh branch");
+                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "The held mission stays Pending");
+                    AssertEqual(MissionAssignmentHold.RootContinuationRefMissing, readBack.AssignmentHoldReason ?? "(null)", "The hold names the missing-ref reason");
+                    AssertEqual(missingBranch, readBack.BranchName ?? "(null)", "The saved branch name is retained, never replaced by a fresh one");
+                    AssertTrue(String.IsNullOrEmpty(readBack.CaptainId), "No captain is assigned to the held mission");
+                }
+            });
+
+            // NEGATIVE: an INACTIVE retained dock does not authorize continuation. A root mission with a
+            // stale branch name but no active dock gets a fresh captain branch, exactly as a first
+            // assignment would -- the fix must not broaden to every present branch name.
+            await RunTest("TryAssign_ReassignedRootMissionWithInactiveDock_CutsFreshCaptainBranch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    GitService git = new GitService(logging);
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string bareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                    string mainHead = RunGitProcess(bareRepo, "rev-parse", "main").Trim();
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("inactive-dock-vessel", bareRepo)).ConfigureAwait(false);
+
+                    Mission root = new Mission("Root worker", "Implements the first slice.");
+                    root.VesselId = vessel.Id;
+                    root.Persona = "Worker";
+                    root.Status = MissionStatusEnum.Pending;
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+
+                    string savedBranch = "armada/captain-a/" + root.Id;
+                    CommitAheadOnBranch(bareRepo, savedBranch, "Captain A committed work");
+
+                    Dock inactive = new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId,
+                        BranchName = savedBranch,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_olddock_" + Guid.NewGuid().ToString("N")),
+                        Active = false,
+                    };
+                    inactive = await testDb.Driver.Docks.CreateAsync(inactive).ConfigureAwait(false);
+                    root.BranchName = savedBranch;
+                    root.DockId = inactive.Id;
+                    await testDb.Driver.Missions.UpdateAsync(root).ConfigureAwait(false);
+
+                    Captain captainB = await testDb.Driver.Captains.CreateAsync(new Captain("captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    bool assigned = await missionService.TryAssignAsync(root, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(readBack, "The root mission must still exist");
+                    AssertTrue(assigned, "With no active dock the mission assigns normally; state=" + readBack!.AssignmentState);
+                    AssertTrue(!String.Equals(readBack!.BranchName, savedBranch, StringComparison.Ordinal), "An inactive dock must not authorize branch continuation; was " + readBack.BranchName);
+                    AssertTrue(!String.IsNullOrEmpty(readBack.BranchName) && readBack.BranchName!.Contains(captainB.Name), "The fresh branch is the replacement captain's own");
+                }
+            });
+
             // A voyage that waits on another voyage's Recorder waits forever when that voyage failed and
             // its Recorder was cancelled. A completed rescue of that voyage replaces the Recorder.
             await RunTest("TryAssign_DependencyCancelledInARescuedVoyage_WaitsOnTheRescueStageAndRecordsTheRewire", async () =>
@@ -1985,6 +2151,69 @@ namespace Armada.Test.Unit.Suites.Services
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
             return settings;
+        }
+
+        /// <summary>
+        /// Build a vessel backed by an on-disk bare repository so real git provisioning runs against it.
+        /// The remote URL is cleared so provisioning never tries to fetch from a network host.
+        /// </summary>
+        private static Vessel NewRealGitVessel(string name, string bareRepoPath)
+        {
+            Vessel vessel = new Vessel(name, "https://github.com/test/repo.git");
+            vessel.LocalPath = bareRepoPath;
+            vessel.RepoUrl = String.Empty;
+            vessel.DefaultBranch = "main";
+            vessel.AllowConcurrentMissions = true;
+            return vessel;
+        }
+
+        /// <summary>
+        /// Create <paramref name="branchName"/> at main in the bare repository and advance it by one commit,
+        /// so the branch head is a commit that is NOT reachable from main. Returns the new commit sha.
+        /// </summary>
+        private static string CommitAheadOnBranch(string bareRepoPath, string branchName, string message)
+        {
+            string worktree = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+            RunGitProcess(bareRepoPath, "worktree", "add", "-b", branchName, worktree, "main");
+            try
+            {
+                RunGitProcess(worktree, "config", "user.name", "Armada Tests");
+                RunGitProcess(worktree, "config", "user.email", "armada-tests@example.com");
+                File.WriteAllText(Path.Combine(worktree, "work.txt"), "committed work\n");
+                RunGitProcess(worktree, "add", "work.txt");
+                RunGitProcess(worktree, "commit", "-m", message);
+                return RunGitProcess(worktree, "rev-parse", "HEAD").Trim();
+            }
+            finally
+            {
+                RunGitProcess(bareRepoPath, "worktree", "remove", "--force", worktree);
+            }
+        }
+
+        /// <summary>Run a git command in <paramref name="workingDirectory"/> and return its standard output.</summary>
+        private static string RunGitProcess(string workingDirectory, params string[] arguments)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
+
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                string standardOutput = process.StandardOutput.ReadToEnd();
+                string standardError = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException("git " + String.Join(" ", arguments) + " failed (exit " + process.ExitCode + "): " + standardError.Trim());
+                return standardOutput;
+            }
         }
 
         #endregion
