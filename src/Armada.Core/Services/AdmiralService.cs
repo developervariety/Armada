@@ -3640,6 +3640,22 @@ namespace Armada.Core.Services
                 // or autonomous recovery can rescue the committed work instead of losing it to the halt.
                 bool hasRecoverableWork = await MissionHasRecoverableWorkAsync(mission, token).ConfigureAwait(false);
 
+                // Preserve the partial stdout/stderr the stage produced before it failed. The successful
+                // completion path drains this capture onto the mission; a terminal process-exit failure is
+                // the only other terminal writer, so without this the failed stage finalizes with no output
+                // and a downstream stage or rescue falls back to the weaker stored description. Drain the
+                // capture once, through the same hook the completion path uses, and keep it only when the
+                // mission has no output yet and the capture is non-empty, so a stage that truly produced
+                // nothing stays distinguishable from one whose output was lost.
+                if (String.IsNullOrEmpty(mission.AgentOutput) && _Missions.OnGetMissionOutput != null)
+                {
+                    string? capturedOutput = _Missions.OnGetMissionOutput(mission.Id);
+                    if (!String.IsNullOrEmpty(capturedOutput))
+                    {
+                        mission.AgentOutput = RuntimeLogFormatter.RedactSecrets(capturedOutput);
+                    }
+                }
+
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = failureReason;
                 if (hasRecoverableWork)
