@@ -622,6 +622,13 @@ upstream integrations and excludes changes already present at that baseline.
   expired history is recorded `deferred` and left for the next pass; the report
   sets `ArchiveCapped` and `ArchiveDeferredItems`, the report event names the
   deferred count, and its payload carries the archive counts.
+- A captain's file search lists the files Armada stages in its dock. Git
+  excludes `_briefing/`, `.armada/instructions/` and `.armada/playbooks/`, and
+  ripgrep-based glob and grep tools read git's exclude file, so a glob found no
+  briefing files and captains reported the context pack, shared memory and
+  handoff files as not staged. Provisioning writes an excluded `.rgignore` at
+  the dock root that negates those folders; a checkout that already holds one
+  keeps it unchanged.
 - An objective write that changes a confirmed stage skip without
   `confirmStageSkip` says that it dropped the confirmation: the returned
   `stageSkip.confirmationNotice` names what changed (the stages or the reason)

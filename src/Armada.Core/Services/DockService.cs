@@ -2040,6 +2040,12 @@ namespace Armada.Core.Services
                     // lists or hashes untracked files from reading them as repository content.
                     foreach (string stagedPath in GitInfoExclude.ArmadaStagedDockPaths)
                         await GitInfoExclude.EnsureEntryAsync(excludePath, stagedPath, token).ConfigureAwait(false);
+
+                    // Glob and grep tools that read git's exclude file would then hide those staged folders from the
+                    // captain, so the dock also gets a search-tool ignore file that lists them again.
+                    if (!await DockSearchIgnoreFile.EnsureAsync(worktreePath, excludePath, token).ConfigureAwait(false))
+                        _Logging.Info(_Header + "dock checkout already holds " + DockSearchIgnoreFile.FileName
+                            + "; left unchanged, so search tools may not list the staged briefing files in " + worktreePath);
                 }
             }
             catch (Exception ex)

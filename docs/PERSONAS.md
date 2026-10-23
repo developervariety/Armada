@@ -345,7 +345,11 @@ A brief also matches the dock it lands in and the tools the captain has:
   `.armada/playbooks/`, the seeded MCP and OpenCode files and the boundary
   files from provisioning on. Docks are linked worktrees, so the entries go in
   the shared repository's `info/exclude`, the only exclude file a worktree
-  reads.
+  reads. Ripgrep-based glob and grep tools read that exclude file too, so the
+  dock root also gets an excluded `.rgignore` that negates the three staged
+  folders; a captain's file search then lists the briefing files while git
+  still never sees them. A checkout that already holds a `.rgignore` keeps it
+  unchanged.
 - `## Named Files Not Staged` lists each `_briefing/` path the description
   names that is not in the dock. Staged inputs are written before the brief,
   so a listed path is absent when the captain starts.
