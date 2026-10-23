@@ -155,6 +155,13 @@ namespace Armada.Runtimes
 
         private bool _SawContent;
 
+        // Bound part identities as well as text retained for a final reply.
+        private const int _MaximumFinalReplyParts = 128;
+        private readonly List<OpenCodeReplyPart> _FinalReplyParts = new List<OpenCodeReplyPart>();
+        private string? _FinalReplyMessageId;
+        private int _FinalReplyCharacters;
+        private bool _FinalReplyStopSeen;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -293,6 +300,13 @@ namespace Armada.Runtimes
         /// </summary>
         protected override bool UsePromptStdin => true;
 
+        /// <summary>Reset the bounded assistant-part capture for a new launch.</summary>
+        protected override void ResetFinalReplyState()
+        {
+            _SawContent = false;
+            ClearFinalReplyParts();
+        }
+
         /// <summary>
         /// Extract authoritative usage counters from OpenCode step-finish events.
         /// </summary>
@@ -375,6 +389,9 @@ namespace Armada.Runtimes
                 // Non-JSON line: fall through and return the line as-is.
             }
 
+            if (evt != null && FinalReplyRequested)
+                ObserveFinalReply(evt);
+
             // Reasoning is private model deliberation, not mission progress. Every runtime drops
             // it so the log reads the same everywhere. This test must come BEFORE the fall-through
             // below, which would otherwise write the raw JSON line into the log.
@@ -405,6 +422,111 @@ namespace Armada.Runtimes
             }
 
             return line;
+        }
+
+        private void ObserveFinalReply(OpenCodeEvent evt)
+        {
+            // The completed stop must remain the last structured event of the run.
+            // Later events require a new completed assistant turn before publication.
+            if (_FinalReplyStopSeen) ClearFinalReplyParts();
+
+            if (evt.Error != null || String.Equals(evt.Type, "error", StringComparison.Ordinal)
+                || evt.Type?.StartsWith("tool", StringComparison.Ordinal) == true
+                || String.Equals(evt.Type, "step_start", StringComparison.Ordinal)
+                || String.Equals(evt.Type, "step-start", StringComparison.Ordinal))
+            {
+                ClearFinalReplyParts();
+                return;
+            }
+
+            OpenCodeEventPart? part = evt.Part;
+            if (IsTextContentEvent(evt))
+            {
+                // JSON text events carry completed part snapshots, not incremental deltas.
+                // Identity replaces a repeated snapshot without removing repeated text in distinct parts.
+                if (part == null || !ValidReplyIdentity(part.Id) || !ValidReplyIdentity(part.MessageId)
+                    || part.Time?.End.HasValue != true)
+                {
+                    ClearFinalReplyParts();
+                    return;
+                }
+
+                SetFinalReply(null);
+                if (!String.Equals(_FinalReplyMessageId, part.MessageId, StringComparison.Ordinal))
+                {
+                    ClearFinalReplyParts();
+                    _FinalReplyMessageId = part.MessageId;
+                }
+
+                string text = BoundFinalReplyText(part.Text ?? String.Empty);
+                OpenCodeReplyPart? captured = _FinalReplyParts.Find(item => String.Equals(item.Id, part.Id, StringComparison.Ordinal));
+                if (captured == null)
+                {
+                    captured = new OpenCodeReplyPart { Id = part.Id!, Text = text };
+                    _FinalReplyParts.Add(captured);
+                }
+                else
+                {
+                    _FinalReplyCharacters -= captured.Text.Length;
+                    captured.Text = text;
+                }
+                _FinalReplyCharacters += text.Length;
+                TrimFinalReplyParts();
+                return;
+            }
+
+            if (String.Equals(evt.Type, "step_finish", StringComparison.Ordinal)
+                || String.Equals(evt.Type, "step-finish", StringComparison.Ordinal))
+            {
+                // A stop step is a candidate only. Base writes it after a clean process exit;
+                // any later step, tool or error invalidates it. Missing finish keeps transcript fallback.
+                if (part != null && String.Equals(part.Type, "step-finish", StringComparison.Ordinal)
+                    && String.Equals(part.Reason, "stop", StringComparison.Ordinal)
+                    && _FinalReplyMessageId != null
+                    && String.Equals(part.MessageId, _FinalReplyMessageId, StringComparison.Ordinal))
+                {
+                    StringBuilder reply = new StringBuilder(_FinalReplyCharacters);
+                    foreach (OpenCodeReplyPart captured in _FinalReplyParts) reply.Append(captured.Text);
+                    SetFinalReply(reply.ToString());
+                    _FinalReplyStopSeen = true;
+                }
+                else
+                {
+                    ClearFinalReplyParts();
+                }
+            }
+        }
+
+        private void TrimFinalReplyParts()
+        {
+            while (_FinalReplyParts.Count > _MaximumFinalReplyParts)
+            {
+                _FinalReplyCharacters -= _FinalReplyParts[0].Text.Length;
+                _FinalReplyParts.RemoveAt(0);
+            }
+            while (_FinalReplyCharacters > MaximumFinalReplyCharacters && _FinalReplyParts.Count > 0)
+            {
+                OpenCodeReplyPart first = _FinalReplyParts[0];
+                int remove = Math.Min(first.Text.Length, _FinalReplyCharacters - MaximumFinalReplyCharacters);
+                if (remove < first.Text.Length && Char.IsLowSurrogate(first.Text[remove])) remove++;
+                _FinalReplyCharacters -= remove;
+                if (remove == first.Text.Length) _FinalReplyParts.RemoveAt(0);
+                else first.Text = first.Text.Substring(remove);
+            }
+        }
+
+        private void ClearFinalReplyParts()
+        {
+            _FinalReplyParts.Clear();
+            _FinalReplyCharacters = 0;
+            _FinalReplyMessageId = null;
+            _FinalReplyStopSeen = false;
+            SetFinalReply(null);
+        }
+
+        private static bool ValidReplyIdentity(string? value)
+        {
+            return !String.IsNullOrEmpty(value) && value.Length <= 256;
         }
 
         /// <summary>
@@ -532,6 +654,21 @@ namespace Armada.Runtimes
 
         #region Private-Types
 
+        private sealed class OpenCodeReplyPart
+        {
+            /// <summary>Stable identity of one completed text part.</summary>
+            public string Id { get; set; } = String.Empty;
+            /// <summary>Bounded text from the latest snapshot of the part.</summary>
+            public string Text { get; set; } = String.Empty;
+        }
+
+        private sealed class OpenCodePartTime
+        {
+            /// <summary>Completion timestamp supplied by the CLI.</summary>
+            [JsonPropertyName("end")]
+            public long? End { get; set; }
+        }
+
         /// <summary>
         /// Strongly-typed DTO for a single opencode --format json stdout event.
         /// opencode emits text objects with nested part.text assistant content.
@@ -602,6 +739,22 @@ namespace Armada.Runtimes
         /// </summary>
         private sealed class OpenCodeEventPart
         {
+            /// <summary>Stable part identity.</summary>
+            [JsonPropertyName("id")]
+            public string? Id { get; set; }
+
+            /// <summary>Assistant message owning the part.</summary>
+            [JsonPropertyName("messageID")]
+            public string? MessageId { get; set; }
+
+            /// <summary>Provider finish reason for a completed model step.</summary>
+            [JsonPropertyName("reason")]
+            public string? Reason { get; set; }
+
+            /// <summary>Start and completion metadata for text.</summary>
+            [JsonPropertyName("time")]
+            public OpenCodePartTime? Time { get; set; }
+
             /// <summary>
             /// Part type (e.g. "text", "tool").
             /// </summary>

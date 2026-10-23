@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Local Claude, Cursor, Gemini and OpenCode runs publish final reply artifacts
+  from structured completion events after a clean exit. Capture excludes tool
+  output and reasoning, keeps existing files, and preserves telemetry and
+  transcript fallback when completion is absent.
+
 - Workspace `read_file` defaults to bounded pages with continuation offsets.
   Runtime instruction files remain complete by default within existing byte
   limits. Explicit ranges, path checks and strict UTF-8 remain in effect.

@@ -53,6 +53,11 @@ The shared `Runtimes.ApiAgentRuntime` suite exercises workspace file reads
 through the registered tool. It checks numbered page contents and continuation,
 character limits, explicit ranges, instruction-file defaults and input validation.
 
+The four CLI provider runtime suites launch executable protocol stubs and read
+the final reply artifact after the exit callback. They check exact final text,
+completion boundaries, failed or unfinished runs, existing-file preservation
+and capture reset. POSIX stub cases report a named skip on Windows.
+
 ## Gate Host
 
 The gate is the four runners together: `unit` (sharded), `automated`, `runtimes` and `shared`. A commit passes only when all four pass in one combined run. Run the gate on a Linux host, not on a macOS workstation.

@@ -907,6 +907,68 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual(String.Empty, text, "Missing part.text must produce empty extracted text");
             });
 
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("ProcessFinalReply_UsesCompletedStopStepAndClearsOnLaterTool", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessFinalReply_UsesCompletedStopStepAndClearsOnLaterTool", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-opencode-final-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                string finalPath = Path.Combine(directory, "final.txt");
+                string? priorExecutable = Environment.GetEnvironmentVariable("ARMADA_TEST_OPENCODE");
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"text\",\"timestamp\":1,\"part\":{\"id\":\"p1\",\"messageID\":\"m1\",\"type\":\"text\",\"text\":\"Old snapshot\",\"time\":{\"end\":1}}}",
+                        "{\"type\":\"text\",\"timestamp\":2,\"part\":{\"id\":\"p1\",\"messageID\":\"m1\",\"type\":\"text\",\"text\":\"OpenCode final \",\"time\":{\"end\":2}}}",
+                        "{\"type\":\"text\",\"timestamp\":3,\"part\":{\"id\":\"p2\",\"messageID\":\"m1\",\"type\":\"text\",\"text\":\"answer\",\"time\":{\"end\":3}}}",
+                        "{\"type\":\"reasoning\",\"part\":{\"type\":\"reasoning\",\"text\":\"private reasoning\"}}",
+                        "{\"type\":\"step_finish\",\"part\":{\"type\":\"step-finish\",\"reason\":\"stop\",\"messageID\":\"m1\"}}"
+                    }, 0);
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", executable);
+                    InspectableOpenCodeRuntime runtime = CreateRuntime();
+
+                    int? exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A completed stop step exits successfully.");
+                    AssertEqual("OpenCode final answer", File.ReadAllText(finalPath), "A part update replaces its old snapshot and distinct text parts stay in order.");
+
+                    File.Delete(finalPath);
+                    string noTerminalExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"text\",\"timestamp\":4,\"part\":{\"id\":\"p3\",\"messageID\":\"m2\",\"type\":\"text\",\"text\":\"incomplete answer\",\"time\":{\"end\":4}}}"
+                    }, 0);
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", noTerminalExecutable);
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "The stub process exits normally without a completed stop step.");
+                    AssertFalse(File.Exists(finalPath), "Assistant text without a terminal stop step is not a final artifact.");
+
+                    foreach (string toolEvent in new[]
+                    {
+                        "{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"read\",\"callID\":\"c1\",\"state\":{\"input\":{\"filePath\":\"private.txt\"}}}}",
+                        "{\"type\":\"tool_call\",\"tool_name\":\"read\"}"
+                    })
+                    {
+                        string clearedExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                        {
+                            "{\"type\":\"text\",\"timestamp\":5,\"part\":{\"id\":\"p4\",\"messageID\":\"m3\",\"type\":\"text\",\"text\":\"candidate answer\",\"time\":{\"end\":5}}}",
+                            toolEvent,
+                            "{\"type\":\"step_finish\",\"part\":{\"type\":\"step-finish\",\"reason\":\"stop\",\"messageID\":\"m3\"}}"
+                        }, 0);
+                        Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", clearedExecutable);
+                        exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                        AssertEqual((int?)0, exitCode, "The later tool call run exits successfully.");
+                        AssertFalse(File.Exists(finalPath), "A later tool call clears the candidate final reply, including on runtime reuse.");
+                    }
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", priorExecutable);
+                    Directory.Delete(directory, true);
+                }
+            });
+
             await Task.CompletedTask;
         }
     }

@@ -57,6 +57,14 @@ namespace Armada.Runtimes
         // protocol marker split across two delta events still starts a line of one record.
         private readonly StreamingTextLineAssembler _AssistantText = new StreamingTextLineAssembler();
 
+        /// <summary>
+        /// Assistant text since the last tool-use boundary. Gemini's terminal result identifies
+        /// which buffered assistant turn is the final reply.
+        /// </summary>
+        private string _FinalTurnBuffer = String.Empty;
+
+        private bool _FinalTurnCommitted;
+
         #endregion
 
         #region Constructors-and-Factories
@@ -122,8 +130,21 @@ namespace Armada.Runtimes
         protected override void HandleRawOutputLine(int processId, string line)
         {
             GeminiEvent? evt = Deserialize(line);
-            if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Stats?.Models == null)
-                return;
+            if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal)) return;
+
+            if (String.Equals(evt.Status, "success", StringComparison.Ordinal))
+            {
+                SetFinalReply(_FinalTurnBuffer);
+                _FinalTurnCommitted = true;
+            }
+            else
+            {
+                _FinalTurnBuffer = String.Empty;
+                _FinalTurnCommitted = false;
+                SetFinalReply(null);
+            }
+
+            if (evt.Stats?.Models == null) return;
 
             Dictionary<string, GeminiModelStats> models = evt.Stats.Models;
             // Gemini's input_tokens is the whole prompt, cached content included, and Gemini
@@ -172,6 +193,15 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Clear buffered turn text before each local or Harbor launch.
+        /// </summary>
+        protected override void ResetFinalReplyState()
+        {
+            _FinalTurnBuffer = String.Empty;
+            _FinalTurnCommitted = false;
+        }
+
+        /// <summary>
         /// Build the records for one event. Assistant text streamed as delta pieces is emitted one whole line
         /// at a time; any other event first writes the unfinished streamed line so the text keeps its order.
         /// </summary>
@@ -189,8 +219,19 @@ namespace Armada.Runtimes
             bool assistantMessage = String.Equals(evt.Type, "message", StringComparison.Ordinal) &&
                 String.Equals(evt.Role, "assistant", StringComparison.Ordinal);
 
+            if (assistantMessage && evt.Content != null && FinalReplyRequested)
+            {
+                if (_FinalTurnCommitted)
+                    _FinalTurnBuffer = String.Empty;
+                _FinalTurnCommitted = false;
+                SetFinalReply(null);
+            }
+
             if (assistantMessage && evt.Delta == true)
             {
+                if (FinalReplyRequested && !String.IsNullOrEmpty(evt.Content))
+                    _FinalTurnBuffer = BoundFinalReplyText(_FinalTurnBuffer + evt.Content);
+
                 foreach (string completed in _AssistantText.Append(evt.Content))
                 {
                     if (completed.Length > 0) records.Add(completed);
@@ -200,10 +241,20 @@ namespace Armada.Runtimes
 
             AppendFlushed(records);
 
+            if (assistantMessage && evt.Content != null && FinalReplyRequested)
+                _FinalTurnBuffer = BoundFinalReplyText(evt.Content);
+
             if (assistantMessage && !String.IsNullOrEmpty(evt.Content))
             {
                 records.Add(evt.Content);
                 return records;
+            }
+
+            if (String.Equals(evt.Type, "tool_use", StringComparison.Ordinal))
+            {
+                _FinalTurnBuffer = String.Empty;
+                _FinalTurnCommitted = false;
+                SetFinalReply(null);
             }
 
             if (StructuredRuntimeLogFormatter.TryBuildToolActivity(line, WorkingDirectory, out string activity))
@@ -250,6 +301,10 @@ namespace Armada.Runtimes
         {
             [JsonPropertyName("type")]
             public string? Type { get; set; }
+
+            /// <summary>Terminal completion status supplied by Gemini.</summary>
+            [JsonPropertyName("status")]
+            public string? Status { get; set; }
 
             [JsonPropertyName("role")]
             public string? Role { get; set; }

@@ -82,6 +82,67 @@ namespace Armada.Test.Runtimes.Suites
                 AssertContains("quota exceeded", rendered, "the provider's error text is kept");
                 AssertContains("error", rendered, "the record reads as an error");
             });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("ProcessFinalReply_CommitsOnlyTheSuccessfulAssistantTurn", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessFinalReply_CommitsOnlyTheSuccessfulAssistantTurn", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-gemini-final-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                string finalPath = Path.Combine(directory, "final.txt");
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"message\",\"role\":\"assistant\",\"delta\":true,\"content\":\"draft before tool\"}",
+                        "{\"type\":\"tool_use\",\"tool_name\":\"read_file\",\"tool_id\":\"tool-1\",\"parameters\":{\"file_path\":\"secret.txt\"}}",
+                        "{\"type\":\"message\",\"role\":\"assistant\",\"delta\":true,\"content\":\"discarded after first tool\"}",
+                        "{\"type\":\"tool_use\",\"tool_name\":\"search\",\"tool_id\":\"tool-2\",\"parameters\":{\"query\":\"private\"}}",
+                        "{\"type\":\"message\",\"role\":\"assistant\",\"delta\":true,\"content\":\"partial answer\"}",
+                        "{\"type\":\"message\",\"role\":\"assistant\",\"content\":\"Gemini final answer\"}",
+                        "{\"type\":\"result\",\"status\":\"success\",\"stats\":{\"models\":{\"gemini-2.5-pro\":{\"total_tokens\":40,\"input_tokens\":30,\"output_tokens\":10,\"cached\":5}}}}"
+                    }, 0);
+                    InspectableGeminiRuntime runtime = CreateRuntime();
+                    runtime.ExecutablePath = executable;
+                    RuntimeTokenUsage? processUsage = null;
+                    runtime.OnTokenUsageReceived += (_, usage) => processUsage = usage;
+
+                    int? exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A successful Gemini result exits successfully.");
+                    AssertEqual("Gemini final answer", File.ReadAllText(finalPath), "The final snapshot replaces prior turn text and excludes tool and draft text.");
+                    AssertNotNull(processUsage, "The terminal result still publishes provider usage.");
+                    AssertEqual("gemini-2.5-pro", processUsage!.Model, "Final-reply capture keeps the terminal usage model.");
+
+                    File.Delete(finalPath);
+                    string repeatedExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"message\",\"role\":\"assistant\",\"delta\":true,\"content\":\"same\"}",
+                        "{\"type\":\"message\",\"role\":\"assistant\",\"delta\":true,\"content\":\"same\"}",
+                        "{\"type\":\"result\",\"status\":\"success\"}"
+                    }, 0);
+                    runtime.ExecutablePath = repeatedExecutable;
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A second successful Gemini result exits successfully.");
+                    AssertEqual("samesame", File.ReadAllText(finalPath), "Repeated assistant text is preserved as two legitimate deltas.");
+
+                    File.WriteAllText(finalPath, "keep existing artifact");
+                    string failedExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"message\",\"role\":\"assistant\",\"delta\":true,\"content\":\"must not be saved\"}",
+                        "{\"type\":\"result\",\"status\":\"error\"}"
+                    }, 0);
+                    runtime.ExecutablePath = failedExecutable;
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "The stub can exit normally after a provider error result.");
+                    AssertEqual("keep existing artifact", File.ReadAllText(finalPath), "A failed Gemini result does not replace a pre-existing artifact.");
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
         }
     }
 }

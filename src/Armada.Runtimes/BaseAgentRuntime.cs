@@ -1,6 +1,7 @@
 namespace Armada.Runtimes
 {
     using System.Diagnostics;
+    using System.IO;
     using System.Text;
     using Armada.Core;
     using Armada.Core.Enums;
@@ -46,6 +47,22 @@ namespace Armada.Runtimes
         /// <see cref="StartAsync"/> and read by runtimes that support a thinking channel.
         /// </summary>
         protected bool ShowThinking { get; private set; }
+
+        /// <summary>
+        /// Whether this launch can write a final reply artifact.
+        /// </summary>
+        protected bool FinalReplyRequested
+        {
+            get
+            {
+                lock (_FinalReplyLock) return _FinalReplyRequested;
+            }
+        }
+
+        /// <summary>
+        /// Maximum final reply length, in UTF-16 characters.
+        /// </summary>
+        protected const int MaximumFinalReplyCharacters = 524288;
 
         /// <summary>
         /// Event raised when the runtime receives authoritative provider token usage.
@@ -99,6 +116,9 @@ namespace Armada.Runtimes
 
         private string _Header = "[BaseAgentRuntime] ";
         private LoggingModule _Logging;
+        private readonly object _FinalReplyLock = new object();
+        private bool _FinalReplyRequested;
+        private string? _FinalReplyText;
 
         #endregion
 
@@ -145,6 +165,8 @@ namespace Armada.Runtimes
             if (String.IsNullOrEmpty(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
             token.ThrowIfCancellationRequested();
+
+            ResetFinalReplyCapture(!String.IsNullOrEmpty(finalMessageFilePath));
 
             ShowThinking = showThinking;
 
@@ -359,6 +381,8 @@ namespace Armada.Runtimes
             if (launch == null) throw new ArgumentNullException(nameof(launch));
             if (String.IsNullOrEmpty(launch.WorkingDirectory)) throw new ArgumentException("A runner working directory is required.", nameof(launch));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
+
+            ResetFinalReplyCapture(false);
 
             ShowThinking = false;
             WorkingDirectory = launch.WorkingDirectory;
@@ -622,6 +646,50 @@ namespace Armada.Runtimes
         protected virtual IEnumerable<string> BuildProcessExitRecords()
         {
             return Array.Empty<string>();
+        }
+
+        /// <summary>
+        /// Store the final assistant reply for the current launch. Calls are ignored when no final-message
+        /// file was requested. Passing null clears any reply captured earlier in the launch.
+        /// </summary>
+        protected void SetFinalReply(string? text)
+        {
+            lock (_FinalReplyLock)
+            {
+                if (!_FinalReplyRequested) return;
+                _FinalReplyText = text == null ? null : BoundFinalReplyText(text);
+            }
+        }
+
+        /// <summary>
+        /// Bound captured reply text to the configured tail size without splitting a surrogate pair.
+        /// </summary>
+        protected static string BoundFinalReplyText(string text)
+        {
+            if (text == null) throw new ArgumentNullException(nameof(text));
+            if (text.Length <= MaximumFinalReplyCharacters) return text;
+
+            int start = text.Length - MaximumFinalReplyCharacters;
+            if (Char.IsLowSurrogate(text[start]) && start > 0 && Char.IsHighSurrogate(text[start - 1]))
+                start++;
+            return text.Substring(start);
+        }
+
+        /// <summary>
+        /// Clear provider-owned final-reply state before each launch.
+        /// </summary>
+        protected virtual void ResetFinalReplyState()
+        {
+        }
+
+        private void ResetFinalReplyCapture(bool requested)
+        {
+            lock (_FinalReplyLock)
+            {
+                _FinalReplyRequested = requested;
+                _FinalReplyText = null;
+            }
+            ResetFinalReplyState();
         }
 
         /// <summary>
@@ -972,6 +1040,8 @@ namespace Armada.Runtimes
             }
             catch (Exception ex) { _Logging.Warn(_Header + "error building process-exit records: " + ex.Message); }
 
+            WriteCapturedFinalReply(processId, code, finalMessageFilePath);
+
             // Parity echo: when stderr is suppressed from the log file, the agent's
             // final answer (captured via the runtime's final-message file) would
             // otherwise never appear in the mission log. Echo it here while the
@@ -1003,6 +1073,57 @@ namespace Armada.Runtimes
             // to race with the exit handler and trigger spurious recovery.
             try { OnProcessExited?.Invoke(processId, code); }
             catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessExited handler for process " + processId + ": " + ex.Message); }
+        }
+
+        private void WriteCapturedFinalReply(int processId, int? code, string? finalMessageFilePath)
+        {
+            if (code != 0 || String.IsNullOrEmpty(finalMessageFilePath)) return;
+
+            string? text;
+            lock (_FinalReplyLock)
+            {
+                if (!_FinalReplyRequested) return;
+                text = _FinalReplyText;
+            }
+
+            if (String.IsNullOrWhiteSpace(text) || File.Exists(finalMessageFilePath)) return;
+
+            string temporaryPath = finalMessageFilePath + ".tmp-" + Guid.NewGuid().ToString("N");
+            bool ownsTemporaryFile = false;
+            try
+            {
+                using (FileStream file = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                {
+                    ownsTemporaryFile = true;
+                    using (StreamWriter writer = new StreamWriter(file, new UTF8Encoding(false, true)))
+                    {
+                        writer.Write(text);
+                    }
+                }
+
+                try
+                {
+                    File.Move(temporaryPath, finalMessageFilePath, false);
+                    ownsTemporaryFile = false;
+                }
+                catch (IOException ex)
+                {
+                    if (!File.Exists(finalMessageFilePath))
+                        WarnSwallowed("publishing the final reply for process " + processId, ex);
+                }
+            }
+            catch (Exception ex)
+            {
+                WarnSwallowed("writing the final reply for process " + processId, ex);
+            }
+            finally
+            {
+                if (ownsTemporaryFile && File.Exists(temporaryPath))
+                {
+                    try { File.Delete(temporaryPath); }
+                    catch (Exception ex) { WarnSwallowed("removing the temporary final reply for process " + processId, ex); }
+                }
+            }
         }
 
         private static void AppendIsolationArguments(List<string> arguments, CaptainLaunchIsolationPlan? plan)

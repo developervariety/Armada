@@ -171,6 +171,47 @@ namespace Armada.Test.Runtimes.Suites
 
                 AssertFalse(startInfo.Environment.ContainsKey("MAX_THINKING_TOKENS"), "disable flag should suppress inherited and computed thinking budgets");
             });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("ProcessFinalReply_UsesSuccessfulTerminalResult", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessFinalReply_UsesSuccessfulTerminalResult", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-claude-final-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                string finalPath = Path.Combine(directory, "final.txt");
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Narration is not the final answer.\"},{\"type\":\"thinking\",\"thinking\":\"private reasoning\"},{\"type\":\"tool_use\",\"id\":\"tool-1\",\"name\":\"Read\",\"input\":{\"file_path\":\"sample.txt\"}}]}}",
+                        "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"tool-1\",\"content\":\"private tool output\"}]}}",
+                        "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"Claude final answer\"}"
+                    }, 0);
+                    InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                    runtime.ExecutablePath = executable;
+
+                    int? exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+
+                    AssertEqual((int?)0, exitCode, "A successful terminal result exits successfully.");
+                    AssertEqual("Claude final answer", File.ReadAllText(finalPath), "The artifact contains only the terminal assistant answer.");
+
+                    File.Delete(finalPath);
+                    string failedExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"must not be saved\"}"
+                    }, 7);
+                    runtime.ExecutablePath = failedExecutable;
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)7, exitCode, "A provider success record does not override a failed process exit.");
+                    AssertFalse(File.Exists(finalPath), "A nonzero process exit writes no final artifact.");
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
         }
     }
 }

@@ -101,6 +101,10 @@ Both versions bound default workspace file reads and provide continuation offset
 The fork keeps strict UTF-8, workspace path checks and byte limits, and reads
 all six runtime instruction filenames in full by default within those limits.
 
+Both versions prefer final reply artifacts for stage handoff. The fork keeps
+structured CLI streams and derives replies from provider completion events,
+while retaining token usage, tool activity and transcript fallback.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the
@@ -326,6 +330,23 @@ event carrying the decision, verdicts, confidences, tokens, latency, and the
 state's hash and byte count — never the state itself. See
 [Typed decisions](docs/TYPED_DECISIONS.md) for the full
 contract.
+
+### Runtime reply handoff
+
+Local Claude, Cursor, Gemini and OpenCode launches can publish a final reply file
+after output drains and the process exits successfully. Claude and Cursor use
+their successful terminal result. Gemini uses the last assistant turn after its
+last tool call and a successful result. OpenCode uses completed text-part
+snapshots and requires a matching final stop step with no later structured event.
+A missing completion keeps transcript fallback. Captured text keeps its last
+524,288 UTF-16 characters; OpenCode retains at most 128 recent text parts within
+that limit. Tool output, reasoning and JSON envelopes are excluded.
+
+An existing reply file is preserved. Publication uses a complete
+temporary file and never replaces an existing target. Failed runs and blank
+replies write no file. The mission lifecycle reads the file before transcript
+output and removes it after use. Harbor launches retain their existing transcript
+handoff.
 
 ### API-endpoint tools and compaction
 

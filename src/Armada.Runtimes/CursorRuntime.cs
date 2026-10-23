@@ -181,7 +181,23 @@ namespace Armada.Runtimes
         protected override void HandleRawOutputLine(int processId, string line)
         {
             CursorEvent? evt = Deserialize(line);
-            if (evt == null || !String.Equals(evt.Type, "result", StringComparison.Ordinal) || evt.Usage == null)
+            if (evt == null)
+                return;
+
+            if (String.Equals(evt.Type, "assistant", StringComparison.Ordinal))
+            {
+                SetFinalReply(null);
+                return;
+            }
+
+            if (!String.Equals(evt.Type, "result", StringComparison.Ordinal))
+                return;
+
+            SetFinalReply(String.Equals(evt.Subtype, "success", StringComparison.Ordinal) && evt.IsError == false
+                ? evt.Result
+                : null);
+
+            if (evt.Usage == null)
                 return;
 
             // cursor-agent reports cache reads and cache writes beside inputTokens, as its own
@@ -327,6 +343,17 @@ namespace Armada.Runtimes
 
             [JsonPropertyName("subtype")]
             public string? Subtype { get; set; }
+
+            /// <summary>Whether the terminal result reports a provider failure.</summary>
+            [JsonPropertyName("is_error")]
+            public bool? IsError { get; set; }
+
+            /// <summary>
+            /// Final text from Cursor's terminal result event.
+            /// </summary>
+            [JsonPropertyName("result")]
+            [JsonConverter(typeof(LenientStringConverter))]
+            public string? Result { get; set; }
 
             [JsonPropertyName("message")]
             public CursorMessage? Message { get; set; }

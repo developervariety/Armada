@@ -328,6 +328,87 @@ namespace Armada.Test.Runtimes.Suites
                 AssertEqual("I'll read sample.txt.", runtime.TransformLine(assistant),
                     "Assistant narration is the one thing Cursor logs today and must survive");
             });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("ProcessFinalReply_UsesSuccessfulTerminalResult", "the provider stub is a POSIX shell script");
+            }
+            else await RunTest("ProcessFinalReply_UsesSuccessfulTerminalResult", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-cursor-final-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                string finalPath = Path.Combine(directory, "final.txt");
+                try
+                {
+                    string executable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Cursor narration is not final.\"}]}}",
+                        "{\"type\":\"thinking\",\"subtype\":\"delta\",\"text\":\"private reasoning\"}",
+                        "{\"type\":\"tool_call\",\"subtype\":\"completed\",\"call_id\":\"tool-1\",\"tool_call\":{\"shellToolCall\":{\"args\":{\"command\":\"cat private.txt\"},\"result\":{\"success\":{\"stdout\":\"private tool output\"}}}}}",
+                        "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"Cursor final answer\"}"
+                    }, 0);
+                    InspectableCursorRuntime runtime = CreateRuntime();
+                    runtime.ExecutablePath = executable;
+
+                    int? exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A successful terminal result exits successfully.");
+                    AssertEqual("Cursor final answer", File.ReadAllText(finalPath), "The artifact contains only the terminal assistant answer.");
+
+                    File.WriteAllText(finalPath, "keep existing artifact");
+                    string secondSuccessExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"replacement must not happen\"}"
+                    }, 0);
+                    runtime.ExecutablePath = secondSuccessExecutable;
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A second successful terminal result exits successfully.");
+                    AssertEqual("keep existing artifact", File.ReadAllText(finalPath), "A valid terminal result preserves a native or pre-existing artifact.");
+
+                    File.Delete(finalPath);
+                    string unfinishedAfterResultExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"stale terminal text\"}",
+                        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"unfinished later assistant\"}]}}"
+                    }, 0);
+                    runtime.ExecutablePath = unfinishedAfterResultExecutable;
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A run with later unfinished assistant text exits successfully.");
+                    AssertFalse(File.Exists(finalPath), "A later unfinished assistant turn clears earlier terminal text.");
+
+                    string noTerminalExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Incomplete assistant text\"}]}}"
+                    }, 0);
+                    runtime.ExecutablePath = noTerminalExecutable;
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A reused runtime exits successfully without a terminal event.");
+                    AssertFalse(File.Exists(finalPath), "A no-terminal launch on a reused runtime writes no artifact.");
+
+                    string boundedInput = "x😀" + new string('y', 524_287);
+                    string boundedExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]
+                    {
+                        "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"" + boundedInput + "\"}"
+                    }, 0);
+                    runtime.ExecutablePath = boundedExecutable;
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A long successful result exits successfully.");
+                    AssertEqual(new string('y', 524_287), File.ReadAllText(finalPath), "The bounded tail drops a cut surrogate pair and keeps the final reply tail.");
+
+                    File.Delete(finalPath);
+                    string invalidTarget = Path.Combine(directory, "target-is-a-directory");
+                    Directory.CreateDirectory(invalidTarget);
+                    string[] filesBeforeFailure = Directory.GetFiles(directory);
+                    exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, invalidTarget).ConfigureAwait(false);
+                    AssertEqual((int?)0, exitCode, "A final-file publication error must not prevent the process-exit callback.");
+                    AssertTrue(Directory.Exists(invalidTarget), "Publication does not alter an existing target directory.");
+                    AssertTrue(filesBeforeFailure.OrderBy(path => path).SequenceEqual(Directory.GetFiles(directory).OrderBy(path => path)),
+                        "A failed publication leaves no partial reply or temporary file.");
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
         }
     }
 }

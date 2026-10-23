@@ -284,9 +284,15 @@ namespace Armada.Runtimes
 
             if (String.Equals(evt.Type, "assistant", StringComparison.Ordinal))
             {
+                SetFinalReply(null);
                 AppendAssistantRecords(evt, records);
                 return records;
             }
+
+            // A later stream delta means a newer response has started. Do not retain an
+            // earlier terminal result if this response never emits its own result event.
+            if (String.Equals(evt.Type, "stream_event", StringComparison.Ordinal))
+                SetFinalReply(null);
 
             if (String.Equals(evt.Type, "user", StringComparison.Ordinal))
             {
@@ -308,6 +314,10 @@ namespace Armada.Runtimes
 
             if (String.Equals(evt.Type, "result", StringComparison.Ordinal))
             {
+                SetFinalReply(String.Equals(evt.Subtype, "success", StringComparison.Ordinal) && evt.IsError == false
+                    ? evt.Result
+                    : null);
+
                 // Terminal event: any call still open never reported an outcome, so render it
                 // now rather than dropping it silently.
                 FlushPendingToolCalls(records);
@@ -517,8 +527,8 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
-        /// Summarize the terminal result event. A successful result never copies the final message text, which
-        /// the runtime already captures through the final-message file. An errored result is the provider failure
+        /// Summarize the terminal result event. The base runtime writes successful final text to the
+        /// final-message file after a clean process exit. An errored result is the provider failure
         /// record, carrying the CLI's error text so the quota scan and chat or planning turns see the cause.
         /// </summary>
         private static string BuildResultActivity(ClaudeEvent evt)
