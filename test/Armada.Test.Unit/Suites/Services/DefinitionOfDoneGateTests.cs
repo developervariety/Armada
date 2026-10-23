@@ -1268,6 +1268,46 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A workflow profile's gate command time limit applies to its vessel commands, and the global limit applies without one", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string withLimit = CreateTempDir();
+                string withoutLimit = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_profile_limit", "vsl_profile_limit",
+                        withLimit, SuccessCommand(), SuccessCommand(), vesselName: "Profile Limit Vessel",
+                        gateCommandTimeoutSeconds: 2400).ConfigureAwait(false);
+                    await EnsureVesselWithProfileAsync(testDb, "ten_global_limit", "vsl_global_limit",
+                        withoutLimit, SuccessCommand(), SuccessCommand(), vesselName: "Global Limit Vessel").ConfigureAwait(false);
+                    DefinitionOfDoneSettings settings = new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 900 };
+
+                    FastTimeoutGate profileGate = new FastTimeoutGate(settings, testDb.Driver, logging, TimeSpan.FromSeconds(30));
+                    Mission profileMission = CreateWorkerMission("ten_profile_limit", "vsl_profile_limit");
+                    DefinitionOfDoneResult profileResult = await profileGate.EvaluateAsync(profileMission, new Dock { WorktreePath = withLimit }).ConfigureAwait(false);
+                    AssertTrue(profileResult.Passed, "the profile vessel's gate passes");
+                    AssertEqual("2400,2400", String.Join(",", profileGate.ConfiguredSeconds), "the build and the unit tests run under the profile's limit");
+                    DefinitionOfDoneConfiguration profileConfig = await profileGate.DescribeAsync(profileMission).ConfigureAwait(false);
+                    AssertEqual(2400, profileConfig.CommandTimeoutSeconds, "the effective configuration reports the profile's limit");
+                    AssertEqual(DefinitionOfDoneGate.CommandTimeoutProfileSource, profileConfig.CommandTimeoutSource, "the limit is named as the profile's");
+
+                    FastTimeoutGate globalGate = new FastTimeoutGate(settings, testDb.Driver, logging, TimeSpan.FromSeconds(30));
+                    Mission globalMission = CreateWorkerMission("ten_global_limit", "vsl_global_limit");
+                    DefinitionOfDoneResult globalResult = await globalGate.EvaluateAsync(globalMission, new Dock { WorktreePath = withoutLimit }).ConfigureAwait(false);
+                    AssertTrue(globalResult.Passed, "the other vessel's gate passes");
+                    AssertEqual("900,900", String.Join(",", globalGate.ConfiguredSeconds), "a profile without a limit runs under the global limit");
+                    DefinitionOfDoneConfiguration globalConfig = await globalGate.DescribeAsync(globalMission).ConfigureAwait(false);
+                    AssertEqual(900, globalConfig.CommandTimeoutSeconds, "the effective configuration reports the global limit");
+                    AssertEqual(DefinitionOfDoneGate.CommandTimeoutSettingsSource, globalConfig.CommandTimeoutSource, "the limit is named as the settings'");
+                }
+                finally
+                {
+                    TryDeleteDirectory(withLimit);
+                    TryDeleteDirectory(withoutLimit);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("A gate whose command times out at a normal 1-minute load after a run under load runs once more", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2401,7 +2441,8 @@ namespace Armada.Test.Unit.Suites.Services
             string? containerlessTestCommand = null,
             string vesselName = "Test Vessel",
             string? failedTestLinePattern = null,
-            string? isolatedTestRerunCommand = null)
+            string? isolatedTestRerunCommand = null,
+            int? gateCommandTimeoutSeconds = null)
         {
             await EnsureVesselOnlyAsync(testDb, tenantId, vesselId, worktreePath, vesselName).ConfigureAwait(false);
 
@@ -2416,6 +2457,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ContainerlessUnitTestCommand = containerlessTestCommand,
                 FailedTestLinePattern = failedTestLinePattern,
                 IsolatedTestRerunCommand = isolatedTestRerunCommand,
+                GateCommandTimeoutSeconds = gateCommandTimeoutSeconds,
                 IsDefault = true,
                 Active = true
             };
@@ -2626,6 +2668,9 @@ namespace Armada.Test.Unit.Suites.Services
         {
             private readonly TimeSpan _Timeout;
 
+            /// <summary>The configured limit of each command the gate ran, in run order.</summary>
+            public List<int> ConfiguredSeconds { get; } = new List<int>();
+
             public FastTimeoutGate(
                 DefinitionOfDoneSettings settings,
                 DatabaseDriver database,
@@ -2636,7 +2681,11 @@ namespace Armada.Test.Unit.Suites.Services
                 _Timeout = timeout;
             }
 
-            protected override TimeSpan ResolveCommandTimeout() => _Timeout;
+            protected override TimeSpan ResolveCommandTimeout(int configuredSeconds)
+            {
+                lock (ConfiguredSeconds) ConfiguredSeconds.Add(configuredSeconds);
+                return _Timeout;
+            }
         }
 
         #endregion

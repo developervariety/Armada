@@ -840,6 +840,7 @@ namespace Armada.Test.Database
                     RequiredSecrets = new List<string> { "env:API_TOKEN" },
                     ExpectedArtifacts = new List<string> { "artifacts/app.zip" },
                     GateInputPaths = new List<string> { "docs/data-dictionary.md", "schema/**/*.sql" },
+                    GateCommandTimeoutSeconds = 2400,
                     Environments = new List<WorkflowEnvironmentProfile>
                     {
                         new WorkflowEnvironmentProfile
@@ -873,6 +874,7 @@ namespace Armada.Test.Database
                 created.RequiredSecrets = new List<string>();
                 created.ExpectedArtifacts = new List<string>();
                 created.GateInputPaths = new List<string>();
+                created.GateCommandTimeoutSeconds = null;
                 created.Environments = new List<WorkflowEnvironmentProfile>();
                 WorkflowProfile updated = await _Driver.WorkflowProfiles.UpdateAsync(created, token).ConfigureAwait(false);
                 using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))

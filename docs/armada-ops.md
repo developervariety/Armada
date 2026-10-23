@@ -112,7 +112,9 @@ reason's first line carries `(host_load_timeout: ...)`: on the re-run, which
 held the host alone, the host ran overloaded or the command was still writing
 output at its limit. The rescue decision reason is `host_load_timeout_retry:`,
 and the rescue carries the same work through a fresh gate. A rescue that times
-out again is not rescued again (the auto-rescue block).
+out again is not rescued again (the auto-rescue block). When a suite needs more
+time than the limit gives it on this host, set `gateCommandTimeoutSeconds` on
+its workflow profile instead of relying on the rescue.
 
 A failed stage whose voyage ended `Failed` can also be restarted by an operator
 (`restart_mission`): the restart reopens the voyage and runs the later stages

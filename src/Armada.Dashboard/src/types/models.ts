@@ -987,6 +987,7 @@ export interface WorkflowProfile {
   unitTestCommand: string | null;
   failedTestLinePattern?: string | null;
   isolatedTestRerunCommand?: string | null;
+  gateCommandTimeoutSeconds?: number | null;
   integrationTestCommand: string | null;
   e2eTestCommand: string | null;
   migrationCommand: string | null;

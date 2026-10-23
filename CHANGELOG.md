@@ -9,6 +9,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- A workflow profile sets the time limit of its definition-of-done gate
+  commands with `gateCommandTimeoutSeconds` (30 to 3600 seconds; empty uses the
+  global `DefinitionOfDone.CommandTimeoutSeconds`). It applies to the vessel's
+  build, unit-test command and post-test-step retry, and, on a consumer's
+  profile, to that consumer's build and tests. The definition-of-done report
+  shows the limit in effect and its source (`CommandTimeoutSource`:
+  `workflow_profile` or `settings`). Persisted on all four providers (SQLite
+  120, PostgreSQL 124, SQL Server 116, MySQL 113); REST and MCP carry the whole
+  profile record, and the dashboard profile editor shows the field.
 - A definition-of-done test command whose test runs all report zero failed
   tests but that still exits non-zero fails as the new class `PostTestStep`,
   not `TestFail`. A `Failed: 0` summary is no longer read as test-failure

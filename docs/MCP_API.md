@@ -1664,8 +1664,8 @@ cannot be read (for example a blank `name`) returns code `invalid` instead of a
 protocol error. `validate_workflow_profile` resolves the tenant exactly as
 create does, so its answer matches the create. Validation refuses a
 `failedTestLinePattern` that is not a valid .NET regular expression or has no
-named group `name`, and a `gateInputPaths` entry that is rooted or holds a `..`
-segment.
+named group `name`, a `gateInputPaths` entry that is rooted or holds a `..`
+segment, and a `gateCommandTimeoutSeconds` outside 30 to 3600.
 
 ### Playbooks
 

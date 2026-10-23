@@ -83,9 +83,16 @@ namespace Armada.Core.Models
         public bool RunRestoreBeforeBuild { get; set; } = false;
 
         /// <summary>
-        /// Per-command timeout in seconds.
+        /// Per-command time limit in seconds the gate applies to the mission's vessel commands.
         /// </summary>
         public int CommandTimeoutSeconds { get; set; } = 0;
+
+        /// <summary>
+        /// Where <see cref="CommandTimeoutSeconds"/> comes from: <c>workflow_profile</c> when the resolved profile sets
+        /// <c>GateCommandTimeoutSeconds</c>, otherwise <c>settings</c> (the global
+        /// <c>DefinitionOfDone.CommandTimeoutSeconds</c>).
+        /// </summary>
+        public string CommandTimeoutSource { get; set; } = "settings";
 
         /// <summary>
         /// Whether declared consumers are built.

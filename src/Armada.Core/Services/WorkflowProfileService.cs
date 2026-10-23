@@ -221,6 +221,15 @@ namespace Armada.Core.Services
             if (gateInputError != null)
                 result.Errors.Add(gateInputError);
 
+            if (profile.GateCommandTimeoutSeconds.HasValue
+                && (profile.GateCommandTimeoutSeconds.Value < WorkflowProfile.MinimumGateCommandTimeoutSeconds
+                    || profile.GateCommandTimeoutSeconds.Value > WorkflowProfile.MaximumGateCommandTimeoutSeconds))
+            {
+                result.Errors.Add("gateCommandTimeoutSeconds must be between " + WorkflowProfile.MinimumGateCommandTimeoutSeconds
+                    + " and " + WorkflowProfile.MaximumGateCommandTimeoutSeconds
+                    + " seconds, or empty to use the global DefinitionOfDone.CommandTimeoutSeconds.");
+            }
+
             if (availableTypes.Count == 0)
                 result.Errors.Add("At least one build, test, release, deploy, verification, migration, security, or performance command is required.");
 
@@ -641,6 +650,7 @@ namespace Armada.Core.Services
             // A pattern is kept exactly as written: trimming would change what it matches.
             target.FailedTestLinePattern = String.IsNullOrWhiteSpace(source.FailedTestLinePattern) ? null : source.FailedTestLinePattern;
             target.IsolatedTestRerunCommand = NullIfWhiteSpace(source.IsolatedTestRerunCommand);
+            target.GateCommandTimeoutSeconds = source.GateCommandTimeoutSeconds;
             target.IntegrationTestCommand = NullIfWhiteSpace(source.IntegrationTestCommand);
             target.E2ETestCommand = NullIfWhiteSpace(source.E2ETestCommand);
             target.MigrationCommand = NullIfWhiteSpace(source.MigrationCommand);

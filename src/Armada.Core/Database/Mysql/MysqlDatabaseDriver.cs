@@ -705,7 +705,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(109, "Index signals by type, read flag and creation time", SignalTypeReadIndexSchema.MysqlStatements),
                 new SchemaMigration(110, "Pin deployments to a resolved source commit and artifact, and store required Check types per environment", DeploymentCandidatePinPersistence.MysqlStatements),
                 new SchemaMigration(111, "Persist the workflow profile gate-input paths", WorkflowProfileGateInputPersistence.MysqlStatements),
-                new SchemaMigration(112, "Persist trace records, trace links and trace cursors", TraceRecordSchema.MysqlStatements)
+                new SchemaMigration(112, "Persist trace records, trace links and trace cursors", TraceRecordSchema.MysqlStatements),
+                new SchemaMigration(113, "Persist the workflow profile definition-of-done command time limit", WorkflowProfileGateTimeoutPersistence.MysqlStatements)
             };
         }
 

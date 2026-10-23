@@ -222,6 +222,17 @@ and names `armada_get_mission_log` with the report's `captureId` as the place
 for the full list. The bounded diagnostics and output tail follow. The rescue
 brief carries the same text.
 
+`gateCommandTimeoutSeconds` is the time limit, in seconds, of each
+definition-of-done gate command run with this profile: the vessel's build, its
+unit-test command and that command's post-test-step retry, and, on a consumer's
+profile, the consumer's build and tests. Empty uses the global
+`DefinitionOfDone.CommandTimeoutSeconds`. A save refuses a value outside 30 to
+3600. The mission's definition-of-done report (`GET
+/api/v1/missions/{id}/definition-of-done`) shows the limit in effect as
+`Configuration.CommandTimeoutSeconds` and where it comes from as
+`Configuration.CommandTimeoutSource` (`workflow_profile` or `settings`). Set it
+for a suite whose normal run under host load is close to the global limit.
+
 `gateInputPaths` lists the repository-relative files or glob patterns that the
 profile's required checks read, for example `docs/data-dictionary.md` for a
 docs check that compares a data dictionary with the schema. Commands are shell

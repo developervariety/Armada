@@ -134,6 +134,21 @@ namespace Armada.Core.Models
         public string? IsolatedTestRerunCommand { get; set; } = null;
 
         /// <summary>
+        /// Seconds each definition-of-done gate command run with this profile may take before it is stopped as a
+        /// time limit: the vessel's build, unit-test and post-test-step retry, and a consumer's build and tests when
+        /// this is the consumer's profile. Null uses the global <c>DefinitionOfDone.CommandTimeoutSeconds</c>. A save
+        /// refuses a value outside [<see cref="MinimumGateCommandTimeoutSeconds"/>,
+        /// <see cref="MaximumGateCommandTimeoutSeconds"/>].
+        /// </summary>
+        public int? GateCommandTimeoutSeconds { get; set; } = null;
+
+        /// <summary>Fewest seconds <see cref="GateCommandTimeoutSeconds"/> may hold.</summary>
+        public const int MinimumGateCommandTimeoutSeconds = 30;
+
+        /// <summary>Most seconds <see cref="GateCommandTimeoutSeconds"/> may hold.</summary>
+        public const int MaximumGateCommandTimeoutSeconds = 3600;
+
+        /// <summary>
         /// Integration-test command.
         /// </summary>
         public string? IntegrationTestCommand { get; set; } = null;

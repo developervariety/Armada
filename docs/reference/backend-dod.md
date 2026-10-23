@@ -50,7 +50,12 @@ changes the gate outcome or the mission decision.
 
 ## Time limits and host load
 
-Each gate command has a time limit (`CommandTimeoutSeconds`). The limit starts
+Each gate command has a time limit: the `gateCommandTimeoutSeconds` of the
+workflow profile the command comes from (the vessel's profile for its own
+commands, a consumer's profile for that consumer's build and tests), or the
+global `DefinitionOfDone.CommandTimeoutSeconds` (default 600, clamped to
+30-3600) when the profile sets none. An isolated re-run of a few failing tests
+uses the global limit. The limit starts
 when the command's process starts, after the host-wide command slot is granted,
 so a wait for the slot never counts against it; a wait of a second or more is
 logged as `<label> command waited N s for the host command slot`, before the

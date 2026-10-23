@@ -537,6 +537,7 @@ namespace Armada.Core.Services
                 ExpectedSkipReason = ResolveSkipReason(mission),
                 RunRestoreBeforeBuild = _Settings.RunRestoreBeforeBuild,
                 CommandTimeoutSeconds = _Settings.CommandTimeoutSeconds,
+                CommandTimeoutSource = CommandTimeoutSettingsSource,
                 VerifyDeclaredConsumers = _Settings.VerifyDeclaredConsumers,
                 FailOnConsumerVerificationError = _Settings.FailOnConsumerVerificationError,
                 RunConsumerTests = _Settings.RunConsumerTests,
@@ -555,6 +556,8 @@ namespace Armada.Core.Services
                 configuration.HasBuildCommand = !String.IsNullOrWhiteSpace(profile.BuildCommand);
                 configuration.HasUnitTestCommand = !String.IsNullOrWhiteSpace(profile.UnitTestCommand);
                 configuration.HasContainerlessUnitTestCommand = !String.IsNullOrWhiteSpace(profile.ContainerlessUnitTestCommand);
+                configuration.CommandTimeoutSeconds = ResolveCommandTimeoutSeconds(profile);
+                if (profile.GateCommandTimeoutSeconds.HasValue) configuration.CommandTimeoutSource = CommandTimeoutProfileSource;
             }
 
             configuration.MissingCommands = !configuration.HasBuildCommand && !configuration.HasUnitTestCommand;
@@ -688,7 +691,7 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(buildCommand))
             {
                 string effectiveBuild = _Settings.RunRestoreBeforeBuild ? EnsureRestore(buildCommand) : buildCommand;
-                DefinitionOfDoneResult buildResult = await RunCommandAsync("build", effectiveBuild, worktreePath, token).ConfigureAwait(false);
+                DefinitionOfDoneResult buildResult = await RunCommandAsync("build", effectiveBuild, worktreePath, token, limitProfile: profile).ConfigureAwait(false);
                 if (!buildResult.Passed)
                     return buildResult;
                 await CollectFullPassAsync(mission, "build", buildCommand!, worktreePath, cleanHead, token).ConfigureAwait(false);
@@ -713,8 +716,8 @@ namespace Armada.Core.Services
 
                 string effectiveTest = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
                 Regex? failedTestLinePattern = ResolveFailedTestLinePattern(profile, "vessel");
-                DefinitionOfDoneResult testResult = await RunCommandAsync(testLabel, effectiveTest, worktreePath, token, failedTestLinePattern).ConfigureAwait(false);
-                testResult = await RetryPostTestStepOnceAsync("vessel", testLabel, effectiveTest, worktreePath, testResult, failedTestLinePattern, token).ConfigureAwait(false);
+                DefinitionOfDoneResult testResult = await RunCommandAsync(testLabel, effectiveTest, worktreePath, token, failedTestLinePattern, limitProfile: profile).ConfigureAwait(false);
+                testResult = await RetryPostTestStepOnceAsync("vessel", testLabel, effectiveTest, worktreePath, testResult, failedTestLinePattern, profile, token).ConfigureAwait(false);
                 if (testResult.Passed)
                 {
                     // Only a first-run pass is a full-suite pass; a pass from the isolated re-run below is not.
@@ -812,20 +815,39 @@ namespace Armada.Core.Services
             return outputQuiet.Value <= window;
         }
 
+        /// <summary>Source name of a command time limit read from the global settings.</summary>
+        public const string CommandTimeoutSettingsSource = "settings";
+
+        /// <summary>Source name of a command time limit read from the workflow profile.</summary>
+        public const string CommandTimeoutProfileSource = "workflow_profile";
+
         /// <summary>
-        /// How long a single gate command may run before it is cancelled.
+        /// Seconds a gate command run with the profile may take: the profile's <c>GateCommandTimeoutSeconds</c>
+        /// when set, otherwise the global <c>CommandTimeoutSeconds</c>. Both are held to [30, 3600].
+        /// </summary>
+        /// <param name="profile">The profile the command comes from, or null.</param>
+        /// <returns>The configured limit in seconds.</returns>
+        private int ResolveCommandTimeoutSeconds(WorkflowProfile? profile)
+        {
+            int seconds = profile?.GateCommandTimeoutSeconds ?? _Settings.CommandTimeoutSeconds;
+            return Math.Max(WorkflowProfile.MinimumGateCommandTimeoutSeconds, Math.Min(WorkflowProfile.MaximumGateCommandTimeoutSeconds, seconds));
+        }
+
+        /// <summary>
+        /// How long a single gate command with the configured limit may run before it is cancelled.
         /// </summary>
         /// <remarks>
-        /// Read from settings, where <c>CommandTimeoutSeconds</c> has a deliberate 30-second
-        /// floor: a shorter production timeout would kill legitimate builds. That floor also made
-        /// the "a hanging command is interrupted" test wait a real 30 seconds, which was the single
-        /// slowest test in the suite. Overriding this seam lets that test prove the same behavior
-        /// in about a second without lowering the floor for real captains.
+        /// The configured limit has a deliberate 30-second floor: a shorter production timeout would
+        /// kill legitimate builds. That floor also made the "a hanging command is interrupted" test
+        /// wait a real 30 seconds, which was the single slowest test in the suite. Overriding this
+        /// seam lets that test prove the same behavior in about a second without lowering the floor
+        /// for real captains.
         /// </remarks>
+        /// <param name="configuredSeconds">The limit configured for the command, from its profile or the settings.</param>
         /// <returns>Timeout for one command.</returns>
-        protected virtual TimeSpan ResolveCommandTimeout()
+        protected virtual TimeSpan ResolveCommandTimeout(int configuredSeconds)
         {
-            return TimeSpan.FromSeconds(_Settings.CommandTimeoutSeconds);
+            return TimeSpan.FromSeconds(configuredSeconds);
         }
 
         /// <summary>
@@ -997,7 +1019,7 @@ namespace Armada.Core.Services
                 }
 
                 string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(consumerBuild!) : consumerBuild!;
-                DefinitionOfDoneResult buildResult = await RunCommandAsync(label, effective, consumerWorktree, token).ConfigureAwait(false);
+                DefinitionOfDoneResult buildResult = await RunCommandAsync(label, effective, consumerWorktree, token, limitProfile: consumerProfile).ConfigureAwait(false);
 
                 if (!buildResult.Passed)
                 {
@@ -1302,8 +1324,8 @@ namespace Armada.Core.Services
 
             string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
             Regex? failedTestLinePattern = ResolveFailedTestLinePattern(consumerProfile, "consumer " + consumer.Name);
-            DefinitionOfDoneResult result = await RunCommandAsync(logLabel, effective, consumerWorktree, token, failedTestLinePattern).ConfigureAwait(false);
-            result = await RetryPostTestStepOnceAsync("consumer " + consumer.Name, logLabel, effective, consumerWorktree, result, failedTestLinePattern, token).ConfigureAwait(false);
+            DefinitionOfDoneResult result = await RunCommandAsync(logLabel, effective, consumerWorktree, token, failedTestLinePattern, limitProfile: consumerProfile).ConfigureAwait(false);
+            result = await RetryPostTestStepOnceAsync("consumer " + consumer.Name, logLabel, effective, consumerWorktree, result, failedTestLinePattern, consumerProfile, token).ConfigureAwait(false);
 
             if (!result.Passed && result.FailureClass == DefinitionOfDoneFailureClassEnum.PostTestStep)
             {
@@ -1361,13 +1383,14 @@ namespace Armada.Core.Services
             string workingDir,
             DefinitionOfDoneResult first,
             Regex? failedTestLinePattern,
+            WorkflowProfile? limitProfile,
             CancellationToken token)
         {
             if (first.Passed || first.FailureClass != DefinitionOfDoneFailureClassEnum.PostTestStep) return first;
 
             _Logging.Warn(_Header + subject + " tests passed but the command failed after them (exit " + first.ExitCode
                 + "); running it once more");
-            DefinitionOfDoneResult retry = await RunCommandAsync(label + " (post-test step retry)", command, workingDir, token, failedTestLinePattern).ConfigureAwait(false);
+            DefinitionOfDoneResult retry = await RunCommandAsync(label + " (post-test step retry)", command, workingDir, token, failedTestLinePattern, limitProfile: limitProfile).ConfigureAwait(false);
             _Logging.Info(_Header + subject + " post-test step retry passed=" + retry.Passed);
             if (!retry.Passed && retry.FailureClass == DefinitionOfDoneFailureClassEnum.PostTestStep)
             {
@@ -1835,7 +1858,8 @@ namespace Armada.Core.Services
             string workingDir,
             CancellationToken token,
             Regex? failedTestLinePattern = null,
-            IReadOnlyDictionary<string, string>? environment = null)
+            IReadOnlyDictionary<string, string>? environment = null,
+            WorkflowProfile? limitProfile = null)
         {
             ProcessStartInfo startInfo = new ProcessStartInfo(GetShell()) { WorkingDirectory = workingDir };
             BuildServerEnvironment.Apply(startInfo);
@@ -1857,7 +1881,8 @@ namespace Armada.Core.Services
             // The command owns its process group, so a timeout or cancellation also stops a background child it
             // started. Each stream keeps 16 MiB: the failing-test extraction below reads the whole runner output,
             // and a truncated output marks the extracted set as incomplete.
-            TimeSpan commandTimeout = ResolveCommandTimeout();
+            // The profile the command comes from may set its own limit; every other command uses the global one.
+            TimeSpan commandTimeout = ResolveCommandTimeout(ResolveCommandTimeoutSeconds(limitProfile));
             BoundedProcessRequest request = new BoundedProcessRequest(startInfo, commandTimeout)
             {
                 OutputLimitBytes = _CommandOutputLimitBytes,

@@ -44,6 +44,7 @@ namespace Armada.Core.Database
             profile.ContainerlessUnitTestCommand = row.NullableText("containerless_unit_test_command");
             profile.FailedTestLinePattern = row.NullableText("failed_test_line_pattern");
             profile.IsolatedTestRerunCommand = row.NullableText("isolated_test_rerun_command");
+            profile.GateCommandTimeoutSeconds = row.NullableInt("gate_command_timeout_seconds");
             profile.IntegrationTestCommand = row.NullableText("integration_test_command");
             profile.E2ETestCommand = row.NullableText("e2e_test_command");
             profile.PackageCommand = row.NullableText("package_command");
@@ -90,6 +91,7 @@ namespace Armada.Core.Database
                 .Text("containerless_unit_test_command", profile.ContainerlessUnitTestCommand)
                 .Text("failed_test_line_pattern", profile.FailedTestLinePattern)
                 .Text("isolated_test_rerun_command", profile.IsolatedTestRerunCommand)
+                .Int("gate_command_timeout_seconds", profile.GateCommandTimeoutSeconds)
                 .Text("integration_test_command", profile.IntegrationTestCommand)
                 .Text("e2e_test_command", profile.E2ETestCommand)
                 .Text("package_command", profile.PackageCommand)

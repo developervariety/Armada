@@ -105,6 +105,7 @@ export default function WorkflowProfileDetail() {
   const [unitTestCommand, setUnitTestCommand] = useState('');
   const [failedTestLinePattern, setFailedTestLinePattern] = useState('');
   const [isolatedTestRerunCommand, setIsolatedTestRerunCommand] = useState('');
+  const [gateCommandTimeoutSeconds, setGateCommandTimeoutSeconds] = useState('');
   const [integrationTestCommand, setIntegrationTestCommand] = useState('');
   const [e2eTestCommand, setE2ETestCommand] = useState('');
   const [migrationCommand, setMigrationCommand] = useState('');
@@ -172,6 +173,7 @@ export default function WorkflowProfileDetail() {
         setUnitTestCommand(result.unitTestCommand || '');
         setFailedTestLinePattern(result.failedTestLinePattern || '');
         setIsolatedTestRerunCommand(result.isolatedTestRerunCommand || '');
+        setGateCommandTimeoutSeconds(result.gateCommandTimeoutSeconds != null ? String(result.gateCommandTimeoutSeconds) : '');
         setIntegrationTestCommand(result.integrationTestCommand || '');
         setE2ETestCommand(result.e2eTestCommand || '');
         setMigrationCommand(result.migrationCommand || '');
@@ -228,6 +230,7 @@ export default function WorkflowProfileDetail() {
       unitTestCommand: unitTestCommand.trim() || null,
       failedTestLinePattern: failedTestLinePattern.trim() ? failedTestLinePattern : null,
       isolatedTestRerunCommand: isolatedTestRerunCommand.trim() || null,
+      gateCommandTimeoutSeconds: gateCommandTimeoutSeconds.trim() ? Number(gateCommandTimeoutSeconds.trim()) : null,
       integrationTestCommand: integrationTestCommand.trim() || null,
       e2eTestCommand: e2eTestCommand.trim() || null,
       migrationCommand: migrationCommand.trim() || null,
@@ -623,6 +626,10 @@ export default function WorkflowProfileDetail() {
           <label className="playbook-editor-field">
             <span>{t('Isolated Test Re-run Command')}</span>
             <textarea value={isolatedTestRerunCommand} disabled={!canManage} onChange={(event) => setIsolatedTestRerunCommand(event.target.value)} rows={2} />
+          </label>
+          <label className="playbook-editor-field">
+            <span>{t('Gate Command Time Limit (seconds)')}</span>
+            <input type="number" min={30} max={3600} value={gateCommandTimeoutSeconds} disabled={!canManage} onChange={(event) => setGateCommandTimeoutSeconds(event.target.value)} placeholder={t('Global limit')} />
           </label>
           <label className="playbook-editor-field">
             <span>{t('Integration Test Command')}</span>
