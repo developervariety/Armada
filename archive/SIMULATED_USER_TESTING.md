@@ -2,7 +2,7 @@
 
 > **Type:** procedure (repeatable). Run it against every release candidate and record the results in
 > `docs/SIMULATED_USER_TESTING_RESULTS_<version>.md` (copy the results template at the end). Referenced by
-> `V1_READINESS.md` W6.1 (dashboard and TUI) and `archive/TUI_APP_PLAN.md` W8.7 (TUI as the primary surface).
+> `archive/V1_READINESS.md` W6.1 (dashboard and TUI) and `archive/TUI_APP_PLAN.md` W8.7 (TUI as the primary surface).
 
 A simulated user session is a scripted walk through Armada's main workflows by someone (or something) playing a
 specific kind of user, against a release build, on an isolated stack, with nothing but the product and its docs. The

@@ -14,7 +14,7 @@ scripts. Each OS can only build its own native formats, so build on all three OS
 
 ## Supported install paths
 
-Armada 1.0 ships these install paths and no others (decision D1 in `V1_READINESS.md`):
+Armada 1.0 ships these install paths and no others (decision D1 in `archive/V1_READINESS.md`):
 
 | Platform | Deliverable | Channel in `publisher.json` |
 |----------|-------------|-----------------------------|

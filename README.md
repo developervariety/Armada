@@ -846,7 +846,7 @@ A Harbor (`Armada.Harbor`, a small tray app) is the host runner for split mode. 
 - **Missions:** the Admiral picks a Harbor that can serve the vessel before it creates the dock. The dock is a worktree of your own checkout on the Harbor's machine (set per vessel in Harbor's Repositories settings, or found by remote URL under root folders you list), or of the Harbor's own clone when you have none, under `~/.armada-harbor/docks`. Instruction files, the commit, and landing (merge into your checkout, or push and open a pull request) run there; your working tree and current branch are not touched while the mission runs. When no connected Harbor can serve the vessel, the mission waits with a reason naming what to set (`requireHarborForLaunch` on) or runs on the Admiral host. Merge-queue landing and planning and vessel-context docks still run on the Admiral. See [docs/HARBOR.md](docs/HARBOR.md#dock-affinity-and-routing).
 - `ApiEndpoint` captains always run in-process on the Admiral.
 
-Split mode is **experimental** in 1.0 (decision D3 in [V1_READINESS.md](V1_READINESS.md)): the link, the Harbor REST routes and MCP tools, and the `harbor.*`, `deploymentMode`, and `requireHarborForLaunch` settings are outside the [compatibility promise](docs/COMPATIBILITY.md) and may change in a minor release.
+Split mode is **experimental** in 1.0 (decision D3 in [archive/V1_READINESS.md](archive/V1_READINESS.md)): the link, the Harbor REST routes and MCP tools, and the `harbor.*`, `deploymentMode`, and `requireHarborForLaunch` settings are outside the [compatibility promise](docs/COMPATIBILITY.md) and may change in a minor release.
 
 **Install and start the Harbor**
 

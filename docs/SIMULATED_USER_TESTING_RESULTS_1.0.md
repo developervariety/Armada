@@ -1,6 +1,6 @@
 # Simulated User Testing Results 1.0
 
-Procedure: [SIMULATED_USER_TESTING.md](../SIMULATED_USER_TESTING.md). This is the first run, done unattended by an
+Procedure: [archive/SIMULATED_USER_TESTING.md](../archive/SIMULATED_USER_TESTING.md). This is the first run, done unattended by an
 agent acting as the user; the human run with real captains is still required (see the end of this file).
 
 | | |

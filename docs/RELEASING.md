@@ -45,7 +45,7 @@ Run `.github/workflows/security.yml` too: it fails on a NuGet package with a kno
 dashboard npm advisory, or a mobile advisory outside its reviewed allowlist.
 
 A rerun that turns a red job green is not a pass until you know why it was red. Intermittent end-to-end failures are
-tracked under W4.2 in [V1_READINESS.md](../V1_READINESS.md); note any you saw in the release notes.
+tracked under W4.2 in [archive/V1_READINESS.md](../archive/V1_READINESS.md); note any you saw in the release notes.
 
 ## 3. Provider parity is green
 
@@ -73,7 +73,7 @@ signals, a backlog objective, and a second tenant), upgrades the database with t
 
 ## 5. Simulated user testing
 
-Run a full session per [SIMULATED_USER_TESTING.md](../SIMULATED_USER_TESTING.md) against the candidate (the 1.0
+Run a full session per [archive/SIMULATED_USER_TESTING.md](../archive/SIMULATED_USER_TESTING.md) against the candidate (the 1.0
 results are in [SIMULATED_USER_TESTING_RESULTS_1.0.md](SIMULATED_USER_TESTING_RESULTS_1.0.md)). Use an
 isolated `armada-usertest` stack with its own data directory and ports so it cannot touch a real install or a
 developer's `~/.armada`. Triage every finding: S1 and S2 findings block the release; lower severities are either fixed
@@ -249,4 +249,4 @@ Confirm the GitHub Release lists every expected artifact and `SHA256SUMS`, that 
 (`dotnet tool install -g Armada.Helm --version <version>`), that the Docker Hub tags `v<version>` and `latest` exist
 for `jchristn77/armada-server`, `jchristn77/armada-dashboard`, and `jchristn77/armada-proxy`, and that `docker/update.sh`
 from the tagged checkout pulls those tags and brings up a healthy stack. Then add a dated row for the release to the Progress Log in
-[V1_READINESS.md](../V1_READINESS.md) while that plan is active, and tell users about any manual upgrade steps.
+[archive/V1_READINESS.md](../archive/V1_READINESS.md) while that plan is active, and tell users about any manual upgrade steps.

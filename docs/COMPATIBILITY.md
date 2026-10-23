@@ -56,7 +56,7 @@ Data is covered by the upgrade promise rather than this document: a 1.x Admiral 
 - **Not yet in the surface file**: the proxy API (`/proxy-api/v1`, [PROXY_API.md](PROXY_API.md)) and the remote-control
   tunnel protocol ([TUNNEL_PROTOCOL.md](TUNNEL_PROTOCOL.md)) are documented and versioned with their own protocol
   version but are not checked by the contract test at 1.0; the TUI is decided at the first release candidate (decision
-  D5 in V1_READINESS.md).
+  D5 in archive/V1_READINESS.md).
 - **Security fixes** may tighten behavior in a minor or patch release (for example requiring a stronger role for a
   route, or rejecting input that was accepted by mistake). Such changes are called out under a Security heading in the
   CHANGELOG.

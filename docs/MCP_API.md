@@ -312,7 +312,7 @@ Keys are the camelCase names used in `settings.json`. The MCP port can be config
 
 ## Authentication
 
-MCP is **authenticated by default** (Decision D2 in V1_READINESS.md). Present a credential with the same headers the
+MCP is **authenticated by default** (Decision D2 in archive/V1_READINESS.md). Present a credential with the same headers the
 REST API accepts: `Authorization: Bearer <token>`, `X-Token: <session token>`, or `X-Api-Key: <api key>`.
 
 - A presented credential must be valid; an invalid or expired one gets HTTP `401` (it no longer falls back to an

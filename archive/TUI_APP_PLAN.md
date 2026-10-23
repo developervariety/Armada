@@ -704,7 +704,7 @@ REST_API.md.
   fields with TUI defaults (off, `armada-tui`, no scrape endpoint, port 9465); when on, Helm starts the Admiral's
   `ArmadaTelemetryHost` with the `Armada.Tui` and `TUIKit` sources added. Metrics: sessions, screen views (route
   pattern), commands (id, source, outcome), approval decisions and latency, Ask messages; `armada.tui.command` spans.
-- [~] **W8.7** Simulated user testing session per `SIMULATED_USER_TESTING.md` using the TUI as the primary surface.
+- [~] **W8.7** Simulated user testing session per `archive/SIMULATED_USER_TESTING.md` using the TUI as the primary surface.
   First unattended run (Release Helm in a 160x48 pty driven with pyte, stub captain; results in
   `docs/SIMULATED_USER_TESTING_RESULTS_1.0.md`): first-run sign-in and the setup wizard on a fresh Admiral, Dispatch,
   Ask Armada with the Approvals center (`a` approve, card tracked to Landed), mission detail and log, API-key sign-in
