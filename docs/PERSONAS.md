@@ -375,9 +375,14 @@ A brief also matches the dock it lands in and the tools the captain has:
 - The Judge acceptance-line form uses ASCII (`-- MET.`, `-- NOT MET.`), so it
   agrees with the rule that output is ASCII only. The checker still accepts an
   em dash.
-- The Linter verifies with the repository's own check script (for example
-  `scripts/check.sh`) in full when the repository has one, and with the build
-  otherwise.
+- The Linter runs checks explicitly required by the brief, acceptance criteria
+  and repository instructions. When it changes a tracked file, it runs the full
+  repository check script (for example `scripts/check.sh`), or the build when
+  there is no script. When it leaves the tracked tree unchanged, it uses static
+  review and focused checks; the role alone does not require another full run.
+  Automatic DoD gates and required structured Checks remain required. Known
+  unchanged built-in templates receive this rule on startup; operator edits
+  are preserved.
 - A Codex brief adds `## Codex Shell`: remove temporary files with `rm <path>`
   (the Codex runner refuses `rm -f`) or `find ... -delete`, and compute digests
   with `sha256sum`.

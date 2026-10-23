@@ -955,7 +955,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A Linter brief runs the repository check script, and only a Codex brief names the Codex shell commands", async () =>
+            await RunTest("A Linter brief verifies edits in full without a duplicate unchanged review run, and only Codex names its shell commands", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -980,6 +980,9 @@ namespace Armada.Test.Unit.Suites.Services
                         await service.GenerateClaudeMdAsync(codexDir, linter, vessel, codex);
                         string codexBrief = await File.ReadAllTextAsync(Path.Combine(codexDir, MissionPromptBuilder.GetInstructionsFileName(codex.Runtime.ToString())));
                         AssertContains("scripts/check.sh", codexBrief, "the Linter verifies with the repository check script");
+                        AssertContains("If you leave the tracked tree unchanged", codexBrief, "an unchanged Linter uses bounded review");
+                        AssertContains("If you change any tracked file", codexBrief, "edits retain full repository verification");
+                        AssertContains("Automatic DoD gates and required structured Checks remain required", codexBrief, "review guidance does not waive gates");
                         AssertContains("## Codex Shell", codexBrief, "a Codex brief names the commands its runner accepts");
                         AssertContains("sha256sum", codexBrief, "a Codex brief names the digest command");
 
@@ -989,6 +992,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Directory.CreateDirectory(claudeDir);
                         await service.GenerateClaudeMdAsync(claudeDir, linter, vessel, claude);
                         string claudeBrief = await File.ReadAllTextAsync(Path.Combine(claudeDir, MissionPromptBuilder.GetInstructionsFileName(claude.Runtime.ToString())));
+                        AssertContains("If you leave the tracked tree unchanged", claudeBrief, "the unchanged-review rule is runtime independent");
                         AssertFalse(claudeBrief.Contains("## Codex Shell"), "another runtime's brief carries no Codex section");
                     }
                     finally

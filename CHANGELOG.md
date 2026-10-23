@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- An unchanged Linter uses static review and focused checks instead of running
+  the full suite solely because of its role. Tracked edits still require full
+  repository verification. Explicit checks, automatic DoD gates and required
+  structured Checks remain required.
+
 - API runtimes load large caller-filtered MCP catalogs through local discovery,
   four schemas per page. Small catalogs and discovery-name collisions stay
   eager. Calls keep the same authenticated MCP connection and authorization.
