@@ -76,6 +76,10 @@ Both versions recover interrupted Architect fan-out. The fork also repairs parti
 stage chains, preserves started work and holds ambiguous graphs for review. A
 completion record is tied to the stored plan so a changed plan is checked again.
 
+Both versions parse Jest and Vitest test totals and Windows summary lines. The
+fork keeps aggregate .NET project counts and prefers structured test artifacts
+only from the current local execution; older files remain visible as artifacts.
+
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the

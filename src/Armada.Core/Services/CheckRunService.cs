@@ -496,8 +496,7 @@ namespace Armada.Core.Services
 
                 string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
                 run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
-                run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
-                run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
+                ParseExecutionSummaries(run, artifactDirectory);
                 run.Summary = BuildSummary(run, profile);
                 await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, request.DiffBaseCommit, token).ConfigureAwait(false);
 
@@ -1260,8 +1259,7 @@ namespace Armada.Core.Services
 
             string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
             run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
-            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
-            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
+            ParseExecutionSummaries(run, artifactDirectory);
             run.Summary = BuildSummary(run, profile);
             await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, null, token).ConfigureAwait(false);
 
@@ -1731,6 +1729,15 @@ namespace Armada.Core.Services
             }
 
             return String.Empty;
+        }
+
+        private static void ParseExecutionSummaries(CheckRun run, string artifactDirectory)
+        {
+            // A file left by an earlier command is visible as an artifact, but cannot certify this run.
+            List<CheckRunArtifact> freshArtifacts = run.Artifacts.Where(artifact => run.StartedUtc.HasValue
+                && artifact.LastWriteUtc.HasValue && artifact.LastWriteUtc.Value >= run.StartedUtc.Value).ToList();
+            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, freshArtifacts);
+            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, freshArtifacts);
         }
 
         private static List<CheckRunArtifact> CollectArtifacts(string workingDirectory, List<string>? expectedArtifacts)

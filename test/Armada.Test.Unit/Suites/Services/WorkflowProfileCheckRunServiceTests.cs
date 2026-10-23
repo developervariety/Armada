@@ -1296,7 +1296,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Path.Combine(workingDirectory, "summary.txt"),
                         "Passed!  - Failed: 0, Passed: 3, Skipped: 1, Total: 4, Duration: 1.5 s").ConfigureAwait(false);
                     await File.WriteAllTextAsync(
-                        Path.Combine(workingDirectory, "coverage.cobertura.xml"),
+                        Path.Combine(workingDirectory, "coverage-input.xml"),
                         """
                         <coverage line-rate="0.75" branch-rate="0.5" lines-covered="15" lines-valid="20" branches-covered="4" branches-valid="8"></coverage>
                         """).ConfigureAwait(false);
@@ -1311,7 +1311,9 @@ namespace Armada.Test.Unit.Suites.Services
                         Name = "Parse Workflow",
                         Scope = WorkflowProfileScopeEnum.Vessel,
                         VesselId = vessel.Id,
-                        UnitTestCommand = BuildEmitFileCommand("summary.txt"),
+                        UnitTestCommand = (OperatingSystem.IsWindows()
+                            ? "copy /Y coverage-input.xml coverage.cobertura.xml > nul && "
+                            : "cp coverage-input.xml coverage.cobertura.xml && ") + BuildEmitFileCommand("summary.txt"),
                         ExpectedArtifacts = new List<string> { "coverage.cobertura.xml" }
                     };
                     await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
@@ -1344,6 +1346,45 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     TryDeleteDirectory(workingDirectory);
                 }
+            }).ConfigureAwait(false);
+
+            await RunTest("RunAsync excludes result and coverage files left by an earlier execution", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles,
+                    new VesselReadinessService(testDb.Driver, workflowProfiles, logging), logging);
+                await EnsureTenantAndUserAsync(testDb, "ten_stale", "usr_stale").ConfigureAwait(false);
+                string directory = Path.Combine(Path.GetTempPath(), "armada-check-stale-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    string resultPath = Path.Combine(directory, "results.xml");
+                    string coveragePath = Path.Combine(directory, "coverage.cobertura.xml");
+                    File.WriteAllText(resultPath, "<testsuite tests=\"99\" failures=\"0\" errors=\"0\" skipped=\"0\" />");
+                    File.WriteAllText(coveragePath, "<coverage line-rate=\"0.99\" lines-covered=\"99\" lines-valid=\"100\" />");
+                    File.SetLastWriteTimeUtc(resultPath, DateTime.UtcNow.AddHours(-1));
+                    File.SetLastWriteTimeUtc(coveragePath, DateTime.UtcNow.AddHours(-1));
+                    Vessel vessel = CreateVessel("ten_stale", "usr_stale", directory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_stale", UserId = "usr_stale", Name = "Stale artifact workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel, VesselId = vessel.Id, UnitTestCommand = "echo no-summary",
+                        ExpectedArtifacts = new List<string> { "results.xml", "coverage.cobertura.xml" }
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated("ten_stale", "usr_stale", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id, Type = CheckRunTypeEnum.UnitTest
+                    }).ConfigureAwait(false);
+                    AssertEqual(2, run.Artifacts.Count, "old files remain visible as collected artifacts");
+                    AssertNull(run.TestSummary, "old test counts do not describe this execution");
+                    AssertNull(run.CoverageSummary, "old coverage does not describe this execution");
+                }
+                finally { TryDeleteDirectory(directory); }
             }).ConfigureAwait(false);
 
             await RunTest("Readiness blocks specific check when a required environment variable is missing", async () =>

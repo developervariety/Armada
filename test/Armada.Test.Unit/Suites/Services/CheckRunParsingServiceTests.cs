@@ -113,6 +113,144 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, summary.Failed, "Failed");
             }).ConfigureAwait(false);
 
+            await RunTest("CRLF dotnet and pytest output keeps aggregate counts and duration", () =>
+            {
+                string dotnet =
+                    "Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration: 700 ms - First.Tests.dll (net10.0)\r\n" +
+                    "Failed!  - Failed:     2, Passed:    20, Skipped:     3, Total:    25, Duration: 4 s - Second.Tests.dll (net10.0)\r\n";
+                CheckRunTestSummary? dotnetSummary = CheckRunParsingService.ParseTestSummary(dotnet);
+                AssertNotNull(dotnetSummary, "dotnet summary");
+                AssertEqual(32, dotnetSummary!.Passed, "All dotnet projects contribute passed tests.");
+                AssertEqual(2, dotnetSummary.Failed, "All dotnet projects contribute failed tests.");
+                AssertEqual(4, dotnetSummary.Skipped, "All dotnet projects contribute skipped tests.");
+                AssertEqual(38, dotnetSummary.Total, "All dotnet projects contribute total tests.");
+                AssertEqual(4000L, dotnetSummary.DurationMs, "Parallel project duration is the longest project.");
+
+                string pytest =
+                    "===== 1 failed, 2 passed in 0.10s =====\r\n" +
+                    "===== 5 passed, 2 skipped in 1.50s =====\r\n";
+                CheckRunTestSummary? pytestSummary = CheckRunParsingService.ParseTestSummary(pytest);
+                AssertNotNull(pytestSummary, "pytest summary");
+                AssertEqual(5, pytestSummary!.Passed, "Pytest uses its final summary line.");
+                AssertEqual(0, pytestSummary.Failed, "Pytest uses the final failure count.");
+                AssertEqual(2, pytestSummary.Skipped, "Pytest uses the final skipped count.");
+                AssertEqual(7, pytestSummary.Total, "Pytest total includes skipped tests.");
+                AssertEqual(1500L, pytestSummary.DurationMs, "Pytest uses the final duration.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Jest and Vitest summaries parse counts, watch output, and duration", () =>
+            {
+                (string Name, string Output, int Passed, int Failed, int Skipped, int Total, long DurationMs)[] cases =
+                {
+                    (
+                        "Jest final watch summary",
+                        "Test Suites: 1 failed, 2 passed, 3 total\r\n" +
+                        "Tests:       3 failed, 4 passed, 1 skipped, 2 todo, 10 total\r\n" +
+                        "Tests:       1 failed, 7 passed, 2 skipped, 1 todo, 11 total\r\n" +
+                        "Time:        2.5 s\r\n" +
+                        "Ran all test suites.\r\n",
+                        7, 1, 3, 11, 2500L
+                    ),
+                    (
+                        "Repeated counts keep the last valid watch summary",
+                        "Tests:       4 failed, 4 passed, 8 total\r\n" +
+                        "Tests:       1 failed, 2 failed, 2 passed, 3 passed, 1 skipped, 2 todo, 11 total\r\n" +
+                        "Tests:       no test results available\r\n" +
+                        "Time:        9.0 s\r\n" +
+                        "Duration:    3.25 s\r\n",
+                        5, 3, 3, 11, 3250L
+                    ),
+                    (
+                        "Indented Vitest summary",
+                        " ❯ src/example.test.ts (10 tests | 1 failed | 2 skipped | 1 todo)\r\n" +
+                        " Test Files  1 failed | 2 passed (3)\r\n" +
+                        "      Tests  1 failed | 5 passed | 2 skipped | 1 todo (9)\r\n" +
+                        "   Duration  1.75s (transform 400ms, setup 100ms, collect 200ms, tests 50ms)\r\n",
+                        5, 1, 3, 9, 1750L
+                    )
+                };
+
+                foreach ((string name, string output, int passed, int failed, int skipped, int total, long durationMs) in cases)
+                {
+                    CheckRunTestSummary? summary = CheckRunParsingService.ParseTestSummary(output);
+                    AssertNotNull(summary, name + " summary");
+                    AssertEqual("javascript", summary!.Format, name + " format");
+                    AssertEqual(passed, summary.Passed, name + " passed");
+                    AssertEqual(failed, summary.Failed, name + " failed");
+                    AssertEqual(skipped, summary.Skipped, name + " skipped and todo");
+                    AssertEqual(total, summary.Total, name + " total");
+                    AssertEqual(durationMs, summary.DurationMs, name + " duration");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Test suite and test file counts alone are not test totals", () =>
+            {
+                string output =
+                    "Test Suites: 1 failed, 2 passed, 3 total\n" +
+                    "Test Files  1 failed | 2 passed (3)\n";
+                AssertNull(CheckRunParsingService.ParseTestSummary(output), "suite and file counts do not describe individual tests");
+            }).ConfigureAwait(false);
+
+            await RunTest("Fresh JUnit artifact overrides conflicting console counts", () =>
+            {
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada_junit_precedence_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+                try
+                {
+                    File.WriteAllText(Path.Combine(workingDirectory, "results.xml"),
+                        "<testsuites tests=\"12\" failures=\"2\" errors=\"1\" skipped=\"3\"><testsuite tests=\"12\" failures=\"2\" errors=\"1\" skipped=\"3\" time=\"1.25\" /></testsuites>");
+                    List<CheckRunArtifact> artifacts = new List<CheckRunArtifact>
+                    {
+                        new CheckRunArtifact { Path = "results.xml", LastWriteUtc = DateTime.UtcNow }
+                    };
+                    CheckRunTestSummary? summary = CheckRunParsingService.ParseTestSummary(_SingleProjectPassOutput, workingDirectory, artifacts);
+                    AssertNotNull(summary, "JUnit summary");
+                    AssertEqual("junit", summary!.Format, "Format");
+                    AssertEqual(6, summary.Passed, "Passed");
+                    AssertEqual(3, summary.Failed, "Failures and errors");
+                    AssertEqual(3, summary.Skipped, "Skipped");
+                    AssertEqual(12, summary.Total, "Total");
+                    AssertEqual(1250L, summary.DurationMs, "DurationMs");
+                }
+                finally
+                {
+                    Directory.Delete(workingDirectory, recursive: true);
+                }
+
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Malformed and outside JUnit artifacts fall back to console counts", () =>
+            {
+                string baseDirectory = Path.Combine(Path.GetTempPath(), "armada_junit_fallback_" + Guid.NewGuid().ToString("N"));
+                string workingDirectory = Path.Combine(baseDirectory, "checkout");
+                string outsideDirectory = Path.Combine(baseDirectory, "outside");
+                Directory.CreateDirectory(workingDirectory);
+                Directory.CreateDirectory(outsideDirectory);
+                try
+                {
+                    File.WriteAllText(Path.Combine(workingDirectory, "malformed.xml"), "<testsuite tests=\"8\">");
+                    File.WriteAllText(Path.Combine(outsideDirectory, "results.xml"),
+                        "<testsuite tests=\"99\" failures=\"0\" errors=\"0\" skipped=\"0\" />");
+                    List<CheckRunArtifact> artifacts = new List<CheckRunArtifact>
+                    {
+                        new CheckRunArtifact { Path = "malformed.xml", LastWriteUtc = DateTime.UtcNow },
+                        new CheckRunArtifact { Path = "../outside/results.xml", LastWriteUtc = DateTime.UtcNow }
+                    };
+                    CheckRunTestSummary? summary = CheckRunParsingService.ParseTestSummary(_SingleProjectPassOutput, workingDirectory, artifacts);
+                    AssertNotNull(summary, "console summary");
+                    AssertEqual("dotnet", summary!.Format, "Malformed or outside artifacts do not replace console output.");
+                    AssertEqual(12, summary.Passed, "Passed");
+                    AssertEqual(13, summary.Total, "Total");
+                }
+                finally
+                {
+                    Directory.Delete(baseDirectory, recursive: true);
+                }
+
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             // An artifact path is relative to the check's working directory. A path that climbs into a
             // sibling directory whose name starts with the working directory's name is outside it and
             // must not be read, while the same file inside the working directory is.

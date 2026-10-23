@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Added
 
+- Check summaries read Jest and Vitest per-test counts, final watch summaries,
+  and elapsed time, including Windows line endings. Fresh result artifacts take
+  priority over console counts. Local Check executions exclude old result and
+  coverage files from their summaries while keeping them in the artifact list.
+  Multi-project .NET counts still aggregate, with the longest project duration.
+
 - Interrupted Architect fan-out is reconciled from the stored plan. Recovery
   fills missing Workers and partial stage chains with stable create identities,
   preserves existing rows and started work, repairs pending dependency edges,

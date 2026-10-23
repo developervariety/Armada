@@ -361,6 +361,21 @@ full log's size and names the call that fetches it, so nothing is withheld
 silently. The REST check endpoints are unchanged and still return the full
 record.
 
+Test summaries prefer a readable TRX, JUnit or NUnit result artifact over console
+counts. Local executions use result and coverage files only when their collected
+write time is at or after the stored command start time. Files with an older or
+unknown write time remain in the artifact list but do not describe the current
+execution. If no eligible result parses, the summary uses console output. Invalid
+or outside-root artifact paths are ignored. External imports retain their supplied
+summary contract.
+
+Console parsing reads per-test Jest and Vitest summaries, including skipped and
+todo counts, the final valid watch summary, and the first elapsed-time value on
+the final Time or Duration line. Suite and file totals are not test totals.
+Windows line endings are supported. A .NET run aggregates counts from every
+project summary and uses the longest project duration because projects can run
+in parallel. Pytest uses its final summary line.
+
 Expensive Checks, definition-of-done gate commands and merge-queue test runs
 share host-wide command slots. `definitionOfDone.hostCommandSlots` in
 `settings.json` sets how many slots there are: default 1, clamped to 1-8. With

@@ -383,7 +383,7 @@ namespace Armada.Test.Automated.Suites
                         Path.Combine(workingDirectory, "summary.txt"),
                         "Passed!  - Failed: 0, Passed: 5, Skipped: 0, Total: 5, Duration: 2 s").ConfigureAwait(false);
                     await File.WriteAllTextAsync(
-                        Path.Combine(workingDirectory, "coverage.cobertura.xml"),
+                        Path.Combine(workingDirectory, "coverage-input.xml"),
                         """
                         <coverage line-rate="0.8" branch-rate="0.5" lines-covered="8" lines-valid="10" branches-covered="2" branches-valid="4"></coverage>
                         """).ConfigureAwait(false);
@@ -398,7 +398,9 @@ namespace Armada.Test.Automated.Suites
                             Name = "Structured Parse Profile",
                             Scope = WorkflowProfileScopeEnum.Vessel,
                             VesselId = vesselId,
-                            UnitTestCommand = BuildEmitFileCommand("summary.txt"),
+                            UnitTestCommand = (OperatingSystem.IsWindows()
+                                ? "copy /Y coverage-input.xml coverage.cobertura.xml > nul && "
+                                : "cp coverage-input.xml coverage.cobertura.xml && ") + BuildEmitFileCommand("summary.txt"),
                             ExpectedArtifacts = new[] { "coverage.cobertura.xml" }
                         })).ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.Created, profileResponse.StatusCode);
