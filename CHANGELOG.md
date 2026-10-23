@@ -593,6 +593,20 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Fixed
 
+- Coordination writes take the caller's identity when the name is omitted.
+  `armada_coordination_post` without `authorName`, the heartbeat and claim
+  without `displayName`, and `armada_dispatch_hold` engage without `setBy` use
+  the participant's last board name, then the name of the authenticating
+  credential, then the participant key; a name the caller passes wins. The REST
+  message post and presence routes default `AuthorName` and `DisplayName` the
+  same way. A call with no identity at all is still refused.
+- A wake for an addressed note names the note: its text reads
+  `[from=<author>] [msg=<note id>] <note>`, and a note cut at 500 characters
+  ends with its full length and the fetch `armada_coordination_read
+  messageId=<id>`. A wake banner item cut at 400 characters names the same
+  fetch. `armada_coordination_read` takes `messageId` and returns that one note
+  whole, and a read that previews broadcast notes carries a `TruncationHint`
+  naming `messageId` and `includeFullContent=true`.
 - A definition-of-done gate's one re-run after a host-load time limit holds the
   host to itself. The re-run asks the host command lock for the whole host
   (`HostWideCommandLock.AcquireAloneAsync`): it keeps its place in line, starts

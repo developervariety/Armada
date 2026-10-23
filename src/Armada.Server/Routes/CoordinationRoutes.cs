@@ -150,10 +150,11 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Content is required." };
                 }
-                if (String.IsNullOrWhiteSpace(request.AuthorName))
+                string? authorName = await _coordination.ResolveCallerNameAsync(request.AuthorName, request.AuthorId, ctx.PrincipalDisplay).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(authorName))
                 {
                     req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "AuthorName is required." };
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "AuthorName is required when the request carries no AuthorId or named credential." };
                 }
 
                 CoordinationAuthorTypeEnum authorType = request.AuthorType ?? CoordinationAuthorTypeEnum.Operator;
@@ -164,7 +165,7 @@ namespace Armada.Server.Routes
                         key,
                         authorType,
                         request.AuthorId,
-                        request.AuthorName!,
+                        authorName!,
                         request.Content!,
                         request.VoyageId,
                         request.MissionId,
@@ -183,7 +184,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Coordination")
                 .WithSummary("Post a coordination message")
-                .WithDescription("Posts a note to a coordination room on behalf of a participant.")
+                .WithDescription("Posts a note to a coordination room on behalf of a participant. AuthorName is optional: without it the note is posted under the AuthorId participant's last board name, else the name of the credential the request authenticated with.")
                 .WithResponse(201, OpenApiJson.For<CoordinationMessage>("Coordination message"))
                 .WithSecurity("ApiKey"));
 
@@ -199,15 +200,17 @@ namespace Armada.Server.Routes
                 CoordinationPresenceRequest request = JsonSerializer.Deserialize<CoordinationPresenceRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? new CoordinationPresenceRequest();
 
-                if (String.IsNullOrWhiteSpace(request.ParticipantKey) || String.IsNullOrWhiteSpace(request.DisplayName))
+                if (String.IsNullOrWhiteSpace(request.ParticipantKey))
                 {
                     req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "ParticipantKey and DisplayName are required." };
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "ParticipantKey is required." };
                 }
+
+                string? displayName = await _coordination.ResolveCallerNameAsync(request.DisplayName, request.ParticipantKey, ctx.PrincipalDisplay).ConfigureAwait(false);
 
                 try
                 {
-                    CoordinationParticipant participant = await _coordination.HeartbeatAsync(key, request.ParticipantKey!, request.DisplayName!, ctx.TenantId).ConfigureAwait(false);
+                    CoordinationParticipant participant = await _coordination.HeartbeatAsync(key, request.ParticipantKey!, displayName!, ctx.TenantId).ConfigureAwait(false);
                     return participant;
                 }
                 catch (NotSupportedException ex)
@@ -219,7 +222,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Coordination")
                 .WithSummary("Send a presence heartbeat")
-                .WithDescription("Refreshes a participant's presence in a coordination room.")
+                .WithDescription("Refreshes a participant's presence in a coordination room. DisplayName is optional: without it the participant keeps its last board name, else takes the name of the credential the request authenticated with, else its participant key.")
                 .WithResponse(200, OpenApiJson.For<CoordinationParticipant>("Coordination participant"))
                 .WithSecurity("ApiKey"));
 

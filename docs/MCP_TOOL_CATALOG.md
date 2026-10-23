@@ -402,6 +402,11 @@ every tool.
   recipient's participant key; a display or author name a key used in the last
   24 hours is delivered to that key (to each key, when several use it), and
   `AddressNotice` on the result names every key the note reaches.
+  `authorName` is optional: without it the note carries the caller's
+  identity, which is the participant's last board name (the
+  `X-Armada-Participant` key, else `authorId`), then the name of the
+  credential the call authenticated with, then the participant key. A name you
+  pass wins.
 - `armada_coordination_read` — read recent notes plus who is active. Read this
   before dispatching voyages or touching incidents so you do not duplicate a
   peer session's work. `SharedParticipantKeys` lists each participant key that
@@ -409,6 +414,11 @@ every tool.
   switched back and forth; several sessions share such a key. A session that
   sends the participant header reads as that key, and a different
   `participantKey` argument is refused with an error naming both keys.
+  Long broadcast notes come back previewed at 600 characters with
+  `Truncated=true`, and the result carries `TruncatedMessageCount` and a
+  `TruncationHint`; notes addressed to you are always whole. Pass
+  `messageId` to read one note whole (the result's `Message`), or
+  `includeFullContent=true` to read every note whole.
 - `armada_coordination_heartbeat` — refresh your presence while working. The
   heartbeat and read responses carry `UnreadWakes` when notes are addressed to
   your participant key: PAUSE and address those before continuing, then
@@ -416,9 +426,12 @@ every tool.
   a blocking loop learns it was handed work at the next tool boundary. The
   heartbeat result carries `SharedParticipantKey` when another session uses
   your key under a different name; move one session to its own key.
+  `displayName` is optional and defaults the same way as a post's
+  `authorName`.
 - `armada_coordination_claim` — claim a vessel or objective before non-trivial
   work so peers see who owns it; heartbeats keep the claim alive, and a claim
-  expires unless refreshed.
+  expires unless refreshed. The header key stands in for `participantKey`, and
+  `displayName` defaults the same way as a post's `authorName`.
 - `armada_campaign_status` — return a campaign's whole matrix (lanes, slices,
   status, evidence) in one call, with recent fleet notes and, under
   `CampaignRooms`, recent notes from each root's campaign room. Reading it does
@@ -651,8 +664,10 @@ deployment names a different candidate, or when the environment's
 
 The hold is fleet-wide: while it is engaged every new dispatch is refused,
 whichever session or scheduler asks, and in-flight voyages continue. Engage it
-with your session name and a reason before an Admiral rebuild; a successful
-restart clears it by design. Hold changes require an authorized operator.
+with a reason before an Admiral rebuild; a successful restart clears it by
+design. `setBy` names the session that engaged it; without it the hold takes
+the caller's participant board name, then the name of the credential the call
+authenticated with, and an engage that carries neither is refused. Hold changes require an authorized operator.
 
 The refusal happens at submission, before any job is accepted: every operator
 entry point answers `dispatch_hold_active` with `SetBy`, `SetByUtc` and

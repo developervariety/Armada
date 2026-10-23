@@ -230,6 +230,22 @@ unique for one session with `ARMADA_PARTICIPANT_KEY_UNIQUE=1`. That lets several
 sessions run on one bridge configuration, each with its own key and mailbox,
 while each still names only the key it was configured with.
 
+A coordination write names its caller without being told. When
+`armada_coordination_post` omits `authorName`, `armada_coordination_heartbeat`
+or `armada_coordination_claim` omits `displayName`, or `armada_dispatch_hold`
+`engage` omits `setBy`, the value is the participant's last board name (the
+header key, else the `authorId` or `participantKey` argument), then the name of
+the credential the request authenticated with, then the participant key. A
+value the caller passes wins. The REST post and presence routes default
+`AuthorName` and `DisplayName` the same way.
+
+A wake for an addressed note reads `[from=<author>] [msg=<note id>] <note>`. A
+note longer than 500 characters is cut, and the cut ends with the note's full
+length and `read the whole note with armada_coordination_read
+messageId=<id>`. A banner item longer than 400 characters is cut again and
+names the same fetch. `armada_coordination_read` with `messageId` returns that
+note whole as `Message`.
+
 A note's `toParticipantKey` names a participant key. A value that is no
 participant key but is a name a participant key posted or heartbeated under in
 the last 24 hours is delivered to that key. The address book behind this reads

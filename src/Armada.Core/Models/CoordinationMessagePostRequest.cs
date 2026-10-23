@@ -17,7 +17,9 @@ namespace Armada.Core.Models
         public string? AuthorId { get; set; } = null;
 
         /// <summary>
-        /// Display name of the author.
+        /// Display name of the author. Optional: when omitted the note is posted under the
+        /// <see cref="AuthorId"/> participant's last board name, else the name of the credential
+        /// the request authenticated with.
         /// </summary>
         public string? AuthorName { get; set; } = null;
 

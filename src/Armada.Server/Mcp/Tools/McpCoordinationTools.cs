@@ -44,7 +44,7 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         content = new { type = "string", description = "Note content. Must not be empty." },
-                        authorName = new { type = "string", description = "Your session or operator display name, for example 'claude-session-1'." },
+                        authorName = new { type = "string", description = "Optional display name for the note, for example 'claude-session-1'. Omit it to post under your session's identity: your participant's board name (from the X-Armada-Participant header or authorId), else the name of the credential you authenticated with. A value you pass wins." },
                         authorId = new { type = "string", description = "Optional stable identifier for your session. Defaults to authorName when omitted." },
                         roomKey = new { type = "string", description = "Usually omit this: every session shares the fleet board, and a note naming an objectiveId in a campaign routes to that campaign's room by itself. Set it only for a deliberately separate room, for example campaign-<name>; the words fleet and default both mean the shared board." },
                         objectiveId = new { type = "string", description = "Optional objective ID (obj_ prefix) the note concerns. When roomKey is omitted and the objective belongs to a campaign (an ancestor tagged campaign:<name>), the note lands in that campaign's room, created on first use; otherwise in the fleet room." },
@@ -54,21 +54,25 @@ namespace Armada.Server.Mcp.Tools
                         incidentId = new { type = "string", description = "Optional related incident ID (inc_ prefix)." },
                         toParticipantKey = new { type = "string", description = "Optional participant key to address this note to - marks it as work or an answer directed at one session while staying visible to all. A value that is no participant key but is a name a participant key posted or heartbeated under in the last 24 hours is delivered to that key; a name several keys use is delivered to each of them. The result's AddressNotice names every key the note reaches; address notes to the key." }
                     },
-                    required = new[] { "content", "authorName" }
+                    required = new[] { "content" }
                 },
                 async (args) =>
                 {
                     CoordinationPostArgs request = JsonSerializer.Deserialize<CoordinationPostArgs>(args!.Value, _JsonOptions)!;
                     if (String.IsNullOrWhiteSpace(request.Content))
                         return (object)new { Error = "content is required and must not be empty" };
-                    if (String.IsNullOrWhiteSpace(request.AuthorName))
-                        return (object)new { Error = "authorName is required and must not be empty" };
+                    string? authenticatedParticipant = ArmadaMcpHttpServer.CurrentParticipantKey;
+                    string? authorName = await coordination.ResolveCallerNameAsync(
+                        request.AuthorName,
+                        !String.IsNullOrWhiteSpace(authenticatedParticipant) ? authenticatedParticipant : request.AuthorId,
+                        McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(authorName))
+                        return (object)new { Error = "authorName is required when the call carries no participant key or named credential" };
 
                     string roomKey = await coordination.ResolveRoomKeyAsync(request.RoomKey, request.ObjectiveId).ConfigureAwait(false);
-                    string? authenticatedParticipant = ArmadaMcpHttpServer.CurrentParticipantKey;
                     string authorId = !String.IsNullOrWhiteSpace(authenticatedParticipant)
                         ? authenticatedParticipant!
-                        : (String.IsNullOrWhiteSpace(request.AuthorId) ? request.AuthorName! : request.AuthorId!);
+                        : (String.IsNullOrWhiteSpace(request.AuthorId) ? authorName! : request.AuthorId!);
 
                     try
                     {
@@ -76,7 +80,7 @@ namespace Armada.Server.Mcp.Tools
                             roomKey,
                             CoordinationAuthorTypeEnum.Operator,
                             authorId,
-                            request.AuthorName!,
+                            authorName!,
                             request.Content!,
                             request.VoyageId,
                             request.MissionId,
@@ -94,7 +98,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_coordination_read",
-                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read. Long BROADCAST notes come back previewed, each carrying ContentLength and Truncated, with TruncatedMessageCount on the response; notes addressed to you and every UnreadWake are always whole. Pass includeFullContent=true, ideally with a smaller limit or an afterUtc, to read a previewed note in full. SharedParticipantKeys lists participant keys that posted or heartbeated under several names within the presence window and switched back and forth: several sessions share each such key, so an addressed note or wake to it reaches all of them and its presence row shows only the last name. Give each session its own key.",
+                "Read recent notes from the shared coordination board plus who is currently active. Read this before dispatching voyages or touching incidents so you do not duplicate another session's work. When called with participantKey and the response contains UnreadWakes, PAUSE what you are doing and address those messages first - they are directed work or answers waiting on you. Acknowledge each with armada_mark_signal_read. Long BROADCAST notes come back previewed at 600 characters, each carrying ContentLength and Truncated, with TruncatedMessageCount and a TruncationHint on the response; notes addressed to you are always whole. An UnreadWake carries the note's id as [msg=<id>] and at most the first 500 characters of the note. Pass messageId to read one note whole, or includeFullContent=true, ideally with a smaller limit or an afterUtc, to read every note whole. SharedParticipantKeys lists participant keys that posted or heartbeated under several names within the presence window and switched back and forth: several sessions share each such key, so an addressed note or wake to it reaches all of them and its presence row shows only the last name. Give each session its own key.",
                 new
                 {
                     type = "object",
@@ -105,7 +109,8 @@ namespace Armada.Server.Mcp.Tools
                         afterUtc = new { type = "string", description = "Optional ISO 8601 timestamp; returns only notes created after it." },
                         activeWithinMinutes = new { type = "integer", description = "Presence window in minutes (default 15)." },
                         participantKey = new { type = "string", description = "Your session participant key. When supplied, notes are filtered to broadcast plus notes addressed to you - how a joining session picks up work handed to it. A session that sends the X-Armada-Participant header reads as that key, and the result names it as YourParticipantKey; passing a different key is refused rather than silently read as the header key. The configured key a bridge made unique for this session is accepted as the header key." },
-                        includeFullContent = new { type = "boolean", description = "Return every note whole instead of previewing long broadcast notes (default false). Notes addressed to you and UnreadWakes are always whole either way." }
+                        includeFullContent = new { type = "boolean", description = "Return every note whole instead of previewing long broadcast notes (default false). Notes addressed to you are always whole either way." },
+                        messageId = new { type = "string", description = "Optional note id (the Id of a board note, or the [msg=<id>] a wake names). Returns that one note whole as Message, with your UnreadWakes; the other filters are ignored." }
                     }
                 },
                 async (args) =>
@@ -124,6 +129,25 @@ namespace Armada.Server.Mcp.Tools
 
                     try
                     {
+                        if (!String.IsNullOrWhiteSpace(request.MessageId))
+                        {
+                            CoordinationMessage? single = await database.CoordinationMessages.ReadAsync(request.MessageId!.Trim()).ConfigureAwait(false);
+                            if (single == null)
+                                return (object)new { Error = "No board note has id '" + request.MessageId!.Trim() + "'." };
+                            List<Signal> singleWakes = new List<Signal>();
+                            if (!String.IsNullOrWhiteSpace(participantKey))
+                            {
+                                try { singleWakes = await coordination.EnumerateUnreadWakesAsync(participantKey!).ConfigureAwait(false); }
+                                catch (NotSupportedException) { }
+                            }
+                            return (object)new
+                            {
+                                YourParticipantKey = String.IsNullOrWhiteSpace(participantKey) ? null : participantKey,
+                                Message = BuildMessageViews(new List<CoordinationMessage> { single }, participantKey, true)[0],
+                                UnreadWakes = singleWakes
+                            };
+                        }
+
                         List<CoordinationMessage> messages = await coordination.ReadMessagesAsync(
                             roomKey, request.AfterUtc, limit,
                             token: System.Threading.CancellationToken.None,
@@ -161,6 +185,11 @@ namespace Armada.Server.Mcp.Tools
                             YourParticipantKey = String.IsNullOrWhiteSpace(participantKey) ? null : participantKey,
                             Messages = views,
                             TruncatedMessageCount = truncatedCount,
+                            TruncationHint = truncatedCount == 0
+                                ? null
+                                : truncatedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                    + " broadcast note(s) previewed at " + _BOARD_PREVIEW_CHARS.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                    + " characters (Truncated=true). Read one whole with messageId=<Id>, or every note whole with includeFullContent=true.",
                             ActiveParticipants = participants,
                             SharedParticipantKeys = coordination.EnumerateSharedParticipantKeys(activeWithinMinutes),
                             ActiveClaims = claims,
@@ -182,10 +211,9 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         participantKey = new { type = "string", description = "Stable identifier for your session. Omit it when the session sends the X-Armada-Participant header: the header key is used, and the result names it as YourParticipantKey. When given with the header it must equal the header key or the configured key the bridge made unique." },
-                        displayName = new { type = "string", description = "Display name shown to other sessions." },
+                        displayName = new { type = "string", description = "Display name shown to other sessions. Omit it to keep your participant's last board name, else the name of the credential you authenticated with, else the participant key." },
                         roomKey = new { type = "string", description = "Omit this: every session shares one board. Only set it for a deliberately separate room; the words fleet and default both mean the shared board." }
-                    },
-                    required = new[] { "displayName" }
+                    }
                 },
                 async (args) =>
                 {
@@ -196,8 +224,8 @@ namespace Armada.Server.Mcp.Tools
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
                     if (String.IsNullOrWhiteSpace(participantKey))
                         return (object)new { Error = "participantKey is required when the session sends no " + ArmadaMcpHttpServer.ParticipantHeaderName + " header" };
-                    if (String.IsNullOrWhiteSpace(request.DisplayName))
-                        return (object)new { Error = "displayName is required" };
+                    string? displayName = await coordination.ResolveCallerNameAsync(
+                        request.DisplayName, participantKey, McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
 
                     string roomKey = String.IsNullOrWhiteSpace(request.RoomKey) ? CoordinationService.DefaultRoomKey : request.RoomKey!;
 
@@ -206,7 +234,7 @@ namespace Armada.Server.Mcp.Tools
                         CoordinationParticipant participant = await coordination.HeartbeatAsync(
                             roomKey,
                             participantKey!,
-                            request.DisplayName!,
+                            displayName!,
                             ArmadaConstants.DefaultTenantId).ConfigureAwait(false);
 
                         List<Signal> unreadWakes = new List<Signal>();
@@ -233,8 +261,8 @@ namespace Armada.Server.Mcp.Tools
                         subjectType = new { type = "string", description = "vessel | objective. Required for claim." },
                         subjectId = new { type = "string", description = "The vsl_ or obj_ identifier to reserve. Required for claim." },
                         note = new { type = "string", description = "What you intend to do with the subject." },
-                        participantKey = new { type = "string", description = "Stable key for your session. Required for claim." },
-                        displayName = new { type="string", description = "Display name for the board. Required for claim." },
+                        participantKey = new { type = "string", description = "Stable key for your session. Required for claim when the session sends no X-Armada-Participant header; the header key is used when it does." },
+                        displayName = new { type="string", description = "Display name for the board. Omit it to use your participant's last board name, else the name of the credential you authenticated with, else the participant key." },
                         ttlHours = new { type = "number", description = "Hours until expiry without heartbeat. Default 4, clamped 0.5-72." },
                         claimId = new { type = "string", description = "Claim ID (ccl_ prefix). Required for release." },
                         roomKey = new { type = "string", description = "Usually omit this. A claim on an objective in a campaign (an ancestor tagged campaign:<name>) lands in that campaign's room by itself; every other claim lands in the fleet room. Heartbeats in any room keep every claim you hold alive." }
@@ -253,14 +281,16 @@ namespace Armada.Server.Mcp.Tools
                         {
                             if (String.IsNullOrWhiteSpace(request.SubjectId) || String.IsNullOrWhiteSpace(request.SubjectType))
                                 return (object)new { Error = "subjectType and subjectId are required for action=claim" };
-                            if (String.IsNullOrWhiteSpace(participantKey) || String.IsNullOrWhiteSpace(request.DisplayName))
-                                return (object)new { Error = "participantKey and displayName are required for action=claim - name your session" };
+                            if (String.IsNullOrWhiteSpace(participantKey))
+                                return (object)new { Error = "participantKey is required for action=claim when the session sends no " + ArmadaMcpHttpServer.ParticipantHeaderName + " header - name your session" };
+                            string? claimDisplayName = await coordination.ResolveCallerNameAsync(
+                                request.DisplayName, participantKey, McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
 
                             CoordinationClaimSubjectEnum subjectType;
                             if (!Enum.TryParse(request.SubjectType!, true, out subjectType))
                                 return (object)new { Error = "subjectType must be vessel or objective" };
                             CoordinationClaim claim = await coordination.ClaimAsync(
-                                participantKey!, request.DisplayName!, subjectType, request.SubjectId!,
+                                participantKey!, claimDisplayName!, subjectType, request.SubjectId!,
                                 request.Note, request.TtlHours ?? 4, request.RoomKey).ConfigureAwait(false);
                             return (object)claim;
                         }
@@ -485,7 +515,7 @@ namespace Armada.Server.Mcp.Tools
                         {
                             action = new { type = "string", description = "engage | clear | status" },
                             reason = new { type = "string", description = "Why the hold is engaged. Required for engage." },
-                            setBy = new { type = "string", description = "Your session or operator name. Required for engage." }
+                            setBy = new { type = "string", description = "Your session or operator name for engage. Omit it to use your participant's board name (X-Armada-Participant header), else the name of the credential you authenticated with. A value you pass wins." }
                         },
                         required = new[] { "action" }
                     },
@@ -514,12 +544,14 @@ namespace Armada.Server.Mcp.Tools
                         {
                             if (String.IsNullOrWhiteSpace(request.Reason))
                                 return (object)new { Error = "reason is required when engaging the hold" };
-                            if (String.IsNullOrWhiteSpace(request.SetBy))
-                                return (object)new { Error = "setBy is required when engaging the hold - name your session so others know who to ask" };
+                            string? setBy = await coordination.ResolveCallerNameAsync(
+                                request.SetBy, ArmadaMcpHttpServer.CurrentParticipantKey, McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
+                            if (String.IsNullOrWhiteSpace(setBy))
+                                return (object)new { Error = "setBy is required when engaging the hold and the call carries no participant key or named credential - name your session so others know who to ask" };
 
-                            dispatchHold.Engage(request.Reason!, request.SetBy);
-                            await SafePostAsync(coordination, "[hold] Dispatching paused by " + request.SetBy + ": " + request.Reason + " Hold off dispatching new voyages until this is cleared.").ConfigureAwait(false);
-                            await coordination.EmitHoldWakeAsync("[hold] Dispatching paused by " + request.SetBy + " (" + request.Reason + "). Hold new voyages; you will be woken on clear.").ConfigureAwait(false);
+                            dispatchHold.Engage(request.Reason!, setBy);
+                            await SafePostAsync(coordination, "[hold] Dispatching paused by " + setBy + ": " + request.Reason + " Hold off dispatching new voyages until this is cleared.").ConfigureAwait(false);
+                            await coordination.EmitHoldWakeAsync("[hold] Dispatching paused by " + setBy + " (" + request.Reason + "). Hold new voyages; you will be woken on clear.").ConfigureAwait(false);
                             return (object)new { Active = true, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs), RunningGates = RunningGates(), GateReruns = MissionService.GateRerunsInFlight(), HostSlot = HostWideCommandLock.Snapshot() };
                         }
 
@@ -773,6 +805,7 @@ namespace Armada.Server.Mcp.Tools
             public int? ActiveWithinMinutes { get; set; } = null;
             public string? ParticipantKey { get; set; } = null;
             public bool? IncludeFullContent { get; set; } = null;
+            public string? MessageId { get; set; } = null;
         }
 
         /// <summary>
@@ -781,10 +814,9 @@ namespace Armada.Server.Mcp.Tools
         /// cost every autonomous cycle several turns spilling the payload to a file and
         /// parsing it back.
         /// <para>
-        /// Broadcast chatter is previewed. A note ADDRESSED to the caller, and every
-        /// unread wake, is always returned whole -- a truncated board preview has already
-        /// hidden five complete reports once, and directed mail is exactly what must not
-        /// be lost.
+        /// Broadcast chatter is previewed. A note ADDRESSED to the caller is always returned
+        /// whole, because directed mail is exactly what must not be lost; a wake names its
+        /// note's id so the note can be read whole by id.
         /// </para>
         /// </summary>
         private sealed class CoordinationMessageView

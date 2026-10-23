@@ -11,7 +11,8 @@ namespace Armada.Core.Models
         public string? ParticipantKey { get; set; } = null;
 
         /// <summary>
-        /// Display name shown to other participants.
+        /// Display name shown to other participants. Optional: when omitted the participant keeps
+        /// its last board name, else takes the name of the credential the request authenticated with.
         /// </summary>
         public string? DisplayName { get; set; } = null;
     }

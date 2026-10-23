@@ -336,6 +336,95 @@ namespace Armada.Test.Unit.Suites.Services
                     whole.GetProperty("Messages")[0].GetProperty("Content").GetString()!.Length);
             }).ConfigureAwait(false);
 
+            await RunTest("A cut wake names its note, and a read by that id returns the note whole", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                CoordinationService coordination = CreateService(testDb);
+                string report = new string('r', 3500);
+
+                CoordinationMessage posted = await coordination.PostMessageAsync(
+                    CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.Operator,
+                    "peer", "peer", report, toParticipantKey: "me").ConfigureAwait(false);
+
+                List<Signal> wakes = await coordination.EnumerateUnreadWakesAsync("me").ConfigureAwait(false);
+                AssertEqual(1, wakes.Count, "The addressed note emits one wake.");
+                string payload = wakes[0].Payload!;
+                AssertTrue(payload.Length < report.Length, "The wake carries a cut of the note, not the whole report.");
+                AssertContains("[msg=" + posted.Id + "]", payload);
+                AssertContains("messageId=" + posted.Id, payload);
+                AssertContains("3500", payload);
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers =
+                    RegisterCoordinationTools(testDb, coordination);
+                JsonElement byId = ReadResult(await handlers["armada_coordination_read"](
+                    Args(new { participantKey = "someone-else", messageId = posted.Id })).ConfigureAwait(false));
+                JsonElement message = byId.GetProperty("Message");
+                AssertEqual(posted.Id, message.GetProperty("Id").GetString());
+                AssertEqual(report, message.GetProperty("Content").GetString(), "A read by id returns the note whole.");
+                AssertFalse(message.GetProperty("Truncated").GetBoolean());
+
+                JsonElement missing = ReadResult(await handlers["armada_coordination_read"](
+                    Args(new { messageId = "cmsg_absent" })).ConfigureAwait(false));
+                AssertContains("cmsg_absent", missing.GetProperty("Error").GetString()!);
+            }).ConfigureAwait(false);
+
+            await RunTest("A post, heartbeat, claim or hold that omits the name acts under the caller's identity, and a given name wins", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                CoordinationService coordination = CreateService(testDb);
+                DispatchHold hold = new DispatchHold();
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers =
+                    new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                McpCoordinationTools.Register(
+                    (name, _, _, handler) => { handlers[name] = handler; },
+                    testDb.Driver,
+                    coordination,
+                    hold);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective { Title = "claimed" }).ConfigureAwait(false);
+                AuthContext caller = AuthContext.Authenticated(
+                    Armada.Core.Constants.DefaultTenantId, "usr_operator", true, true, "Bearer", "crd_operator", "operator-key");
+
+                using (McpCallerContext.Begin(caller))
+                {
+                    JsonElement byCredential = ReadResult(await handlers["armada_coordination_post"](
+                        Args(new { content = "no name given" })).ConfigureAwait(false));
+                    AssertFalse(byCredential.TryGetProperty("Error", out _), "A post without authorName must not be refused.");
+                    AssertEqual("operator-key", byCredential.GetProperty("AuthorName").GetString(),
+                        "Without a participant name the note carries the credential's name.");
+
+                    await handlers["armada_coordination_heartbeat"](
+                        Args(new { participantKey = "session-key", displayName = "Session Name" })).ConfigureAwait(false);
+                    JsonElement byParticipant = ReadResult(await handlers["armada_coordination_post"](
+                        Args(new { content = "from the session", authorId = "session-key" })).ConfigureAwait(false));
+                    AssertEqual("Session Name", byParticipant.GetProperty("AuthorName").GetString(),
+                        "The participant's board name wins over the credential's name.");
+
+                    JsonElement heartbeat = ReadResult(await handlers["armada_coordination_heartbeat"](
+                        Args(new { participantKey = "fresh-key" })).ConfigureAwait(false));
+                    AssertEqual("operator-key", heartbeat.GetProperty("Participant").GetProperty("DisplayName").GetString(),
+                        "A heartbeat without displayName takes the credential's name.");
+
+                    JsonElement claim = ReadResult(await handlers["armada_coordination_claim"](
+                        Args(new { action = "claim", subjectType = "objective", subjectId = objective.Id, participantKey = "session-key" })).ConfigureAwait(false));
+                    AssertFalse(claim.TryGetProperty("Error", out _), "A claim without displayName must not be refused.");
+                    AssertEqual("Session Name", claim.GetProperty("DisplayName").GetString());
+
+                    JsonElement given = ReadResult(await handlers["armada_coordination_post"](
+                        Args(new { content = "named", authorName = "explicit-name", authorId = "session-key" })).ConfigureAwait(false));
+                    AssertEqual("explicit-name", given.GetProperty("AuthorName").GetString(), "A name the caller gives wins.");
+
+                    JsonElement engaged = ReadResult(await handlers["armada_dispatch_hold"](
+                        Args(new { action = "engage", reason = "redeploy" })).ConfigureAwait(false));
+                    AssertFalse(engaged.TryGetProperty("Error", out _), "Engaging without setBy must not be refused.");
+                    AssertEqual("operator-key", hold.Snapshot()!.SetBy, "The hold names the caller's credential.");
+                }
+
+                hold.Clear();
+                JsonElement anonymous = ReadResult(await handlers["armada_dispatch_hold"](
+                    Args(new { action = "engage", reason = "redeploy" })).ConfigureAwait(false));
+                AssertContains("setBy is required", anonymous.GetProperty("Error").GetString()!);
+            }).ConfigureAwait(false);
+
             await RunTest("A short note is returned whole and is not marked truncated", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

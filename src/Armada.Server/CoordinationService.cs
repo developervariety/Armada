@@ -159,6 +159,49 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Resolve the name a caller acts under on the board: a note's author, a heartbeat's or
+        /// claim's display name, or the session that engages the dispatch hold. A name the caller
+        /// gave wins. Without one, the caller's credential already identifies it, so the name is the
+        /// participant's last board name, then the name of the credential the caller authenticated
+        /// with, then the participant key itself. Null only when the caller gave nothing and carries
+        /// no identity at all.
+        /// </summary>
+        /// <param name="explicitName">Name the caller passed, or null.</param>
+        /// <param name="participantKey">The caller's participant key, or null.</param>
+        /// <param name="principalDisplay">Display name of the caller's credential (an API key's name), or null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The name, or null when nothing identifies the caller.</returns>
+        public async Task<string?> ResolveCallerNameAsync(string? explicitName, string? participantKey, string? principalDisplay, CancellationToken token = default)
+        {
+            if (!String.IsNullOrWhiteSpace(explicitName)) return explicitName!.Trim();
+
+            if (!String.IsNullOrWhiteSpace(participantKey))
+            {
+                string key = participantKey!.Trim();
+                lock (_ParticipantNameLock)
+                {
+                    ParticipantNameHistory? history;
+                    if (_ParticipantNames.TryGetValue(key, out history) && !String.IsNullOrWhiteSpace(history.LastName))
+                        return history.LastName;
+                }
+
+                try
+                {
+                    CoordinationParticipant? latest = await _Database.CoordinationParticipants.ReadLatestByKeyAsync(key, token).ConfigureAwait(false);
+                    if (latest != null && !String.IsNullOrWhiteSpace(latest.DisplayName)) return latest.DisplayName;
+                }
+                catch (NotSupportedException)
+                {
+                    // A backend without presence falls through to the credential name.
+                }
+            }
+
+            if (!String.IsNullOrWhiteSpace(principalDisplay)) return principalDisplay!.Trim();
+            if (!String.IsNullOrWhiteSpace(participantKey)) return participantKey!.Trim();
+            return null;
+        }
+
+        /// <summary>
         /// Post a message to a room by key.
         /// </summary>
         /// <param name="roomKey">Room key.</param>
@@ -226,7 +269,7 @@ namespace Armada.Server
 
             foreach (string deliveredKey in address.DeliveredKeys)
             {
-                await EmitWakeForAddressedNoteAsync(deliveredKey, authorName, content, token).ConfigureAwait(false);
+                await EmitWakeForAddressedNoteAsync(deliveredKey, authorName, message.Id, content, token).ConfigureAwait(false);
             }
 
             return message;
@@ -272,13 +315,13 @@ namespace Armada.Server
         /// (coordination read, heartbeat, or a signals drain) sees a targeted "you have
         /// mail" instead of having to re-read the whole room. Payload prefix
         /// "[to=&lt;key&gt;]" is the routing contract shared with the read and heartbeat
-        /// tools; best-effort, never fails the post.
+        /// tools; best-effort, never fails the post. The wake carries the note's id ahead of the
+        /// text, so a wake cut short (here, or again by a tool-result banner) still names the note
+        /// to fetch whole.
         /// </summary>
-        private async Task EmitWakeForAddressedNoteAsync(string toParticipantKey, string authorName, string content, CancellationToken token)
+        private async Task EmitWakeForAddressedNoteAsync(string toParticipantKey, string authorName, string messageId, string content, CancellationToken token)
         {
-            string body = content ?? String.Empty;
-            if (body.Length > 500) body = body.Substring(0, 500);
-            string text = "[from=" + authorName + "] " + body;
+            string text = BuildAddressedWakeText(authorName, messageId, content);
 
             if (BoardWakeEmitter != null)
             {
@@ -308,6 +351,31 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "failed to emit wake for addressed note: " + ex.Message);
             }
         }
+
+        /// <summary>
+        /// Text of the wake for an addressed note: author, note id, then the note. A note longer
+        /// than <see cref="AddressedWakeBodyChars"/> is cut, and the cut says how long the note is
+        /// and how to read it whole.
+        /// </summary>
+        /// <param name="authorName">Author display name.</param>
+        /// <param name="messageId">Note identifier.</param>
+        /// <param name="content">Note content.</param>
+        /// <returns>The wake text, without the routing prefix.</returns>
+        internal static string BuildAddressedWakeText(string authorName, string messageId, string? content)
+        {
+            string body = content ?? String.Empty;
+            string text = "[from=" + authorName + "] [msg=" + messageId + "] ";
+            if (body.Length <= AddressedWakeBodyChars) return text + body;
+            return text + body.Substring(0, AddressedWakeBodyChars)
+                + " ... [wake cut at " + AddressedWakeBodyChars.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " of " + body.Length.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + " characters; read the whole note with armada_coordination_read messageId=" + messageId + "]";
+        }
+
+        /// <summary>
+        /// Characters of an addressed note a wake carries.
+        /// </summary>
+        public const int AddressedWakeBodyChars = 500;
 
         /// <summary>
         /// Emit a wake for a fleet-wide event (dispatch hold engage/clear) targeted at

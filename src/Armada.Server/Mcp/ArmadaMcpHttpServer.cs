@@ -4,6 +4,7 @@ namespace Armada.Server.Mcp
     using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
+    using System.Text.RegularExpressions;
     using System.Text.Json.Serialization;
     using Microsoft.AspNetCore.Builder;
     using Microsoft.AspNetCore.Hosting;
@@ -33,6 +34,7 @@ namespace Armada.Server.Mcp
         private const int _WAKE_BANNER_MAX_ITEMS = 5;
         private const int _WAKE_BANNER_MAX_ITEM_LENGTH = 400;
         private const int _PARTICIPANT_KEY_MAX_LENGTH = 128;
+        private static readonly Regex _WakeMessageIdPattern = new Regex(@"\[msg=([^\]\s]+)\]", RegexOptions.CultureInvariant);
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -596,7 +598,15 @@ namespace Armada.Server.Mcp
 
                 string text = wake.Trim();
                 if (text.Length > _WAKE_BANNER_MAX_ITEM_LENGTH)
-                    text = text.Substring(0, _WAKE_BANNER_MAX_ITEM_LENGTH) + "...";
+                {
+                    // The note id rides near the start of the wake, so the cut keeps it; name the
+                    // fetch so a cut wake never reads as the whole message.
+                    Match noteId = _WakeMessageIdPattern.Match(text);
+                    text = text.Substring(0, _WAKE_BANNER_MAX_ITEM_LENGTH) + "..."
+                        + (noteId.Success
+                            ? " [cut; read the whole note with armada_coordination_read messageId=" + noteId.Groups[1].Value + "]"
+                            : " [cut; read the board for the whole message]");
+                }
 
                 banner.Append("\n- ").Append(text);
                 shown++;
