@@ -106,6 +106,15 @@ Gates publish this evidence before they release their host command slot. Checks
 read it before and after waiting for a slot.
 The Check records the source gate in `SatisfiedBy` and has no execution duration.
 
+## Consumer verification inputs
+
+Consumer verification applies workflow environment variables to its provisioned
+consumer and sibling worktrees. Absolute paths under their registered working
+checkout roots are rebased to the corresponding verification tree, preserving
+relative suffixes. The longest matching directory root wins. Relative paths,
+path lists and unrelated values retain their configured meaning. Build, test
+and retry commands use the same rebased environment.
+
 ## Blocked gate recovery
 
 A recorded definition-of-done failure class of `Infra` or `Timeout` blocks

@@ -980,6 +980,11 @@ namespace Armada.Core.Services
                 createdWorktrees.Add(consumerWorktree);
                 await LockConsumerWorktreeAsync(consumerWorktree, token).ConfigureAwait(false);
 
+                Dictionary<string, string> provisionedRoots = new Dictionary<string, string>(
+                    OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+                if (!String.IsNullOrWhiteSpace(consumer.WorkingDirectory))
+                    provisionedRoots[consumer.WorkingDirectory!] = consumerWorktree;
+
                 // Materialize every sibling the consumer declares. The producer takes the mission
                 // ref; the rest take their declared defaults, because only the producer is under
                 // test and pinning the others would verify a combination nobody is proposing.
@@ -1017,12 +1022,19 @@ namespace Armada.Core.Services
                     await _Git.CreateWorktreeAsync(
                         siblingRepo, siblingPath, siblingRef, siblingRef, true, token).ConfigureAwait(false);
                     createdWorktrees.Add(siblingPath);
+                    if (!String.IsNullOrWhiteSpace(siblingVessel.WorkingDirectory))
+                        provisionedRoots[siblingVessel.WorkingDirectory!] = siblingPath;
                     await LockConsumerWorktreeAsync(siblingPath, token).ConfigureAwait(false);
                     LinkSiblingArtifacts(sibling, siblingVessel, siblingPath, artifactLinks);
                 }
 
+                Dictionary<string, string> consumerEnvironment = RebaseConsumerEnvironment(consumerProfile!, provisionedRoots);
+                // This resolved profile belongs to this verification only. Bind retries to the same
+                // provisioned inputs as the first build and test commands.
+                consumerProfile!.EnvironmentVariables = consumerEnvironment;
                 string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(consumerBuild!) : consumerBuild!;
-                DefinitionOfDoneResult buildResult = await RunCommandAsync(label, effective, consumerWorktree, token, limitProfile: consumerProfile).ConfigureAwait(false);
+                DefinitionOfDoneResult buildResult = await RunCommandAsync(label, effective, consumerWorktree, token,
+                    environment: consumerEnvironment, limitProfile: consumerProfile).ConfigureAwait(false);
 
                 if (!buildResult.Passed)
                 {
@@ -1070,6 +1082,47 @@ namespace Armada.Core.Services
                 try { if (Directory.Exists(scratchRoot)) Directory.Delete(scratchRoot, true); }
                 catch (Exception ex) { _Logging.Debug(_Header + "consumer scratch cleanup failed for " + scratchRoot + ": " + ex.Message); }
             }
+        }
+
+        /// <summary>
+        /// Rebase absolute profile paths from host checkouts into the consumer verification's provisioned
+        /// trees. Match complete directory prefixes, longest first, so a nested dependency takes its own
+        /// candidate tree. Relative paths, path lists and unrelated values keep their configured meaning.
+        /// </summary>
+        private static Dictionary<string, string> RebaseConsumerEnvironment(
+            WorkflowProfile profile,
+            IReadOnlyDictionary<string, string> provisionedRoots)
+        {
+            Dictionary<string, string> environment = MergeCommandEnvironment(profile, null);
+            StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            List<KeyValuePair<string, string>> roots = provisionedRoots
+                .Where(pair => Path.IsPathFullyQualified(pair.Key))
+                .Select(pair => new KeyValuePair<string, string>(Path.TrimEndingDirectorySeparator(Path.GetFullPath(pair.Key)), pair.Value))
+                .Where(pair => !String.Equals(pair.Key, Path.GetPathRoot(pair.Key), comparison))
+                .OrderByDescending(pair => pair.Key.Length)
+                .ToList();
+            foreach (string key in environment.Keys.ToList())
+            {
+                string value = environment[key];
+                if (!Path.IsPathFullyQualified(value) || value.IndexOf(Path.PathSeparator) >= 0
+                    || value.IndexOfAny(new char[] { '\r', '\n', '\0' }) >= 0) continue;
+                string path = Path.GetFullPath(value);
+                foreach (KeyValuePair<string, string> root in roots)
+                {
+                    string prefix = Path.EndsInDirectorySeparator(root.Key) ? root.Key : root.Key + Path.DirectorySeparatorChar;
+                    if (String.Equals(path, root.Key, comparison))
+                    {
+                        environment[key] = root.Value;
+                        break;
+                    }
+                    if (path.StartsWith(prefix, comparison))
+                    {
+                        environment[key] = Path.Combine(root.Value, path.Substring(prefix.Length));
+                        break;
+                    }
+                }
+            }
+            return environment;
         }
 
         /// <summary>
@@ -1327,7 +1380,8 @@ namespace Armada.Core.Services
 
             string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
             Regex? failedTestLinePattern = ResolveFailedTestLinePattern(consumerProfile, "consumer " + consumer.Name);
-            DefinitionOfDoneResult result = await RunCommandAsync(logLabel, effective, consumerWorktree, token, failedTestLinePattern, limitProfile: consumerProfile).ConfigureAwait(false);
+            DefinitionOfDoneResult result = await RunCommandAsync(logLabel, effective, consumerWorktree, token, failedTestLinePattern,
+                environment: consumerProfile!.EnvironmentVariables, limitProfile: consumerProfile).ConfigureAwait(false);
             result = await RetryPostTestStepOnceAsync("consumer " + consumer.Name, logLabel, effective, consumerWorktree, result, failedTestLinePattern, consumerProfile, token).ConfigureAwait(false);
 
             if (!result.Passed && result.FailureClass == DefinitionOfDoneFailureClassEnum.PostTestStep)

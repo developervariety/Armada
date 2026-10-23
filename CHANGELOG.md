@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Consumer verification rebases absolute workflow environment paths from each
+  host checkout into its provisioned candidate worktree. Build, tests and retries
+  read the proposed dependency instead of an unrelated accepted checkout.
+  Relative paths, path lists, literals and unrelated directory prefixes stay unchanged.
+
 - Armed Build and UnitTest checks recheck definition-of-done evidence after
   the host slot wait. Gates publish passes before releasing their slot.
   A matching pass satisfies the check without another full command run.

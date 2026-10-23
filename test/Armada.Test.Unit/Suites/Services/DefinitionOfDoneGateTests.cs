@@ -1938,6 +1938,7 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();
                 string producerWorktree = CreateTempDir();
+                string hostRoot = CreateTempDir();
                 try
                 {
                     // Producer builds and tests clean; the consumer builds clean but its suite fails.
@@ -1952,6 +1953,59 @@ namespace Armada.Test.Unit.Suites.Services
                         ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Foo.cs" }
                     };
 
+                    string? consumerBuildProof = null;
+                    string? consumerTestProof = null;
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        string dependencyRoot = Path.Combine(hostRoot, "dependency");
+                        Directory.CreateDirectory(Path.Combine(dependencyRoot, "subdir"));
+                        await File.WriteAllTextAsync(Path.Combine(dependencyRoot, "value.txt"), "host-main").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(hostRoot, "context.txt"), "host-consumer").ConfigureAwait(false);
+                        Vessel producer = (await testDb.Driver.Vessels.ReadAsync("vsl_ct_producer").ConfigureAwait(false))!;
+                        producer.WorkingDirectory = dependencyRoot;
+                        await testDb.Driver.Vessels.UpdateAsync(producer).ConfigureAwait(false);
+                        Vessel consumer = (await testDb.Driver.Vessels.ReadAsync("vsl_ct_consumer").ConfigureAwait(false))!;
+                        consumer.WorkingDirectory = hostRoot;
+                        await testDb.Driver.Vessels.UpdateAsync(consumer).ConfigureAwait(false);
+                        WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
+                        WorkflowProfile profile = (await profiles.ResolveForVesselAsync(
+                            AuthContext.Authenticated("ten_ct", "usr_ct", true, true, "UnitTest"), consumer).ConfigureAwait(false))!;
+                        consumerBuildProof = Path.Combine(producerWorktree, "consumer-build.txt");
+                        consumerTestProof = Path.Combine(producerWorktree, "consumer-test.txt");
+                        string unrelated = hostRoot + "-other";
+                        profile.EnvironmentVariables = new Dictionary<string, string>
+                        {
+                            ["CONSUMER_ROOT"] = hostRoot,
+                            ["DEPENDENCY_ROOT"] = dependencyRoot,
+                            ["DEPENDENCY_SUBDIR"] = Path.Combine(dependencyRoot, "subdir"),
+                            ["UNRELATED_ROOT"] = unrelated,
+                            ["LITERAL_VALUE"] = "kept literal",
+                            ["PATH_LIST_VALUE"] = dependencyRoot + Path.PathSeparator + unrelated
+                        };
+                        string verify = "test \"$(cat \"$DEPENDENCY_ROOT/value.txt\")\" = candidate"
+                            + " && test \"$(cat \"$CONSUMER_ROOT/context.txt\")\" = consumer-candidate"
+                            + " && test \"$DEPENDENCY_SUBDIR\" = \"$DEPENDENCY_ROOT/subdir\""
+                            + " && test \"$UNRELATED_ROOT\" = '" + unrelated + "'"
+                            + " && test \"$LITERAL_VALUE\" = 'kept literal'"
+                            + " && test \"$PATH_LIST_VALUE\" = '" + profile.EnvironmentVariables["PATH_LIST_VALUE"] + "'";
+                        profile.BuildCommand = verify + " && printf candidate > '" + consumerBuildProof + "'";
+                        profile.UnitTestCommand = verify + " && printf candidate > '" + consumerTestProof + "'; exit 1";
+                        await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                        git.BeforeWorktreeCreate = async () =>
+                        {
+                            string path = git.WorktreeCalls[git.WorktreeCalls.Count - 1];
+                            if (Path.GetFileName(path) == "vsl_ct_producer")
+                            {
+                                Directory.CreateDirectory(Path.Combine(path, "subdir"));
+                                await File.WriteAllTextAsync(Path.Combine(path, "value.txt"), "candidate").ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                await File.WriteAllTextAsync(Path.Combine(path, "context.txt"), "consumer-candidate").ConfigureAwait(false);
+                            }
+                        };
+                    }
+
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
                         new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
                         testDb.Driver, logging, null, git);
@@ -1964,10 +2018,16 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(result.Passed, "A failing consumer suite on a triggering wave must fail the gate");
                     AssertEqual("consumer_tests_failed: ExampleConsumer", result.CommandLabel,
                         "The failure must carry the named consumer-tests reason, distinct from a build failure");
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        AssertEqual("candidate", File.ReadAllText(consumerBuildProof!), "consumer build reads the provisioned producer and consumer paths");
+                        AssertEqual("candidate", File.ReadAllText(consumerTestProof!), "consumer tests use the same provisioned paths and preserve unrelated environment");
+                    }
                 }
                 finally
                 {
                     TryDeleteDirectory(producerWorktree);
+                    TryDeleteDirectory(hostRoot);
                 }
             }).ConfigureAwait(false);
 
