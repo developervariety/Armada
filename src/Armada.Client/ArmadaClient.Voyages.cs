@@ -57,8 +57,8 @@ namespace Armada.Client
         }
 
         /// <summary>
-        /// Dashboard <c>getVoyageStatus</c>. The dashboard reads <c>/api/v1/voyages/{id}/status</c>, which the server does
-        /// not have; this returns the voyage with its missions (GET /api/v1/voyages/{id}, <c>{ Voyage, Missions }</c>) as raw JSON.
+        /// Dashboard <c>getVoyageStatus</c>: GET /api/v1/voyages/{id}, the voyage with its missions (<c>{ Voyage, Missions }</c>)
+        /// as raw JSON.
         /// </summary>
         /// <param name="id">id.</param>
         /// <param name="token">Cancellation token.</param>

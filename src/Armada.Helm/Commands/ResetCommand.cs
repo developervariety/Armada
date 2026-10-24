@@ -52,8 +52,11 @@ namespace Armada.Helm.Commands
                 if (healthy)
                 {
                     AnsiConsole.MarkupLine("[dim]Stopping Admiral server...[/]");
-                    try { await DeleteAsync("/api/v1/server/shutdown").ConfigureAwait(false); }
-                    catch { }
+                    try { await PostAsync("/api/v1/server/stop").ConfigureAwait(false); }
+                    catch (Exception ex)
+                    {
+                        AnsiConsole.MarkupLine("[yellow]Could not stop the Admiral through the API:[/] " + Markup.Escape(ex.Message));
+                    }
                     await Task.Delay(1000).ConfigureAwait(false);
                 }
             }

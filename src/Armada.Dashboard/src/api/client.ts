@@ -960,7 +960,8 @@ export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`)
 export const getCaptainLog = (id: string, lines = 500, formatted = false) => get<LogResult>(`/api/v1/captains/${id}/log?lines=${lines}${formatted ? '&formatted=true' : ''}`);
 export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/stop`);
 export const unquarantineCaptain = (id: string) => post<Captain>(`/api/v1/captains/${id}/unquarantine`);
-export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
+/** Recall a captain: the server's stop route kills its process and returns it to Idle. */
+export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${encodeURIComponent(id)}/stop`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
 
 // Background jobs
@@ -1056,7 +1057,8 @@ export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/
 export const listVoyages = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Voyage>>(`/api/v1/voyages${buildQuery(params)}`);
 export const getVoyage = (id: string) => get<Voyage>(`/api/v1/voyages/${id}`);
-export const getVoyageStatus = (id: string) => get<Record<string, unknown>>(`/api/v1/voyages/${id}/status`);
+/** The voyage with its missions ({ Voyage, Missions }), as the status view shows it. */
+export const getVoyageStatus = (id: string) => get<Record<string, unknown>>(`/api/v1/voyages/${encodeURIComponent(id)}`);
 export const createVoyage = (data: VoyageCreateRequest) => post<Voyage>('/api/v1/voyages', data);
 export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);
 export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purge`);
@@ -1088,8 +1090,9 @@ export const getMergeEntry = (id: string) => get<MergeEntry>(`/api/v1/merge-queu
 export const enqueueMerge = (data: Partial<MergeEntry>) => post<MergeEntry>('/api/v1/merge-queue', data);
 export const deleteMergeEntry = (id: string) => del<void>(`/api/v1/merge-queue/${id}`);
 export const processMergeEntry = (id: string) => post<void>(`/api/v1/merge-queue/${id}/process`);
-export const processAllMergeQueue = () => post<void>('/api/v1/merge-queue/process-all');
-export const cancelMergeEntry = (id: string) => post<void>(`/api/v1/merge-queue/${id}/cancel`);
+export const processAllMergeQueue = () => post<void>('/api/v1/merge-queue/process');
+/** Cancel a queued entry: the server's DELETE route deletes or cancels it. */
+export const cancelMergeEntry = (id: string) => del<void>(`/api/v1/merge-queue/${encodeURIComponent(id)}`);
 
 // ==================== Prompt Templates ====================
 export const listPromptTemplates = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

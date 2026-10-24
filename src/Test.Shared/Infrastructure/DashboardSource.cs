@@ -100,6 +100,54 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
+        /// The requests each server-calling api/client.ts export sends, parsed from the URL literals passed to
+        /// get/post/put/del/patch, request, proxyRequest, and fetch. String constants and one-line path helpers are expanded; an
+        /// interpolated path segment becomes <c>x</c> and an interpolation that is not a whole segment (a query builder)
+        /// is dropped. An export that only calls other exports yields no request.
+        /// </summary>
+        /// <returns>Requests, in source order.</returns>
+        public static List<DashboardApiCall> ApiCalls()
+        {
+            string src = File.ReadAllText(Path.Combine(Src(), "api", "client.ts"));
+            Dictionary<string, string> constants = Regex.Matches(src, "^const (\\w+) = '([^']*)';", RegexOptions.Multiline)
+                .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value, StringComparer.Ordinal);
+            Dictionary<string, string> helpers = Regex.Matches(src, "^const (\\w+) = \\([^)]*\\) => `([^`]*)`;", RegexOptions.Multiline)
+                .ToDictionary(m => m.Groups[1].Value, m => m.Groups[2].Value, StringComparer.Ordinal);
+
+            List<Match> exports = Regex.Matches(src, "^export (?:const|async function|function) (\\w+)", RegexOptions.Multiline).ToList();
+            Regex verbCall = new Regex("\\b(get|post|put|del|patch)\\s*(?:<[^()]*?>)?\\s*\\(\\s*(?:([`'\"])((?:\\\\.|(?!\\2).)*)\\2|(\\w+)\\()", RegexOptions.Singleline);
+            Regex proxyCall = new Regex("(?:proxyRequest|\\brequest)(?:<[^()]*?>)?\\(\\s*'(\\w+)'\\s*,\\s*'([^']*)'");
+            Regex fetchCall = new Regex("fetch\\w*\\(\\s*`\\$\\{BASE_URL\\}([^`]*)`\\s*,\\s*\\{\\s*method:\\s*'(\\w+)'");
+
+            List<DashboardApiCall> calls = new List<DashboardApiCall>();
+            for (int i = 0; i < exports.Count; i++)
+            {
+                string name = exports[i].Groups[1].Value;
+                if (NonServerExports.Contains(name)) continue;
+                int end = i + 1 < exports.Count ? exports[i + 1].Index : src.Length;
+                string body = src.Substring(exports[i].Index, end - exports[i].Index);
+
+                foreach (Match m in verbCall.Matches(body))
+                {
+                    string url = m.Groups[3].Success ? m.Groups[3].Value
+                        : helpers.TryGetValue(m.Groups[4].Value, out string? helper) ? helper : "";
+                    // Only a path is a request: res.headers.get('Content-Type') and similar are not.
+                    if (url.Length == 0 || !(url.StartsWith("/", StringComparison.Ordinal) || url.StartsWith("${", StringComparison.Ordinal))) continue;
+                    string verb = m.Groups[1].Value == "del" ? "DELETE" : m.Groups[1].Value.ToUpperInvariant();
+                    calls.Add(new DashboardApiCall { Export = name, Method = verb, Path = NormalizePath(url, constants, helpers) });
+                }
+
+                foreach (Match m in proxyCall.Matches(body))
+                    calls.Add(new DashboardApiCall { Export = name, Method = m.Groups[1].Value.ToUpperInvariant(), Path = NormalizePath(m.Groups[2].Value, constants, helpers) });
+
+                foreach (Match m in fetchCall.Matches(body))
+                    calls.Add(new DashboardApiCall { Export = name, Method = m.Groups[2].Value.ToUpperInvariant(), Path = NormalizePath(m.Groups[1].Value, constants, helpers) });
+            }
+
+            return calls;
+        }
+
+        /// <summary>
         /// WebSocket event types the dashboard handles.
         /// </summary>
         public static List<string> Events()
@@ -172,6 +220,42 @@ namespace Test.Shared.Infrastructure
             foreach (Match f in Regex.Matches(ask.Groups[1].Value, "'([a-zA-Z]+)'")) fields.Add("settings.ask." + f.Groups[1].Value);
 
             return fields.OrderBy(s => s, StringComparer.Ordinal).ToList();
+        }
+
+        private static string NormalizePath(string url, Dictionary<string, string> constants, Dictionary<string, string> helpers)
+        {
+            // Expand ${...} interpolations with brace matching: a path helper call or a string constant expands in place,
+            // a whole path segment becomes the parameter x, and anything else (a query builder) is dropped.
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            int pos = 0;
+            while (pos < url.Length)
+            {
+                if (url[pos] == '$' && pos + 1 < url.Length && url[pos + 1] == '{')
+                {
+                    int depth = 0;
+                    int close = pos + 1;
+                    for (; close < url.Length; close++)
+                    {
+                        if (url[close] == '{') depth++;
+                        else if (url[close] == '}' && --depth == 0) break;
+                    }
+
+                    string expr = url.Substring(pos + 2, Math.Max(0, close - pos - 2)).Trim();
+                    Match helperCall = Regex.Match(expr, "^(\\w+)\\(");
+                    bool wholeSegment = sb.Length > 0 && sb[sb.Length - 1] == '/' && (close + 1 >= url.Length || url[close + 1] == '/' || url[close + 1] == '?');
+                    if (helperCall.Success && helpers.TryGetValue(helperCall.Groups[1].Value, out string? helper)) sb.Append(NormalizePath(helper, constants, helpers));
+                    else if (constants.TryGetValue(expr, out string? constant)) sb.Append(constant);
+                    else if (wholeSegment) sb.Append('x');
+                    pos = close + 1;
+                    continue;
+                }
+
+                if (url[pos] == '?') break;
+                sb.Append(url[pos]);
+                pos++;
+            }
+
+            return sb.ToString();
         }
     }
 }

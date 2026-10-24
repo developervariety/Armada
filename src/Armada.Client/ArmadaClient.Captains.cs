@@ -132,9 +132,8 @@ namespace Armada.Client
         }
 
         /// <summary>
-        /// Dashboard <c>recallCaptain</c>. The dashboard posts to <c>/api/v1/captains/{id}/recall</c>, which the server does
-        /// not have; the server's stop route recalls the captain (kills its process and returns it to Idle), so this calls
-        /// POST /api/v1/captains/{id}/stop, the same call as <see cref="StopCaptainAsync"/>.
+        /// Dashboard <c>recallCaptain</c>: POST /api/v1/captains/{id}/stop. The stop route recalls the captain (kills its
+        /// process and returns it to Idle); the same call as <see cref="StopCaptainAsync"/>.
         /// </summary>
         /// <param name="id">id.</param>
         /// <param name="token">Cancellation token.</param>

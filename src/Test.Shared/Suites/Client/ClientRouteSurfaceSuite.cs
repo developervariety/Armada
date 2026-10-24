@@ -35,6 +35,24 @@ namespace Test.Shared.Suites.Client
         };
 
         /// <summary>
+        /// CLI requests whose entity segment is a variable, with every request it can expand to (each must be a route).
+        /// </summary>
+        private static readonly Dictionary<string, string[]> _CliDynamicRequests = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            // BaseCommand.GetRemoteLogTailAsync / GetRemoteLogPageAsync: kind is "missions" or "captains".
+            ["GET /api/v1/x/x/log"] = new[] { "GET /api/v1/missions/x/log", "GET /api/v1/captains/x/log" }
+        };
+
+        /// <summary>
+        /// api/client.ts exports whose request is not checked against a single route, with the reason.
+        /// </summary>
+        private static readonly Dictionary<string, string> _DashboardExportsNotChecked = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["restartCaptain"] = "Composes deleteCaptain and createCaptain, which are checked themselves",
+            ["getEntity"] = "Generic lookup: the path's entity segment comes from a type map, so it has no single literal route"
+        };
+
+        /// <summary>
         /// Surface routes no client method calls, with the reason.
         /// </summary>
         private static readonly Dictionary<string, string> _RoutesWithoutClientMethod = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -143,6 +161,75 @@ namespace Test.Shared.Suites.Client
                 }
 
                 if (problems.Length > 0) throw new AssertionException("Client and route surface differ:\n" + problems.ToString());
+            }));
+
+            cases.Add(TuiCase.Sync(Suite, "dashboard_calls_match_route_surface", "Every api/client.ts request (dashboard and mobile) matches a surface route or a listed non-Admiral path", () =>
+            {
+                ApiSurfaceDocument surface = ApiSurfaceFiles.LoadBaseline();
+                List<string> routes = surface.Rest.Select(r => r.Method.ToUpperInvariant() + " " + r.Route).Distinct().ToList();
+                List<DashboardApiCall> calls = DashboardSource.ApiCalls();
+                StringBuilder problems = new StringBuilder();
+
+                foreach (string export in DashboardSource.ApiExports())
+                {
+                    if (_DashboardExportsNotChecked.ContainsKey(export)) continue;
+                    List<DashboardApiCall> own = calls.Where(c => c.Export == export).ToList();
+                    if (own.Count == 0)
+                    {
+                        problems.Append("client.ts export with no parseable request: ").Append(export).Append('\n');
+                        continue;
+                    }
+
+                    foreach (DashboardApiCall call in own)
+                    {
+                        string request = call.Method + " " + call.Path;
+                        if (_NonSurfaceRequests.ContainsKey(request)) continue;
+                        if (ClientRouteMap.Match(request, routes) == null)
+                            problems.Append("client.ts request without a server route: ").Append(export).Append(" -> ").Append(request).Append('\n');
+                    }
+                }
+
+                foreach (string listed in _DashboardExportsNotChecked.Keys)
+                {
+                    if (!DashboardSource.ApiExports().Contains(listed)) problems.Append("stale entry (no such client.ts export): ").Append(listed).Append('\n');
+                }
+
+                AssertTrue(calls.Count >= 330, "parsed client.ts requests: " + calls.Count);
+                if (problems.Length > 0) throw new AssertionException("api/client.ts and the route surface differ:\n" + problems.ToString());
+            }));
+
+            cases.Add(TuiCase.Sync(Suite, "cli_calls_match_route_surface", "Every REST request the Helm CLI and Armada.Core's ArmadaApiClient send matches a surface route", () =>
+            {
+                ApiSurfaceDocument surface = ApiSurfaceFiles.LoadBaseline();
+                List<string> routes = surface.Rest.Select(r => r.Method.ToUpperInvariant() + " " + r.Route).Distinct().ToList();
+                string root = DashboardSource.RepoRoot();
+                List<string> files = System.IO.Directory.GetFiles(System.IO.Path.Combine(root, "src", "Armada.Helm"), "*.cs", System.IO.SearchOption.AllDirectories)
+                    .Where(f => !f.Contains(System.IO.Path.DirectorySeparatorChar + "bin" + System.IO.Path.DirectorySeparatorChar)
+                             && !f.Contains(System.IO.Path.DirectorySeparatorChar + "obj" + System.IO.Path.DirectorySeparatorChar))
+                    .Append(System.IO.Path.Combine(root, "src", "Armada.Core", "Client", "ArmadaApiClient.cs"))
+                    .ToList();
+                List<DashboardApiCall> calls = CSharpApiCallScanner.Scan(files);
+                AssertTrue(calls.Count >= 200, "parsed CLI requests: " + calls.Count);
+
+                StringBuilder problems = new StringBuilder();
+                foreach (DashboardApiCall call in calls)
+                {
+                    string request = call.Method + " " + call.Path;
+                    if (_CliDynamicRequests.TryGetValue(request, out string[]? expansions))
+                    {
+                        foreach (string expansion in expansions)
+                        {
+                            if (ClientRouteMap.Match(expansion, routes) == null) problems.Append("listed expansion without a route: ").Append(expansion).Append('\n');
+                        }
+
+                        continue;
+                    }
+
+                    if (ClientRouteMap.Match(request, routes) == null)
+                        problems.Append("CLI request without a server route: ").Append(call.Export).Append(" -> ").Append(request).Append('\n');
+                }
+
+                if (problems.Length > 0) throw new AssertionException("CLI and route surface differ:\n" + problems.ToString());
             }));
 
             return new TestSuiteDescriptor(suiteId: Suite, displayName: "Armada.Client vs. the REST route surface", cases: cases);

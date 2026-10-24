@@ -76,8 +76,7 @@ namespace Armada.Client
         }
 
         /// <summary>
-        /// Dashboard <c>processAllMergeQueue</c>. The dashboard posts to <c>/api/v1/merge-queue/process-all</c>, which the
-        /// server does not have; this calls the server's route, POST /api/v1/merge-queue/process.
+        /// Dashboard <c>processAllMergeQueue</c>: POST /api/v1/merge-queue/process.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
@@ -87,9 +86,8 @@ namespace Armada.Client
         }
 
         /// <summary>
-        /// Dashboard <c>cancelMergeEntry</c>. The dashboard posts to <c>/api/v1/merge-queue/{id}/cancel</c>, which the
-        /// server does not have; this calls the server's cancel route, DELETE /api/v1/merge-queue/{id} ("Delete or cancel a
-        /// merge queue entry"), the same call as <see cref="DeleteMergeEntryAsync"/>.
+        /// Dashboard <c>cancelMergeEntry</c>: DELETE /api/v1/merge-queue/{id} ("Delete or cancel a merge queue entry"), the
+        /// same call as <see cref="DeleteMergeEntryAsync"/>.
         /// </summary>
         /// <param name="id">id.</param>
         /// <param name="token">Cancellation token.</param>
