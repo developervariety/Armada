@@ -235,7 +235,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         // The build command outlasts the bound below, so only a stopped gate finishes inside it.
                         string longBuild = OperatingSystem.IsWindows() ? "ping -n 21 127.0.0.1 >nul" : "sleep 20";
-                        await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
                         {
                             Name = "Cancel Gate Profile",
                             Scope = WorkflowProfileScopeEnum.Vessel,
@@ -308,21 +308,25 @@ namespace Armada.Test.Unit.Suites.Services
                         produced.Status = MissionStatusEnum.WorkProduced;
                         produced.VoyageId = voyage.Id;
                         await testDb.Driver.Missions.UpdateAsync(produced);
-                        WorkflowProfile profile = (await testDb.Driver.WorkflowProfiles.EnumerateAsync())
-                            .Single(item => item.VesselId == mission.VesselId);
                         profile.BuildCommand = "echo ran > voyage-gate-started.txt";
                         await testDb.Driver.WorkflowProfiles.UpdateAsync(profile);
                         string commandMarker = Path.Combine(worktreePath, "voyage-gate-started.txt");
                         using DefinitionOfDoneGateRun unrelated = DefinitionOfDoneGateRuns.Start(
                             "unrelated-" + Guid.NewGuid().ToString("N"), CancellationToken.None);
                         using CancellationTokenSource heldWait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                        using IDisposable held = await HostWideCommandLock.AcquireAsync(
-                            "voyage-cancel-fixture", "Hold the vessel suite before cancellation", mission.VesselId, heldWait.Token);
+                        using IDisposable held = await HostWideCommandLock.AcquireAloneAsync(
+                            "voyage-cancel-fixture", "Hold the host before cancellation", heldWait.Token);
                         Task<DefinitionOfDoneResult>? queued = null;
                         try
                         {
                             queued = missionService.DefinitionOfDone.EvaluateAsync(produced, entities.Dock);
                             AssertTrue(DefinitionOfDoneGateRuns.IsRunning(produced.Id), "The queued evaluation is registered");
+                            DateTime queueDeadline = DateTime.UtcNow.AddSeconds(5);
+                            while (!HostWideCommandLock.Snapshot().Waiters.Any(waiter => waiter.Key == produced.Id)
+                                && !queued.IsCompleted && DateTime.UtcNow < queueDeadline)
+                                await Task.Delay(10);
+                            AssertTrue(HostWideCommandLock.Snapshot().Waiters.Any(waiter => waiter.Key == produced.Id),
+                                "The real gate must reach the host queue before voyage cancellation");
                             await VoyageCancellation.CancelVoyageAsync(testDb.Driver, voyage, "operator cancel");
                             AssertFalse(unrelated.Token.IsCancellationRequested, "Another mission's gate keeps running");
                             AssertEqual(MissionStatusEnum.WorkProduced,
@@ -343,6 +347,8 @@ namespace Armada.Test.Unit.Suites.Services
                                 AssertTrue(cancelled, "Obsolete work has a cancellation outcome, never pass or fail");
                                 AssertFalse(File.Exists(commandMarker), "The queued command must never start");
                                 AssertFalse(DefinitionOfDoneGateRuns.IsRunning(produced.Id), "The cancelled evaluation leaves the registry");
+                                AssertFalse(HostWideCommandLock.Snapshot().Waiters.Any(waiter => waiter.Key == produced.Id),
+                                    "The cancelled evaluation leaves the host queue while its holder remains");
                             }
                         }
                         finally
