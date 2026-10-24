@@ -13014,8 +13014,6 @@ namespace Armada.Core.Services
             CancellationToken token)
         {
             if (result.GateCommandOutput == null) return;
-            record.RunnerOutputTruncated = result.RunnerOutputTruncated;
-            record.RunnerOutputOmittedBytes = Math.Max(0, result.RunnerOutputOmittedBytes);
             try
             {
                 MissionLogCaptureMetadata capture = await MissionLogCaptureArtifact.WriteAsync(

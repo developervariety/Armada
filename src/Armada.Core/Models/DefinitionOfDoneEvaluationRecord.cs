@@ -191,9 +191,6 @@ namespace Armada.Core.Models
                 record.ExitCode = result.ExitCode;
                 record.FailureClass = result.FailureClass;
                 record.OutputTail = BoundOutput(result.OutputTail);
-                record.RunnerOutputTruncated = result.RunnerOutputTruncated;
-                record.RunnerOutputOmittedBytes = Math.Max(0, result.RunnerOutputOmittedBytes);
-                record.RunnerOutputIncomplete = result.RunnerOutputIncomplete;
                 record.FailedTestNames = result.FailedTestNames != null
                     ? new List<string>(result.FailedTestNames)
                     : null;
@@ -205,6 +202,13 @@ namespace Armada.Core.Models
                 record.Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Passed;
             }
 
+            if (record.Outcome == DefinitionOfDoneEvaluationOutcomeEnum.Passed
+                || record.Outcome == DefinitionOfDoneEvaluationOutcomeEnum.Failed)
+            {
+                record.RunnerOutputTruncated = result.RunnerOutputTruncated;
+                record.RunnerOutputOmittedBytes = Math.Max(0, result.RunnerOutputOmittedBytes);
+                record.RunnerOutputIncomplete = result.RunnerOutputIncomplete;
+            }
             return record;
         }
 

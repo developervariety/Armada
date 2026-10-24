@@ -706,6 +706,7 @@ namespace Armada.Core.Services
             CancellationToken token)
         {
             string? cleanHead = await ReadCleanHeadAsync(worktreePath, token).ConfigureAwait(false);
+            DefinitionOfDoneResult? vesselPass = null;
 
             if (!String.IsNullOrWhiteSpace(buildCommand))
             {
@@ -714,10 +715,13 @@ namespace Armada.Core.Services
                 if (!buildResult.Passed)
                     return buildResult;
                 await CollectFullPassAsync(mission, "build", buildCommand!, worktreePath, cleanHead, profile, token).ConfigureAwait(false);
+                vesselPass = buildResult;
             }
 
             if (!String.IsNullOrWhiteSpace(testCommand))
             {
+                // A passing build cannot substitute for full test output if only an isolated retry passes.
+                vesselPass = null;
                 // Container pre-flight. Without a runtime, every container-backed fixture fails and the
                 // gate spends its whole timeout proving the environment is missing. When the vessel has
                 // declared a containerless variant, run that instead so the gate still verifies
@@ -739,7 +743,8 @@ namespace Armada.Core.Services
                 testResult = await RetryPostTestStepOnceAsync("vessel", testLabel, effectiveTest, worktreePath, testResult, failedTestLinePattern, profile, token).ConfigureAwait(false);
                 if (testResult.Passed)
                 {
-                    // Only a first-run pass is a full-suite pass; a pass from the isolated re-run below is not.
+                    // This command ran in full; a pass from the isolated re-run below did not.
+                    vesselPass = testResult;
                     await CollectFullPassAsync(mission, testLabel, selectedTest, worktreePath, cleanHead, profile, token).ConfigureAwait(false);
                 }
                 else
@@ -763,9 +768,12 @@ namespace Armada.Core.Services
                 }
             }
 
-            // The vessel's own build and tests pass. That says nothing about the repositories that
-            // compile against it, so verify those before the branch is allowed to land.
-            return await VerifyDeclaredConsumersAsync(mission, worktreePath, token).ConfigureAwait(false);
+            // Keep the last full vessel command's proof only after every required consumer passes.
+            // A consumer failure carries its own output; an isolated test retry supplies no full-suite proof.
+            DefinitionOfDoneResult consumers = await VerifyDeclaredConsumersAsync(mission, worktreePath, token).ConfigureAwait(false);
+            return consumers.Passed && String.IsNullOrEmpty(consumers.SkippedReason) && vesselPass != null
+                ? vesselPass
+                : consumers;
         }
 
         /// <summary>
@@ -2100,7 +2108,11 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + label + " command exited " + exitCode);
 
             if (exitCode == 0)
-                return DefinitionOfDoneResult.Pass();
+            {
+                DefinitionOfDoneResult passed = DefinitionOfDoneResult.Pass();
+                AttachCommandOutput(passed, label + " command output:\n" + combined, result);
+                return passed;
+            }
 
             DefinitionOfDoneFailureClassEnum failureClass = _FailureClassifier.Classify(
                 label,

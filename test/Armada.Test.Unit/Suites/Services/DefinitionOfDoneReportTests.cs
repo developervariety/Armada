@@ -585,7 +585,12 @@ namespace Armada.Test.Unit.Suites.Services
                         "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"CommandLabel\":\"build\",\"SkippedReason\":\"persona\"" + times + "}",
                         "{\"SchemaVersion\":1,\"Outcome\":\"EvaluationError\",\"FailureClass\":\"Infra\"" + times + "}",
                         "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"TimedOut\":true" + times + "}",
-                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"RecoveryAttempts\":-1" + times + "}"
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"RecoveryAttempts\":-1" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"OutputCaptureAvailable\":true" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"RunnerOutputIncomplete\":true" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Skipped\",\"SkippedReason\":\"persona\",\"OutputCaptureUnavailableReason\":\"capture_write_failed\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"NotVerifiable\",\"SkippedReason\":\"no change\",\"OutputCaptureUnavailableReason\":\"capture_write_failed\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Cancelled\",\"SkippedReason\":\"cancelled\",\"OutputCaptureUnavailableReason\":\"capture_write_failed\"" + times + "}"
                     };
                     foreach (string payload in contradictory)
                     {

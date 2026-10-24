@@ -316,8 +316,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Name a combination of outcome and fields that the record writer never produces, or return null. Passed
-        /// carries no skip or failure detail; Skipped, NotVerifiable and Cancelled carry a skipped reason and no failure detail;
-        /// Failed and EvaluationError carry a command label and no skipped reason.
+        /// carries no skip or failure detail but may carry command output. Skipped, NotVerifiable and Cancelled
+        /// carry a skipped reason and no command detail; Failed and EvaluationError carry a command label and no skipped reason.
         /// </summary>
         private static string? FindContradiction(DefinitionOfDoneEvaluationOutcomeEnum outcome, StoredEvaluationPayload stored)
         {
@@ -325,25 +325,28 @@ namespace Armada.Core.Services
                 || stored.ExitCode != null
                 || stored.FailureClass != null
                 || stored.OutputTail != null
-                || stored.OutputCaptureId != null
+                || stored.TimedOut == true;
+            bool hasCaptureDetail = stored.OutputCaptureId != null
                 || stored.OutputCaptureAvailable == true
                 || stored.OutputCaptureUnavailableReason != null
                 || stored.RunnerOutputTruncated == true
                 || stored.RunnerOutputIncomplete == true
-                || (stored.RunnerOutputOmittedBytes ?? 0) > 0
-                || stored.TimedOut == true;
+                || (stored.RunnerOutputOmittedBytes ?? 0) > 0;
 
             switch (outcome)
             {
                 case DefinitionOfDoneEvaluationOutcomeEnum.Passed:
                     if (stored.SkippedReason != null) return "carries a skipped reason";
                     if (hasFailureDetail) return "carries failure details";
+                    if (hasCaptureDetail && stored.OutputCaptureAvailable != true
+                        && String.IsNullOrEmpty(stored.OutputCaptureUnavailableReason))
+                        return "carries output details without an available capture or a named capture failure";
                     return null;
                 case DefinitionOfDoneEvaluationOutcomeEnum.Skipped:
                 case DefinitionOfDoneEvaluationOutcomeEnum.NotVerifiable:
                 case DefinitionOfDoneEvaluationOutcomeEnum.Cancelled:
                     if (String.IsNullOrEmpty(stored.SkippedReason)) return "has no skipped reason";
-                    if (hasFailureDetail) return "carries failure details";
+                    if (hasFailureDetail || hasCaptureDetail) return "carries command details";
                     return null;
                 case DefinitionOfDoneEvaluationOutcomeEnum.Failed:
                 case DefinitionOfDoneEvaluationOutcomeEnum.EvaluationError:
