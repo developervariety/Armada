@@ -12,6 +12,30 @@ upstream integrations and excludes changes already present at that baseline.
   remote writers block replacement and dock reclamation. Confirmed exits are
   delivered through the mission lifecycle before durable acknowledgment.
 
+- Check work selection follows dependency order before update timestamps.
+  Completing earlier stages after landing no longer replaces final-tip passes
+  with checks for an ancestor commit. Supersession also rechecks durable voyage
+  status before changing records, including after waiting for a lane lock.
+
+- A transient dock-provisioning fault on a reassigned root mission no longer
+  strands it. A retryable provisioning failure keeps the mission's committed
+  branch and its retained dock-authority pointer, so the orphan reaper does not
+  reclaim the authority dock before the retry. The orphan reaper also preserves
+  an active dock a pending root mission still claims by exact identity
+  (tenant, vessel, branch), not only by the mission's dock pointer, so a row
+  whose pointer a failed provision cleared is not reaped. A dock no root mission
+  claims is still reclaimed, and a retry-exhausted mission still releases its
+  dock.
+
+- A direct landing recovers a stale integration worktree left at its
+  deterministic per-mission path by an attempt that did not clean up, so the
+  first landing after it recovers and lands instead of failing on an
+  `already exists` path. Only a worktree the landing owns is removed: a path
+  that is not a registered worktree of the landing repository is preserved and
+  named in the failure reason, and per-attempt cleanup removes only a worktree
+  that attempt created. The detached-worktree helper no longer force-removes a
+  path that already existed before its own add.
+
 - Missions routed to a full Harbor wait before dock provisioning with a named
   assignment hold. A capacity race at launch returns to the same wait. Explicit
   runner routing, owner checks and the launch-time capacity limit remain in force.

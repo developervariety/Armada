@@ -69,6 +69,14 @@ The health check itself runs the same way. Each of its sub-steps (quarantine res
 
 Automatic Check discovery has its own server-lifetime heartbeat. It starts after startup repair and triggers the existing Check runner at each heartbeat interval, even while an Admiral health pass awaits completion or landing work. The runner keeps its existing single-flight guard, in-flight bound, eligibility checks and host command locks. Shutdown cancels and joins the heartbeat before database disposal.
 
+The work a Check measures follows the mission dependency chain. An eligible
+descendant takes priority over its ancestors, even when landing reconciliation
+updates an ancestor's timestamp later. Unrelated stages retain timestamp order,
+and split voyages retain their lane boundaries. Supersession reads the stored
+voyage status before changing records and again after waiting for a lane lock;
+a stale live snapshot cannot rearm a terminal voyage's Checks. Required gates
+and genuine later-commit supersession stay unchanged.
+
 The model-endpoint health loop runs beside the heartbeat loop and waits `HeartbeatIntervalSeconds` between sweeps. It reads the interval after each sweep, so a reloaded heartbeat interval applies to these independent loops without a restart.
 
 ## Captain Log Screening

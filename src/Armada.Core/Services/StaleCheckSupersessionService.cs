@@ -70,8 +70,9 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// The mission whose commit a voyage-armed Check should measure: the most recently updated
-        /// stage that has committed to a branch. Null while no stage has produced measurable work.
+        /// The mission whose commit a voyage-armed Check should measure: an eligible dependency
+        /// descendant before its ancestors, then the most recently updated unrelated stage.
+        /// Null while no stage has produced measurable work.
         /// </summary>
         /// <remarks>
         /// This is the one definition of "the work under review" for voyage-armed Checks. The
@@ -83,8 +84,8 @@ namespace Armada.Core.Services
         public static Mission? SelectWorkUnderReview(IEnumerable<Mission>? missions)
         {
             if (missions == null) return null;
-            return missions
-                .Where(mission => mission != null)
+            List<Mission> list = missions.Where(mission => mission != null).ToList();
+            List<Mission> candidates = list
                 .Where(mission => !String.IsNullOrWhiteSpace(mission.BranchName))
                 .Where(mission => !String.IsNullOrWhiteSpace(mission.CommitHash))
                 .Where(mission => mission.Status == MissionStatusEnum.WorkProduced
@@ -92,6 +93,14 @@ namespace Armada.Core.Services
                     || mission.Status == MissionStatusEnum.Testing
                     || mission.Status == MissionStatusEnum.Review
                     || mission.Status == MissionStatusEnum.Complete)
+                .ToList();
+
+            // Completing a landed chain updates predecessors last. Those timestamps record
+            // bookkeeping, not a new branch tip. Follow dependencies through every stage,
+            // including stages without a commit, before applying the legacy time fallback.
+            HashSet<string> ancestors = VoyageLanes.StrictAncestorsOf(list, candidates);
+
+            return candidates.Where(mission => !ancestors.Contains(mission.Id))
                 .OrderByDescending(mission => mission.LastUpdateUtc)
                 .FirstOrDefault();
         }
@@ -261,6 +270,9 @@ namespace Armada.Core.Services
         {
             if (voyage == null) throw new ArgumentNullException(nameof(voyage));
             if (!IsLiveVoyageStatus(voyage.Status)) return 0;
+            Voyage? stored = await _Database.Voyages.ReadAsync(voyage.Id, token).ConfigureAwait(false);
+            if (stored == null || !IsLiveVoyageStatus(stored.Status)) return 0;
+            voyage = stored;
 
             List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
             IReadOnlyList<VoyageLane> lanes = VoyageLanes.Resolve(missions);
@@ -387,6 +399,9 @@ namespace Armada.Core.Services
             await voyageLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
+                Voyage? stored = await _Database.Voyages.ReadAsync(voyage.Id, token).ConfigureAwait(false);
+                if (stored == null || !IsLiveVoyageStatus(stored.Status)) return 0;
+                voyage = stored;
                 EnumerationResult<CheckRun> attached = await _Database.CheckRuns
                     .EnumerateAsync(new CheckRunQuery { TenantId = voyage.TenantId, VoyageId = voyage.Id, PageNumber = 1, PageSize = 200 }, token)
                     .ConfigureAwait(false);

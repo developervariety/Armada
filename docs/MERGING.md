@@ -138,6 +138,29 @@ refuses a move that happens after that check. Evidence always names one
 integration commit, so evidence for one candidate never decides another, also
 after a restart.
 
+### Stale integration worktree recovery (direct landing)
+
+The direct landing's integration worktree lives at a deterministic per-mission
+path. An attempt that does not run its own cleanup -- for example a Check that
+is still running when the admiral restarts and is canceled with no verdict --
+leaves that worktree on disk. Left in place it makes the next `git worktree add`
+refuse with an `already exists` path and fails the landing.
+
+Before it creates the integration worktree, the landing recovers a leftover it
+owns: it prunes worktree registrations whose directories are gone, and when the
+path is still a registered worktree of the landing repository it removes it and
+rebuilds. The integration path is exclusive to one mission's landing and that
+landing is serialized, so a registered worktree there is a finished or
+interrupted attempt of the same landing and is safe to rebuild. The first
+landing after a restart therefore recovers and lands; it does not fail the
+voyage and wait for a second attempt to clear the path.
+
+The recovery removes only a path the landing owns. A path at the integration
+location that is NOT a registered worktree of the landing repository is foreign:
+it is preserved, the landing refuses and names it in the failure reason, and the
+target does not move. Cleanup after an attempt likewise removes only a worktree
+that attempt created, so a preserved path is never deleted on the way out.
+
 ---
 
 ## Thread Safety

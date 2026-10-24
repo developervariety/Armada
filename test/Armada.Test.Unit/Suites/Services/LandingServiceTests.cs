@@ -677,6 +677,144 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A Check still running when the admiral restarts is canceled, and its integration worktree is
+            // left at the deterministic per-mission path. The next landing must recover that leftover and
+            // land in ONE attempt, not fail the whole voyage and rely on a second retry to clear the path.
+            await RunTest("MergeInDedicatedWorktreeAsync_StaleIntegrationWorktreeFromInterruptedAttempt_RecoversAndLands", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_stale_integ_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    string sourceDir = Path.Combine(rootDir, "source");
+                    string bareDir = Path.Combine(rootDir, "bare.git");
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "# test\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    string captainBranch = "armada/captain/msn_stale_integ";
+                    await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "feature.txt"), "feature\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "feature.txt").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Add feature").ConfigureAwait(false);
+                    string captainHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    string mainBefore = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                        Vessel vessel = new Vessel("stale-integ-vessel", sourceDir);
+                        vessel.LocalPath = bareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.LocalMerge;
+                        Mission mission = CreateMission("msn_stale_integ");
+                        mission.CommitHash = captainHead;
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        // The leftover: a registered integration worktree at the deterministic per-mission
+                        // path, as a canceled Check leaves behind. git refuses the next "worktree add" to it.
+                        string integrationPath = IntegrationWorktreePath(settings, mission);
+                        Directory.CreateDirectory(Path.GetDirectoryName(integrationPath)!);
+                        await RunGitAsync(bareDir, "worktree", "add", "--detach", integrationPath, mainBefore).ConfigureAwait(false);
+                        AssertTrue(Directory.Exists(integrationPath), "the stale integration worktree must be present before the landing");
+
+                        LandingService service = new LandingService(CreateLogging(), testDb.Driver, settings, new GitService(CreateLogging()));
+                        bool result = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, mission, "main", captainBranch, "Merge armada mission").ConfigureAwait(false);
+
+                        AssertTrue(result, "the first landing must recover the stale integration worktree and land; failure reason: " + (mission.FailureReason ?? "(none)"));
+                        string mainAfter = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        AssertFalse(String.Equals(mainBefore, mainAfter, StringComparison.Ordinal), "main must advance after the stale worktree is recovered");
+                        await RunGitAsync(bareDir, "merge-base", "--is-ancestor", captainHead, "refs/heads/main").ConfigureAwait(false);
+                        AssertFalse(Directory.Exists(integrationPath), "the integration worktree must be removed after a successful landing");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            // The recovery removes only a worktree this landing owns. A pre-existing path that is NOT a
+            // registered worktree of the landing repository is foreign: it is preserved, the landing refuses,
+            // and the target does not move -- unexpected content at the path is never deleted blindly.
+            await RunTest("MergeInDedicatedWorktreeAsync_PreExistingIntegrationPathNotOwned_IsPreservedAndRefuses", async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_foreign_integ_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    string sourceDir = Path.Combine(rootDir, "source");
+                    string bareDir = Path.Combine(rootDir, "bare.git");
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "# test\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    string captainBranch = "armada/captain/msn_foreign_integ";
+                    await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "feature.txt"), "feature\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "feature.txt").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Add feature").ConfigureAwait(false);
+                    string captainHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    string mainBefore = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                        Vessel vessel = new Vessel("foreign-integ-vessel", sourceDir);
+                        vessel.LocalPath = bareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.LocalMerge;
+                        Mission mission = CreateMission("msn_foreign_integ");
+                        mission.CommitHash = captainHead;
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        // A foreign directory at the integration path: not a worktree of the landing repository.
+                        string integrationPath = IntegrationWorktreePath(settings, mission);
+                        Directory.CreateDirectory(integrationPath);
+                        string foreignFile = Path.Combine(integrationPath, "unique-work.txt");
+                        await File.WriteAllTextAsync(foreignFile, "unique work that must not be deleted\n").ConfigureAwait(false);
+
+                        LandingService service = new LandingService(CreateLogging(), testDb.Driver, settings, new GitService(CreateLogging()));
+                        bool result = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, mission, "main", captainBranch, "Merge armada mission").ConfigureAwait(false);
+
+                        AssertFalse(result, "a pre-existing path the landing does not own must not land");
+                        AssertTrue(Directory.Exists(integrationPath), "an unowned pre-existing path must be preserved, never deleted");
+                        AssertTrue(File.Exists(foreignFile), "the unowned path's contents must be preserved");
+                        Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        string reason = read?.FailureReason ?? String.Empty;
+                        AssertContains("preserved", reason, "the failure reason must say the path was preserved; got: " + reason);
+                        string mainAfter = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        AssertTrue(String.Equals(mainBefore, mainAfter, StringComparison.Ordinal), "the target must not move when the landing refuses");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
             await RunTest("MergeInDedicatedWorktreeAsync_GitRefusesWorktree_FailureReasonNamesBlockingPath", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

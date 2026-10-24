@@ -117,13 +117,43 @@ namespace Armada.Test.Unit
             {
                 Mission worker = new Mission("[Worker] w", "d") { Status = MissionStatusEnum.WorkProduced, BranchName = "b", CommitHash = CommitA, LastUpdateUtc = earlier };
                 Mission tester = new Mission("[TestEngineer] t", "d") { Status = MissionStatusEnum.Complete, BranchName = "b", CommitHash = CommitB, LastUpdateUtc = later };
-                Mission judgePending = new Mission("[Judge] j", "d") { Status = MissionStatusEnum.Pending, BranchName = null, CommitHash = null, LastUpdateUtc = later.AddHours(1) };
+                Mission judgePending = new Mission("[Judge] j", "d") { Persona = "Judge", Status = MissionStatusEnum.Pending, BranchName = null, CommitHash = null, LastUpdateUtc = later.AddHours(1) };
                 Mission failed = new Mission("[Worker] f", "d") { Status = MissionStatusEnum.Failed, BranchName = "b", CommitHash = "cccccccc3333", LastUpdateUtc = later.AddHours(2) };
 
                 Mission? picked = StaleCheckSupersessionService.SelectWorkUnderReview(new[] { worker, tester, judgePending, failed });
                 AssertEqual(CommitB, picked?.CommitHash, "the most recently updated stage with a commit and a live status is the work under review");
                 AssertEqual(null, StaleCheckSupersessionService.SelectWorkUnderReview(new[] { judgePending }), "no committing stage means no work under review");
                 AssertEqual(null, StaleCheckSupersessionService.SelectWorkUnderReview(null), "a null list is handled");
+
+                // Landing completes predecessors backwards. Those bookkeeping writes must not
+                // move the subject back to an earlier commit, even across a report-only stage.
+                Mission bridge = new Mission("[Reviewer] bridge", "d")
+                {
+                    Status = MissionStatusEnum.Complete, DependsOnMissionId = worker.Id,
+                    LastUpdateUtc = later.AddHours(3)
+                };
+                tester.DependsOnMissionId = bridge.Id;
+                judgePending.DependsOnMissionId = tester.Id;
+                worker.Status = MissionStatusEnum.Complete;
+                worker.LastUpdateUtc = later.AddHours(4);
+                worker.CompletedUtc = worker.LastUpdateUtc;
+                foreach (Mission[] chain in new[]
+                {
+                    new[] { worker, bridge, tester, judgePending, failed },
+                    new[] { failed, judgePending, tester, bridge, worker }
+                })
+                {
+                    AssertEqual(tester.Id, StaleCheckSupersessionService.SelectWorkUnderReview(chain)?.Id,
+                        "a dependency descendant outranks an ancestor restamped by landing reconciliation");
+                    AssertEqual(tester.Id, StaleCheckSupersessionService.SelectFinalWorkUnderReview(chain)?.Id,
+                        "final-work admission uses that same descendant across an ineligible intermediate");
+                }
+                // A malformed cycle gives neither member strict precedence. Keep the
+                // existing timestamp choice rather than removing every measurable commit.
+                worker.DependsOnMissionId = tester.Id;
+                tester.DependsOnMissionId = worker.Id;
+                AssertEqual(worker.Id, StaleCheckSupersessionService.SelectWorkUnderReview(new[] { tester, worker })?.Id,
+                    "cyclic dependencies retain timestamp order without losing measurable work");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
@@ -243,7 +273,14 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Voyage voyage = await SeedVoyageAsync(testDb, VoyageStatusEnum.InProgress).ConfigureAwait(false);
-                    await SeedStageAsync(testDb, voyage, "Worker", MissionStatusEnum.WorkProduced, CommitB, later).ConfigureAwait(false);
+                    Mission ancestor = await SeedStageAsync(testDb, voyage, "Worker", MissionStatusEnum.Complete, CommitA, earlier).ConfigureAwait(false);
+                    Mission tip = await SeedStageAsync(testDb, voyage, "TestEngineer", MissionStatusEnum.Complete, CommitB, later).ConfigureAwait(false);
+                    tip.DependsOnMissionId = ancestor.Id;
+                    tip.BranchName = ancestor.BranchName;
+                    await testDb.Driver.Missions.UpdateAsync(tip).ConfigureAwait(false);
+                    ancestor.LastUpdateUtc = later.AddHours(1);
+                    ancestor.CompletedUtc = ancestor.LastUpdateUtc;
+                    await testDb.Driver.Missions.UpdateAsync(ancestor).ConfigureAwait(false);
                     await SeedCheckAsync(testDb, voyage, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, CommitB).ConfigureAwait(false);
 
                     StaleCheckSupersessionService svc = new StaleCheckSupersessionService(testDb.Driver, CreateLogging());
@@ -251,6 +288,10 @@ namespace Armada.Test.Unit
                     List<CheckRun> after = await ReadChecksAsync(testDb, voyage).ConfigureAwait(false);
                     AssertEqual(1, after.Count, "nothing was created");
                     AssertEqual(CheckRunStatusEnum.Passed, after[0].Status, "nothing was canceled");
+                    List<Mission> missions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    VoyageCompletionVerdict verdict = await VoyageCompletionRule.EvaluateAsync(testDb.Driver, voyage, missions).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, verdict.NewStatus,
+                        "a final-tip green still completes the voyage after ancestor bookkeeping writes");
                 }
             }).ConfigureAwait(false);
 
@@ -287,6 +328,26 @@ namespace Armada.Test.Unit
                     AssertEqual(0, await svc.SupersedeForVoyageAsync(voyage).ConfigureAwait(false), "even when asked directly");
                     List<CheckRun> after = await ReadChecksAsync(testDb, voyage).ConfigureAwait(false);
                     AssertEqual(CheckRunStatusEnum.Passed, after[0].Status, "the record is untouched");
+                }
+
+                foreach (VoyageStatusEnum terminal in new[] { VoyageStatusEnum.Complete, VoyageStatusEnum.Failed, VoyageStatusEnum.Cancelled })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    Voyage snapshot = await SeedVoyageAsync(testDb, VoyageStatusEnum.Open).ConfigureAwait(false);
+                    await SeedStageAsync(testDb, snapshot, "Worker", MissionStatusEnum.WorkProduced, CommitA, earlier).ConfigureAwait(false);
+                    await SeedStageAsync(testDb, snapshot, "TestEngineer", MissionStatusEnum.Complete, CommitB, later).ConfigureAwait(false);
+                    await SeedCheckAsync(testDb, snapshot, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, CommitA).ConfigureAwait(false);
+                    Voyage stored = (await testDb.Driver.Voyages.ReadAsync(snapshot.Id).ConfigureAwait(false))!;
+                    stored.Status = terminal;
+                    await testDb.Driver.Voyages.UpdateAsync(stored).ConfigureAwait(false);
+
+                    StaleCheckSupersessionService svc = new StaleCheckSupersessionService(testDb.Driver, CreateLogging());
+                    AssertEqual(VoyageStatusEnum.Open, snapshot.Status, "the caller still holds an old live snapshot");
+                    AssertEqual(0, await svc.SupersedeForVoyageAsync(snapshot).ConfigureAwait(false),
+                        terminal + ": durable terminal status wins over the stale live caller");
+                    List<CheckRun> after = await ReadChecksAsync(testDb, snapshot).ConfigureAwait(false);
+                    AssertEqual(1, after.Count, terminal + ": no replacement was created");
+                    AssertEqual(CheckRunStatusEnum.Passed, after[0].Status, terminal + ": measured history is untouched");
                 }
             }).ConfigureAwait(false);
             // A planner that splits its plan runs one line of work per branch. A green measured on
@@ -361,6 +422,18 @@ namespace Armada.Test.Unit
                 Mission next = LaneStage("msn_next", "msn_g2", 2, 3);
                 AssertEqual(1, VoyageLanes.Resolve(new List<Mission> { plan, groupOne, groupTwo, next }).Count,
                     "members of one parallel stage group are one step of one lane");
+                groupOne.BranchName = groupTwo.BranchName = next.BranchName = "group-branch";
+                groupOne.CommitHash = groupTwo.CommitHash = CommitA;
+                next.CommitHash = CommitB;
+                groupOne.LastUpdateUtc = later.AddHours(4);
+                groupTwo.LastUpdateUtc = later.AddHours(3);
+                next.LastUpdateUtc = earlier;
+                AssertEqual(next.Id, StaleCheckSupersessionService.SelectWorkUnderReview(
+                    new[] { groupOne, next, plan, groupTwo })?.Id,
+                    "a descendant outranks every predecessor in the parallel step, including the unnamed member");
+                AssertEqual(groupOne.Id, StaleCheckSupersessionService.SelectWorkUnderReview(
+                    new[] { groupTwo, plan, groupOne })?.Id,
+                    "parallel peers do not displace one another by dependency order");
 
                 Mission loneOne = LaneStage("msn_l1", null, null, 0);
                 Mission loneTwo = LaneStage("msn_l2", null, null, 1);
@@ -387,6 +460,10 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb, laneATester: true).ConfigureAwait(false);
+                    fx.LaneAWorker.LastUpdateUtc = later.AddHours(1);
+                    await testDb.Driver.Missions.UpdateAsync(fx.LaneAWorker).ConfigureAwait(false);
+                    fx.Architect.LastUpdateUtc = later.AddHours(2);
+                    await testDb.Driver.Missions.UpdateAsync(fx.Architect).ConfigureAwait(false);
                     List<CheckRun> records = new List<CheckRun>
                     {
                         new CheckRun { Id = "chk_lane_a", BranchName = FanOutVoyageFixture.LaneABranch, CommitHash = FanOutVoyageFixture.LaneACommit },

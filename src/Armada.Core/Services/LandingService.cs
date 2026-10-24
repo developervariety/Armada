@@ -441,6 +441,7 @@ namespace Armada.Core.Services
             {
                 bool succeeded = false;
                 bool refusedByValidation = false;
+                bool worktreeCreatedThisAttempt = false;
                 Exception? failure = null;
 
                 try
@@ -458,8 +459,16 @@ namespace Armada.Core.Services
                     if (String.IsNullOrWhiteSpace(targetTip))
                         throw new InvalidOperationException("Unable to resolve target branch " + targetBranch + " in landing repository " + vessel.LocalPath);
 
+                    // A prior attempt the admiral restart interrupted can leave a worktree at the
+                    // deterministic per-mission integration path. Left in place it makes the add below
+                    // refuse with "already exists" and fails the whole landing, so recover a leftover this
+                    // landing owns before creating a fresh one. Only a worktree this landing owns is cleared;
+                    // a path that is not one is preserved, never deleted.
+                    await RecoverOwnedStaleIntegrationWorktreeAsync(vessel.LocalPath, worktreePath, mission.Id, token).ConfigureAwait(false);
+
                     _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch + " at " + targetTip + " attempt " + (mission.LandingRetryCount + 1));
                     await _Git.CreateDetachedWorktreeAtCommitAsync(vessel.LocalPath, worktreePath, targetTip!, token).ConfigureAwait(false);
+                    worktreeCreatedThisAttempt = true;
 
                     // No target branch is passed: the worktree is detached on purpose, and checking the
                     // branch out inside it would hit the same refusal.
@@ -549,23 +558,29 @@ namespace Armada.Core.Services
                 }
                 finally
                 {
-                    try
+                    // Remove only a worktree this attempt created. When the attempt refused a pre-existing
+                    // path it did not own, that path is deliberately preserved, and the prune never touches a
+                    // worktree whose directory is still present, so both leave an unowned path intact.
+                    if (worktreeCreatedThisAttempt)
                     {
-                        await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "removed integration worktree " + worktreePath);
-                    }
-                    catch (Exception removeEx)
-                    {
-                        _Logging.Warn(_Header + "failed to remove integration worktree " + worktreePath + ": " + removeEx.Message);
-                    }
+                        try
+                        {
+                            await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "removed integration worktree " + worktreePath);
+                        }
+                        catch (Exception removeEx)
+                        {
+                            _Logging.Warn(_Header + "failed to remove integration worktree " + worktreePath + ": " + removeEx.Message);
+                        }
 
-                    try
-                    {
-                        await _Git.PruneWorktreesAsync(vessel.LocalPath, token).ConfigureAwait(false);
-                    }
-                    catch (Exception pruneEx)
-                    {
-                        _Logging.Warn(_Header + "failed to prune integration worktrees for " + vessel.LocalPath + ": " + pruneEx.Message);
+                        try
+                        {
+                            await _Git.PruneWorktreesAsync(vessel.LocalPath, token).ConfigureAwait(false);
+                        }
+                        catch (Exception pruneEx)
+                        {
+                            _Logging.Warn(_Header + "failed to prune integration worktrees for " + vessel.LocalPath + ": " + pruneEx.Message);
+                        }
                     }
                 }
 
@@ -1173,6 +1188,39 @@ namespace Armada.Core.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Clears a stale worktree left at the deterministic per-mission integration path by an attempt that
+        /// did not run its own cleanup, so the next integration <c>git worktree add</c> is not refused with
+        /// an "already exists" path.
+        /// </summary>
+        /// <remarks>
+        /// Only a worktree this landing owns is removed. The integration path is exclusive to one mission's
+        /// landing, and that landing is serialized, so a worktree registered to this landing repository at the
+        /// path is a finished or interrupted attempt of this same landing and is safe to rebuild. A path that
+        /// is not a registered worktree of this landing repository is foreign: it is preserved and the caller
+        /// surfaces it, so unexpected content at the path is never deleted blindly.
+        /// </remarks>
+        private async Task RecoverOwnedStaleIntegrationWorktreeAsync(string repoPath, string worktreePath, string missionId, CancellationToken token)
+        {
+            if (!Directory.Exists(worktreePath)) return;
+
+            // Drop registrations whose directories are already gone. A prune never removes a worktree whose
+            // directory is still present, so a leftover (or live) worktree at this path survives it.
+            await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
+            if (!Directory.Exists(worktreePath)) return;
+
+            bool owned = await _Git.IsWorktreeRegisteredAsync(repoPath, worktreePath, token).ConfigureAwait(false);
+            if (!owned)
+                throw new InvalidOperationException("integration worktree path " + worktreePath
+                    + " already exists and is not a worktree of landing repository " + repoPath
+                    + "; it is preserved, not removed. Inspect it for unique work and clear it by hand, then retry the landing.");
+
+            _Logging.Warn(_Header + "recovering a stale integration worktree " + worktreePath
+                + " left by an interrupted landing attempt for mission " + missionId);
+            await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
+            await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
         }
 
         private async Task PersistMissionRetryStateAsync(Mission mission, CancellationToken token)
