@@ -3367,6 +3367,80 @@ namespace Armada.Core.Services
                 + "), consistent with host OOM/resource pressure; mission requeued and retry deferred until resource capacity returns.";
         }
 
+        /// <summary>
+        /// Select the mission failure reason from the tail of a captain's own-runtime log, or null when the
+        /// tail names no provider or genuine-error signal (the caller then records the generic exit reason).
+        /// Pure, testable core of <see cref="BuildProcessExitFailureReasonAsync"/>.
+        ///
+        /// Provider signals are inspected in priority order BEFORE the generic genuine-error pass, because a
+        /// provider failure line is frequently followed by a generic runtime result-error record; scanning the
+        /// generic record first hides the provider signal, and the captain is then released to Idle and
+        /// re-offered the mission it cannot run. A provider SAFEGUARD block is the most specific; a usage or
+        /// quota limit next; a credit or credential rejection next. All three bench the captain and share that
+        /// hazard, so each gets its own early pass. A foreign-runtime or tool activity record never speaks for
+        /// the captain and is skipped in every pass.
+        /// </summary>
+        /// <param name="lines">Mission-log lines, oldest first.</param>
+        /// <param name="ownRuntimeLabel">The captain runtime's activity label, or null when unknown.</param>
+        /// <returns>The selected failure reason, or null when the tail names no signal.</returns>
+        internal static string? SelectProcessExitFailureReason(string[] lines, string? ownRuntimeLabel)
+        {
+            if (lines == null)
+            {
+                return null;
+            }
+
+            string? safeguard = ScanTailForFailureSignal(lines, ownRuntimeLabel, ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal);
+            if (safeguard != null)
+            {
+                return safeguard;
+            }
+
+            string? quota = ScanTailForFailureSignal(lines, ownRuntimeLabel, ProviderQuotaLimitDetector.IsQuotaLimitSignal);
+            if (quota != null)
+            {
+                return quota;
+            }
+
+            // A credit or credential rejection (HTTP 402/401/403, invalid key, billing hold) benches the
+            // captain exactly as a quota limit does, and a later generic result-error record hides it the same
+            // way. Inspect it before the generic pass, or an authentication failure a generic record follows is
+            // scraped as an ordinary failure, the captain is released, and the requeued mission is re-offered to
+            // the same captain whose credential the provider rejects -- a retry loop on a dead captain.
+            string? creditAuth = ScanTailForFailureSignal(lines, ownRuntimeLabel, ProviderQuotaLimitDetector.IsCreditAuthBenchSignal);
+            if (creditAuth != null)
+            {
+                return creditAuth;
+            }
+
+            return ScanTailForFailureSignal(lines, ownRuntimeLabel, IsGenuineErrorSignal);
+        }
+
+        /// <summary>
+        /// Scan the last forty log lines newest-first and return the first line the predicate accepts,
+        /// normalized, skipping blank lines and foreign-runtime or tool activity records. Returns null when no
+        /// line matches.
+        /// </summary>
+        /// <param name="lines">Mission-log lines, oldest first.</param>
+        /// <param name="ownRuntimeLabel">The captain runtime's activity label, or null when unknown.</param>
+        /// <param name="predicate">The signal test applied to each candidate line.</param>
+        /// <returns>The first matching line, normalized, or null when none matches.</returns>
+        private static string? ScanTailForFailureSignal(string[] lines, string? ownRuntimeLabel, Func<string, bool> predicate)
+        {
+            for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 40; i--)
+            {
+                string line = lines[i].Trim();
+                if (String.IsNullOrEmpty(line)) continue;
+                if (IsForeignRuntimeActivityLine(line, ownRuntimeLabel)) continue;
+                if (predicate(line))
+                {
+                    return NormalizeProcessExitFailureReason(line);
+                }
+            }
+
+            return null;
+        }
+
         private async Task<string> BuildProcessExitFailureReasonAsync(string missionId, int? exitCode, AgentRuntimeEnum captainRuntime, CancellationToken token)
         {
             // Telemetry a SUB-TOOL wrote (a tool the captain invoked, e.g. an opencode call made by a
@@ -3382,52 +3456,10 @@ namespace Armada.Core.Services
                 try
                 {
                     string[] lines = await File.ReadAllLinesAsync(logPath, token).ConfigureAwait(false);
-
-                    // Provider SAFEGUARD signal first. The ClaudeCode CLI emits a single
-                    // "rate_limit_event" stream event for several distinct failure modes (true
-                    // usage caps, session resets, and provider safeguards refusals all share the
-                    // same event type), and the runtime renders it as
-                    // "[ARMADA:ACTIVITY] claude rate limit event". That activity tag matches
-                    // IsQuotaLimitSignal via the literal substring "rate limit", so without this
-                    // pass the safeguard matcher never gets a chance to see the real API error
-                    // text further down the log -- the captain is benched as a quota failure and
-                    // the mission is re-routed to a peer that will hit the same safeguard.
-                    // The safeguard bucket is the more specific classification; the quota bucket
-                    // catches everything else. Inspect it before the quota pass below.
-                    for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 40; i--)
+                    string? selected = SelectProcessExitFailureReason(lines, ownRuntimeLabel);
+                    if (selected != null)
                     {
-                        string line = lines[i].Trim();
-                        if (String.IsNullOrEmpty(line)) continue;
-                        if (IsForeignRuntimeActivityLine(line, ownRuntimeLabel)) continue;
-                        if (ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(line))
-                        {
-                            return NormalizeProcessExitFailureReason(line);
-                        }
-                    }
-
-                    // Provider quota text can be followed by a generic runtime result-error
-                    // activity record. Inspect quota signals first so that the generic record
-                    // cannot hide a rate-limit event and release the captain to Idle.
-                    for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 40; i--)
-                    {
-                        string line = lines[i].Trim();
-                        if (String.IsNullOrEmpty(line)) continue;
-                        if (IsForeignRuntimeActivityLine(line, ownRuntimeLabel)) continue;
-                        if (ProviderQuotaLimitDetector.IsQuotaLimitSignal(line))
-                        {
-                            return NormalizeProcessExitFailureReason(line);
-                        }
-                    }
-
-                    for (int i = lines.Length - 1; i >= 0 && i >= lines.Length - 40; i--)
-                    {
-                        string line = lines[i].Trim();
-                        if (String.IsNullOrEmpty(line)) continue;
-                        if (IsForeignRuntimeActivityLine(line, ownRuntimeLabel)) continue;
-                        if (IsGenuineErrorSignal(line))
-                        {
-                            return NormalizeProcessExitFailureReason(line);
-                        }
+                        return selected;
                     }
                 }
                 catch (Exception ex)
