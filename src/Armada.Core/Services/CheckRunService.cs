@@ -1905,9 +1905,6 @@ namespace Armada.Core.Services
                 token.ThrowIfCancellationRequested();
                 throw new OperationCanceledException(token);
             }
-            if (result.TimedOut)
-                throw new TimeoutException("Check command timed out after " + timeout.TotalMinutes.ToString("0") + " minutes.");
-
             string anomalies = BoundedProcessRunner.DescribeAnomalies(result);
             if (anomalies.Length > 0)
                 _Logging.Warn(_Header + "check command output: " + anomalies);
@@ -1915,7 +1912,13 @@ namespace Armada.Core.Services
             string stdout = result.StandardOutput;
             string stderr = result.StandardError;
             string output = CombineOutput(stdout, stderr);
-            int exitCode = result.ExitCode ?? -1;
+            if (result.TimedOut)
+            {
+                string message = "Check command timed out after " + timeout.TotalMinutes.ToString("0") + " minutes.";
+                output = String.IsNullOrWhiteSpace(output) ? message : output + Environment.NewLine + message;
+                if (anomalies.Length > 0) output += Environment.NewLine + "Check command output: " + anomalies;
+            }
+            int exitCode = result.TimedOut ? -1 : result.ExitCode ?? -1;
 
             _Logging.Debug(_Header + "command exited with code " + exitCode + ": " + FirstNonEmptyLine(stderr, stdout));
 
@@ -1923,7 +1926,8 @@ namespace Armada.Core.Services
             {
                 ExitCode = exitCode,
                 Output = output,
-                Truncated = result.Truncated
+                Truncated = result.Truncated,
+                TimedOut = result.TimedOut
             };
         }
 
@@ -2015,6 +2019,8 @@ namespace Armada.Core.Services
             CancellationToken token)
         {
             if (run.Status != CheckRunStatusEnum.Failed || !IsTestCheckType(run.Type)) return;
+            // Failure names captured before a timeout do not describe a completed suite.
+            if (execution.TimedOut) return;
             if (!IsolatedRerunEnabled()) return;
             if (String.IsNullOrWhiteSpace(executionDirectory) || !Directory.Exists(executionDirectory)) return;
 
@@ -2753,6 +2759,7 @@ namespace Armada.Core.Services
             public int ExitCode { get; set; } = -1;
             public string Output { get; set; } = String.Empty;
             public bool Truncated { get; set; } = false;
+            public bool TimedOut { get; set; } = false;
         }
 
         /// <summary>
