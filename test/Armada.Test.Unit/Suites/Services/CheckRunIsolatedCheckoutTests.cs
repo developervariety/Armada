@@ -267,19 +267,24 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(CheckRunStatusEnum.Failed, fractional.Status);
                     AssertEqual(beforeNoRemainder + 1, channel.VerificationCount,
                         "a remote retry with less than one whole second remaining must not start");
-                    foreach (long? unknown in new long?[] { null, -1 })
+                    foreach (bool pending in new[] { false, true })
                     {
-                        channel.FirstDurationMilliseconds = unknown;
-                        int beforeUnknown = channel.VerificationCount;
-                        CheckRun missingTime = await RunBudgetedAsync().ConfigureAwait(false);
-                        AssertEqual(CheckRunStatusEnum.Failed, missingTime.Status,
-                            "a started Harbor command without valid duration cannot establish shared-budget proof");
-                        AssertEqual(beforeUnknown + 1, channel.VerificationCount, "unknown duration cannot fund another retry");
+                        foreach (int firstExit in new[] { 0, 1 })
+                        foreach (long? unknown in new long?[] { null, -1 })
+                        {
+                            channel.FirstExitCode = firstExit;
+                            channel.FirstDurationMilliseconds = unknown;
+                            int beforeUnknown = channel.VerificationCount;
+                            CheckRun missingTime = await RunBudgetedAsync(pending).ConfigureAwait(false);
+                            AssertEqual(CheckRunStatusEnum.Failed, missingTime.Status,
+                                "a started Harbor command without valid duration cannot establish shared-budget proof");
+                            AssertEqual(beforeUnknown + 1, channel.VerificationCount, "unknown duration cannot fund another retry");
+                        }
+                        channel.FirstExitCode = 0;
+                        channel.FirstDurationMilliseconds = 30001;
+                        CheckRun overrun = await RunBudgetedAsync(pending).ConfigureAwait(false);
+                        AssertEqual(CheckRunStatusEnum.Failed, overrun.Status, "an over-budget first command cannot pass either entry point");
                     }
-                    channel.FirstExitCode = 0;
-                    channel.FirstDurationMilliseconds = 30001;
-                    CheckRun overrun = await RunBudgetedAsync().ConfigureAwait(false);
-                    AssertEqual(CheckRunStatusEnum.Failed, overrun.Status, "an over-budget first command cannot pass either");
 
                     profile.GateCommandTimeoutSeconds = 3600;
                     await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
