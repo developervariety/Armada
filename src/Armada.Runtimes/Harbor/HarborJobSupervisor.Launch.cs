@@ -37,6 +37,7 @@ namespace Armada.Runtimes.Harbor
             foreach (string argument in request.Arguments) startInfo.ArgumentList.Add(argument);
             CaptainEnvironmentScrub.Scrub(startInfo.Environment, null);
             foreach (KeyValuePair<string, string> variable in allowed) startInfo.Environment[variable.Key] = variable.Value;
+            ApplyMissionRuntimeConfiguration(startInfo, request, workingDirectory);
             return startInfo;
         }
 

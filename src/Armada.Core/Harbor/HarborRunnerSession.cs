@@ -20,11 +20,15 @@ namespace Armada.Core.Harbor
         /// <summary>UTC time at which this generation was registered.</summary>
         public DateTime ConnectedUtc { get; }
 
-        internal HarborRunnerSession(HarborRunnerIdentity identity, long generation, long enrollmentGeneration)
+        /// <summary>Whether this authenticated connection advertised workspace operations.</summary>
+        public bool HasWorkspaceCapability { get; }
+
+        internal HarborRunnerSession(HarborRunnerIdentity identity, long generation, long enrollmentGeneration, bool hasWorkspaceCapability)
         {
             Identity = identity ?? throw new ArgumentNullException(nameof(identity));
             Generation = generation;
             EnrollmentGeneration = enrollmentGeneration;
+            HasWorkspaceCapability = hasWorkspaceCapability;
             ConnectedUtc = DateTime.UtcNow;
         }
     }

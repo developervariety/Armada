@@ -44,6 +44,7 @@ namespace Armada.Core.Database
             mission.ParentMissionId = row.NullableText("parent_mission_id");
             mission.BranchName = row.NullableText("branch_name");
             mission.DockId = row.NullableText("dock_id");
+            mission.DockProvisionAttemptId = row.NullableText("dock_provision_attempt_id");
             mission.HarborJobId = row.NullableText("harbor_job_id");
             mission.ProcessId = row.NullableInt("process_id");
             mission.ProcessStartedUtc = row.NullableUtc("process_started_utc");
@@ -111,6 +112,7 @@ namespace Armada.Core.Database
                 .Text("parent_mission_id", mission.ParentMissionId)
                 .Text("branch_name", mission.BranchName)
                 .Text("dock_id", mission.DockId)
+                .Text("dock_provision_attempt_id", mission.DockProvisionAttemptId)
                 .Text("harbor_job_id", mission.HarborJobId)
                 .Int("process_id", mission.ProcessId)
                 .Utc("process_started_utc", mission.ProcessStartedUtc)

@@ -17,8 +17,14 @@ namespace Armada.Core.Services
     /// <summary>
     /// Executes structured check runs using workflow profiles and persists the results.
     /// </summary>
-    public class CheckRunService
+    public partial class CheckRunService
     {
+        /// <summary>Settings used to resolve explicit Harbor-owned vessel routes for check runs.</summary>
+        public HarborSettings? HarborSettings { get; set; }
+
+        /// <summary>Owner-bound provider for checks that execute on a configured Harbor host.</summary>
+        public HarborCheckoutService? HarborCheckouts { get; set; }
+
         /// <summary>
         /// Optional callback invoked whenever a check run is created or updated.
         /// </summary>
@@ -362,9 +368,6 @@ namespace Armada.Core.Services
                     : message);
             }
 
-            if (String.IsNullOrWhiteSpace(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
-                throw new InvalidOperationException("This vessel does not have a usable working directory.");
-
             WorkflowProfile? profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
             if (profile == null && String.IsNullOrWhiteSpace(request.CommandOverride))
                 throw new InvalidOperationException("No active workflow profile could be resolved for this vessel.");
@@ -398,6 +401,9 @@ namespace Armada.Core.Services
                 CreatedUtc = DateTime.UtcNow,
                 LastUpdateUtc = DateTime.UtcNow
             };
+            bool harborSelected = await IsHarborCheckSelectedAsync(run, vessel, token).ConfigureAwait(false);
+            if (!harborSelected && (String.IsNullOrWhiteSpace(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory)))
+                throw new InvalidOperationException("This vessel does not have a usable working directory.");
 
             SemaphoreSlim runLock = _PendingRunLocks.GetOrAdd(run.Id, _ => new SemaphoreSlim(1, 1));
             await runLock.WaitAsync(token).ConfigureAwait(false);
@@ -410,6 +416,7 @@ namespace Armada.Core.Services
                 onRecorded?.Invoke(run);
 
                 IsolatedCheckout? isolatedCheckout = null;
+                HarborCheckExecution? harborExecution = null;
                 string executionDirectory = run.WorkingDirectory!;
                 string executionCommand = run.Command;
                 CheckCommandBudget budget = CreateCommandBudget(profile, run.Type);
@@ -427,8 +434,10 @@ namespace Armada.Core.Services
 
                     executionDirectory = run.WorkingDirectory!;
                     executionCommand = run.Command;
+                    if (harborSelected && IsIsolatedCheckoutType(run.Type))
+                        executionCommand = StripNoRestore(run.Command);
 
-                    if (IsIsolatedCheckoutType(run.Type))
+                    if (!harborSelected && IsIsolatedCheckoutType(run.Type))
                     {
                         string? repoSource = ResolveRepoSource(vessel);
                         if (repoSource != null)
@@ -471,9 +480,30 @@ namespace Armada.Core.Services
                         }
                         run = claim.Run;
                         OnCheckRunChanged?.Invoke(run);
-                        Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
-                        execution = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
-                            executionCommand, executionDirectory, timeout, token, commandEnvironment)).ConfigureAwait(false);
+                        harborExecution = await TryRunHarborCheckAsync(run, vessel, profile, executionCommand,
+                            !String.IsNullOrWhiteSpace(request.CommandOverride), budget, token).ConfigureAwait(false);
+                        if (harborSelected && harborExecution == null)
+                            throw new InvalidOperationException("harbor_owned_check_route_lost");
+                        if (harborExecution != null)
+                        {
+                            run.StartedUtc = harborExecution.Result.StartedUtc ?? run.StartedUtc;
+                            execution = new CommandExecutionResult
+                            {
+                                ExitCode = harborExecution.Result.TimedOut || harborExecution.Result.Cancelled
+                                    ? -1 : harborExecution.Result.ExitCode ?? -1,
+                                Output = harborExecution.Output,
+                                Truncated = harborExecution.Result.Truncated
+                            };
+                            if (budget.FailureReason != null) execution.ExitCode = -1;
+                            executionDirectory = harborExecution.WorkingDirectory;
+                            run.WorkingDirectory = executionDirectory;
+                        }
+                        else
+                        {
+                            Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
+                            execution = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
+                                executionCommand, executionDirectory, timeout, token, commandEnvironment)).ConfigureAwait(false);
+                        }
                     }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -492,21 +522,41 @@ namespace Armada.Core.Services
                     };
                 }
 
+                HarborArtifactStage? harborArtifacts = null;
+                if (harborSelected && harborExecution != null)
+                {
+                    try { harborArtifacts = await StageHarborArtifactsAsync(harborExecution, profile?.ExpectedArtifacts, token).ConfigureAwait(false); }
+                    catch (Exception artifactException) when (!(artifactException is OperationCanceledException && token.IsCancellationRequested))
+                    {
+                        execution.ExitCode = -1;
+                        execution.Output += Environment.NewLine + "Harbor artifact retrieval failed: " + artifactException.Message;
+                    }
+                }
                 run.ExitCode = execution.ExitCode;
                 run.Output = execution.Output;
                 run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
 
-                string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
-                run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
+                string artifactDirectory = !harborSelected
+                    ? isolatedCheckout?.Path ?? run.WorkingDirectory ?? String.Empty
+                    : harborArtifacts?.Directory ?? String.Empty;
+                run.Artifacts = !harborSelected
+                    ? CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts)
+                    : harborArtifacts?.Artifacts ?? new List<CheckRunArtifact>();
                 ParseExecutionSummaries(run, artifactDirectory);
                 run.Summary = BuildSummary(run, profile);
-                await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, request.DiffBaseCommit, budget, token).ConfigureAwait(false);
+                if (!harborSelected)
+                    await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, request.DiffBaseCommit, budget, token).ConfigureAwait(false);
+                else if (harborExecution != null)
+                    await ApplyHarborIsolatedRerunAsync(run, profile, execution, executionCommand, harborExecution, budget, token).ConfigureAwait(false);
+
+                await ReleaseHarborCheckDockAsync(run, harborExecution, token).ConfigureAwait(false);
 
                 await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
                 FinishExecutedRun(run, budget);
 
                 run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
                 OnCheckRunChanged?.Invoke(run);
+                harborArtifacts?.Dispose();
                 return run;
             }
             finally
@@ -1163,7 +1213,8 @@ namespace Armada.Core.Services
             WorkflowProfile? profile,
             CancellationToken token)
         {
-            if (String.IsNullOrWhiteSpace(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
+            bool harborSelected = await IsHarborCheckSelectedAsync(run, vessel, token).ConfigureAwait(false);
+            if (!harborSelected && (String.IsNullOrWhiteSpace(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory)))
                 return await CompleteExistingRunAsFailureAsync(run, "This vessel does not have a usable working directory.", token).ConfigureAwait(false);
 
             if (String.IsNullOrWhiteSpace(run.Command))
@@ -1172,6 +1223,7 @@ namespace Armada.Core.Services
             run.WorkingDirectory = vessel.WorkingDirectory;
 
             IsolatedCheckout? isolatedCheckout = null;
+            HarborCheckExecution? harborExecution = null;
             string executionDirectory = run.WorkingDirectory!;
             string executionCommand = run.Command;
             CheckCommandBudget budget = CreateCommandBudget(profile, run.Type);
@@ -1187,11 +1239,13 @@ namespace Armada.Core.Services
                 run = slotRequested;
                 executionDirectory = run.WorkingDirectory!;
                 executionCommand = run.Command;
+                if (harborSelected && IsIsolatedCheckoutType(run.Type))
+                    executionCommand = StripNoRestore(run.Command);
 
                 CheckRun? satisfied = await TryCompleteFromGatePassAsync(run, profile, token).ConfigureAwait(false);
                 if (satisfied != null) return satisfied;
 
-                if (IsIsolatedCheckoutType(run.Type))
+                if (!harborSelected && IsIsolatedCheckoutType(run.Type))
                 {
                     string? repoSource = ResolveRepoSource(vessel);
                     if (repoSource != null)
@@ -1241,9 +1295,29 @@ namespace Armada.Core.Services
                     }
                     run = claim.Run;
                     OnCheckRunChanged?.Invoke(run);
-                    Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
-                    execution = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
-                        executionCommand, executionDirectory, timeout, token, commandEnvironment)).ConfigureAwait(false);
+                    harborExecution = await TryRunHarborCheckAsync(run, vessel, profile, executionCommand, false, budget, token).ConfigureAwait(false);
+                    if (harborSelected && harborExecution == null)
+                        throw new InvalidOperationException("harbor_owned_check_route_lost");
+                    if (harborExecution != null)
+                    {
+                        run.StartedUtc = harborExecution.Result.StartedUtc ?? run.StartedUtc;
+                        execution = new CommandExecutionResult
+                        {
+                            ExitCode = harborExecution.Result.TimedOut || harborExecution.Result.Cancelled
+                                ? -1 : harborExecution.Result.ExitCode ?? -1,
+                            Output = harborExecution.Output,
+                            Truncated = harborExecution.Result.Truncated
+                        };
+                        if (budget.FailureReason != null) execution.ExitCode = -1;
+                        executionDirectory = harborExecution.WorkingDirectory;
+                        run.WorkingDirectory = executionDirectory;
+                    }
+                    else
+                    {
+                        Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
+                        execution = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
+                            executionCommand, executionDirectory, timeout, token, commandEnvironment)).ConfigureAwait(false);
+                    }
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -1266,11 +1340,19 @@ namespace Armada.Core.Services
             run.Output = execution.Output;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
 
-            string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
-            run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
+            string artifactDirectory = harborSelected
+                ? String.Empty : isolatedCheckout?.Path ?? run.WorkingDirectory ?? String.Empty;
+            run.Artifacts = !harborSelected
+                ? CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts)
+                : new List<CheckRunArtifact>();
             ParseExecutionSummaries(run, artifactDirectory);
             run.Summary = BuildSummary(run, profile);
-            await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, null, budget, token).ConfigureAwait(false);
+            if (!harborSelected)
+                await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, null, budget, token).ConfigureAwait(false);
+            else if (harborExecution != null)
+                await ApplyHarborIsolatedRerunAsync(run, profile, execution, executionCommand, harborExecution, budget, token).ConfigureAwait(false);
+
+            await ReleaseHarborCheckDockAsync(run, harborExecution, token).ConfigureAwait(false);
 
             await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
             FinishExecutedRun(run, budget);
@@ -1677,7 +1759,7 @@ namespace Armada.Core.Services
             run.DurationMs ??= 0;
             run.LastUpdateUtc = run.CompletedUtc.Value;
             run.Output = (run.Output ?? String.Empty) + Environment.NewLine + Environment.NewLine
-                + "Check execution timing: command_execution_ms=" + budget.ExecutionMilliseconds
+                + "Check execution timing: command_execution_ms=" + budget.ExecutionMillisecondsText
                 + "; retry_slot_wait_ms=" + budget.RetrySlotWaitMilliseconds
                 + "; " + (budget.Shared ? "shared_execution_budget_ms=" : "per_command_timeout_ms=")
                 + Convert.ToInt64(Math.Ceiling(budget.Limit.TotalMilliseconds));
@@ -1695,9 +1777,46 @@ namespace Armada.Core.Services
             public bool Shared { get; }
             public TimeSpan RetrySlotWait { get; set; }
             public bool Exhausted => Shared && _Execution >= Limit;
+            public string? FailureReason { get; private set; }
             public long ExecutionMilliseconds => Convert.ToInt64(Math.Ceiling(_Execution.TotalMilliseconds));
+            public string ExecutionMillisecondsText => _ExecutionKnown
+                ? ExecutionMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown";
             public long RetrySlotWaitMilliseconds => Convert.ToInt64(Math.Ceiling(RetrySlotWait.TotalMilliseconds));
             private TimeSpan _Execution;
+            private bool _ExecutionKnown = true;
+
+            public int GetRemoteTimeoutSeconds()
+            {
+                if (FailureReason != null) throw new InvalidOperationException(FailureReason);
+                double seconds = (Shared ? Limit - _Execution : Limit).TotalSeconds;
+                // The authenticated runner protocol accepts whole seconds only. Rounding a
+                // shared remainder up could let a new command run past the declared budget.
+                seconds = Shared ? Math.Floor(seconds) : Math.Ceiling(seconds);
+                if (seconds < 1)
+                    throw new InvalidOperationException("Check command timed out: less than one whole second remains in the shared execution budget.");
+                return (int)Math.Min(1800, seconds);
+            }
+
+            public void RecordRemoteExecution(HarborWorkspaceOperationResult result)
+            {
+                if (result.DurationMilliseconds is long milliseconds && milliseconds >= 0)
+                {
+                    try
+                    {
+                        _Execution += TimeSpan.FromMilliseconds(milliseconds);
+                        if (Exhausted) FailureReason = "Check command timed out: shared execution budget exhausted.";
+                        return;
+                    }
+                    catch (OverflowException)
+                    {
+                        // Invalid remote facts cannot become a zero-duration passing command.
+                    }
+                }
+
+                _ExecutionKnown = false;
+                if (Shared && (result.StartedUtc.HasValue || result.ExitCode.HasValue))
+                    FailureReason = "Harbor verification has no valid duration for the shared execution budget.";
+            }
 
             public async Task<CommandExecutionResult> ExecuteAsync(Func<TimeSpan, Task<CommandExecutionResult>> execute)
             {

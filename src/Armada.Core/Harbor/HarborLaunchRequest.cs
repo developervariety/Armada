@@ -1,6 +1,7 @@
 namespace Armada.Core.Harbor
 {
     using System.Collections.Generic;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Server-to-Harbor request to launch a captain process. Carries the fully resolved launch plan the
@@ -21,6 +22,15 @@ namespace Armada.Core.Harbor
         /// Server-issued attempt key retained by the runner for authenticated restart recovery.
         /// </summary>
         public string LaunchKey { get; set; } = string.Empty;
+
+        /// <summary>Durable dock identifier for an explicitly owned checkout launch.</summary>
+        public string? DockId { get; set; }
+
+        /// <summary>Pinned checkout identity; null for existing mapped or local routes.</summary>
+        public HarborCheckoutBinding? CheckoutBinding { get; set; }
+
+        /// <summary>Private mission-scoped runtime configuration; absent for existing mapped launches.</summary>
+        public HarborMissionRuntimeConfiguration? MissionConfiguration { get; set; }
 
         /// <summary>
         /// Runtime identifier (for example "claude", "codex", "opencode").

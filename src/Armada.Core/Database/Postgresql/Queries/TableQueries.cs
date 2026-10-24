@@ -1223,7 +1223,8 @@ $convert$;"),
                 new SchemaMigration(126, "Add preserved_run_output column to missions so an in-place Judge re-run keeps the prior run's review output and verdict",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS preserved_run_output TEXT;"
                 ),
-                new SchemaMigration(127, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.PostgresqlStatements)
+                new SchemaMigration(127, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.PostgresqlStatements),
+                new SchemaMigration(128, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.PostgresqlStatements)
             };
         }
 

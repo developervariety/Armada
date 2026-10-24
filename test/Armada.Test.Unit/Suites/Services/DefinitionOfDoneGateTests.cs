@@ -1615,6 +1615,56 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Harbor-owned gate does not fall back to an Admiral-local working directory", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string localDirectory = CreateTempDir();
+                string localMarker = Path.Combine(localDirectory, "local-gate-ran.txt");
+                try
+                {
+                    string command = OperatingSystem.IsWindows()
+                        ? "echo LOCAL_GATE_RAN>" + localMarker
+                        : "printf LOCAL_GATE_RAN > '" + localMarker + "'";
+                    await EnsureVesselWithProfileAsync(testDb, "ten_harbor_gate", "vsl_harbor_gate",
+                        localDirectory, command, command).ConfigureAwait(false);
+                    HarborSettings harborSettings = new HarborSettings
+                    {
+                        Enabled = true,
+                        MissionRoutes = new List<HarborMissionRoute>
+                        {
+                            new HarborMissionRoute
+                            {
+                                VesselId = "vsl_harbor_gate",
+                                RunnerId = "runner-harbor-gate",
+                                RepositoryGrantId = "grant-harbor-gate",
+                                CheckoutMode = HarborCheckoutModeEnum.HarborOwned
+                            }
+                        }
+                    };
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver, logging)
+                    {
+                        HarborSettings = harborSettings
+                    };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        CreateWorkerMission("ten_harbor_gate", "vsl_harbor_gate"),
+                        new Dock { WorktreePath = "harbor:/dock/missing" }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "an owned route without its bound remote checkout cannot pass through local commands");
+                    AssertEqual(DefinitionOfDoneFailureClassEnum.Infra, result.FailureClass, "missing remote ownership is an infrastructure failure");
+                    AssertContains("harbor_owned_gate_binding_missing", result.OutputTail ?? String.Empty,
+                        "the refusal gives the operator a stable reason");
+                    AssertFalse(File.Exists(localMarker), "the local profile command never runs for an owned route");
+                }
+                finally
+                {
+                    TryDeleteDirectory(localDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate runs (does not skip) for a persona explicitly listed in AppliedPersonas", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

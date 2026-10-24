@@ -54,9 +54,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, active, created_utc, last_update_utc, git_anchors_json)
-                        VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @active, @created_utc, @last_update_utc, @git_anchors_json);";
+                    cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, active, created_utc, last_update_utc, git_anchors_json, host_checkout_json, provision_attempt_id, host_checkout_lifecycle_json)
+                        VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @active, @created_utc, @last_update_utc, @git_anchors_json, @host_checkout_json, @provision_attempt_id, @host_checkout_lifecycle_json);";
                     DockGitAnchorPersistence.Add(cmd, dock);
+                    HarborCheckoutBindingPersistence.Add(cmd, dock);
+                    HarborCheckoutLifecyclePersistence.Add(cmd, dock);
                     DockColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "docks"), dock);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }

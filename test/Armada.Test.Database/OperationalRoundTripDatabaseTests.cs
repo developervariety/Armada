@@ -9,6 +9,7 @@ namespace Armada.Test.Database
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Settings;
 
@@ -17,7 +18,7 @@ namespace Armada.Test.Database
     /// non-default value, read back through the same driver and through a freshly opened driver, and compared
     /// value by value, with every timestamp required to read back as the same UTC instant.
     /// </summary>
-    internal sealed class OperationalRoundTripDatabaseTests
+    internal sealed partial class OperationalRoundTripDatabaseTests
     {
         private readonly DatabaseDriver _Driver;
         private readonly DatabaseSettings _Settings;
@@ -1657,37 +1658,108 @@ namespace Armada.Test.Database
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             string? dockId = null;
+            string? legacyDockId = null;
             try
             {
                 DeliveryGraph graph = await CreateDeliveryGraphAsync(fixture, "dock-round-trip", token).ConfigureAwait(false);
+                string suffix = Guid.NewGuid().ToString("N");
+                HarborCheckoutBinding binding = new HarborCheckoutBinding
+                {
+                    RunnerId = "runner-dock-" + suffix,
+                    EnrollmentGeneration = 3,
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    RepositoryGrantId = "grant-dock-" + suffix,
+                    RepositoryFingerprint = new string('a', 64),
+                    CheckoutId = "hco_" + suffix,
+                    BaseCommit = new string('b', 40),
+                    BranchName = "armada/round-trip",
+                    Revision = "revision-dock-" + suffix
+                };
+                string provisionAttemptId = "mission-attempt-" + suffix;
                 Dock dock = new Dock
                 {
                     TenantId = graph.Tenant.Id,
                     UserId = graph.User.Id,
                     VesselId = graph.Vessel.Id,
                     CaptainId = graph.Captain.Id,
-                    WorktreePath = "docks/round-trip ユニコード",
+                    WorktreePath = null,
                     BranchName = "armada/round-trip",
                     Active = false,
+                    ProvisionAttemptId = provisionAttemptId,
+                    HostCheckout = binding,
                     CreatedUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560)
                 };
+                dock.WorktreePath = HarborCheckoutAddress.ForDock(dock.Id);
                 Dock created = await _Driver.Docks.CreateAsync(dock, token).ConfigureAwait(false);
                 dockId = created.Id;
                 DatabaseAssert.AllProperties(created, await _Driver.Docks.ReadAsync(created.Id, token).ConfigureAwait(false), "Dock");
                 DatabaseAssert.AllProperties(created, await _Driver.Docks.ReadAsync(graph.Tenant.Id, graph.User.Id, created.Id, token).ConfigureAwait(false), "Dock by tenant and user");
+                DatabaseAssert.Equal(created.Id, DatabaseAssert.NotNull(await _Driver.Docks.ReadByProvisionAttemptAsync(provisionAttemptId, token).ConfigureAwait(false),
+                    "Dock is found by its unique durable provision attempt").Id, "attempt lookup returns the exact dock");
+
+                Dock legacyDock = await _Driver.Docks.CreateAsync(new Dock
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    WorktreePath = "docks/round-trip ユニコード",
+                    BranchName = "legacy/round-trip"
+                }, token).ConfigureAwait(false);
+                legacyDockId = legacyDock.Id;
+                using (DatabaseDriver legacyReopen = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Dock persistedLegacy = DatabaseAssert.NotNull(await legacyReopen.Docks.ReadAsync(legacyDock.Id, token).ConfigureAwait(false), "Legacy Dock reopens");
+                    DatabaseAssert.True(persistedLegacy.HostCheckout == null && persistedLegacy.HostCheckoutLifecycle == null
+                        && persistedLegacy.ProvisionAttemptId == null, "legacy local docks preserve SQL NULL ownership and lifecycle fields");
+                    DatabaseAssert.Equal("docks/round-trip ユニコード", persistedLegacy.WorktreePath,
+                        "the provider still round-trips the existing Unicode local path contract");
+                }
+
+                Dock duplicate = new Dock
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    ProvisionAttemptId = provisionAttemptId,
+                    HostCheckout = binding
+                };
+                bool duplicateRejected = false;
+                try { await _Driver.Docks.CreateAsync(duplicate, token).ConfigureAwait(false); }
+                catch (Exception exception) when (!(exception is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    duplicateRejected = true;
+                }
+                DatabaseAssert.True(duplicateRejected, "the provider unique index refuses a second dock for the same attempt");
+
+                await VerifyDockLifecyclePersistenceAsync(created, binding, suffix, token).ConfigureAwait(false);
+                await VerifyPostReclaimDeleteIntentAsync(created, binding, suffix, token).ConfigureAwait(false);
 
                 created.CaptainId = null;
                 created.WorktreePath = null;
                 created.BranchName = null;
                 created.Active = true;
+                created.HostCheckout = null;
+                created.ProvisionAttemptId = null;
                 Dock updated = await _Driver.Docks.UpdateAsync(created, token).ConfigureAwait(false);
                 using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
                 {
-                    DatabaseAssert.AllProperties(updated, await reopened.Docks.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Dock");
+                    Dock persisted = DatabaseAssert.NotNull(await reopened.Docks.ReadAsync(created.Id, token).ConfigureAwait(false), "Reopened Dock");
+                    DatabaseAssert.Equal(binding.CheckoutId, DatabaseAssert.NotNull(persisted.HostCheckout, "Generic update cannot clear remote binding into local fallback").CheckoutId,
+                        "Dock retains the exact runner identity after generic update");
+                    DatabaseAssert.Equal(provisionAttemptId, persisted.ProvisionAttemptId, "Dock retains its durable attempt after generic update");
+                    DatabaseAssert.Equal(HarborCheckoutLifecyclePhaseEnum.Prepared, DatabaseAssert.NotNull(persisted.HostCheckoutLifecycle,
+                        "Generic update preserves the next deletion intent").Phase, "prepared delete intent survives generic update and reopen");
+                    DatabaseAssert.True(persisted.HostCheckoutLifecycle!.CheckoutAlreadyRemoved,
+                        "post-reclaim delete intent retains the durable already-removed receipt");
+                    DatabaseAssert.Equal(new string('c', 40), persisted.HostCheckoutLifecycle.AnchoredHead,
+                        "the next cleanup intent retains the pinned snapshot head after the worktree is removed");
+                    DatabaseAssert.Equal(updated.Active, persisted.Active, "ordinary dock fields still update");
                 }
             }
             finally
             {
+                if (legacyDockId != null && !_NoCleanup) await _Driver.Docks.DeleteAsync(legacyDockId, token).ConfigureAwait(false);
                 if (dockId != null && !_NoCleanup) await _Driver.Docks.DeleteAsync(dockId, token).ConfigureAwait(false);
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }

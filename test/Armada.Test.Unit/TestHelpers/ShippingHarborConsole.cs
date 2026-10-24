@@ -31,8 +31,9 @@ namespace Armada.Test.Unit.TestHelpers
         /// <param name="root">Fixture directory retained across console restarts.</param>
         /// <param name="linkUri">Authenticated test Admiral endpoint.</param>
         /// <param name="credential">Credential enrolled for the test runner.</param>
+        /// <param name="configure">Optional runner-owned repository grants and storage settings.</param>
         /// <param name="ownsJournalJobs">Whether this fixture owns cleanup of retained jobs; false for an expected duplicate console.</param>
-        public ShippingHarborConsole(string root, string linkUri, string credential, bool ownsJournalJobs = true)
+        public ShippingHarborConsole(string root, string linkUri, string credential, bool ownsJournalJobs = true, Action<HarborRunnerSettings>? configure = null)
         {
             _OwnsJournalJobs = ownsJournalJobs;
             Directory.CreateDirectory(root);
@@ -49,6 +50,7 @@ namespace Armada.Test.Unit.TestHelpers
                     Commands = new Dictionary<string, string> { ["fixture"] = DotnetHost() }
                 }
             };
+            configure?.Invoke(Settings);
             Journal = new HarborJobJournal(Settings.Supervisor);
             string config = Path.Combine(root, "runner.json");
             File.WriteAllText(config, JsonSerializer.Serialize(Settings));

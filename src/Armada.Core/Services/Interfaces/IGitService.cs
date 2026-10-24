@@ -89,6 +89,32 @@ namespace Armada.Core.Services.Interfaces
         Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, CancellationToken token = default);
 
         /// <summary>
+        /// Create a pull request with an explicit base branch. Existing implementations
+        /// remain source compatible and fail closed until they support this operation.
+        /// </summary>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="title">PR title.</param>
+        /// <param name="body">PR body.</param>
+        /// <param name="baseBranch">Target branch for the PR.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, string baseBranch, CancellationToken token = default)
+        {
+            throw new NotSupportedException("explicit_pull_request_base_not_supported");
+        }
+
+        /// <summary>Create a pull request with explicit head and base branches.</summary>
+        /// <param name="worktreePath">Path to the repository or checkout.</param>
+        /// <param name="title">PR title.</param>
+        /// <param name="body">PR body.</param>
+        /// <param name="headBranch">Source branch for the PR.</param>
+        /// <param name="baseBranch">Target branch for the PR.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, string headBranch, string baseBranch, CancellationToken token = default)
+        {
+            throw new NotSupportedException("explicit_pull_request_branches_not_supported");
+        }
+
+        /// <summary>
         /// Repair a worktree by resetting it to a clean state.
         /// </summary>
         /// <param name="worktreePath">Path to the worktree.</param>

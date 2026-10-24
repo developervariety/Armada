@@ -17,6 +17,28 @@ namespace Armada.Core.Database.Interfaces
         /// </summary>
         Task<Dock?> ReadAsync(string id, CancellationToken token = default);
 
+        /// <summary>Read the unique dock provisioning intent for a stable assignment attempt.</summary>
+        /// <param name="provisionAttemptId">Globally unique durable provisioning attempt.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The existing dock, or null when the attempt has not been recorded.</returns>
+        Task<Dock?> ReadByProvisionAttemptAsync(string provisionAttemptId, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Dock provisioning attempt lookup is not implemented by this database.");
+        }
+
+        /// <summary>Compare-and-set one durable Harbor lifecycle intent on a dock.</summary>
+        /// <param name="dockId">Dock identity.</param>
+        /// <param name="expectedBindingJson">Exact serialized checkout identity that authorizes the write.</param>
+        /// <param name="expected">Expected prior phase, or null to create the intent.</param>
+        /// <param name="next">Next immutable intent identity and phase.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when this call wrote the next phase.</returns>
+        Task<bool> TryWriteHarborLifecycleIntentAsync(string dockId, string expectedBindingJson,
+            HarborCheckoutLifecycleIntent? expected, HarborCheckoutLifecycleIntent next, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Harbor checkout lifecycle compare-and-set is not implemented by this database.");
+        }
+
         /// <summary>
         /// Update a dock.
         /// </summary>

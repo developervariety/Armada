@@ -1,9 +1,12 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Test.Unit.TestHelpers;
     using Armada.Test.Common;
@@ -22,6 +25,58 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("CreatePullRequestAsync_WithExplicitBase_PassesTheTargetBranchToTheConfiguredService", async () =>
+            {
+                string repository = Path.Combine(Path.GetTempPath(), "armada-pr-base-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    SeedTemplateRepository(repository);
+                    await RunGitAsync(repository, "remote", "add", "origin", "https://github.com/armada-tests/pr-base.git").ConfigureAwait(false);
+                    CapturingPullRequestService pullRequests = new CapturingPullRequestService();
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    GitService service = new GitService(logging, (platform, workingDirectory) =>
+                    {
+                        AssertEqual(PullRequestPlatform.GitHub, platform);
+                        AssertEqual(repository, workingDirectory);
+                        return pullRequests;
+                    });
+
+                    string url = await service.CreatePullRequestAsync(repository, "chained mission", "details", "feature/accepted-base").ConfigureAwait(false);
+
+                    AssertEqual("https://example.invalid/pr/1", url);
+                    AssertEqual("main", pullRequests.Branch);
+                    AssertEqual("feature/accepted-base", pullRequests.BaseBranch);
+                    AssertEqual("chained mission", pullRequests.Title);
+                    AssertEqual("details", pullRequests.Body);
+
+                    await RunGitAsync(repository, "checkout", "--detach", "HEAD").ConfigureAwait(false);
+                    await service.CreatePullRequestAsync(repository, "detached integration", "details", "armada/mission/123", "feature/accepted-base").ConfigureAwait(false);
+                    AssertEqual("armada/mission/123", pullRequests.Branch, "a detached integration checkout uses the durable mission branch as its PR head");
+                    AssertEqual("feature/accepted-base", pullRequests.BaseBranch);
+                }
+                finally
+                {
+                    if (Directory.Exists(repository)) Directory.Delete(repository, true);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("HostAwareGitService_CreatePullRequestAsync_ForwardsTheExplicitBaseAsTypedHarborInput", async () =>
+            {
+                RecordingHarborGit harbor = new RecordingHarborGit();
+                HostAwareGitService service = new HostAwareGitService(CreateService(), harbor);
+                string address = HarborCheckoutAddress.ForDock("dck_0123456789abcdef0123456789abcdef");
+
+                string url = await service.CreatePullRequestAsync(address, "chained mission", "details", "armada/mission/123", "feature/accepted-base").ConfigureAwait(false);
+
+                AssertEqual("https://example.invalid/pr/2", url);
+                AssertEqual(HarborGitOperationEnum.CreatePullRequest, harbor.Request?.Operation);
+                AssertEqual("armada/mission/123", harbor.Request?.BranchName);
+                AssertEqual("feature/accepted-base", harbor.Request?.BaseBranch);
+                AssertEqual("chained mission", harbor.Request?.Title);
+                AssertEqual("details", harbor.Request?.Body);
+            }).ConfigureAwait(false);
+
             await RunTest("Ref deletion refuses recovery and user branches before git runs", async () =>
             {
                 GitService service = CreateService();
@@ -2351,6 +2406,39 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             return stdout;
+        }
+
+        private sealed class CapturingPullRequestService : IPullRequestService
+        {
+            public string? Branch { get; private set; }
+            public string? BaseBranch { get; private set; }
+            public string? Title { get; private set; }
+            public string? Body { get; private set; }
+
+            public Task<string> CreateAsync(string branch, string baseBranch, string title, string body, CancellationToken token = default)
+            {
+                Branch = branch;
+                BaseBranch = baseBranch;
+                Title = title;
+                Body = body;
+                return Task.FromResult("https://example.invalid/pr/1");
+            }
+
+            public Task<bool> IsMergedAsync(string prUrl, CancellationToken token = default)
+            {
+                return Task.FromResult(false);
+            }
+        }
+
+        private sealed class RecordingHarborGit : IHarborCheckoutOperations
+        {
+            public HarborGitOperationRequest? Request { get; private set; }
+
+            public Task<HarborGitOperationResult> ExecuteGitAsync(string address, HarborGitOperationRequest request, CancellationToken token = default)
+            {
+                Request = request;
+                return Task.FromResult(new HarborGitOperationResult { Text = "https://example.invalid/pr/2" });
+            }
         }
     }
 }

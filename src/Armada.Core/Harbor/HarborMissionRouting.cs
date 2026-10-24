@@ -2,6 +2,7 @@ namespace Armada.Core.Harbor
 {
     using System;
     using System.IO;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -36,23 +37,62 @@ namespace Armada.Core.Harbor
         public static HarborMissionRoute? Resolve(HarborSettings? settings, Captain captain, Mission mission)
         {
             if (settings == null || !settings.Enabled || settings.MissionRoutes == null) return null;
-            if (captain == null || mission == null) return null;
+            return ResolveConfigured(settings, captain, mission);
+        }
 
+        /// <summary>Resolve configured ownership even when Harbor is disabled, so owned routes can fail closed.</summary>
+        /// <param name="settings">Harbor settings.</param>
+        /// <param name="captain">Captain being launched.</param>
+        /// <param name="mission">Mission being launched.</param>
+        /// <returns>The configured route, regardless of service availability.</returns>
+        public static HarborMissionRoute? ResolveConfigured(HarborSettings? settings, Captain captain, Mission mission)
+        {
+            return mission == null ? null : ResolveConfiguredForCaptain(settings, captain, mission.VesselId);
+        }
+
+        /// <summary>Resolve configured ownership before a dock has a stored mission.</summary>
+        /// <param name="settings">Harbor route settings.</param>
+        /// <param name="captain">Captain whose explicit route takes precedence.</param>
+        /// <param name="vesselId">Repository being provisioned.</param>
+        /// <returns>The selected route, including while Harbor is disabled.</returns>
+        public static HarborMissionRoute? ResolveConfiguredForCaptain(HarborSettings? settings, Captain captain, string? vesselId)
+        {
+            if (settings?.MissionRoutes == null || captain == null) return null;
             HarborMissionRoute? vesselRoute = null;
             foreach (HarborMissionRoute route in settings.MissionRoutes)
             {
-                if (route == null || String.IsNullOrWhiteSpace(route.RunnerId)) continue;
+                if (route == null) continue;
                 if (!String.IsNullOrWhiteSpace(route.CaptainId))
                 {
-                    if (String.Equals(route.CaptainId.Trim(), captain.Id, StringComparison.Ordinal)) return route;
+                    if (String.Equals(route.CaptainId.Trim(), captain.Id, StringComparison.Ordinal)
+                        && (route.CheckoutMode == HarborCheckoutModeEnum.HarborOwned || !String.IsNullOrWhiteSpace(route.RunnerId)))
+                        return route;
                     continue;
                 }
                 if (vesselRoute == null
                     && !String.IsNullOrWhiteSpace(route.VesselId)
-                    && String.Equals(route.VesselId.Trim(), mission.VesselId, StringComparison.Ordinal))
+                    && String.Equals(route.VesselId.Trim(), vesselId, StringComparison.Ordinal)
+                    && (route.CheckoutMode == HarborCheckoutModeEnum.HarborOwned || !String.IsNullOrWhiteSpace(route.RunnerId)))
                     vesselRoute = route;
             }
             return vesselRoute;
+        }
+
+        /// <summary>Resolve an explicit vessel route, without applying captain-specific overrides.</summary>
+        /// <param name="settings">Harbor settings.</param>
+        /// <param name="vesselId">Vessel identifier.</param>
+        /// <returns>The configured route for the vessel, including while Harbor is disabled.</returns>
+        public static HarborMissionRoute? ResolveConfiguredForVessel(HarborSettings? settings, string? vesselId)
+        {
+            if (settings?.MissionRoutes == null || String.IsNullOrWhiteSpace(vesselId)) return null;
+            foreach (HarborMissionRoute route in settings.MissionRoutes)
+            {
+                if (route != null && String.IsNullOrWhiteSpace(route.CaptainId)
+                    && (route.CheckoutMode == HarborCheckoutModeEnum.HarborOwned || !String.IsNullOrWhiteSpace(route.RunnerId))
+                    && String.Equals(route.VesselId?.Trim(), vesselId, StringComparison.Ordinal))
+                    return route;
+            }
+            return null;
         }
 
         /// <summary>Map the Admiral's dock path to the path the runner uses.</summary>

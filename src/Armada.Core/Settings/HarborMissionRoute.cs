@@ -1,10 +1,11 @@
 namespace Armada.Core.Settings
 {
     using System;
+    using Armada.Core.Enums;
 
     /// <summary>
-    /// Opts one captain or one vessel into running its missions on one named Harbor runner. Nothing routes to a
-    /// runner without a matching route, and a route has no effect while Harbor is disabled.
+    /// Opts one captain or one vessel into running its missions on one named Harbor runner. Existing routes keep
+    /// process-only checkout ownership. A Harbor-owned checkout route holds while Harbor is disabled.
     /// </summary>
     public class HarborMissionRoute
     {
@@ -12,6 +13,12 @@ namespace Armada.Core.Settings
 
         /// <summary>Runner that runs the matching missions. A route without a runner matches nothing.</summary>
         public string RunnerId { get; set; } = String.Empty;
+
+        /// <summary>Checkout owner. Existing routes remain process-only unless HarborOwned is selected.</summary>
+        public HarborCheckoutModeEnum CheckoutMode { get; set; } = HarborCheckoutModeEnum.ProcessOnly;
+
+        /// <summary>Configured runner repository grant used by a Harbor-owned checkout.</summary>
+        public string? RepositoryGrantId { get; set; } = null;
 
         /// <summary>Captain whose missions run on the runner. A captain route takes precedence over a vessel route.</summary>
         public string? CaptainId { get; set; } = null;

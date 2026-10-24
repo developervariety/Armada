@@ -1,6 +1,7 @@
 namespace Armada.Core.Harbor
 {
     using System;
+    using Armada.Core.Models;
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
@@ -25,6 +26,9 @@ namespace Armada.Core.Harbor
         /// <summary>Dock that owns the mission attempt.</summary>
         public string? DockId { get; set; } = null;
 
+        /// <summary>Pinned owned checkout, or null for existing mapped process routes.</summary>
+        public HarborCheckoutBinding? CheckoutBinding { get; set; }
+
         /// <summary>Mission owner tenant. It must be the runner's enrolled tenant.</summary>
         public string OwnerTenantId { get; set; } = String.Empty;
 
@@ -47,6 +51,12 @@ namespace Armada.Core.Harbor
 
         /// <summary>Launch plan the runtime built. Set by the runtime before the host is called.</summary>
         public HarborLaunchRequest? Request { get; set; } = null;
+
+        /// <summary>Private mission-scoped runtime configuration; absent for existing mapped launches.</summary>
+        public HarborMissionRuntimeConfiguration? MissionConfiguration { get; set; }
+
+        /// <summary>Admiral-local final reply artifact populated from the authenticated output stream, never sent to Harbor.</summary>
+        public string? LocalFinalMessageFilePath { get; set; }
 
         /// <summary>Durably bind the created Harbor job to the exact mission attempt before the runner receives it.</summary>
         public Func<HarborJobSnapshot, CancellationToken, Task<bool>>? OnRecorded { get; set; } = null;

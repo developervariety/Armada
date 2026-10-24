@@ -19,6 +19,9 @@ namespace Armada.Runtimes.Harbor
             if (request == null) throw new ArgumentNullException(nameof(request));
             ValidateJobId(request.JobId);
             ValidateLaunchKey(request.LaunchKey);
+            if ((request.CheckoutBinding == null) != String.IsNullOrWhiteSpace(request.DockId)
+                || request.CheckoutBinding != null && !request.CheckoutBinding.IsComplete)
+                throw Failure("checkout_launch_binding_incomplete", "Checkout launch identity must include one complete dock binding.");
             lock (_Sync)
             {
                 using (FileStream admission = AcquireAdmissionLock())
@@ -41,6 +44,9 @@ namespace Armada.Runtimes.Harbor
                     {
                         JobId = request.JobId,
                         LaunchKey = request.LaunchKey,
+                        DockId = request.DockId,
+                        CheckoutId = request.CheckoutBinding?.CheckoutId,
+                        CheckoutRevision = request.CheckoutBinding?.Revision,
                         SupervisorProcessId = Environment.ProcessId,
                         SupervisorStartedUtc = supervisorStartedUtc,
                         SupervisorLinuxStartTicks = supervisorIdentity?.StartTicks,

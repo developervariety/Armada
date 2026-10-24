@@ -32,6 +32,9 @@ namespace Armada.Core.Models
         /// </summary>
         public string? UserId { get; set; } = null;
 
+        /// <summary>Stable assignment attempt that owns this dock provisioning intent; null for legacy docks.</summary>
+        public string? ProvisionAttemptId { get; set; } = null;
+
         /// <summary>
         /// Vessel identifier this dock is for.
         /// </summary>
@@ -51,9 +54,15 @@ namespace Armada.Core.Models
         public string? CaptainId { get; set; } = null;
 
         /// <summary>
-        /// Local filesystem path to the worktree.
+        /// Local filesystem path, or an opaque Harbor address when HostCheckout is present.
         /// </summary>
         public string? WorktreePath { get; set; } = null;
+
+        /// <summary>Durable Harbor-owned checkout identity. A non-null incomplete binding must fail closed.</summary>
+        public HarborCheckoutBinding? HostCheckout { get; set; }
+
+        /// <summary>Durable in-progress Harbor lifecycle intent with pinned head and replay phase.</summary>
+        public HarborCheckoutLifecycleIntent? HostCheckoutLifecycle { get; set; }
 
         /// <summary>
         /// Branch name checked out in this worktree.

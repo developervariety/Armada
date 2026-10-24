@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Text.Json.Serialization;
     using System.Collections.Generic;
 
     /// <summary>
@@ -42,24 +43,31 @@ namespace Armada.Core.Models
         public const string PathLimitCode = "path_limit";
 
         /// <summary>True when the comparison was read.</summary>
+        [JsonInclude]
         public bool Available { get; private set; } = false;
 
         /// <summary>True when <see cref="Entries"/> holds every changed path.</summary>
+        [JsonInclude]
         public bool Complete { get; private set; } = false;
 
         /// <summary>Changed paths in the order git prints them. Empty when <see cref="Available"/> is false.</summary>
+        [JsonInclude]
         public IReadOnlyList<ChangedPathEntry> Entries { get; private set; } = Array.Empty<ChangedPathEntry>();
 
         /// <summary>Number of changed paths git reported, when the read was available; null otherwise.</summary>
+        [JsonInclude]
         public int? TotalCount { get; private set; } = null;
 
         /// <summary>Why the read failed, as one of the codes on this type; null when available.</summary>
+        [JsonInclude]
         public string? FailureCode { get; private set; } = null;
 
         /// <summary>Why the read is incomplete, as one of the codes on this type; null when complete or unavailable.</summary>
+        [JsonInclude]
         public string? IncompleteReason { get; private set; } = null;
 
         /// <summary>A short explanation of the failure or the bound; null when complete.</summary>
+        [JsonInclude]
         public string? Message { get; private set; } = null;
 
         #endregion

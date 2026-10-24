@@ -76,6 +76,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainDatabaseTests());
             runner.AddSuite(new MissionDatabaseTests());
             runner.AddSuite(new MissionAssignmentStatePersistenceTests());
+            runner.AddSuite(new DockHostCheckoutPersistenceTests());
             runner.AddSuite(new SchemaMigrationTests());
             runner.AddSuite(new PostgresBooleanColumnTypeTests());
             runner.AddSuite(new StoredScopeSqlTests());

@@ -6,6 +6,7 @@ namespace Armada.Server
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Harbor;
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -92,10 +93,22 @@ namespace Armada.Server
                 dock = docks.FirstOrDefault(d => d.BranchName == mission.BranchName && d.Active);
             }
 
-            if (dock == null || String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
+            if (dock == null)
                 return MissionDiffResult.NotAvailable(mission.Id, NotAvailableMessage);
             if (git == null)
                 return MissionDiffResult.NotAvailable(mission.Id, GitUnavailableMessage);
+
+            string workingDirectory;
+            if (dock.HostCheckout != null)
+            {
+                workingDirectory = HarborCheckoutAddress.ForDock(dock.Id);
+            }
+            else
+            {
+                if (String.IsNullOrEmpty(dock.WorktreePath) || !Directory.Exists(dock.WorktreePath))
+                    return MissionDiffResult.NotAvailable(mission.Id, NotAvailableMessage);
+                workingDirectory = dock.WorktreePath;
+            }
 
             string baseBranch = "main";
             if (!String.IsNullOrEmpty(mission.VesselId))
@@ -104,8 +117,19 @@ namespace Armada.Server
                 if (vessel != null) baseBranch = vessel.DefaultBranch;
             }
 
-            string diff = await git.DiffAsync(dock.WorktreePath, baseBranch, token).ConfigureAwait(false);
-            return MissionDiffResult.Found(mission.Id, dock.BranchName ?? "", diff);
+            try
+            {
+                string diff = await git.DiffAsync(workingDirectory, baseBranch, token).ConfigureAwait(false);
+                return MissionDiffResult.Found(mission.Id, dock.BranchName ?? "", diff);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception) when (dock.HostCheckout != null)
+            {
+                return MissionDiffResult.NotAvailable(mission.Id, "Harbor checkout diff is unavailable");
+            }
         }
 
         #endregion

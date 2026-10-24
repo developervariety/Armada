@@ -14,7 +14,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// Service for dock (worktree) lifecycle management.
     /// </summary>
-    public class DockService : IDockService
+    public partial class DockService : IDockService
     {
         #region Private-Members
 
@@ -27,6 +27,7 @@ namespace Armada.Core.Services
         private ArmadaSettings _Settings;
         private IGitService _Git;
         private SiblingLeaseRegistry _Leases;
+        private HarborCheckoutService? _HarborCheckouts;
 
         #endregion
 
@@ -39,12 +40,14 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="settings">Application settings.</param>
         /// <param name="git">Git service.</param>
-        public DockService(LoggingModule logging, DatabaseDriver database, ArmadaSettings settings, IGitService git)
+        /// <param name="harborCheckouts">Optional authenticated checkout owner provider.</param>
+        public DockService(LoggingModule logging, DatabaseDriver database, ArmadaSettings settings, IGitService git, HarborCheckoutService? harborCheckouts = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
+            _HarborCheckouts = harborCheckouts;
             _Leases = new SiblingLeaseRegistry(_Logging, _Database, _Settings);
         }
 
@@ -105,6 +108,9 @@ namespace Armada.Core.Services
                     throw new InvalidOperationException("dock_worktree_held: Harbor job " + unconfirmedJobs[0].JobId
                         + " has no confirmed stop for mission " + missionId);
             }
+
+            Dock? harborDock = await TryProvisionHarborOwnedAsync(vessel, captain, branchName, missionId, detachedWorktree, token).ConfigureAwait(false);
+            if (harborDock != null) return harborDock;
 
             string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
 
@@ -516,6 +522,24 @@ namespace Armada.Core.Services
                 return;
             }
 
+            if (dock.HostCheckout != null)
+            {
+                try
+                {
+                    if (!await ReclaimHarborDockAsync(dock, token).ConfigureAwait(false))
+                        _Logging.Warn(_Header + "Harbor checkout for dock " + dockId + " remains held because its work was not saved");
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    _Logging.Warn(_Header + "Harbor checkout reclaim for dock " + dockId + " remains held: " + exception.Message);
+                }
+                return;
+            }
+
             // One ownership answer guards every removal below. A dock's siblings live INSIDE its
             // worktree path and the dock root is its parent, so guarding only the worktree still let a
             // superseded record delete the live attempt's cross-repo source view.
@@ -600,6 +624,19 @@ namespace Armada.Core.Services
                 : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
             if (dock == null) throw new InvalidOperationException("Dock not found: " + dockId);
 
+            if (dock.HostCheckout != null)
+            {
+                await RequireHarborStopsConfirmedAsync(dock, token).ConfigureAwait(false);
+                HarborCheckoutBinding binding = RequireHarborCheckout(dock);
+                string head = await ReadHarborHeadAsync(dock, token).ConfigureAwait(false);
+                HarborWorkspaceOperationRequest request = HarborCheckoutService.CreateRequest(dock, HarborWorkspaceOperationEnum.Git);
+                request.Git = new HarborGitOperationRequest { Operation = HarborGitOperationEnum.RepairWorktree };
+                using (HarborCheckoutOperationScope scope = new HarborCheckoutOperationScope("dock:" + dock.Id + ":repair:" + binding.Revision, head))
+                    await RequireHarborCheckouts().ExecuteAsync(dock, request, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "repaired Harbor checkout for dock " + dockId);
+                return;
+            }
+
             if (!String.IsNullOrEmpty(dock.WorktreePath))
             {
                 await _Git.RepairWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
@@ -616,6 +653,21 @@ namespace Armada.Core.Services
                 ? await _Database.Docks.ReadAsync(tenantId, dockId, token).ConfigureAwait(false)
                 : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
             if (dock == null) throw new InvalidOperationException("Dock not found: " + dockId);
+
+            if (dock.HostCheckout != null)
+            {
+                await ReclaimAsync(dockId, tenantId, token).ConfigureAwait(false);
+                Dock? afterReclaim = !String.IsNullOrEmpty(tenantId)
+                    ? await _Database.Docks.ReadAsync(tenantId, dockId, token).ConfigureAwait(false)
+                    : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
+                if (afterReclaim?.Active == true)
+                {
+                    _Logging.Warn(_Header + "Harbor dock " + dockId + " remains active; captain ownership was not cleared");
+                    return;
+                }
+                _Logging.Info(_Header + "unstuck Harbor dock " + dockId);
+                return;
+            }
 
             if (!String.IsNullOrEmpty(dock.CaptainId))
             {
@@ -653,6 +705,9 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            if (dock.HostCheckout != null && await HarborDockHasPendingLandingAsync(dock, token).ConfigureAwait(false))
+                throw new InvalidOperationException("dock_harbor_queue_identity_required");
+
             if (!await CleanupWorktreeAsync(dock, "delete", token).ConfigureAwait(false))
                 return false;
 
@@ -679,6 +734,9 @@ namespace Armada.Core.Services
                 ? await _Database.Docks.ReadAsync(tenantId, dockId, token).ConfigureAwait(false)
                 : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
             if (dock == null) throw new InvalidOperationException("Dock not found: " + dockId);
+
+            if (dock.HostCheckout != null && await HarborDockHasPendingLandingAsync(dock, token).ConfigureAwait(false))
+                throw new InvalidOperationException("dock_harbor_queue_identity_required");
 
             if (!await CleanupWorktreeAsync(dock, "purge", token).ConfigureAwait(false))
                 throw new InvalidOperationException("Dock " + dockId + " was not purged: its uncommitted work could not be preserved. "
@@ -709,6 +767,9 @@ namespace Armada.Core.Services
         /// </remarks>
         private async Task<bool> CleanupWorktreeAsync(Dock dock, string operation, CancellationToken token)
         {
+            if (dock.HostCheckout != null)
+                return await CleanupHarborCheckoutAsync(dock, operation, token).ConfigureAwait(false);
+
             if (await IsWorktreeOwnedByAnotherActiveDockAsync(dock, token).ConfigureAwait(false))
             {
                 _Logging.Warn(_Header + "skipping worktree cleanup for dock " + dock.Id +
@@ -902,6 +963,9 @@ namespace Armada.Core.Services
         private async Task CleanupDockBranchAsync(Dock dock, CancellationToken token)
         {
             if (String.IsNullOrEmpty(dock.BranchName)) return;
+
+            if (dock.HostCheckout != null)
+                return; // Harbor cleanup runs while the exact checkout and its pinned HEAD still exist.
 
             Vessel? vessel = null;
             try

@@ -26,7 +26,8 @@ namespace Armada.Runtimes.Harbor
                 WorkingRoots = new List<string>(options.WorkingRoots),
                 Commands = new Dictionary<string, string>(options.Commands, StringComparer.Ordinal),
                 MaxSpoolBytes = options.MaxSpoolBytes,
-                MaxRetainedJobs = options.MaxRetainedJobs
+                MaxRetainedJobs = options.MaxRetainedJobs,
+                MaxVerificationSpoolBytes = options.MaxVerificationSpoolBytes
             };
             try { _Root = EnsurePrivateRoot(_Options.StateDirectory); }
             catch (HarborJobJournalException) { throw; }

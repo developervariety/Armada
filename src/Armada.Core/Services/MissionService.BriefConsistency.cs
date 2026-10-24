@@ -76,12 +76,12 @@ namespace Armada.Core.Services
         /// <param name="instructionsFileName">The instruction filename this captain's runtime receives.</param>
         /// <param name="worktreePath">Dock worktree path.</param>
         /// <returns>The text with foreign instruction filenames replaced.</returns>
-        internal static string? RetargetInstructionFileNames(string? text, string instructionsFileName, string worktreePath)
+        internal static string? RetargetInstructionFileNames(string? text, string instructionsFileName, string worktreePath, ISet<string>? existingInstructions = null)
         {
             if (String.IsNullOrEmpty(text) || String.IsNullOrEmpty(instructionsFileName)) return text;
 
             string result = text;
-            foreach (string foreign in FindForeignInstructionFileNames(text, instructionsFileName, worktreePath))
+            foreach (string foreign in FindForeignInstructionFileNames(text, instructionsFileName, worktreePath, existingInstructions))
             {
                 result = Regex.Replace(
                     result,

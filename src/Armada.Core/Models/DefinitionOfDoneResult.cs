@@ -45,6 +45,24 @@ namespace Armada.Core.Models
         /// <summary>True when a timeout, truncation, drain limit, or failed containment may have omitted runner output.</summary>
         public bool RunnerOutputIncomplete { get; set; }
 
+        /// <summary>Retained output identity when this command ran on a Harbor-owned checkout.</summary>
+        public string? HarborOutputId { get; set; }
+
+        /// <summary>Output check identity required for authenticated Harbor chunk reads and reruns.</summary>
+        public string? HarborCheckId { get; set; }
+
+        /// <summary>Durable dock that owns the Harbor verification output.</summary>
+        public string? HarborDockId { get; set; }
+
+        /// <summary>Exact checkout commit used by the Harbor command.</summary>
+        public string? HarborExpectedHead { get; set; }
+
+        /// <summary>Fixed configured host command key used by the Harbor command.</summary>
+        public string? HarborCommandKey { get; set; }
+
+        /// <summary>SHA-256 of the configured command used by the Harbor command.</summary>
+        public string? HarborCommandSha256 { get; set; }
+
         /// <summary>
         /// Structured classification of the failure, or null for passed and skipped results.
         /// </summary>

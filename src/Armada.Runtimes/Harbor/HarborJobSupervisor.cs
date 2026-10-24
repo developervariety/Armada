@@ -21,7 +21,20 @@ namespace Armada.Runtimes.Harbor
             token.ThrowIfCancellationRequested();
             HarborJobJournal journal = new HarborJobJournal(start.Options);
             HarborLaunchRequest request = start.Request;
-            HarborLocalJobRecord record = journal.CreateIntent(request);
+            HarborLocalJobRecord record;
+            if (request.CheckoutBinding == null)
+            {
+                HarborCheckoutLaunchAdmission.Validate(start);
+                record = journal.CreateIntent(request);
+            }
+            else
+            {
+                using (HarborCheckoutOperationLease.Acquire(start.Options.StateDirectory, request.CheckoutBinding.CheckoutId))
+                {
+                    HarborCheckoutLaunchAdmission.Validate(start);
+                    record = journal.CreateIntent(request);
+                }
+            }
             Process? childProcess = null;
             bool childStarted = false;
             Task? stdoutReader = null;

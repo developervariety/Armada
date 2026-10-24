@@ -535,8 +535,11 @@ A Check command has a 30-minute default. An explicit workflow profile
 `GateCommandTimeoutSeconds` also sets the shared execution budget for a Build or
 UnitTest Check: its full command and isolated retry must fit that budget together.
 Other Check types keep their existing per-command limit. A timeout is a failure.
-The budget is fixed for the run and uses a monotonic clock. Initial and retry
-host-slot waits spend no execution budget; a retry gets only the remainder after
+The budget is fixed for the run. Local commands use a monotonic clock; Harbor
+commands use the authenticated runner duration and the remaining whole seconds
+allowed by its protocol. Missing runner duration cannot pass a declared shared
+budget. Provisioning and output retrieval do not spend command time. Initial
+and retry host-slot waits spend no execution budget; a retry gets only the remainder after
 it acquires its slot. A positive service-constructor timeout override remains
 authoritative for callers that provide one.
 

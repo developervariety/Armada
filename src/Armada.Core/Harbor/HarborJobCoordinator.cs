@@ -565,6 +565,22 @@ namespace Armada.Core.Harbor
                 return HarborLaunchResult.Reject("harbor_command_unauthorized");
             }
 
+            if (request.CheckoutBinding != null)
+            {
+                Armada.Core.Models.HarborCheckoutBinding checkout = request.CheckoutBinding;
+                if (binding == null || !checkout.IsComplete
+                    || !String.Equals(request.DockId, binding.DockId, StringComparison.Ordinal)
+                    || !String.Equals(checkout.RunnerId, session.Identity.RunnerId, StringComparison.Ordinal)
+                    || !String.Equals(checkout.TenantId, session.Identity.TenantId, StringComparison.Ordinal)
+                    || !String.Equals(checkout.UserId, session.Identity.UserId, StringComparison.Ordinal)
+                    || checkout.EnrollmentGeneration != session.EnrollmentGeneration)
+                    return HarborLaunchResult.Reject("harbor_checkout_launch_binding_mismatch");
+            }
+            else if (request.MissionConfiguration != null)
+                return HarborLaunchResult.Reject("harbor_mission_configuration_binding_missing");
+            else if (!String.IsNullOrWhiteSpace(request.DockId))
+                return HarborLaunchResult.Reject("harbor_checkout_launch_binding_missing");
+
             JobRecord record;
             RunnerLink? link;
             long createdRevision;
@@ -672,6 +688,9 @@ namespace Armada.Core.Harbor
                 Model = request.Model,
                 Prompt = request.Prompt,
                 PromptViaStdin = request.PromptViaStdin,
+                DockId = record.DockId,
+                CheckoutBinding = request.CheckoutBinding,
+                MissionConfiguration = request.MissionConfiguration,
                 Arguments = new List<string>(request.Arguments ?? new List<string>()),
                 Environment = new Dictionary<string, string>(request.Environment ?? new Dictionary<string, string>())
             };

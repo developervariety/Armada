@@ -4,12 +4,16 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Security.Cryptography;
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -128,6 +132,181 @@ namespace Armada.Test.Unit.Suites.Services
                 finally
                 {
                     SafeDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Harbor CheckRun uses the owned host and ignores stale remote artifacts", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                const string tenantId = "ten_iso_harbor";
+                const string userId = "usr_iso_harbor";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                string liveDirectory = Path.Combine(Path.GetTempPath(), "armada-harbor-check-local-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(liveDirectory);
+                string localMarker = Path.Combine(liveDirectory, "local-command-ran.txt");
+                try
+                {
+                    Vessel vessel = CreateVessel(tenantId, userId, liveDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    string runnerId = "runner-check-" + Guid.NewGuid().ToString("N");
+                    string grantId = "grant-check-" + Guid.NewGuid().ToString("N");
+                    AssertTrue(await testDb.Driver.HarborRunnerEnrollments.TryEnrollAsync(new HarborRunnerEnrollment
+                    {
+                        RunnerId = runnerId, TenantId = tenantId, UserId = userId, AuthMethod = "unit-test", Generation = 1, Active = true
+                    }, 0).ConfigureAwait(false), "the runner owner is durably enrolled");
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Name = "Harbor CheckRun profile",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        IsDefault = true,
+                        UnitTestCommand = OperatingSystem.IsWindows()
+                            ? "echo LOCAL_EXECUTED>" + localMarker
+                            : "printf LOCAL_EXECUTED > '" + localMarker + "'",
+                        ExpectedArtifacts = new List<string> { "results.xml" }
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+                    HarborSettings harborSettings = new HarborSettings
+                    {
+                        Enabled = true,
+                        MissionRoutes = new List<HarborMissionRoute>
+                        {
+                            new HarborMissionRoute
+                            {
+                                RunnerId = runnerId,
+                                CheckoutMode = HarborCheckoutModeEnum.HarborOwned,
+                                RepositoryGrantId = grantId,
+                                VesselId = vessel.Id
+                            }
+                        }
+                    };
+                    ArmadaSettings settings = new ArmadaSettings { Harbor = harborSettings };
+                    HarborCheckRunChannel channel = new HarborCheckRunChannel();
+                    channel.ExpectedCommandHash = HarborVerificationProtocol.CommandSha256(profile.UnitTestCommand!);
+                    HarborCheckoutService checkouts = new HarborCheckoutService(testDb.Driver, settings);
+                    checkouts.SetChannel(channel);
+                    LoggingModule logging = CreateLogging();
+                    WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
+                    VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, profiles, logging)
+                    {
+                        HarborSettings = harborSettings,
+                        HarborCheckouts = checkouts
+                    };
+                    CheckRunService checkRuns = new CheckRunService(testDb.Driver, profiles, readiness, logging)
+                    {
+                        HarborSettings = harborSettings,
+                        HarborCheckouts = checkouts
+                    };
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
+
+                    channel.ArtifactIsFresh = false;
+                    CheckRun stale = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id, Type = CheckRunTypeEnum.UnitTest, Label = "Harbor stale artifact"
+                    }).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, stale.Status, "the remote command result is accepted without local execution");
+                    AssertEqual(2, stale.TestSummary?.Total ?? -1, "a stale remote artifact cannot replace the current console summary");
+                    AssertEqual(2, stale.TestSummary?.Passed ?? -1, "the stale artifact's conflicting counts are ignored");
+                    AssertContains("harbor:/dock/", stale.WorkingDirectory ?? String.Empty,
+                        "the CheckRun records an opaque Harbor checkout address");
+                    AssertFalse(File.Exists(localMarker), "the Harbor route never falls back to the local command");
+
+                    channel.ArtifactIsFresh = true;
+                    CheckRun fresh = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id, Type = CheckRunTypeEnum.UnitTest, Label = "Harbor fresh artifact"
+                    }).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, fresh.Status);
+                    AssertEqual(9, fresh.TestSummary?.Total ?? -1, "a fresh runner artifact overrides conflicting console counts");
+                    AssertEqual(9, fresh.TestSummary?.Passed ?? -1, "the fresh artifact counters are used");
+                    AssertEqual(2, channel.VerificationCount, "each stable CheckRun attempt starts one configured host verification");
+                    AssertTrue(channel.AllVerificationKeysMatch, "the host receives the fixed Check unit-test key and exact command hash");
+                    AssertFalse(File.Exists(localMarker), "repeated Harbor checks still do not run the local command");
+
+                    profile.GateCommandTimeoutSeconds = 30;
+                    profile.IsolatedTestRerunCommand = "echo isolated";
+                    profile.ExpectedArtifacts = new List<string>();
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    async Task<CheckRun> RunBudgetedAsync(bool pending = false, CheckRunService? service = null)
+                    {
+                        CheckRunService selected = service ?? checkRuns;
+                        if (!pending)
+                            return await selected.RunAsync(auth, new CheckRunRequest
+                            {
+                                VesselId = vessel.Id, WorkflowProfileId = profile.Id, Type = CheckRunTypeEnum.UnitTest
+                            }).ConfigureAwait(false);
+                        CheckRun armed = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            TenantId = tenantId, UserId = userId, VesselId = vessel.Id, WorkflowProfileId = profile.Id,
+                            Type = CheckRunTypeEnum.UnitTest, Status = CheckRunStatusEnum.Pending,
+                            Command = profile.UnitTestCommand, WorkingDirectory = liveDirectory
+                        }).ConfigureAwait(false);
+                        return await selected.RunPendingAsync(auth, armed.Id).ConfigureAwait(false);
+                    }
+                    foreach (bool pending in new[] { false, true })
+                    {
+                        channel.FirstExitCode = 1;
+                        channel.FirstDurationMilliseconds = 28001;
+                        channel.RetryDurationMilliseconds = 500;
+                        channel.VerificationTimeouts.Clear();
+                        CheckRun fits = await RunBudgetedAsync(pending).ConfigureAwait(false);
+                        AssertEqual(CheckRunStatusEnum.Passed, fits.Status, "a measured Harbor retry can fit the remainder");
+                        AssertEqual("30,1", String.Join(",", channel.VerificationTimeouts),
+                            "both execution paths pass the profile budget and floor the remote retry remainder");
+                        AssertContains("full run failed", fits.Summary ?? String.Empty);
+
+                        channel.RetryDurationMilliseconds = 2500;
+                        CheckRun late = await RunBudgetedAsync(pending).ConfigureAwait(false);
+                        AssertEqual(CheckRunStatusEnum.Failed, late.Status, "a late zero exit cannot pass beyond the shared Harbor budget");
+                    }
+                    channel.FirstDurationMilliseconds = 29501;
+                    int beforeNoRemainder = channel.VerificationCount;
+                    CheckRun fractional = await RunBudgetedAsync().ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Failed, fractional.Status);
+                    AssertEqual(beforeNoRemainder + 1, channel.VerificationCount,
+                        "a remote retry with less than one whole second remaining must not start");
+                    foreach (long? unknown in new long?[] { null, -1 })
+                    {
+                        channel.FirstDurationMilliseconds = unknown;
+                        int beforeUnknown = channel.VerificationCount;
+                        CheckRun missingTime = await RunBudgetedAsync().ConfigureAwait(false);
+                        AssertEqual(CheckRunStatusEnum.Failed, missingTime.Status,
+                            "a started Harbor command without valid duration cannot establish shared-budget proof");
+                        AssertEqual(beforeUnknown + 1, channel.VerificationCount, "unknown duration cannot fund another retry");
+                    }
+                    channel.FirstExitCode = 0;
+                    channel.FirstDurationMilliseconds = 30001;
+                    CheckRun overrun = await RunBudgetedAsync().ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Failed, overrun.Status, "an over-budget first command cannot pass either");
+
+                    profile.GateCommandTimeoutSeconds = 3600;
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    channel.FirstDurationMilliseconds = 9;
+                    channel.VerificationTimeouts.Clear();
+                    CheckRun capped = await RunBudgetedAsync().ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, capped.Status);
+                    AssertEqual(1800, channel.VerificationTimeouts[0], "the Harbor protocol retains its stricter timeout cap");
+
+                    CheckRunService shortRemote = new CheckRunService(testDb.Driver, profiles, readiness, logging,
+                        commandTimeout: TimeSpan.FromMilliseconds(1200))
+                    {
+                        HarborSettings = harborSettings, HarborCheckouts = checkouts
+                    };
+                    channel.FirstExitCode = 1;
+                    channel.FirstDurationMilliseconds = channel.RetryDurationMilliseconds = 100;
+                    channel.ProvisionDelay = channel.OutputReadDelay = TimeSpan.FromMilliseconds(150);
+                    channel.VerificationTimeouts.Clear();
+                    CheckRun transportWait = await RunBudgetedAsync(service: shortRemote).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, transportWait.Status,
+                        "provisioning and output retrieval must not spend runner-reported execution budget");
+                    AssertEqual("1,1", String.Join(",", channel.VerificationTimeouts));
+                    AssertFalse(File.Exists(localMarker), "all budget cases remain Harbor-owned without local fallback");
+                }
+                finally
+                {
+                    SafeDeleteDirectory(liveDirectory);
                 }
             }).ConfigureAwait(false);
 
@@ -1152,6 +1331,115 @@ namespace Armada.Test.Unit.Suites.Services
                 Directory.Delete(path, true);
             }
             catch { }
+        }
+
+        private sealed class HarborCheckRunChannel : IHarborWorkspaceOperations
+        {
+            private readonly Dictionary<string, HarborVerificationOutput> _Outputs = new Dictionary<string, HarborVerificationOutput>(StringComparer.Ordinal);
+            private readonly byte[] _Artifact = Encoding.UTF8.GetBytes("<testsuite tests=\"9\" failures=\"0\" errors=\"0\" skipped=\"0\" />");
+            private DateTime _VerificationStartedUtc;
+
+            public bool ArtifactIsFresh { get; set; }
+            public int VerificationCount { get; private set; }
+            public bool AllVerificationKeysMatch { get; private set; } = true;
+            public string ExpectedCommandHash { get; set; } = String.Empty;
+            public int FirstExitCode { get; set; }
+            public long? FirstDurationMilliseconds { get; set; } = 9;
+            public long? RetryDurationMilliseconds { get; set; } = 9;
+            public TimeSpan ProvisionDelay { get; set; }
+            public TimeSpan OutputReadDelay { get; set; }
+            public List<int> VerificationTimeouts { get; } = new List<int>();
+
+            public async Task<HarborWorkspaceOperationResult> ExecuteAsync(
+                AuthContext auth, HarborWorkspaceOperationRequest request, CancellationToken token = default)
+            {
+                if (request.Operation == HarborWorkspaceOperationEnum.ProvisionCheckout && ProvisionDelay > TimeSpan.Zero)
+                    await Task.Delay(ProvisionDelay, token).ConfigureAwait(false);
+                if (request.Operation == HarborWorkspaceOperationEnum.ReadVerificationOutput && OutputReadDelay > TimeSpan.Zero)
+                    await Task.Delay(OutputReadDelay, token).ConfigureAwait(false);
+                if (!auth.IsAuthenticated || auth.TenantId != request.TenantId || auth.UserId != request.UserId)
+                    throw new InvalidOperationException("Harbor CheckRun used an unexpected owner context.");
+                HarborWorkspaceOperationResult result = new HarborWorkspaceOperationResult
+                {
+                    RequestId = request.RequestId,
+                    Operation = request.Operation,
+                    Accepted = true,
+                    Binding = request.Binding
+                };
+                switch (request.Operation)
+                {
+                    case HarborWorkspaceOperationEnum.InspectRepository:
+                        result.RepositoryFingerprint = request.ExpectedRepositoryFingerprint;
+                        result.HeadCommit = new string('a', 40);
+                        result.BranchName = request.RequestedRevision;
+                        break;
+                    case HarborWorkspaceOperationEnum.ProvisionCheckout:
+                        result.HeadCommit = request.Binding!.BaseCommit;
+                        result.BranchName = request.Detached ? "(detached)" : request.Binding.BranchName;
+                        break;
+                    case HarborWorkspaceOperationEnum.RunVerification:
+                        VerificationCount++;
+                        string checkId = request.Verification!.CheckId;
+                        _VerificationStartedUtc = DateTime.UtcNow;
+                        AllVerificationKeysMatch &= request.Verification.CommandKey == "check-unit-test"
+                            && request.Verification.ExpectedCommandSha256 == ExpectedCommandHash;
+                        bool retry = request.Verification.Rerun != null;
+                        VerificationTimeouts.Add(request.Verification.TimeoutSeconds);
+                        byte[] stdout = Encoding.UTF8.GetBytes(!retry && FirstExitCode != 0
+                            ? "FAIL Example.Tests.Case: assertion failed\n0 passed; 1 failed.\n"
+                            : "Tests: 2 passed, 0 failed, 2 total\n");
+                        byte[] stderr = Array.Empty<byte>();
+                        string outputId = "fake-output-" + checkId;
+                        _Outputs[outputId] = new HarborVerificationOutput(stdout, stderr);
+                        result.ExitCode = retry ? 0 : FirstExitCode;
+                        result.StartedUtc = _VerificationStartedUtc;
+                        result.DurationMilliseconds = retry ? RetryDurationMilliseconds : FirstDurationMilliseconds;
+                        result.VerificationOutputId = outputId;
+                        result.VerificationCheckId = checkId;
+                        result.StandardOutputLength = stdout.LongLength;
+                        result.StandardOutputRetainedBytes = stdout.LongLength;
+                        result.StandardOutputSha256 = Hash(stdout);
+                        result.StandardErrorLength = 0;
+                        result.StandardErrorRetainedBytes = 0;
+                        result.StandardErrorSha256 = Hash(stderr);
+                        break;
+                    case HarborWorkspaceOperationEnum.ReadVerificationOutput:
+                        HarborVerificationOutputRequest outputRequest = request.VerificationOutput!;
+                        HarborVerificationOutput output = _Outputs[outputRequest.OutputId];
+                        byte[] bytes = outputRequest.StandardError ? output.Stderr : output.Stdout;
+                        int offset = checked((int)outputRequest.Offset);
+                        int length = Math.Min(outputRequest.MaxBytes, bytes.Length - offset);
+                        result.VerificationOutputId = outputRequest.OutputId;
+                        result.VerificationCheckId = outputRequest.CheckId;
+                        result.Length = bytes.Length;
+                        result.BytesBase64 = Convert.ToBase64String(bytes, offset, length);
+                        break;
+                    case HarborWorkspaceOperationEnum.Stat:
+                        result.Exists = true;
+                        result.Length = _Artifact.LongLength;
+                        result.LastWriteUtc = ArtifactIsFresh ? _VerificationStartedUtc.AddSeconds(1) : _VerificationStartedUtc.AddSeconds(-1);
+                        break;
+                    case HarborWorkspaceOperationEnum.ReadBytes:
+                        result.Length = _Artifact.LongLength;
+                        result.BytesBase64 = Convert.ToBase64String(_Artifact);
+                        break;
+                    default:
+                        result.Accepted = false;
+                        result.Reason = "fake_operation_unsupported";
+                        break;
+                }
+                return result;
+            }
+
+            private static string Hash(byte[] bytes)
+                => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+            private sealed class HarborVerificationOutput
+            {
+                public HarborVerificationOutput(byte[] stdout, byte[] stderr) { Stdout = stdout; Stderr = stderr; }
+                public byte[] Stdout { get; }
+                public byte[] Stderr { get; }
+            }
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)

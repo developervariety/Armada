@@ -109,7 +109,7 @@ namespace Armada.Core.Services
         /// <param name="instructionsFileName">The instruction filename this captain's runtime receives.</param>
         /// <param name="worktreePath">Dock worktree path.</param>
         /// <returns>The foreign filenames, in a fixed order; empty when none.</returns>
-        internal static List<string> FindForeignInstructionFileNames(string? text, string instructionsFileName, string worktreePath)
+        internal static List<string> FindForeignInstructionFileNames(string? text, string instructionsFileName, string worktreePath, ISet<string>? existingInstructions = null)
         {
             List<string> found = new List<string>();
             if (String.IsNullOrEmpty(text) || String.IsNullOrEmpty(instructionsFileName)) return found;
@@ -118,7 +118,8 @@ namespace Armada.Core.Services
             {
                 if (String.Equals(foreign, instructionsFileName, StringComparison.Ordinal)) continue;
                 if (text.IndexOf(foreign, StringComparison.Ordinal) < 0) continue;
-                if (!String.IsNullOrEmpty(worktreePath) && File.Exists(Path.Combine(worktreePath, foreign))) continue;
+                if (existingInstructions != null ? existingInstructions.Contains(foreign)
+                    : !String.IsNullOrEmpty(worktreePath) && File.Exists(Path.Combine(worktreePath, foreign))) continue;
                 if (!Regex.IsMatch(text, @"(?<![\w./-])" + Regex.Escape(foreign) + @"(?![\w-])", RegexOptions.CultureInvariant)) continue;
                 found.Add(foreign);
             }
@@ -135,7 +136,7 @@ namespace Armada.Core.Services
         /// <param name="instructionsFileName">The instruction filename this captain's runtime receives.</param>
         /// <param name="worktreePath">Dock worktree path.</param>
         /// <returns>The section, or an empty string when no staged file names a foreign instruction file.</returns>
-        internal static string BuildStagedInstructionFileNamesSection(List<ContextBriefFile>? stagedFiles, string instructionsFileName, string worktreePath)
+        internal static string BuildStagedInstructionFileNamesSection(List<ContextBriefFile>? stagedFiles, string instructionsFileName, string worktreePath, ISet<string>? existingInstructions = null)
         {
             if (stagedFiles == null || stagedFiles.Count == 0) return String.Empty;
 
@@ -143,7 +144,7 @@ namespace Armada.Core.Services
             List<string> paths = new List<string>();
             foreach (ContextBriefFile file in stagedFiles)
             {
-                List<string> names = FindForeignInstructionFileNames(file.Content, instructionsFileName, worktreePath);
+                List<string> names = FindForeignInstructionFileNames(file.Content, instructionsFileName, worktreePath, existingInstructions);
                 if (names.Count == 0) continue;
                 paths.Add(file.RelativePath);
                 foreach (string name in names)

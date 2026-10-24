@@ -11,15 +11,18 @@ namespace Armada.Runtimes.Harbor
         {
             Options = new HarborSupervisorOptions();
             Request = new HarborLaunchRequest();
+            RepositoryGrant = null;
         }
 
         /// <summary>Create the options and fully resolved launch request for one supervisor process.</summary>
         /// <param name="options">Local supervisor policy.</param>
         /// <param name="request">Resolved launch request, including its private prompt.</param>
-        public HarborSupervisorStart(HarborSupervisorOptions options, HarborLaunchRequest request)
+        /// <param name="repositoryGrant">Selected checkout grant, or null for a mapped launch.</param>
+        public HarborSupervisorStart(HarborSupervisorOptions options, HarborLaunchRequest request, HarborRepositoryGrant? repositoryGrant = null)
         {
             Options = options ?? throw new ArgumentNullException(nameof(options));
             Request = request ?? throw new ArgumentNullException(nameof(request));
+            RepositoryGrant = repositoryGrant;
         }
 
         /// <summary>Local supervisor policy.</summary>
@@ -27,5 +30,8 @@ namespace Armada.Runtimes.Harbor
 
         /// <summary>Resolved launch request. Do not write it to durable storage or logs.</summary>
         public HarborLaunchRequest Request { get; set; }
+
+        /// <summary>The one configured grant selected by the pinned checkout binding, or null for mapped launches.</summary>
+        public HarborRepositoryGrant? RepositoryGrant { get; set; }
     }
 }

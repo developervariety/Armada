@@ -10,6 +10,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -37,6 +38,7 @@ namespace Armada.Core.Services
 
         private const string _Header = "[VesselBranchWrite] ";
         private readonly DatabaseDriver _Database;
+        private readonly HarborSettings? _HarborSettings;
         private readonly LoggingModule _Logging;
 
         private sealed class GitRun
@@ -52,8 +54,10 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="database">Database driver used for mission and merge-queue gates.</param>
         /// <param name="logging">Logging module.</param>
-        public VesselBranchWriteService(DatabaseDriver database, LoggingModule logging)
+        /// <param name="harborSettings">Explicit routes that require a checkout-scoped operation.</param>
+        public VesselBranchWriteService(DatabaseDriver database, LoggingModule logging, HarborSettings? harborSettings = null)
         {
+            _HarborSettings = harborSettings;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
@@ -76,6 +80,12 @@ namespace Armada.Core.Services
                 return controls;
             }
 
+            if (await HarborLocalRepositoryBoundary.HasOwnedCheckoutAsync(_Database, _HarborSettings, vessel.Id, token).ConfigureAwait(false))
+            {
+                controls.MergeUnavailableReason = HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired;
+                controls.PushUnavailableReason = HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired;
+                return controls;
+            }
             string? repository = await ResolveRepositoryAsync(vessel, token).ConfigureAwait(false);
             if (repository == null)
             {
@@ -276,6 +286,8 @@ namespace Armada.Core.Services
 
         private async Task<BranchWriteResult?> ValidateCommonAsync(Vessel vessel, string source, string target, bool requireMissionGate, BranchWriteResult result, CancellationToken token, bool allowSameRef = false)
         {
+            if (await HarborLocalRepositoryBoundary.HasOwnedCheckoutAsync(_Database, _HarborSettings, vessel.Id, token).ConfigureAwait(false))
+                return Refuse(result, HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired, "This operation requires a specific Harbor checkout owner.");
             string? repository = await ResolveRepositoryAsync(vessel, token).ConfigureAwait(false);
             if (repository == null)
                 return Refuse(result, BranchWriteReasons.RepositoryMissing, "The vessel landing repository (LocalPath) is missing or is not a git repository.");

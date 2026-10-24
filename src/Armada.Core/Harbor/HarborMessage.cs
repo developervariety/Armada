@@ -20,6 +20,8 @@ namespace Armada.Core.Harbor
     [JsonDerivedType(typeof(HarborError), "error")]
     [JsonDerivedType(typeof(HarborResumeRequest), "resume")]
     [JsonDerivedType(typeof(HarborResumeResponse), "resumeAck")]
+    [JsonDerivedType(typeof(HarborWorkspaceOperationRequest), "workspaceOperation")]
+    [JsonDerivedType(typeof(HarborWorkspaceOperationResult), "workspaceResult")]
     public abstract class HarborMessage
     {
         #region Public-Members

@@ -95,6 +95,9 @@ namespace Armada.Core.Settings
             }
         }
 
+        /// <summary>Explicit MCP URL reachable from owned checkout hosts; required when captain MCP seeding is enabled.</summary>
+        public string? CaptainMcpBaseUrl { get; set; }
+
         #endregion
 
         #region Private-Members

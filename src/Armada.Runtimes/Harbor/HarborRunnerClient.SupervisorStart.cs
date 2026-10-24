@@ -17,7 +17,8 @@ namespace Armada.Runtimes.Harbor
     {
         private async Task<Process> StartSupervisorAsync(HarborLaunchRequest request, CancellationToken token)
         {
-            HarborSupervisorStart envelope = new HarborSupervisorStart(_Settings.Supervisor, request);
+            HarborRepositoryGrant? selectedGrant = SelectRepositoryGrant(request);
+            HarborSupervisorStart envelope = new HarborSupervisorStart(_Settings.Supervisor, request, selectedGrant);
             string json = JsonSerializer.Serialize(envelope);
             if (Encoding.UTF8.GetByteCount(json) > MaximumFrameBytes)
                 throw new HarborJobJournalException("supervisor_request_too_large", "The launch request exceeds its size limit.");
@@ -53,6 +54,38 @@ namespace Armada.Runtimes.Harbor
                 throw;
             }
             return supervisor;
+        }
+
+        private HarborRepositoryGrant? SelectRepositoryGrant(HarborLaunchRequest request)
+        {
+            if (request.CheckoutBinding == null)
+            {
+                if (request.DockId != null)
+                    throw new HarborJobJournalException("checkout_launch_binding_incomplete", "A dock-owned launch requires a complete checkout binding.");
+                return null;
+            }
+            if (String.IsNullOrWhiteSpace(request.DockId) || !request.CheckoutBinding.IsComplete)
+                throw new HarborJobJournalException("checkout_launch_binding_incomplete", "A dock-owned launch requires a complete checkout binding.");
+
+            HarborRepositoryGrant? selected = null;
+            foreach (HarborRepositoryGrant grant in _Settings.RepositoryGrants)
+            {
+                if (String.Equals(grant.Id, request.CheckoutBinding.RepositoryGrantId, StringComparison.Ordinal))
+                {
+                    selected = grant;
+                    break;
+                }
+            }
+            if (selected == null)
+                throw new HarborJobJournalException("checkout_grant_not_configured", "The checkout grant is not configured on this runner.");
+            selected.Validate();
+            if (!String.Equals(request.CheckoutBinding.RunnerId, _Settings.RunnerId, StringComparison.Ordinal)
+                || !String.Equals(request.CheckoutBinding.TenantId, selected.TenantId, StringComparison.Ordinal)
+                || !String.Equals(request.CheckoutBinding.UserId, selected.UserId, StringComparison.Ordinal)
+                || String.IsNullOrWhiteSpace(request.WorkingDirectory)
+                || !PathContainment.IsWithin(Path.Combine(selected.CheckoutRoot, request.CheckoutBinding.CheckoutId), request.WorkingDirectory))
+                throw new HarborJobJournalException("checkout_launch_binding_mismatch", "The checkout launch does not match its configured grant and path.");
+            return selected;
         }
 
         private void ScrubLinkCredentialEnvironment(ProcessStartInfo startInfo)

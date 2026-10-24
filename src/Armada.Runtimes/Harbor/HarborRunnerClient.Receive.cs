@@ -15,12 +15,13 @@ namespace Armada.Runtimes.Harbor
             Func<HarborMessage, Task> send,
             HashSet<string> exitSent,
             List<Task> background,
+            HarborHandshakeAck ack,
             CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
                 HarborMessage message = await ReceiveAsync(socket, token).ConfigureAwait(false);
-                await HandleServerMessageAsync(message, send, exitSent, background, token).ConfigureAwait(false);
+                await HandleServerMessageAsync(message, send, exitSent, background, ack, token).ConfigureAwait(false);
             }
         }
 
@@ -29,12 +30,15 @@ namespace Armada.Runtimes.Harbor
             Func<HarborMessage, Task> send,
             HashSet<string> exitSent,
             List<Task> background,
+            HarborHandshakeAck ack,
             CancellationToken token)
         {
             if (message is HarborLaunchRequest launch)
                 await HandleLaunchAsync(launch, send, exitSent, background, token).ConfigureAwait(false);
             else if (message is HarborKillRequest kill)
                 HandleKill(kill);
+            else if (message is HarborWorkspaceOperationRequest workspace)
+                await StartWorkspaceOperationAsync(workspace, ack, send, background, token).ConfigureAwait(false);
             else if (message is HarborError error)
                 HandleServerError(error);
             else

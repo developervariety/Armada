@@ -13,7 +13,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// Service for managing mission landing operations including retries and dedicated worktree merges.
     /// </summary>
-    public class LandingService : ILandingService
+    public partial class LandingService : ILandingService
     {
         #region Public-Members
 
@@ -42,6 +42,7 @@ namespace Armada.Core.Services
         private IGitService _Git;
         private IncidentService _Incidents;
         private IntegrationCandidateValidator? _IntegrationValidator;
+        private HarborCheckoutService? _HarborCheckouts;
 
         #endregion
 
@@ -89,6 +90,13 @@ namespace Armada.Core.Services
         public void SetIntegrationValidator(IntegrationCandidateValidator validator)
         {
             _IntegrationValidator = validator ?? throw new ArgumentNullException(nameof(validator));
+        }
+
+        /// <summary>Wire the authenticated checkout provider used by Harbor-owned mission docks.</summary>
+        /// <param name="checkouts">The shared checkout provider.</param>
+        public void SetHarborCheckouts(HarborCheckoutService? checkouts)
+        {
+            _HarborCheckouts = checkouts;
         }
 
         #endregion
@@ -421,6 +429,15 @@ namespace Armada.Core.Services
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
+            Dock? missionDock = !String.IsNullOrWhiteSpace(mission.DockId)
+                ? await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false)
+                : null;
+            if (missionDock?.HostCheckoutLifecycle != null && missionDock.HostCheckout == null)
+                throw new InvalidOperationException("harbor_checkout_lifecycle_incomplete");
+            if (missionDock?.HostCheckout != null)
+                return await MergeInHarborDedicatedWorktreeAsync(vessel, mission, missionDock, targetBranch, sourceBranch,
+                    commitMessage, measure, token).ConfigureAwait(false);
+
             if (String.IsNullOrEmpty(vessel.LocalPath))
             {
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " has no LocalPath -- cannot merge mission " + mission.Id);
@@ -681,7 +698,8 @@ namespace Armada.Core.Services
             string missionBranch,
             string targetTip,
             string mergedHead,
-            CancellationToken token)
+            CancellationToken token,
+            string? repositoryPath = null)
         {
             if (_IntegrationValidator == null)
             {
@@ -693,7 +711,7 @@ namespace Armada.Core.Services
             string? sourceCommit = null;
             try
             {
-                sourceCommit = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath!, "refs/heads/" + missionBranch, token).ConfigureAwait(false);
+                sourceCommit = await _Git.GetRevisionCommitShaAsync(repositoryPath ?? vessel.LocalPath!, "refs/heads/" + missionBranch, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {

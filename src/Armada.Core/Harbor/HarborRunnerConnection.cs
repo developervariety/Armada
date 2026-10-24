@@ -56,7 +56,10 @@ namespace Armada.Core.Harbor
             string? invalid = ValidateHandshake(handshake, authenticated);
             if (invalid != null) return HarborRunnerCheck.Refuse(invalid);
 
-            HarborRunnerRegistration registration = await _Registry.RegisterAsync(handshake.HarborId, authenticated, token).ConfigureAwait(false);
+            bool hasWorkspaceCapability = handshake.Capabilities.Exists(capability => capability.Available
+                && String.Equals(capability.Name, HarborWorkspaceProtocol.CapabilityName, StringComparison.OrdinalIgnoreCase));
+            HarborRunnerRegistration registration = await _Registry.RegisterAsync(
+                handshake.HarborId, authenticated, token, hasWorkspaceCapability).ConfigureAwait(false);
             if (!registration.Accepted || registration.Session == null)
                 return HarborRunnerCheck.Refuse(String.IsNullOrWhiteSpace(registration.FailureReason) ? "harbor_registration_rejected" : registration.FailureReason);
             _Session = registration.Session;

@@ -510,6 +510,33 @@ namespace Armada.Core.Services
             return prUrl;
         }
 
+        /// <summary>Create a pull request with an explicit base using the configured forge service.</summary>
+        public async Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, string baseBranch, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrWhiteSpace(title)) throw new ArgumentNullException(nameof(title));
+            if (String.IsNullOrWhiteSpace(baseBranch)) throw new ArgumentNullException(nameof(baseBranch));
+            string branch = (await RunGitAsync(worktreePath, token, "symbolic-ref", "--short", "HEAD").ConfigureAwait(false)).Trim();
+            return await CreatePullRequestAsync(worktreePath, title, body, branch, baseBranch, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Create a pull request with explicit source and target branches.</summary>
+        public async Task<string> CreatePullRequestAsync(string worktreePath, string title, string body, string headBranch, string baseBranch, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrWhiteSpace(title)) throw new ArgumentNullException(nameof(title));
+            if (String.IsNullOrWhiteSpace(headBranch)) throw new ArgumentNullException(nameof(headBranch));
+            if (String.IsNullOrWhiteSpace(baseBranch)) throw new ArgumentNullException(nameof(baseBranch));
+            if (_PrServiceFactory == null) throw new InvalidOperationException("pull_request_service_unavailable");
+
+            string origin = (await RunGitAsync(worktreePath, token, "remote", "get-url", "origin").ConfigureAwait(false)).Trim();
+            if (String.IsNullOrWhiteSpace(origin)) throw new InvalidOperationException("pull_request_repository_identity_unavailable");
+
+            PullRequestPlatform platform = OriginUrlParser.GetPlatform(origin);
+            IPullRequestService service = _PrServiceFactory(platform, worktreePath);
+            return await service.CreateAsync(headBranch, baseBranch, title, body ?? "", token).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Repair a worktree by resetting it to a clean state.
         /// </summary>

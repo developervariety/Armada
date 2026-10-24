@@ -139,7 +139,7 @@ namespace Armada.Core.Services
         /// <param name="descriptionFiles">The description files this brief writes.</param>
         /// <param name="replacementPath">A staged dock file to point the reads at, or null for the inline text.</param>
         /// <returns>The text with each unreadable read target replaced.</returns>
-        internal static string? RewriteUnstagedBriefingReads(string? text, string worktreePath, List<ContextBriefFile> descriptionFiles, string? replacementPath)
+        internal static string? RewriteUnstagedBriefingReads(string? text, string worktreePath, List<ContextBriefFile> descriptionFiles, string? replacementPath, ISet<string>? presentPaths = null)
         {
             if (String.IsNullOrEmpty(text) || String.IsNullOrEmpty(worktreePath)) return text;
             if (text.IndexOf("_briefing/", StringComparison.Ordinal) < 0) return text;
@@ -152,6 +152,7 @@ namespace Armada.Core.Services
             {
                 if (path == MissionDescriptionFolder || path.StartsWith(MissionDescriptionFolder + "/", StringComparison.Ordinal))
                     return path == MissionDescriptionFolder ? planned.Count == 0 : !planned.Contains(path);
+                if (presentPaths != null) return !presentPaths.Contains(path);
                 string full = Path.Combine(worktreePath, path.Replace('/', Path.DirectorySeparatorChar));
                 return !File.Exists(full) && !Directory.Exists(full);
             }

@@ -17,7 +17,10 @@ namespace Armada.Runtimes.Harbor
                 throw new ArgumentOutOfRangeException(nameof(options.MaxSpoolBytes), "The per-job spool limit is outside its allowed range.");
             if (options.MaxRetainedJobs < 1 || options.MaxRetainedJobs > 1024)
                 throw new ArgumentOutOfRangeException(nameof(options.MaxRetainedJobs), "The retained job limit is outside its allowed range.");
-            if (options.MaxSpoolBytes > MaximumAggregateSpoolBytes / options.MaxRetainedJobs)
+            if (options.MaxVerificationSpoolBytes < 0 || options.MaxVerificationSpoolBytes > MaximumAggregateSpoolBytes)
+                throw new ArgumentOutOfRangeException(nameof(options.MaxVerificationSpoolBytes), "The verification spool reservation is outside its allowed range.");
+            long jobReservation = checked(options.MaxSpoolBytes * options.MaxRetainedJobs);
+            if (jobReservation > MaximumAggregateSpoolBytes - options.MaxVerificationSpoolBytes)
                 throw new ArgumentException("The configured aggregate spool reservation exceeds 1 GiB.", nameof(options));
         }
     }

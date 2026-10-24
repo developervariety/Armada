@@ -156,6 +156,7 @@ namespace Armada.Test.Database
             mission.Priority = 40 + index;
             mission.PrUrl = "https://example.invalid/pull/" + index;
             mission.CommitHash = "commit" + index;
+            mission.DockProvisionAttemptId = "dock-provision-attempt-" + index;
             mission.RequestedCaptainId = captainId;
             mission.Tier = CaptainTierEnum.Premium;
             mission.StageOrder = index + 1;

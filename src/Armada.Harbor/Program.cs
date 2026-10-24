@@ -7,7 +7,9 @@ namespace Armada.Harbor
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Services;
     using Armada.Runtimes.Harbor;
+    using SyslogLogging;
 
     /// <summary>Console entry point for the Harbor link and its independent job supervisors.</summary>
     public static class Program
@@ -41,7 +43,7 @@ namespace Armada.Harbor
                     try
                     {
                         HarborRunnerClient client = new HarborRunnerClient(settings, executable, arguments,
-                            message => Console.Error.WriteLine(message));
+                            message => Console.Error.WriteLine(message), new GitService(new LoggingModule()));
                         await client.RunAsync(stop.Token).ConfigureAwait(false);
                     }
                     finally

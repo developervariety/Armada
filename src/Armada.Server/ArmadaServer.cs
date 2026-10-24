@@ -74,6 +74,7 @@ namespace Armada.Server
 
         private DatabaseDriver _Database = null!;
         private IGitService _Git = null!;
+        private HarborCheckoutService _HarborCheckouts = null!;
         private IDockService _Docks = null!;
         private IAdmiralService _Admiral = null!;
         private IBuildDriftService _BuildDriftService = null!;
@@ -313,8 +314,10 @@ namespace Armada.Server
                     _ => throw new NotSupportedException("Unsupported PR platform: " + platform)
                 };
             };
-            _Git = new GitService(_Logging, prServiceFactory, _Database);
-            IDockService dockService = new DockService(_Logging, _Database, _Settings, _Git);
+            _HarborCheckouts = new HarborCheckoutService(_Database, _Settings);
+            _Git = new HostAwareGitService(new GitService(_Logging, prServiceFactory, _Database), _HarborCheckouts);
+            IDockService dockService = new DockService(_Logging, _Database, _Settings, _Git, _HarborCheckouts);
+            _HarborCheckouts.SetDockLifecycle(dockService);
             _Docks = dockService;
             ICaptainService captainService = new CaptainService(_Logging, _Database, _Settings, _Git, dockService);
             // Prompt template service must be created before MissionService so it can resolve templates
@@ -396,6 +399,7 @@ namespace Armada.Server
             _DispatchHold = new Armada.Core.Services.DispatchHold();
             MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission, () => _ContextRetrieval);
             _MissionService = missionService;
+            missionService.SetHarborCheckouts(_HarborCheckouts);
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);
             _BuildDriftService = new BuildDriftService(_Git, _Database, BuildInfo.RunningCommit, _Logging);
@@ -405,6 +409,7 @@ namespace Armada.Server
             _Admiral = admiralService;
             IMergeFailureClassifier mergeFailureClassifier = new MergeFailureClassifier();
             _MergeQueue = new MergeQueueService(_Logging, _Database, _Settings, _Git, mergeFailureClassifier, prServiceFactory, _CodeIndex);
+            ((MergeQueueService)_MergeQueue).SetHarborCheckouts(_HarborCheckouts);
 
             // Auto-recovery wiring: classifier -> router -> handler. The handler reads
             // the persisted classification on a Failed entry and routes to redispatch,
@@ -435,6 +440,7 @@ namespace Armada.Server
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
+            _LandingService.SetHarborCheckouts(_HarborCheckouts);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
             _RuntimeFactory = _SuppliedRuntimeFactory
                 ?? new AgentRuntimeFactory(_Logging, _Settings.CodeIndex.OpenCodeServer, _Settings.ModelProviders);
@@ -444,8 +450,12 @@ namespace Armada.Server
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);
             _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
+            _VesselReadinessService.HarborSettings = _Settings.Harbor;
+            _VesselReadinessService.HarborCheckouts = _HarborCheckouts;
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging, () => _Settings.BannedDiffPatterns);
+            _CheckRunService.HarborSettings = _Settings.Harbor;
+            _CheckRunService.HarborCheckouts = _HarborCheckouts;
             _CheckRunService.IsolatedRerunEnabled = () => _Settings.DefinitionOfDone.RerunFailingClassesOnce;
 
             // Both landing paths validate the actual merged commit through this one validator before the
@@ -591,10 +601,12 @@ namespace Armada.Server
             // Initialize handler classes (WebSocketHub is created later, so pass null initially)
             _MissionLanding = new MissionLandingHandler(
                 _Logging, _Database, _Settings, _Git, _MergeQueue, _LandingService, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _TemplateService, _PromptTemplateService, _Docks, _RemoteTriggerService, null, _CodeIndex);
+            _MissionLanding.SetHarborCheckouts(_HarborCheckouts);
 
             _AgentLifecycle = new AgentLifecycleHandler(
                 _Logging, _Database, _Settings, _RuntimeFactory, _Admiral, _TemplateService, _PromptTemplateService, null, EmitEventAsync,
                 sessionTokens: _SessionTokenService);
+            _AgentLifecycle.SetHarborCheckouts(_HarborCheckouts);
             _AgentLifecycle.SetProviderProgress(_ProviderProgress);
             _AgentLifecycle.SetTerminalMarkers(_TerminalMarkers);
             _AgentLifecycle.SetIntentionalStops(_IntentionalStops);
@@ -622,7 +634,11 @@ namespace Armada.Server
                     new DockerCliContainerRuntimeProbe(),
                     _Git,
                     flakeScoreAdapter,
-                    new HostLoadMonitor());
+                    new HostLoadMonitor())
+                {
+                    HarborSettings = _Settings.Harbor,
+                    HarborCheckouts = _HarborCheckouts
+                };
             }
             MissionOutcomeWakeHandler outcomeWake = new MissionOutcomeWakeHandler(_RemoteTriggerService, _Logging);
             missionService.OnMissionOutcome = async (Mission mission, bool willInvokeLanding) =>
@@ -1470,7 +1486,11 @@ namespace Armada.Server
 
             if (_MissionService is Armada.Core.Services.MissionService missionService)
                 missionService.HarborCapacityProbe = coordinator.IsRunnerAtCapacityAsync;
-            Armada.Server.Harbor.HarborLinkEndpoint endpoint = new Armada.Server.Harbor.HarborLinkEndpoint(_Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging);
+            Armada.Server.Harbor.HarborWorkspaceCoordinator workspace = new Armada.Server.Harbor.HarborWorkspaceCoordinator(
+                registry, enrollments, new Armada.Server.Harbor.DatabaseHarborWorkspaceBindingVerifier(_Database), _Logging);
+            _HarborCheckouts.SetChannel(workspace);
+            Armada.Server.Harbor.HarborLinkEndpoint endpoint = new Armada.Server.Harbor.HarborLinkEndpoint(
+                _Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging, workspace);
             _App.WebSocket(_Settings.Harbor.LinkPath, endpoint.HandleWebSocketAsync);
             new HarborRunnerEnrollmentRoutes(enrollments, _JsonOptions).Register(_App, AuthenticateRequestAsync, _AuthorizationService);
 
@@ -1574,7 +1594,7 @@ namespace Armada.Server
                 _Docks,
                 new VesselContextService(_Database, _RuntimeFactory, _Docks, _PromptTemplateService, _Logging),
                 _Git as IBranchInventory,
-                new VesselBranchWriteService(_Database, _Logging),
+                new VesselBranchWriteService(_Database, _Logging, _Settings.Harbor),
                 _MissionOperations)
                 .Register(_App, authenticate, _AuthorizationService);
 
@@ -2113,7 +2133,7 @@ namespace Armada.Server
                 objectiveScheduler: _ObjectiveScheduler,
                 captainQuarantine: _CaptainQuarantine,
                 captainAdministration: _CaptainAdministration,
-                unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging, database: _Database), _Logging),
+                unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging, database: _Database), _Logging, _Settings.Harbor),
                 terminalVoyageMissions: _TerminalVoyageMissions,
                 diskLifecycle: _DiskLifecycle,
                 longRunningJobs: _LongRunningJobs,

@@ -151,7 +151,11 @@ The fork ships a [headless Harbor console runner](docs/HARBOR_RUNNER.md) for
 process-only routes. Independent job supervisors retain exact process identity
 and bounded output through console reconnects; the runner resumes from the
 Admiral's saved cursor without launching another agent. Checkout operations
-remain on the Admiral for these routes.
+remain on the Admiral for these routes. Opt-in
+[Harbor-owned checkouts](docs/HARBOR_CHECKOUTS.md) move Git, files, checks and
+landing to an explicit host repository grant. Pinned bindings and durable retry
+intents retain the fork's authorization, verification and one-writer rules. An
+unavailable or uncertain owner leaves a named hold.
 
 Both versions support Harbor job recovery. The fork stores the exact mission,
 captain, dock and process attempt before launch. Restart adoption requires the

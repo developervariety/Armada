@@ -26,6 +26,16 @@ namespace Armada.Core.Database
             dock.Id = id;
             dock.TenantId = row.NullableText("tenant_id");
             dock.UserId = row.NullableText("user_id");
+            dock.ProvisionAttemptId = row.NullableText("provision_attempt_id");
+            dock.HostCheckout = HarborCheckoutBindingPersistence.Read(
+                (object?)row.TextOrNull("host_checkout_json") ?? DBNull.Value,
+                dock.TenantId,
+                dock.UserId);
+            dock.HostCheckoutLifecycle = HarborCheckoutLifecyclePersistence.Read(
+                (object?)row.TextOrNull("host_checkout_lifecycle_json") ?? DBNull.Value);
+            if (dock.HostCheckoutLifecycle != null
+                && !String.Equals(dock.HostCheckoutLifecycle.DockId, id, StringComparison.Ordinal))
+                throw new InvalidOperationException("harbor_checkout_lifecycle_intent_invalid: dock identity mismatch");
             dock.VesselId = vesselId;
             dock.CaptainId = row.NullableText("captain_id");
             dock.WorktreePath = row.NullableText("worktree_path");
@@ -48,6 +58,7 @@ namespace Armada.Core.Database
                 .Text("vessel_id", dock.VesselId)
                 .Text("tenant_id", dock.TenantId)
                 .Text("user_id", dock.UserId)
+                .Text("provision_attempt_id", dock.ProvisionAttemptId)
                 .Text("captain_id", dock.CaptainId)
                 .Text("worktree_path", dock.WorktreePath)
                 .Text("branch_name", dock.BranchName)

@@ -41,6 +41,7 @@ namespace Armada.Server
         private TerminalMarkerTracker? _TerminalMarkers;
         private CoordinationService? _CoordinationService;
         private IHarborProcessHost? _HarborHost;
+        private HarborCheckoutService? _HarborCheckouts;
         private bool _PreserveHarborJobsOnShutdown;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> _HarborProcessIds = new System.Collections.Concurrent.ConcurrentDictionary<int, string>();
 
@@ -290,6 +291,13 @@ namespace Armada.Server
         public void SetHarborHost(IHarborProcessHost? host)
         {
             _HarborHost = host;
+        }
+
+        /// <summary>Wire the authenticated Harbor checkout provider used by durable dock bindings.</summary>
+        /// <param name="checkouts">The shared checkout provider, or null when unavailable.</param>
+        public void SetHarborCheckouts(HarborCheckoutService? checkouts)
+        {
+            _HarborCheckouts = checkouts;
         }
 
         /// <summary>Keep remote Harbor jobs running when the Admiral stops for a restart.</summary>
@@ -786,7 +794,18 @@ namespace Armada.Server
                 throw new InvalidOperationException(capabilityError);
             }
 
-            Armada.Core.Settings.HarborMissionRoute? harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
+            HarborCheckoutBinding? ownedCheckout = dock.HostCheckout;
+            string? ownedWorkingDirectory = null;
+            Armada.Core.Settings.HarborMissionRoute? harborRoute;
+            if (ownedCheckout != null)
+            {
+                ownedWorkingDirectory = await InspectOwnedCheckoutAsync(mission, dock, ownedCheckout).ConfigureAwait(false);
+                harborRoute = new Armada.Core.Settings.HarborMissionRoute { RunnerId = ownedCheckout.RunnerId };
+            }
+            else
+            {
+                harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
+            }
             BaseAgentRuntime? harborAdapter = harborRoute != null ? CreateHarborAdapter(captain) : null;
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = harborAdapter ?? await CreateRuntimeAsync(captain).ConfigureAwait(false);
             if (harborAdapter != null)
@@ -879,7 +898,9 @@ namespace Armada.Server
             {
                 if (harborRoute != null && harborAdapter != null)
                 {
-                    processId = await StartOnHarborAsync(harborAdapter, harborRoute, captain, mission, dock, prompt, logFilePath, launchKey).ConfigureAwait(false);
+                    processId = await StartOnHarborAsync(
+                        harborAdapter, harborRoute, captain, mission, dock, prompt, logFilePath, launchKey, ownedCheckout, ownedWorkingDirectory,
+                        ownedCheckout == null ? null : finalMessageFilePath).ConfigureAwait(false);
                 }
                 else
                 {
@@ -943,7 +964,10 @@ namespace Armada.Server
             Dock dock,
             string prompt,
             string logFilePath,
-            string launchKey)
+            string launchKey,
+            HarborCheckoutBinding? checkoutBinding,
+            string? ownedWorkingDirectory,
+            string? localFinalMessageFilePath)
         {
             if (_HarborHost == null) throw new HarborLaunchException("harbor_mission_execution_unavailable");
             if (String.IsNullOrWhiteSpace(mission.TenantId) || String.IsNullOrWhiteSpace(mission.UserId))
@@ -962,8 +986,17 @@ namespace Armada.Server
             if (CaptainAccountLaunch.HasLaunchIdentity(account))
                 throw new HarborLaunchException("harbor_account_login_unsupported", account!.Id);
 
-            if (!HarborMissionRouting.TryMapWorkingDirectory(route, dock.WorktreePath, out string runnerDirectory, out string mappingReason))
+            string runnerDirectory;
+            if (checkoutBinding != null)
+            {
+                if (String.IsNullOrWhiteSpace(ownedWorkingDirectory))
+                    throw new HarborLaunchException("harbor_checkout_directory_unavailable", runnerId: route.RunnerId);
+                runnerDirectory = ownedWorkingDirectory;
+            }
+            else if (!HarborMissionRouting.TryMapWorkingDirectory(route, dock.WorktreePath, out runnerDirectory, out string mappingReason))
+            {
                 throw new HarborLaunchException(mappingReason);
+            }
 
             HarborProcessLaunch launch = new HarborProcessLaunch
             {
@@ -972,6 +1005,7 @@ namespace Armada.Server
                 MissionId = mission.Id,
                 CaptainId = captain.Id,
                 DockId = dock.Id,
+                CheckoutBinding = checkoutBinding,
                 OwnerTenantId = mission.TenantId!,
                 OwnerUserId = mission.UserId!,
                 WorkingDirectory = runnerDirectory,
@@ -1006,8 +1040,11 @@ namespace Armada.Server
 
             // A routed launch registers the same sibling and evidence roots as a local launch, at the paths the runner
             // resolves. A root the route cannot map is left out by name rather than sent as a path the runner lacks.
+            List<string> workspaceRoots = await ReadWorkspaceRootsAsync(mission, dock).ConfigureAwait(false);
+            if (checkoutBinding != null && (workspaceRoots.Count > 0 || await HasDeclaredWorkspaceRootsAsync(mission).ConfigureAwait(false)))
+                throw new HarborLaunchException("harbor_checkout_workspace_roots_unavailable", runnerId: route.RunnerId);
             List<string> runnerRoots = new List<string>();
-            foreach (string root in await ReadWorkspaceRootsAsync(mission, dock).ConfigureAwait(false))
+            foreach (string root in workspaceRoots)
             {
                 if (HarborMissionRouting.TryMapWorkingDirectory(route, root, out string runnerRoot, out string rootReason))
                     runnerRoots.Add(runnerRoot);
@@ -1018,11 +1055,71 @@ namespace Armada.Server
             CaptainLaunchIsolationPlan rootsPlan = new CaptainLaunchIsolationPlan();
             CaptainLaunchIsolationPlanner.AddWorkspaceRoots(rootsPlan, captain.Runtime, runnerRoots);
             launch.ExtraArguments = rootsPlan.ExtraArguments;
+            if (checkoutBinding != null)
+            {
+                launch.LocalFinalMessageFilePath = localFinalMessageFilePath;
+                await ApplyOwnedRuntimeConfigurationAsync(launch, captain, mission, dock).ConfigureAwait(false);
+            }
             _Logging.Info(_Header + "mission " + mission.Id + " is routed to Harbor runner " + launch.RunnerId);
             int processId = await processRuntime.StartOnHarborAsync(_HarborHost, launch, prompt, logFilePath, captain.Model, captain).ConfigureAwait(false);
             await _EmitEventAsync("captain.harbor_launched", "Mission " + mission.Id + " runs on Harbor runner " + launch.RunnerId,
                 "captain", captain.Id, captain.Id, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
             return processId;
+        }
+
+        private async Task<bool> HasDeclaredWorkspaceRootsAsync(Mission mission)
+        {
+            if (!String.IsNullOrWhiteSpace(mission.VesselId))
+            {
+                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
+                if (vessel != null)
+                {
+                    foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+                        if (sibling != null && !String.IsNullOrWhiteSpace(sibling.RelativePath)) return true;
+                }
+            }
+            foreach (CaptainEvidenceRoot evidence in _Settings.CaptainEvidenceRoots)
+                if (evidence != null && evidence.AppliesTo(mission.VesselId)) return true;
+            return false;
+        }
+
+        private async Task<string> InspectOwnedCheckoutAsync(Mission mission, Dock dock, HarborCheckoutBinding binding)
+        {
+            if (!_Settings.Harbor.Enabled) throw new HarborLaunchException("harbor_checkout_disabled", runnerId: binding.RunnerId);
+            if (_HarborCheckouts == null) throw new HarborLaunchException("harbor_workspace_unavailable", runnerId: binding.RunnerId);
+            if (!binding.IsComplete
+                || !String.Equals(mission.DockId, dock.Id, StringComparison.Ordinal)
+                || !String.Equals(mission.VesselId, dock.VesselId, StringComparison.Ordinal)
+                || !String.Equals(mission.CaptainId, dock.CaptainId, StringComparison.Ordinal)
+                || !String.Equals(binding.TenantId, dock.TenantId, StringComparison.Ordinal)
+                || !String.Equals(binding.UserId, dock.UserId, StringComparison.Ordinal)
+                || !String.Equals(binding.TenantId, mission.TenantId, StringComparison.Ordinal)
+                || !String.Equals(binding.UserId, mission.UserId, StringComparison.Ordinal))
+                throw new HarborLaunchException("harbor_checkout_binding_invalid", runnerId: binding.RunnerId);
+
+            HarborWorkspaceOperationRequest request = new HarborWorkspaceOperationRequest
+            {
+                Operation = HarborWorkspaceOperationEnum.InspectCheckout,
+                Binding = binding,
+                DockId = dock.Id,
+                VesselId = dock.VesselId,
+                RepositoryGrantId = binding.RepositoryGrantId,
+                ExpectedRepositoryFingerprint = binding.RepositoryFingerprint,
+                RunnerId = binding.RunnerId
+            };
+            HarborWorkspaceOperationResult result;
+            try
+            {
+                result = await _HarborCheckouts.ExecuteAsync(dock, request).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new HarborLaunchException("harbor_checkout_inspection_failed", exception.Message, binding.RunnerId);
+            }
+            if (String.IsNullOrWhiteSpace(result.CanonicalWorkingDirectory)
+                || !String.Equals(result.RepositoryFingerprint, binding.RepositoryFingerprint, StringComparison.Ordinal))
+                throw new HarborLaunchException("harbor_checkout_inspection_invalid", runnerId: binding.RunnerId);
+            return result.CanonicalWorkingDirectory;
         }
 
         /// <summary>

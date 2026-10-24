@@ -3,6 +3,7 @@ namespace Armada.Runtimes.Harbor
     using System;
     using System.IO;
     using System.Linq;
+    using System.Collections.Generic;
 
     /// <summary>Local settings for a headless Harbor runner client.</summary>
     public sealed class HarborRunnerSettings
@@ -21,6 +22,9 @@ namespace Armada.Runtimes.Harbor
 
         /// <summary>Local policy for the per-job supervisor.</summary>
         public HarborSupervisorOptions Supervisor { get; set; } = new HarborSupervisorOptions();
+
+        /// <summary>Explicit local repository grants available to typed checkout operations.</summary>
+        public List<HarborRepositoryGrant> RepositoryGrants { get; set; } = new List<HarborRepositoryGrant>();
 
         /// <summary>Maximum jobs advertised to the Admiral.</summary>
         public int MaxConcurrentJobs { get; set; } = 4;
@@ -57,6 +61,7 @@ namespace Armada.Runtimes.Harbor
                 throw new ArgumentException("LinkUri must use wss, or ws on loopback, and must not contain user information, a query, or a fragment.", nameof(LinkUri));
 
             if (Supervisor == null) throw new ArgumentNullException(nameof(Supervisor));
+            if (RepositoryGrants == null) throw new ArgumentNullException(nameof(RepositoryGrants));
             if (String.IsNullOrWhiteSpace(Supervisor.StateDirectory))
                 throw new ArgumentException("Supervisor.StateDirectory is required.", nameof(Supervisor));
             if (Supervisor.WorkingRoots == null || Supervisor.WorkingRoots.Count == 0)
@@ -76,6 +81,15 @@ namespace Armada.Runtimes.Harbor
                 if (String.IsNullOrWhiteSpace(command.Key) || command.Key.Length > 80
                     || String.IsNullOrWhiteSpace(command.Value) || !Path.IsPathFullyQualified(command.Value) || !File.Exists(command.Value))
                     throw new ArgumentException("Supervisor.Commands must contain named runtime commands.", nameof(Supervisor.Commands));
+            }
+
+            HashSet<string> grantIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (HarborRepositoryGrant grant in RepositoryGrants)
+            {
+                if (grant == null) throw new ArgumentException("RepositoryGrants cannot contain null entries.", nameof(RepositoryGrants));
+                grant.Validate();
+                if (!grantIds.Add(grant.Id))
+                    throw new ArgumentException("Repository grant identifiers must be unique.", nameof(RepositoryGrants));
             }
         }
     }

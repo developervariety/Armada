@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Text.Json.Serialization;
     using System.Collections.Generic;
 
     /// <summary>
@@ -21,16 +22,19 @@ namespace Armada.Core.Models
         /// <summary>
         /// True when the changed paths were read.
         /// </summary>
+        [JsonInclude]
         public bool Available { get; private set; } = false;
 
         /// <summary>
         /// Every repository-relative path the change touches. Empty when <see cref="Available"/> is false.
         /// </summary>
+        [JsonInclude]
         public IReadOnlyList<string> Paths { get; private set; } = Array.Empty<string>();
 
         /// <summary>
         /// Why the read failed, when <see cref="Available"/> is false; null otherwise.
         /// </summary>
+        [JsonInclude]
         public string? FailureReason { get; private set; } = null;
 
         #endregion
