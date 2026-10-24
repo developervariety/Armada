@@ -39,5 +39,10 @@ namespace Armada.Server.Mcp
         /// Optional page size for list operations.
         /// </summary>
         public int? PageSize { get; set; }
+
+        /// <summary>
+        /// Optional ownership scope for create (UserSpecific or TenantWide), resolved against what the caller may create.
+        /// </summary>
+        public Armada.Core.Enums.ScopeEnum? Scope { get; set; }
     }
 }

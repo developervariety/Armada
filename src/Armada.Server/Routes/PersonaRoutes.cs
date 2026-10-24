@@ -21,6 +21,7 @@ namespace Armada.Server.Routes
     {
         private readonly DatabaseDriver _database;
         private readonly JsonSerializerOptions _jsonOptions;
+        private readonly PersonaWriteService _writes;
 
         /// <summary>
         /// Instantiate.
@@ -32,6 +33,7 @@ namespace Armada.Server.Routes
             JsonSerializerOptions jsonOptions)
         {
             _database = database ?? throw new ArgumentNullException(nameof(database));
+            _writes = new PersonaWriteService(database);
             _jsonOptions = jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions));
         }
 
@@ -118,7 +120,9 @@ namespace Armada.Server.Routes
                 .WithSecurity("ApiKey"));
 
             // Create persona
-            app.Post<Persona>("/api/v1/personas", async (ApiRequest req) =>
+            // Untyped: the handler reads the body itself, so a Persona setter refusing an empty Name or PromptTemplateName
+            // answers 400 rather than failing the request before the handler runs.
+            app.Post("/api/v1/personas", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -126,26 +130,23 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                Persona persona = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
-                    ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
-                if (!String.IsNullOrEmpty(persona.DefaultCaptainId) && await _database.Captains.ReadAsync(persona.DefaultCaptainId).ConfigureAwait(false) == null)
+                Persona persona;
+                try
                 {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Default captain '" + persona.DefaultCaptainId + "' not found" };
+                    persona = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
+                        ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
                 }
-                string? routingError = PersonaCaptainPrioritySelector.Validate(persona);
-                if (routingError != null)
+                catch (Exception ex) when (ex is ArgumentException || ex is JsonException)
                 {
+                    // Persona's setters reject an empty Name or PromptTemplateName while the body is read.
                     req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = routingError };
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid persona: " + ex.Message };
                 }
-                persona.TenantId = ctx.TenantId;
-                persona.UserId = ctx.UserId;
-                persona.Scope = ScopedVisibility.ResolveCreateScope(ctx, persona.Scope);
-                await DuplicateEntityGuard.EnsurePersonaNameAvailableAsync(_database, persona).ConfigureAwait(false);
-                persona = await _database.Personas.CreateAsync(persona).ConfigureAwait(false);
+
+                PersonaWriteResult created = await _writes.CreateAsync(ctx, persona).ConfigureAwait(false);
+                if (created.Status != PersonaWriteStatusEnum.Ok) return Failure(req, created);
                 req.Http.Response.StatusCode = 201;
-                return persona;
+                return created.Persona;
             },
             api => api
                 .WithTag("Personas")
@@ -167,36 +168,15 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = RouteParameters.Get(req, "name");
-                Persona? existing = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
-                if (existing == null || !ScopedVisibility.CanView(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
-                if (!ScopedVisibility.CanEdit(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 403; return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only modify your own personas; a tenant-wide persona requires a tenant admin." }; }
                 PersonaUpdateRequest body = JsonSerializer.Deserialize<PersonaUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
-                if (!String.IsNullOrEmpty(body.DefaultCaptainId) && await _database.Captains.ReadAsync(body.DefaultCaptainId).ConfigureAwait(false) == null)
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Default captain '" + body.DefaultCaptainId + "' not found" };
-                }
-                if (body.Description != null) existing.Description = body.Description;
-                if (body.PromptTemplateName != null) existing.PromptTemplateName = body.PromptTemplateName;
                 // Default captain changes only when the body carries the field: a value assigns it and an explicit
                 // null (or empty string) clears it, so the persona-detail editor can do both, while an editor that
                 // does not show the default captain (the Personas list) leaves it unchanged.
-                if (PersonaUpdateFieldPresence.FromJson(req.Http.Request.DataAsString, _jsonOptions).HasDefaultCaptainId)
-                    existing.DefaultCaptainId = String.IsNullOrEmpty(body.DefaultCaptainId) ? null : body.DefaultCaptainId;
-                if ((ctx.IsAdmin || ctx.IsTenantAdmin) && body.Scope.HasValue) existing.Scope = body.Scope.Value;
-                if (body.CaptainPriorities != null) existing.CaptainPriorities = body.CaptainPriorities;
-                if (body.PriorityAvailability.HasValue) existing.PriorityAvailability = body.PriorityAvailability.Value;
-                if (body.PriorityExhaustion.HasValue) existing.PriorityExhaustion = body.PriorityExhaustion.Value;
-                string? routingError = PersonaCaptainPrioritySelector.Validate(existing);
-                if (routingError != null)
-                {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = routingError };
-                }
-                existing.LastUpdateUtc = DateTime.UtcNow;
-                Persona updated = await _database.Personas.UpdateAsync(existing).ConfigureAwait(false);
-                return (object)updated;
+                bool hasDefaultCaptain = PersonaUpdateFieldPresence.FromJson(req.Http.Request.DataAsString, _jsonOptions).HasDefaultCaptainId;
+                PersonaWriteResult updated = await _writes.UpdateAsync(ctx, name, body, hasDefaultCaptain).ConfigureAwait(false);
+                if (updated.Status != PersonaWriteStatusEnum.Ok) return Failure(req, updated);
+                return (object)updated.Persona!;
             },
             api => api
                 .WithTag("Personas")
@@ -219,11 +199,8 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = RouteParameters.Get(req, "name");
-                Persona? existing = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
-                if (existing == null || !ScopedVisibility.CanView(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
-                if (!ScopedVisibility.CanEdit(ctx, existing.Scope, existing.TenantId, existing.UserId)) { req.Http.Response.StatusCode = 403; return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = "You may only delete your own personas; a tenant-wide persona requires a tenant admin." }; }
-                if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in personas cannot be deleted" }; }
-                await _database.Personas.DeleteAsync(existing.Id).ConfigureAwait(false);
+                PersonaWriteResult deleted = await _writes.DeleteAsync(ctx, name).ConfigureAwait(false);
+                if (deleted.Status != PersonaWriteStatusEnum.Ok) return Failure(req, deleted);
                 req.Http.Response.StatusCode = 204;
                 return null;
             },
@@ -236,6 +213,22 @@ namespace Armada.Server.Routes
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
+        }
+
+        private static ApiErrorResponse Failure(ApiRequest req, PersonaWriteResult result)
+        {
+            switch (result.Status)
+            {
+                case PersonaWriteStatusEnum.NotFound:
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = result.Message };
+                case PersonaWriteStatusEnum.Forbidden:
+                    req.Http.Response.StatusCode = 403;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Forbidden, Message = result.Message };
+                default:
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = result.Message };
+            }
         }
     }
 }

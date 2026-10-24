@@ -82,7 +82,7 @@ namespace Test.Shared.Suites.Client
             ["POST /api/v1/harbors/{id}/probe"] = "Harbor probe; no dashboard function",
             ["POST /api/v1/merge-queue/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters",
             ["POST /api/v1/merge-queue/purge"] = "Batch purge, also the MCP tool purge_merge_queue; no dashboard function",
-            ["POST /api/v1/missions/delete/multiple"] = "Batch delete not used by the dashboard (bulk delete calls DELETE per mission)",
+            ["POST /api/v1/missions/delete/multiple"] = "Batch delete not used by the dashboard (bulk delete purges each mission with DELETE /api/v1/missions/{id}/purge)",
             ["POST /api/v1/missions/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters",
             ["POST /api/v1/missions/summaries/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters",
             ["POST /api/v1/onboarding"] = "Self-registration (sign-up) flow; the dashboard and TUI only sign in",

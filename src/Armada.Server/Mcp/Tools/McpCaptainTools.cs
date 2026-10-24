@@ -127,6 +127,7 @@ namespace Armada.Server.Mcp.Tools
                         runtime = new { type = "string", description = "Agent runtime: " + McpToolHelpers.EnumNames<AgentRuntimeEnum>() },
                         systemInstructions = new { type = "string", description = "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
                         model = new { type = "string", description = "AI model identifier; null means runtime default" },
+                        modelEndpointId = new { type = "string", description = "Managed inference endpoint ID (mep_ prefix) for an ApiEndpoint captain; persona priorities with runtime ApiEndpoint and this endpoint select it" },
                         reasoningEffort = new { type = "string", description = "Reasoning effort: " + McpToolHelpers.EnumNames<ReasoningEffortEnum>() + ". Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort). Ignored by runtimes without a control." },
                         tier = new { type = "string", description = "Capability tier for dispatch routing: Economy, Standard, or Premium. Empty auto-classifies from the model name." },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
@@ -155,6 +156,7 @@ namespace Armada.Server.Mcp.Tools
                         captain.Runtime = rt;
                     captain.SystemInstructions = request.SystemInstructions;
                     captain.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
+                    captain.ModelEndpointId = String.IsNullOrWhiteSpace(request.ModelEndpointId) ? null : request.ModelEndpointId;
                     captain.AllowedPersonas = request.AllowedPersonas;
                     captain.PreferredPersona = request.PreferredPersona;
                     captain.ReasoningEffort = ParseReasoningEffort(request.ReasoningEffort);
@@ -186,6 +188,7 @@ namespace Armada.Server.Mcp.Tools
                         runtime = new { type = "string", description = "New agent runtime: " + McpToolHelpers.EnumNames<AgentRuntimeEnum>() },
                         systemInstructions = new { type = "string", description = "New system instructions for this captain" },
                         model = new { type = "string", description = "New AI model identifier; null means runtime default" },
+                        modelEndpointId = new { type = "string", description = "Managed inference endpoint ID (mep_ prefix) for an ApiEndpoint captain; empty string clears it, omitting it keeps it" },
                         reasoningEffort = new { type = "string", description = "Reasoning effort: " + McpToolHelpers.EnumNames<ReasoningEffortEnum>() + ". Empty string clears it. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort)." },
                         tier = new { type = "string", description = "Capability tier: Economy, Standard, or Premium. Empty string clears it (auto-classify from model)." },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
@@ -217,6 +220,8 @@ namespace Armada.Server.Mcp.Tools
                         captain.SystemInstructions = request.SystemInstructions;
                     if (request.Model != null)
                         captain.Model = String.IsNullOrWhiteSpace(request.Model) ? null : request.Model;
+                    if (request.ModelEndpointId != null)
+                        captain.ModelEndpointId = String.IsNullOrWhiteSpace(request.ModelEndpointId) ? null : request.ModelEndpointId;
                     if (request.AllowedPersonas != null)
                         captain.AllowedPersonas = request.AllowedPersonas;
                     if (request.PreferredPersona != null)

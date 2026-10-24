@@ -29,5 +29,10 @@ namespace Armada.Server.Mcp
         /// Whether the playbook is active.
         /// </summary>
         public bool? Active { get; set; }
+
+        /// <summary>
+        /// Optional ownership scope for create (UserSpecific or TenantWide), resolved against what the caller may create.
+        /// </summary>
+        public Armada.Core.Enums.ScopeEnum? Scope { get; set; }
     }
 }

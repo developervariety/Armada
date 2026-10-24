@@ -19,6 +19,7 @@ namespace Armada.Server.WebSocket
     public class WebSocketCommandHandler
     {
         private readonly IAdmiralService _Admiral;
+        private readonly PersonaWriteService _PersonaWrites;
         private readonly DatabaseDriver _Database;
         private readonly IMergeQueueService _MergeQueue;
         private readonly ArmadaSettings? _Settings;
@@ -62,6 +63,7 @@ namespace Armada.Server.WebSocket
             Action<Voyage, string?> broadcastVoyageChange)
         {
             _Admiral = admiral;
+            _PersonaWrites = new PersonaWriteService(database);
             _Database = database;
             _MergeQueue = mergeQueue;
             _Settings = settings;
@@ -1046,34 +1048,40 @@ namespace Armada.Server.WebSocket
                     return new { type = "command.result", action = "get_persona", data = (object)foundPersona };
 
                 case "create_persona":
-                    Persona newPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
-                    await DuplicateEntityGuard.EnsurePersonaNameAvailableAsync(_Database, newPersona).ConfigureAwait(false);
-                    newPersona = await _Database.Personas.CreateAsync(newPersona).ConfigureAwait(false);
-                    return new { type = "command.result", action = "create_persona", data = (object)newPersona };
-
-                case "update_persona":
-                    string updPersonaName = command.Id ?? "";
-                    Persona? existPersona = await _Database.Personas.ReadByNameAsync(updPersonaName).ConfigureAwait(false);
-                    if (existPersona == null)
-                        return WebSocketCommandError.Create("update_persona", WebSocketCommandErrorCodeEnum.NotFound, "Persona not found");
-                    else
+                {
+                    Persona? newPersona;
+                    try
                     {
-                        Persona patchPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
-                        if (patchPersona.Description != null) existPersona.Description = patchPersona.Description;
-                        if (patchPersona.PromptTemplateName != null) existPersona.PromptTemplateName = patchPersona.PromptTemplateName;
-                        existPersona = await _Database.Personas.UpdateAsync(existPersona).ConfigureAwait(false);
-                        return new { type = "command.result", action = "update_persona", data = (object)existPersona };
+                        newPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data;
+                    }
+                    catch (Exception ex) when (ex is ArgumentException || ex is JsonException)
+                    {
+                        return WebSocketCommandError.Create("create_persona", WebSocketCommandErrorCodeEnum.InvalidArgument, "Invalid persona: " + ex.Message);
                     }
 
+                    if (newPersona == null) return WebSocketCommandError.Create("create_persona", WebSocketCommandErrorCodeEnum.InvalidArgument, "data is required");
+                    PersonaWriteResult created = await _PersonaWrites.CreateAsync(caller!, newPersona).ConfigureAwait(false);
+                    if (created.Status != PersonaWriteStatusEnum.Ok) return PersonaError("create_persona", created);
+                    return new { type = "command.result", action = "create_persona", data = (object)created.Persona! };
+                }
+
+                case "update_persona":
+                {
+                    PersonaUpdateRequest update = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaUpdateRequest>>(rawBody, _JsonOptions)?.Data ?? new PersonaUpdateRequest();
+                    // Same rule as REST: the default captain changes only when data carries it, and null or empty clears it.
+                    bool hasDefaultCaptain = JsonSerializer.Deserialize<WebSocketDataCommand<PersonaUpdateFieldPresence>>(rawBody, _JsonOptions)?.Data?.HasDefaultCaptainId ?? false;
+                    PersonaWriteResult updated = await _PersonaWrites.UpdateAsync(caller!, command.Id ?? "", update, hasDefaultCaptain).ConfigureAwait(false);
+                    if (updated.Status != PersonaWriteStatusEnum.Ok) return PersonaError("update_persona", updated);
+                    return new { type = "command.result", action = "update_persona", data = (object)updated.Persona! };
+                }
+
                 case "delete_persona":
+                {
                     string delPersonaName = command.Id ?? "";
-                    Persona? delPersona = await _Database.Personas.ReadByNameAsync(delPersonaName).ConfigureAwait(false);
-                    if (delPersona == null)
-                        return WebSocketCommandError.Create("delete_persona", WebSocketCommandErrorCodeEnum.NotFound, "Persona not found");
-                    if (delPersona.IsBuiltIn)
-                        return WebSocketCommandError.Create("delete_persona", WebSocketCommandErrorCodeEnum.Conflict, "Cannot delete built-in persona");
-                    await _Database.Personas.DeleteAsync(delPersona.Id).ConfigureAwait(false);
+                    PersonaWriteResult deleted = await _PersonaWrites.DeleteAsync(caller!, delPersonaName).ConfigureAwait(false);
+                    if (deleted.Status != PersonaWriteStatusEnum.Ok) return PersonaError("delete_persona", deleted);
                     return new { type = "command.result", action = "delete_persona", data = (object)new { Status = "deleted", Name = delPersonaName } };
+                }
 
                 // ── Prompt Templates ─────────────────────────────────────────
 
@@ -1153,5 +1161,13 @@ namespace Armada.Server.WebSocket
         {
             return MissionStateMachine.IsValidTransition(current, target);
         }
-    }
+    
+        private static WebSocketCommandError PersonaError(string action, PersonaWriteResult result)
+        {
+            WebSocketCommandErrorCodeEnum code = result.Status == PersonaWriteStatusEnum.NotFound ? WebSocketCommandErrorCodeEnum.NotFound
+                : result.Status == PersonaWriteStatusEnum.Forbidden ? WebSocketCommandErrorCodeEnum.Forbidden
+                : WebSocketCommandErrorCodeEnum.InvalidArgument;
+            return WebSocketCommandError.Create(action, code, result.Message);
+        }
+}
 }

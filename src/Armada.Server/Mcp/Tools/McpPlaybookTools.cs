@@ -63,7 +63,8 @@ namespace Armada.Server.Mcp.Tools
                         fileName = new { type = "string", description = "Markdown filename (must end with .md)" },
                         description = new { type = "string", description = "Optional human-readable description" },
                         content = new { type = "string", description = "Markdown content" },
-                        active = new { type = "boolean", description = "Whether the playbook is active" }
+                        active = new { type = "boolean", description = "Whether the playbook is active" },
+                        scope = new { type = "string", @enum = Enum.GetNames<Armada.Core.Enums.ScopeEnum>(), description = "Ownership: UserSpecific (only you) or TenantWide (default for administrators); a regular user can create only UserSpecific playbooks" }
                     },
                     required = new[] { "fileName", "content" }
                 },
@@ -81,6 +82,7 @@ namespace Armada.Server.Mcp.Tools
                     };
                     playbook.TenantId = String.IsNullOrEmpty(caller.TenantId) ? Constants.DefaultTenantId : caller.TenantId;
                     playbook.UserId = caller.UserId;
+                    playbook.Scope = ScopedVisibility.ResolveCreateScope(caller, request.Scope);
 
                     PlaybookService service = new PlaybookService(database, logging);
                     service.Validate(playbook);

@@ -39,6 +39,7 @@ namespace Armada.Server.Mcp.Tools
                     {
                         name = new { type = "string", description = "Pipeline name (e.g. 'WorkerOnly', 'FullPipeline', 'Reviewed')" },
                         description = new { type = "string", description = "Human-readable description of the pipeline workflow" },
+                        scope = new { type = "string", @enum = Enum.GetNames<ScopeEnum>(), description = "Ownership: UserSpecific (only you) or TenantWide (default for administrators); a regular user can create only UserSpecific pipelines" },
                         stages = new
                         {
                             type = "array",
@@ -70,6 +71,7 @@ namespace Armada.Server.Mcp.Tools
                     Pipeline pipeline = new Pipeline(request.Name);
                     pipeline.TenantId = String.IsNullOrEmpty(caller.TenantId) ? ArmadaConstants.DefaultTenantId : caller.TenantId;
                     pipeline.UserId = caller.UserId;
+                    pipeline.Scope = ScopedVisibility.ResolveCreateScope(caller, request.Scope);
                     if (request.Description != null)
                         pipeline.Description = request.Description;
 

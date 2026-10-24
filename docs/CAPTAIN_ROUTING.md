@@ -165,7 +165,7 @@ Pipelines and Architect-generated Worker missions resolve their personas through
 
 The dashboard's persona create/edit forms include ordered matching fields, add/remove/move controls, and availability policies. Mobile persona detail opens the same structured controls from Captain priorities. The terminal forms support add, edit, delete, and Alt+Up/Down ordering. Duplication copies the hierarchy and its policies.
 
-Persona create accepts all routing fields. Partial REST/MCP updates preserve omitted routing fields; `captainPriorities: []` clears the hierarchy. Invalid classes or enum values are rejected. Legacy defaultCaptainId clearing remains unchanged: REST null/omitted clears it, while MCP uses an empty string.
+Persona create accepts all routing fields. Partial REST/MCP updates preserve omitted routing fields; `captainPriorities: []` clears the hierarchy. Invalid classes or enum values are rejected. Legacy defaultCaptainId changes only when an update carries it, on every surface (REST, MCP, WebSocket): an omitted value keeps it, and an empty string clears it. REST and WebSocket also accept an explicit null; MCP tool arguments are schema-checked as strings, so MCP uses the empty string.
 
 A Pending mission's assignmentBlocker uses the hierarchy to decide whether any captain is eligible. Successful hierarchy assignment logs the persona, chosen captain ID, and matched priority number. No matches stay Pending rather than failing the pipeline. See [SCHEDULING.md](SCHEDULING.md) for other blockers.
 

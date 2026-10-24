@@ -104,7 +104,8 @@ namespace Armada.Server.Mcp.Tools
                         category = new { type = "string", description = "Template category such as 'persona' or 'mission'" },
                         content = new { type = "string", description = "Template content with {Placeholder} parameters" },
                         description = new { type = "string", description = "Human-readable description of the template" },
-                        active = new { type = "boolean", description = "Whether the template should be active" }
+                        active = new { type = "boolean", description = "Whether the template should be active" },
+                        scope = new { type = "string", @enum = Enum.GetNames<Armada.Core.Enums.ScopeEnum>(), description = "Ownership: UserSpecific (only you) or TenantWide (default for administrators); a regular user can create only UserSpecific templates" }
                     },
                     required = new[] { "name", "category", "content" }
                 },
@@ -122,7 +123,7 @@ namespace Armada.Server.Mcp.Tools
                     PromptTemplate template = new PromptTemplate(request.Name, request.Content);
                     template.TenantId = String.IsNullOrEmpty(caller.TenantId) ? Constants.DefaultTenantId : caller.TenantId;
                     template.UserId = caller.UserId;
-                    template.Scope = ScopedVisibility.ResolveCreateScope(caller, null);
+                    template.Scope = ScopedVisibility.ResolveCreateScope(caller, request.Scope);
                     template.Category = request.Category;
                     template.Description = request.Description;
                     if (request.Active.HasValue) template.Active = request.Active.Value;

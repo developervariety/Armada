@@ -6997,6 +6997,11 @@
           "required": false
         },
         {
+          "name": "modelEndpointId",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "muxAdapterType",
           "type": "string",
           "required": false
@@ -7663,7 +7668,7 @@
     },
     {
       "name": "create_persona",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "Persona:Create",
       "arguments": [
         {
@@ -7700,6 +7705,11 @@
           "name": "promptTemplateName",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
         }
       ],
       "description": "Create a new persona with a name and prompt template reference",
@@ -7707,7 +7717,7 @@
     },
     {
       "name": "create_pipeline",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "Pipeline:Create",
       "arguments": [
         {
@@ -7719,6 +7729,11 @@
           "name": "name",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
         },
         {
           "name": "stages",
@@ -7753,6 +7768,11 @@
           "name": "fileName",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
         }
       ],
       "description": "Create a new markdown playbook.",
@@ -7760,7 +7780,7 @@
     },
     {
       "name": "create_prompt_template",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "PromptTemplate:Create",
       "arguments": [
         {
@@ -7787,6 +7807,11 @@
           "name": "name",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
         }
       ],
       "description": "Create a new prompt template.",
@@ -8158,7 +8183,7 @@
     },
     {
       "name": "delete_persona",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "Persona:Delete",
       "arguments": [
         {
@@ -8172,7 +8197,7 @@
     },
     {
       "name": "delete_pipeline",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "Pipeline:Delete",
       "arguments": [
         {
@@ -9779,7 +9804,7 @@
     },
     {
       "name": "reset_prompt_template",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "PromptTemplate:Execute",
       "arguments": [
         {
@@ -10695,6 +10720,11 @@
           "required": false
         },
         {
+          "name": "modelEndpointId",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "muxAdapterType",
           "type": "string",
           "required": false
@@ -11307,7 +11337,7 @@
     },
     {
       "name": "update_persona",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "Persona:Update",
       "arguments": [
         {
@@ -11344,6 +11374,11 @@
           "name": "promptTemplateName",
           "type": "string",
           "required": false
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false
         }
       ],
       "description": "Update an existing persona's properties",
@@ -11351,7 +11386,7 @@
     },
     {
       "name": "update_pipeline",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "Pipeline:Update",
       "arguments": [
         {
@@ -11409,7 +11444,7 @@
     },
     {
       "name": "update_prompt_template",
-      "auth": "TenantAdmin",
+      "auth": "Authenticated",
       "resource": "PromptTemplate:Update",
       "arguments": [
         {

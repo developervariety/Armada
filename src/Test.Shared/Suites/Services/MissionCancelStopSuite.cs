@@ -143,7 +143,7 @@ namespace Test.Shared.Suites.Services
                 case "mcp":
                 {
                     using HttpClient mcp = fx.CreateMcpClient(true);
-                    return await CallToolAsync(mcp, voyageCancel ? "cancel_voyage" : "cancel_mission",
+                    return await McpTestCalls.CallToolAsync(mcp, voyageCancel ? "cancel_voyage" : "cancel_mission",
                         voyageCancel ? (object)new { voyageId = id } : new { missionId = id }).ConfigureAwait(false);
                 }
                 default:
@@ -157,26 +157,6 @@ namespace Test.Shared.Suites.Services
                     return reply!;
                 }
             }
-        }
-
-        private static async Task<string> CallToolAsync(HttpClient mcp, string tool, object arguments)
-        {
-            HttpRequestMessage init = new HttpRequestMessage(HttpMethod.Post, "/rpc");
-            init.Content = JsonHelper.ToJsonContent(new
-            {
-                jsonrpc = "2.0", id = 1, method = "initialize",
-                @params = new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "cancel-stop-test", version = "1.0" } }
-            });
-            using HttpResponseMessage initResponse = await mcp.SendAsync(init).ConfigureAwait(false);
-            string sessionId = initResponse.Headers.TryGetValues("Mcp-Session-Id", out IEnumerable<string>? values) ? values.First() : String.Empty;
-
-            HttpRequestMessage call = new HttpRequestMessage(HttpMethod.Post, "/rpc");
-            call.Content = JsonHelper.ToJsonContent(new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = new { name = tool, arguments = arguments } });
-            if (!String.IsNullOrEmpty(sessionId)) call.Headers.Add("Mcp-Session-Id", sessionId);
-            using HttpResponseMessage response = await mcp.SendAsync(call).ConfigureAwait(false);
-            string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            AssertTrue(response.IsSuccessStatusCode, "MCP " + tool + " HTTP " + (int)response.StatusCode + ": " + body);
-            return body;
         }
 
         #endregion

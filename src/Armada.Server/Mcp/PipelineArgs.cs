@@ -21,6 +21,11 @@ namespace Armada.Server.Mcp
         /// Ordered list of pipeline stages.
         /// </summary>
         public List<PipelineStageArgs>? Stages { get; set; }
+
+        /// <summary>
+        /// Optional ownership scope for create (UserSpecific or TenantWide), resolved against what the caller may create.
+        /// </summary>
+        public Armada.Core.Enums.ScopeEnum? Scope { get; set; }
     }
 
     /// <summary>

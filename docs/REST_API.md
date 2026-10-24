@@ -5977,7 +5977,8 @@ Create a new persona.
 | `Name` | string | yes | Persona name |
 | `Description` | string | no | Persona description |
 | `PromptTemplateName` | string | yes | Name of the prompt template to use |
-| `DefaultCaptainId` | string? | no | Legacy preferred captain; superseded by a nonempty hierarchy |
+| `DefaultCaptainId` | string? | no | Legacy preferred captain (must be visible to the caller); superseded by a nonempty hierarchy |
+| `Scope` | enum? | no | TenantWide or UserSpecific; a regular user always gets UserSpecific, an administrator defaults to TenantWide |
 | `CaptainPriorities` | object[] | no | Ordered matching classes; defaults empty |
 | `PriorityAvailability` | enum | no | FallThrough (default) or WaitForFirstPriority |
 | `PriorityExhaustion` | enum | no | Wait (default) or UseEligibleCaptain; ignored by first-priority wait |
@@ -5988,8 +5989,10 @@ Each priority has optional Runtime (AgentRuntimeEnum), Model (exact case-insensi
 {"Name":"reviewer","PromptTemplateName":"persona.judge","CaptainPriorities":[{"Runtime":"Codex","MinimumTier":"Premium"},{"Runtime":"Mux","Endpoint":"local","Model":"gpt-oss:120b"}],"PriorityAvailability":"FallThrough","PriorityExhaustion":"Wait"}
 ```
 
+The persona is owned by the caller. `IsBuiltIn` is ignored: only Armada's own personas are built in.
+
 **Response:** `201 Created` - Persona
-**Error:** `409 Conflict` - A persona with that name already exists (`Data`: [DuplicateEntityErrorDetail](#duplicateentityerrordetail) with `Code` `DuplicateEntity`, `EntityType` `Persona`, `Field` `Name`)
+**Errors:** `400` - `Name` or `PromptTemplateName` is missing, the default captain is not found, or the routing configuration is invalid; `409 Conflict` - A persona with that name already exists (`Data`: [DuplicateEntityErrorDetail](#duplicateentityerrordetail) with `Code` `DuplicateEntity`, `EntityType` `Persona`, `Field` `Name`)
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/personas \
@@ -6001,7 +6004,7 @@ curl -X POST http://localhost:7890/api/v1/personas \
 
 #### PUT /api/v1/personas/{name}
 
-Update an existing persona. Omitted routing fields preserve their stored values; an empty CaptainPriorities array clears the hierarchy. Null routing fields also preserve their values. DefaultCaptainId retains its legacy null/omitted clearing behavior. Scope changes require administrator privileges.
+Update an existing persona. Omitted routing fields preserve their stored values; an empty CaptainPriorities array clears the hierarchy. Null routing fields also preserve their values. An omitted `DefaultCaptainId` keeps the stored default captain; an explicit `null` or empty string clears it. Scope changes require administrator privileges.
 
 **Permission:** Authenticated
 
@@ -6016,14 +6019,14 @@ Update an existing persona. Omitted routing fields preserve their stored values;
 |---|---|---|---|
 | `Description` | string | no | Updated description |
 | `PromptTemplateName` | string | no | Updated prompt template name |
-| `DefaultCaptainId` | string? | no | Legacy preferred captain; null/omitted clears |
+| `DefaultCaptainId` | string? | no | Legacy preferred captain (must be visible to the caller); omitted keeps it, explicit null or empty clears it |
 | `CaptainPriorities` | object[]? | no | Ordered matching classes described under POST; omitted/null preserves, empty clears |
 | `PriorityAvailability` | enum? | no | FallThrough or WaitForFirstPriority; omitted/null preserves |
 | `PriorityExhaustion` | enum? | no | Wait or UseEligibleCaptain; omitted/null preserves |
 | `Scope` | enum? | no | TenantWide or UserSpecific; administrator-only change |
 
 **Response:** `200 OK` - Persona
-**Errors:** `400` - Invalid routing configuration; `403` - Caller may not edit this persona; `404` - Persona not found
+**Errors:** `400` - Invalid routing configuration, an empty `PromptTemplateName`, or a default captain that is not found; `403` - Caller may not edit this persona; `404` - Persona not found
 
 ```bash
 curl -X PUT http://localhost:7890/api/v1/personas/reviewer \
@@ -6045,8 +6048,7 @@ Delete a persona. Built-in personas cannot be deleted.
 | `name` | Persona name |
 
 **Response:** `204 No Content`
-**Error:** `404` - Persona not found
-**Error:** `403` - Built-in persona cannot be deleted
+**Errors:** `400` - Built-in persona cannot be deleted; `403` - Caller may not delete this persona; `404` - Persona not found
 
 ```bash
 curl -X DELETE http://localhost:7890/api/v1/personas/reviewer
@@ -8017,7 +8019,7 @@ Return the interactive Swagger UI for the same OpenAPI surface.
 
 Personas can carry an ordered captain hierarchy or a legacy default captain, and dispatch can dictate which captain runs each pipeline step, with a capability-tier fallback when that captain is busy. See [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md) for the full model.
 
-- `POST` / `PUT /api/v1/personas` accept and return `defaultCaptainId` (a `cpt_` id). An invalid captain id is rejected with `400`. `PUT` sets the field to the request value, so an omitted/null value clears the default.
+- `POST` / `PUT /api/v1/personas` accept and return `defaultCaptainId` (a `cpt_` id). An invalid captain id is rejected with `400`. `PUT` changes it only when the body carries the field: an omitted value keeps it, and an explicit null or empty string clears it.
 - `POST /api/v1/voyages` accepts `captainAssignments`, an array of `{ persona, captainId, fallbackTier, strictCaptain }` binding each pipeline step (persona) to a preferred captain and a fallback tier (`Economy` | `Standard` | `Premium`). Each entry in `missions` may also carry `requestedCaptainId` and `tier`. The overrides are stored on the voyage and resolved at assignment time, including for fan-out missions.
 - Mission reads (`GET /api/v1/missions/{id}`, enumerate, summaries) include both `requestedCaptainId` (the preferred captain) and `captainId` (the captain that actually ran).
 

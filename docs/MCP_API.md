@@ -335,8 +335,8 @@ call against the caller (including Ask Armada proposals executed after approval)
 
 | Level | Tools |
 |---|---|
-| Authenticated | Reads (`status`, `enumerate`, `get_*`, `list_*`, `mission_status`, `voyage_status`, logs, diffs, `inbox`, `vessel_health`, `search_memory`, `token_usage_summary`, ...), writes to caller-owned resources (memories, model endpoints, harbors), and `cli_permission_prompt` and `decide_cli_permission_request` (the handlers check the caller; see [CLI Permissions](#cli-permissions)) |
-| TenantAdmin | Every other write or execution (dispatch, captains, missions, voyages, docks, merge queue, signals, events, objectives, backlog, personas, pipelines, prompt templates, playbooks, releases, deployments, runbooks, check runs, fleet actions, vessel import, vessel health) |
+| Authenticated | Reads (`status`, `enumerate`, `get_*`, `list_*`, `mission_status`, `voyage_status`, logs, diffs, `inbox`, `vessel_health`, `search_memory`, `token_usage_summary`, ...), writes to caller-owned resources (memories, model endpoints, harbors), persona, pipeline, and prompt-template writes (as on REST: a regular user creates only `UserSpecific` ones and edits only their own), and `cli_permission_prompt` and `decide_cli_permission_request` (the handlers check the caller; see [CLI Permissions](#cli-permissions)) |
+| TenantAdmin | Every other write or execution (dispatch, captains, missions, voyages, docks, merge queue, signals, events, objectives, backlog, playbooks, releases, deployments, runbooks, check runs, fleet actions, vessel import, vessel health) |
 | AdminOnly | `backup`, `restore`, `stop_server` (a credential is required even on loopback; use `X-Api-Key` from `settings.json`) |
 
 A denied call returns an `McpToolError` with `ErrorCode` `Forbidden` whose message names the required level. The full per-tool list is in
@@ -2997,6 +2997,7 @@ Register a new captain (AI agent).
     "name": { "type": "string", "description": "Captain display name" },
     "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, Custom" },
     "model": { "type": "string", "description": "Optional model override for this captain. When omitted, the runtime chooses automatically" },
+    "modelEndpointId": { "type": "string", "description": "Managed inference endpoint ID (mep_ prefix) for an ApiEndpoint captain; persona priorities with runtime ApiEndpoint and this endpoint select it" },
     "reasoningEffort": { "type": "string", "description": "Reasoning effort: Off, Minimal, Low, Medium, or High. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort). Ignored by runtimes without a control." },
     "tier": { "type": "string", "description": "Capability tier for dispatch routing: Economy, Standard, or Premium. Empty auto-classifies from the model name." },
     "systemInstructions": { "type": "string", "description": "System instructions for this captain -- injected into every mission prompt to specialize behavior" },
@@ -3094,6 +3095,7 @@ Update a captain's properties (name, runtime, model, tier, personas, Mux options
     "name": { "type": "string", "description": "New display name" },
     "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, Custom" },
     "model": { "type": "string", "description": "New optional model override for this captain" },
+    "modelEndpointId": { "type": "string", "description": "Managed inference endpoint ID (mep_ prefix) for an ApiEndpoint captain; empty string clears it, omitting it keeps it" },
     "reasoningEffort": { "type": "string", "description": "Reasoning effort: Off, Minimal, Low, Medium, or High. Empty string clears it. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort)." },
     "tier": { "type": "string", "description": "Capability tier: Economy, Standard, or Premium. Empty string clears it (auto-classify from model)." },
     "systemInstructions": { "type": "string", "description": "New system instructions for this captain" },
@@ -3440,6 +3442,7 @@ Create a new markdown playbook in the default tenant context used by MCP.
 {
   "type": "object",
   "properties": {
+    "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide; a regular user can create only UserSpecific playbooks" },
     "fileName": { "type": "string", "description": "Markdown filename (must end with .md)" },
     "description": { "type": "string", "description": "Optional human-readable description" },
     "content": { "type": "string", "description": "Markdown content" },
@@ -4456,6 +4459,7 @@ Create a new prompt template.
 {
   "type": "object",
   "properties": {
+    "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide; a regular user can create only UserSpecific templates" },
     "name": { "type": "string", "description": "Template name" },
     "category": { "type": "string", "description": "Template category such as 'persona' or 'mission'" },
     "content": { "type": "string", "description": "Template content" },
@@ -4568,6 +4572,7 @@ Create a custom persona.
     "description": { "type": "string", "description": "Persona description" },
     "promptTemplateName": { "type": "string", "description": "Name of the prompt template to use for this persona" },
     "defaultCaptainId": { "type": "string", "description": "Optional default (preferred) captain id (cpt_ prefix) for this persona" },
+    "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide" },
     "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
     "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
     "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
@@ -4581,9 +4586,12 @@ Create a custom persona.
 | `name` | string | Yes | Persona name |
 | `description` | string | No | Persona description |
 | `promptTemplateName` | string | Yes | Name of the prompt template to use for this persona |
-| `defaultCaptainId` | string | No | Optional default (preferred) captain id (prefix `cpt_`) for this persona |
+| `defaultCaptainId` | string | No | Optional default (preferred) captain id (prefix `cpt_`); must be visible to the caller |
+| `scope` | string | No | `UserSpecific` or `TenantWide`; a regular user always gets `UserSpecific`, an administrator defaults to `TenantWide` |
 
-**Response:** The newly created [Persona](#persona) object. A taken name returns `{ "Error": "A persona named '...' already exists.", "ErrorCode": "Conflict", "Code": "DuplicateEntity" }`.
+The persona is owned by the caller and is never built in; validation matches `POST /api/v1/personas`.
+
+**Response:** The newly created [Persona](#persona) object. A taken name returns `{ "Error": "A persona named '...' already exists.", "ErrorCode": "Conflict", "Code": "DuplicateEntity" }`; a default captain that is not found or an invalid routing configuration returns `ErrorCode` `InvalidArgument`.
 
 ---
 
@@ -4627,7 +4635,8 @@ Update persona properties.
     "name": { "type": "string", "description": "Persona name" },
     "description": { "type": "string", "description": "New persona description" },
     "promptTemplateName": { "type": "string", "description": "New prompt template name" },
-    "defaultCaptainId": { "type": "string", "description": "Default (preferred) captain id (cpt_ prefix) for this persona; empty string clears it" },
+    "defaultCaptainId": { "type": "string", "description": "Default (preferred) captain id (cpt_ prefix); an empty string clears it, and omitting it keeps it" },
+    "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide" },
     "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
     "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
     "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
@@ -4641,9 +4650,12 @@ Update persona properties.
 | `name` | string | Yes | Persona name |
 | `description` | string | No | New persona description |
 | `promptTemplateName` | string | No | New prompt template name |
-| `defaultCaptainId` | string | No | Default (preferred) captain id (prefix `cpt_`); empty string clears it |
+| `defaultCaptainId` | string | No | Default (preferred) captain id (prefix `cpt_`); omitting it keeps it, an empty string clears it (the schema accepts only strings, so send `""` where REST would send `null`) |
+| `scope` | string | No | `UserSpecific` or `TenantWide`; changed only for an administrator |
 
-**Response:** Updated [Persona](#persona) object, or `{ "Error": "Persona not found: <name>", "ErrorCode": "NotFound" }`.
+Same rules as `PUT /api/v1/personas/{name}`.
+
+**Response:** Updated [Persona](#persona) object, or `{ "Error": "Persona not found: <name>", "ErrorCode": "NotFound" }`; `Forbidden` when the caller may not edit it; `InvalidArgument` for a default captain that is not found or invalid routing.
 
 ---
 
@@ -4677,7 +4689,7 @@ Delete a custom persona. Built-in personas cannot be deleted.
 ```
 
 Returns `{ "Error": "Persona not found: <name>", "ErrorCode": "NotFound" }` if the name does not exist.
-Returns `{ "Error": "Cannot delete built-in persona", "ErrorCode": "Conflict" }` if the persona is built-in.
+Returns `{ "Error": "Built-in personas cannot be deleted", "ErrorCode": "InvalidArgument" }` if the persona is built-in (REST answers `400`), and `Forbidden` when the caller may not delete it.
 
 ---
 
@@ -4691,6 +4703,7 @@ Create a custom pipeline with stages.
 {
   "type": "object",
   "properties": {
+    "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide; a regular user can create only UserSpecific pipelines" },
     "name": { "type": "string", "description": "Pipeline name" },
     "description": { "type": "string", "description": "Pipeline description" },
     "stages": {

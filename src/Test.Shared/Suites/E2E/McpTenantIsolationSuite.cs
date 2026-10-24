@@ -34,10 +34,18 @@ namespace Test.Shared.Suites.E2E
         private const string SuiteId = "E2E.McpTenantIsolation";
 
 
+        // Tools whose id argument is a reference inside a new record rather than the record read or changed: another
+        // tenant's id is refused exactly like a missing one, as InvalidArgument "... not found" (REST answers 400).
+        private static readonly Dictionary<string, string> _ReferenceIdTools = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["create_persona"] = "defaultCaptainId is the persona's default captain; PersonaWriteService refuses a missing or foreign one the same way"
+        };
+
         // Tools whose id arguments refer to entities this suite does not seed. Each is scoped through its service
         // (caller tenant/user) and covered by its own suite; listing them keeps the generic coverage explicit.
         private static readonly Dictionary<string, string> _UnseededIdTools = new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            ["stop_harbor_job"] = "Harbor job (HarborJobControlService resolves it through the caller-visible Harbor; covered by Services.HarborJobControl)",
             ["get_deployment"] = "deployment (DeploymentService scopes by caller)",
             ["approve_deployment"] = "deployment (DeploymentService scopes by caller)",
             ["verify_deployment"] = "deployment (DeploymentService scopes by caller)",
@@ -211,6 +219,9 @@ namespace Test.Shared.Suites.E2E
                         }
 
                         if (_FilterOnlyTools.Contains(tool.Name)) continue;
+                        if (_ReferenceIdTools.ContainsKey(tool.Name)
+                            && McpToolResultProbe.From(result).ErrorCode == McpToolErrorCodeEnum.InvalidArgument
+                            && result.Text.IndexOf("not found", StringComparison.OrdinalIgnoreCase) >= 0) continue;
                         if (!IsDenied(result))
                             failures.Add(tool.Name + " did not answer not-found: " + Truncate(result.Text));
                     }

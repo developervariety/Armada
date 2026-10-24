@@ -36,5 +36,10 @@ namespace Armada.Server.Mcp
 
         /// <summary>Optional exhausted-list policy. Defaults to Wait on create.</summary>
         public PersonaPriorityExhaustionEnum? PriorityExhaustion { get; set; }
+
+        /// <summary>
+        /// Optional ownership scope (UserSpecific or TenantWide).
+        /// </summary>
+        public ScopeEnum? Scope { get; set; }
     }
 }

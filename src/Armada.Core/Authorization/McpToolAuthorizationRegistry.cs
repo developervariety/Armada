@@ -178,15 +178,17 @@ namespace Armada.Core.Authorization
             Add("create_playbook", "Playbook", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("update_playbook", "Playbook", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
             Add("delete_playbook", "Playbook", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
-            Add("create_persona", "Persona", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
-            Add("update_persona", "Persona", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
-            Add("delete_persona", "Persona", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
-            Add("create_pipeline", "Pipeline", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
-            Add("update_pipeline", "Pipeline", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
-            Add("delete_pipeline", "Pipeline", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
-            Add("create_prompt_template", "PromptTemplate", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
-            Add("update_prompt_template", "PromptTemplate", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
-            Add("reset_prompt_template", "PromptTemplate", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            // Persona, pipeline, and prompt-template writes match REST: any authenticated caller, scoped in the tool handlers
+            // (a regular user creates only UserSpecific objects and edits only their own).
+            Add("create_persona", "Persona", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("update_persona", "Persona", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("delete_persona", "Persona", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+            Add("create_pipeline", "Pipeline", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("update_pipeline", "Pipeline", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("delete_pipeline", "Pipeline", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+            Add("create_prompt_template", "PromptTemplate", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("update_prompt_template", "PromptTemplate", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("reset_prompt_template", "PromptTemplate", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("create_release", "Release", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("create_deployment", "Deployment", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);
             Add("approve_deployment", "Deployment", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
