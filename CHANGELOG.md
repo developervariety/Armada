@@ -12,6 +12,15 @@ upstream integrations and excludes changes already present at that baseline.
   with checks for an ancestor commit. Supersession also rechecks durable voyage
   status before changing records, including after waiting for a lane lock.
 
+- A direct landing recovers a stale integration worktree left at its
+  deterministic per-mission path by an attempt that did not clean up, so the
+  first landing after it recovers and lands instead of failing on an
+  `already exists` path. Only a worktree the landing owns is removed: a path
+  that is not a registered worktree of the landing repository is preserved and
+  named in the failure reason, and per-attempt cleanup removes only a worktree
+  that attempt created. The detached-worktree helper no longer force-removes a
+  path that already existed before its own add.
+
 - Missions routed to a full Harbor wait before dock provisioning with a named
   assignment hold. A capacity race at launch returns to the same wait. Explicit
   runner routing, owner checks and the launch-time capacity limit remain in force.
