@@ -715,6 +715,28 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(stored.DurationMs, "a check that ran no command has no run time, not a zero one");
                     AssertNotNull(CheckRunSummaryView.From(stored).SatisfiedBy, "get_check_run shows the source run");
 
+                    // The same source and command do not establish proof under a newly declared
+                    // execution budget. Neither may an explicit caller override adopt that proof.
+                    profile.GateCommandTimeoutSeconds = 600;
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    CheckRun budgetChanged = await testDb.Driver.CheckRuns.CreateAsync(ArmedAt(reviewed)).ConfigureAwait(false);
+                    CheckRun afterBudgetChange = await checkRuns.RunPendingAsync(auth, budgetChanged.Id).ConfigureAwait(false);
+                    profile.GateCommandTimeoutSeconds = null;
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    CheckRunService shortBudget = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging,
+                        commandTimeout: TimeSpan.FromSeconds(1));
+                    CheckRun overridden = await testDb.Driver.CheckRuns.CreateAsync(ArmedAt(reviewed)).ConfigureAwait(false);
+                    CheckRun afterOverride = await shortBudget.RunPendingAsync(auth, overridden.Id).ConfigureAwait(false);
+                    foreach (CheckRun incompatible in new[] { afterBudgetChange, afterOverride })
+                    {
+                        AssertEqual(CheckRunStatusEnum.Failed, incompatible.Status,
+                            "An unbudgeted gate pass cannot satisfy a Check with a declared or caller-overridden execution budget.");
+                        AssertContains("suite-ran", incompatible.Output ?? String.Empty,
+                            "The Check executes its real command instead of adopting incompatible cached proof.");
+                        AssertNull(incompatible.SatisfiedBy, "Incompatible cached proof is not recorded as the Check's source.");
+                        AssertNotNull(incompatible.DurationMs, "The executed Check records its own duration.");
+                    }
+
                     string queuedCommit = new string('f', 40);
                     CheckRun queued = await testDb.Driver.CheckRuns.CreateAsync(ArmedAt(queuedCommit)).ConfigureAwait(false);
                     Task<CheckRun> queuedRun;
