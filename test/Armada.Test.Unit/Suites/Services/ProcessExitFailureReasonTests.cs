@@ -5,9 +5,11 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
 
     /// <summary>
-    /// Guards the process-exit failure-reason extractor must not scrape an agent's own
-    /// SUCCESS report line (e.g. a "0 Errors" build-summary table row) as the failure reason, which
-    /// previously produced false-Failed missions that cascade-cancelled good work.
+    /// Guards the process-exit failure-reason extractor. It must not scrape an agent's own SUCCESS report
+    /// line (e.g. a "0 Errors" build-summary table row) as the failure reason, which produced false-Failed
+    /// missions that cascade-cancelled good work. It must also select a provider SAFEGUARD, quota, credit or
+    /// credential signal ahead of a later generic result-error record, so the captain is benched on a
+    /// provider rejection instead of released and re-offered a mission it cannot run.
     /// </summary>
     public class ProcessExitFailureReasonTests : TestSuite
     {
@@ -51,6 +53,70 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(!AdmiralService.HasExplicitSuccessVerdict(new[] { "[ARMADA:VERDICT] NEEDS_REVISION" }), "NEEDS_REVISION is not a success (handled by reviewer-chain logic)");
                 AssertTrue(!AdmiralService.HasExplicitSuccessVerdict(new[] { "[ARMADA:STATUS] Complete" }), "a STATUS marker is not a RESULT/VERDICT verdict (status is handled during the run)");
                 AssertTrue(!AdmiralService.HasExplicitSuccessVerdict(new string[0]), "empty output is not success");
+            });
+
+            await RunTest("CredentialRejection_IsSelectedOverALaterGenericError", () =>
+            {
+                // A credential rejection the provider returns, followed by a generic runtime result-error
+                // record on the way down. The rejection must be the recorded failure reason so the captain is
+                // benched, not released and re-offered the same mission it cannot run. "opencode" is the
+                // captain's own runtime, so its provider telemetry speaks for the mission.
+                string[] lines = new[]
+                {
+                    "[ARMADA:ACTIVITY] opencode error Upstream request failed: Invalid credential (status 401)",
+                    "[ARMADA:ACTIVITY] opencode error session processing aborted",
+                    "Agent exited with code 1",
+                };
+
+                string? selected = AdmiralService.SelectProcessExitFailureReason(lines, "opencode");
+                AssertTrue(selected != null, "a credential rejection in the tail must be selected");
+                AssertTrue(ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(selected),
+                    "the selected reason must carry the credential-rejection signal that benches the captain, " +
+                    "not the later generic error line");
+                // The later generic line, scanned first newest-first, is itself a genuine error but NOT a bench
+                // signal; without the credit/auth priority pass it would be selected and the captain released.
+                AssertTrue(AdmiralService.IsGenuineErrorSignal("opencode error session processing aborted"),
+                    "the trailing generic line is a genuine error");
+                AssertTrue(!ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("opencode error session processing aborted"),
+                    "the trailing generic line is not a bench signal");
+            });
+
+            await RunTest("OrdinaryGenericError_IsNotBenched", () =>
+            {
+                // Negative control: an ordinary transient captain failure with no credential, credit or quota
+                // signal must select the generic error line and must NOT read as a bench signal, so an ordinary
+                // failure never quarantines the captain.
+                string[] lines = new[]
+                {
+                    "[ARMADA:ACTIVITY] opencode error session processing aborted",
+                    "Agent exited with code 1",
+                };
+
+                string? selected = AdmiralService.SelectProcessExitFailureReason(lines, "opencode");
+                AssertTrue(selected != null, "a genuine error in the tail must be selected");
+                AssertTrue(AdmiralService.IsGenuineErrorSignal(selected), "the selected reason is a genuine error");
+                AssertTrue(!ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(selected),
+                    "an ordinary failure must not read as a credential/credit bench signal");
+                AssertTrue(!ProviderQuotaLimitDetector.IsQuotaLimitSignal(selected),
+                    "an ordinary failure must not read as a quota bench signal");
+            });
+
+            await RunTest("ForeignRuntimeCredentialLine_IsNotSelected", () =>
+            {
+                // A credential rejection a SUB-TOOL emitted (an opencode call made by a Cursor captain) is the
+                // sub-tool's, not the mission's: it must never be scraped as the failure reason or bench the
+                // captain. Only a genuine error on the captain's own runtime is selected.
+                string[] lines = new[]
+                {
+                    "[ARMADA:ACTIVITY] opencode error Upstream request failed: Invalid credential (status 401)",
+                    "[ARMADA:ACTIVITY] cursor error build step failed",
+                    "Agent exited with code 1",
+                };
+
+                string? selected = AdmiralService.SelectProcessExitFailureReason(lines, "cursor");
+                AssertTrue(selected != null, "the captain's own-runtime error must be selected");
+                AssertTrue(!ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(selected),
+                    "a sub-tool's credential rejection must not bench the captain");
             });
         }
     }

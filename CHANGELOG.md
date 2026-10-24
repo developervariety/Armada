@@ -18,6 +18,17 @@ upstream integrations and excludes changes already present at that baseline.
   ordered output across console restart. Authenticated reconnect replays output
   before exit and leaves incomplete proof fenced.
 
+- A captain whose provider rejects its credential is benched, not re-offered the
+  mission it cannot run. The process-exit failure-reason extractor selects a
+  credit or credential signal (an invalid-key or HTTP 401/403 rejection) in the
+  captain's own-runtime log ahead of a later generic result-error record, the
+  same priority a provider safeguard and a quota limit already take. The
+  recorded reason then carries the rejection, so the existing bench-and-reroute
+  path quarantines the captain and re-routes the mission to a peer instead of
+  requeueing it to the same failing captain. An ordinary transient failure,
+  carrying no credit, credential or quota signal, is unaffected and does not
+  bench.
+
 - Harbor jobs retain their exact mission attempt across Admiral restart.
   Verified runners resume with process-start and output-replay checks. Uncertain
   remote writers block replacement and dock reclamation. Confirmed exits are
