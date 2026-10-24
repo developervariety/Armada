@@ -155,7 +155,7 @@ namespace Armada.Core.Services
         /// time limit that still reads as host load is marked <see cref="DefinitionOfDoneResult.HostLoadTimeout"/>. A
         /// <c>Timeout</c> at normal or unknown load on a silent command that held the host alone stands at once.
         /// </remarks>
-        /// <exception cref="DefinitionOfDoneGateCancelledException">The mission was cancelled while the gate ran,
+        /// <exception cref="DefinitionOfDoneGateCancelledException">The mission or its voyage was cancelled while the gate ran,
         /// waited for the host-wide command slot, or waited for host load to fall. The command process is stopped
         /// and the slot released first.</exception>
         public async Task<DefinitionOfDoneResult> EvaluateAsync(
@@ -175,6 +175,22 @@ namespace Armada.Core.Services
                 List<DefinitionOfDoneCommandPass> fullPasses = new List<DefinitionOfDoneCommandPass>();
                 try
                 {
+                    // Register before reading durable cancellation state: cancellation either sees
+                    // this run, or this read sees the cancellation, even when admission starts late.
+                    Mission? storedMission = await _Database.Missions.ReadAsync(mission.Id, run.Token).ConfigureAwait(false);
+                    string? voyageId = storedMission?.VoyageId ?? mission.VoyageId;
+                    bool cancelled = (storedMission ?? mission).Status == MissionStatusEnum.Cancelled;
+                    if (!cancelled && !String.IsNullOrEmpty(voyageId))
+                    {
+                        Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, run.Token).ConfigureAwait(false);
+                        cancelled = voyage?.Status == VoyageStatusEnum.Cancelled;
+                    }
+                    if (cancelled)
+                    {
+                        run.CancelForMission();
+                        run.Token.ThrowIfCancellationRequested();
+                    }
+
                     // A gate that starts on an overloaded host spends its command time limits on the host's
                     // queue, not on the change, so it waits for the host first. A gate that will not run
                     // commands does not wait.
@@ -223,7 +239,7 @@ namespace Armada.Core.Services
                 }
                 catch (OperationCanceledException) when (run.CancelledByMission && !token.IsCancellationRequested)
                 {
-                    _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission was cancelled");
+                    _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission or its voyage was cancelled");
                     throw new DefinitionOfDoneGateCancelledException(mission.Id);
                 }
 
@@ -231,7 +247,7 @@ namespace Armada.Core.Services
                 // That result describes a run the cancel cut short, so it is never reported as the gate outcome.
                 if (run.CancelledByMission && !token.IsCancellationRequested)
                 {
-                    _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission was cancelled");
+                    _Logging.Info(_Header + "gate for mission " + mission.Id + " stopped: the mission or its voyage was cancelled");
                     throw new DefinitionOfDoneGateCancelledException(mission.Id);
                 }
 

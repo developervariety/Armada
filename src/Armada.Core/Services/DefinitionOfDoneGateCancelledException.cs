@@ -3,8 +3,8 @@ namespace Armada.Core.Services
     using System;
 
     /// <summary>
-    /// Thrown by <see cref="DefinitionOfDoneGate.EvaluateAsync"/> when the evaluation stopped because its mission was
-    /// cancelled. The gate produced no result; the mission's own status records the cancel.
+    /// Thrown by <see cref="DefinitionOfDoneGate.EvaluateAsync"/> when the evaluation stopped because its mission or voyage
+    /// was cancelled. The gate produced no result; the durable mission or voyage records the cancel.
     /// </summary>
     public class DefinitionOfDoneGateCancelledException : OperationCanceledException
     {
@@ -24,7 +24,7 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>
         public DefinitionOfDoneGateCancelledException(string missionId)
-            : base("Definition-of-done gate for mission " + missionId + " stopped because the mission was cancelled.")
+            : base("Definition-of-done gate for mission " + missionId + " stopped because the mission or its voyage was cancelled.")
         {
             MissionId = missionId ?? throw new ArgumentNullException(nameof(missionId));
         }

@@ -101,6 +101,11 @@ namespace Armada.Core.Services
             voyage.LastUpdateUtc = DateTime.UtcNow;
             result.Voyage = await database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
 
+            // A captain may have exited while its produced work still waits in a full DoD gate.
+            // Preserve those mission outcomes, but stop every evaluation owned by this voyage.
+            foreach (Mission mission in missions)
+                DefinitionOfDoneGateRuns.Cancel(mission.Id);
+
             // A cancelled voyage never runs its armed Checks; leaving them Pending counts them as required forever.
             await VoyageCheckDiscard.DiscardPendingAsync(database, voyage.Id, VoyageCheckDiscard.VoyageCancelledReason, token).ConfigureAwait(false);
 

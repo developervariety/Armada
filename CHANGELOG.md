@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Cancelling a voyage stops its queued and running DoD gates, including gates
+  for produced work. A late gate checks durable cancellation before waiting or
+  running a command. Produced mission outcomes and recall-failure rules stay
+  unchanged.
+
 - Repeated pipeline handoffs preserve operator requirements after generated
   output and voyage board notes. New blocks have matching end markers;
   replacement and compaction preserve text outside those boundaries and leave

@@ -504,6 +504,12 @@ then reads `passed on isolated re-run` with the full run's failure. The records 
 restart the Check runs its command. An operator's `run_check` or
 `retry_check_run` always runs the command.
 
+Cancelling a voyage stops its queued and running definition-of-done evaluations,
+including evaluations for missions already marked `WorkProduced`. Those mission
+outcomes remain available for recovery. A late evaluation reads the durable
+mission and voyage cancellation state after registration, before waiting or
+running commands. Failed captain recall leaves the voyage and its gate active.
+
 A Check command may run for 30 minutes. The time starts when the process starts,
 which is after the Check holds its runner place and the host command slot, so a
 Check that queued for hours still gets the full time. On every path that ends a

@@ -5,7 +5,7 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// One in-flight definition-of-done evaluation for a mission. Its token is cancelled when the caller's token is
-    /// cancelled or when the mission is cancelled through <see cref="DefinitionOfDoneGateRuns.Cancel"/>. Disposing the
+    /// cancelled or when the mission or voyage is cancelled through <see cref="DefinitionOfDoneGateRuns.Cancel"/>. Disposing the
     /// run removes it from the registry.
     /// </summary>
     public sealed class DefinitionOfDoneGateRun : IDisposable
@@ -23,7 +23,7 @@ namespace Armada.Core.Services
         public CancellationToken Token => _Source.Token;
 
         /// <summary>
-        /// True when the run was stopped because its mission was cancelled, as distinct from the caller's token.
+        /// True when the run was stopped because its mission or voyage was cancelled, as distinct from the caller's token.
         /// </summary>
         public bool CancelledByMission => Volatile.Read(ref _CancelledByMission) == 1;
 
