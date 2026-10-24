@@ -57,6 +57,13 @@ upstream integrations and excludes changes already present at that baseline.
   same way rather than ignored. A well-formed enabled=true or enabled=false call
   is unchanged.
 
+- Sending a signal to a captain requires both the captainId and the message
+  argument. A call that omits or blanks the message is rejected with a named
+  missing-argument error and stores no signal, instead of writing an empty Mail
+  while the response reports success; a missing or blank captainId is rejected
+  the same way. A well-formed call with a target and a non-empty message is
+  unchanged.
+
 - A root (stage-1) mission reassigned after a restart continues on its own
   persisted branch at the committed head instead of cutting a fresh branch from
   the default branch, so committed work is not orphaned. Continuation is

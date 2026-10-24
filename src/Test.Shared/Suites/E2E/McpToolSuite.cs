@@ -361,6 +361,47 @@ namespace Test.Shared.Suites.E2E
                 AssertFalse(updated.HasGitHubTokenOverride);
             }));
 
+            cases.Add(CaseAsync("send_signal_missing_message_is_rejected_and_stores_no_mail", "SendSignal_MissingMessageIsRejectedAndStoresNoMail", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                HttpClient mcpClient = fx.McpClient;
+                string sessionId = await InitMcpSessionAsync(mcpClient).ConfigureAwait(false);
+
+                // A real recipient captain, as the operator-reported call had: a signal row references its
+                // recipient, so the empty-Mail defect only reproduces against an existing captain.
+                JsonElement captainResult = await CallToolAsync(mcpClient, sessionId, "armada_create_captain", new
+                {
+                    name = "SendSigValidationCaptain-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+                }).ConfigureAwait(false);
+                AssertToolResultValid(captainResult);
+                Captain captain = JsonHelper.Deserialize<Captain>(McpToolResults.RequireSuccess("armada_create_captain", GetToolResultText(captainResult)));
+                AssertStartsWith("cpt_", captain.Id);
+                string captainId = captain.Id;
+
+                // Call the required-message tool with the target but no message argument.
+                JsonElement sendResult = await CallToolAsync(mcpClient, sessionId, "armada_send_signal", new
+                {
+                    captainId = captainId
+                }).ConfigureAwait(false);
+                AssertToolResultValid(sendResult);
+
+                // The call is refused with the typed missing-argument code, not accepted as a stored signal.
+                McpToolErrorPayload refusal = JsonHelper.Deserialize<McpToolErrorPayload>(GetToolResultText(sendResult));
+                AssertEqual("missing_message", refusal.Code, "missing message is refused with the typed code");
+                AssertFalse(String.IsNullOrWhiteSpace(refusal.Error), "the refusal carries a human-readable message");
+
+                // No Mail reached the recipient: the required-argument guard writes nothing.
+                JsonElement enumerateResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
+                {
+                    entityType = "signals",
+                    toCaptainId = captainId,
+                    pageSize = 50
+                }).ConfigureAwait(false);
+                AssertToolResultValid(enumerateResult);
+                SignalEnumerationCount signals = JsonHelper.Deserialize<SignalEnumerationCount>(GetToolResultText(enumerateResult));
+                AssertEqual(0, signals.TotalRecords, "a refused send_signal stores no signal for the recipient");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "MCP Tool Tests",
@@ -626,6 +667,12 @@ namespace Test.Shared.Suites.E2E
         {
             /// <summary>Registered tool name.</summary>
             public string Name { get; set; } = String.Empty;
+        }
+
+        private sealed class SignalEnumerationCount
+        {
+            /// <summary>Total signals matching the enumeration filter.</summary>
+            public int TotalRecords { get; set; }
         }
 
         private sealed class McpRpcResponse
