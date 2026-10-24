@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using System.Collections.Generic;
     using System.Linq;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -87,6 +88,188 @@ namespace Armada.Test.Unit.Suites.Services
                             catch { }
                         }
                     }
+                }
+            });
+
+            await RunTest("Harbor-owned route holds while Harbor is disabled without creating a local checkout", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    string root = Path.Combine(Path.GetTempPath(), "armada-harbor-owned-disabled-" + Guid.NewGuid().ToString("N"));
+                    ArmadaSettings settings = new ArmadaSettings
+                    {
+                        ReposDirectory = Path.Combine(root, "repos"),
+                        DocksDirectory = Path.Combine(root, "docks"),
+                        Harbor = new HarborSettings
+                        {
+                            Enabled = false,
+                            MissionRoutes = new List<HarborMissionRoute>
+                            {
+                                new HarborMissionRoute
+                                {
+                                    CaptainId = "harbor-owned-captain",
+                                    RunnerId = "runner-owned",
+                                    CheckoutMode = HarborCheckoutModeEnum.HarborOwned,
+                                    RepositoryGrantId = "grant-owned"
+                                }
+                            }
+                        }
+                    };
+                    DockService service = new DockService(logging, testDb.Driver, settings, new GitService(logging));
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("harbor-owned-vessel", "https://example.invalid/repository.git")).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("harbor-owned-captain")).ConfigureAwait(false);
+                    settings.Harbor.MissionRoutes[0].CaptainId = captain.Id;
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("harbor-owned-mission")
+                    {
+                        VesselId = vessel.Id,
+                        CaptainId = captain.Id,
+                        DockProvisionAttemptId = "attempt-harbor-disabled"
+                    }).ConfigureAwait(false);
+
+                    bool held = false;
+                    try
+                    {
+                        await service.ProvisionAsync(vessel, captain, "armada/harbor-owned", mission.Id).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        held = exception.Message == "dock_harbor_checkout_disabled";
+                    }
+
+                    AssertTrue(held, "The explicit Harbor-owned route must return a named hold while Harbor is disabled");
+                    AssertFalse(Directory.Exists(settings.ReposDirectory), "A disabled owned route must not clone or inspect a local repository");
+                    AssertFalse(Directory.Exists(settings.DocksDirectory), "A disabled owned route must not create a local dock");
+                    AssertEqual(0, (await testDb.Driver.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false)).Count,
+                        "The held route must not create a local dock row");
+                }
+            });
+
+            await RunTest("Harbor-owned routes with a missing runner fail closed for provisioning and local repository access", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    string root = Path.Combine(Path.GetTempPath(), "armada-harbor-owned-missing-runner-" + Guid.NewGuid().ToString("N"));
+                    ArmadaSettings settings = new ArmadaSettings
+                    {
+                        ReposDirectory = Path.Combine(root, "repos"),
+                        DocksDirectory = Path.Combine(root, "docks"),
+                        Harbor = new HarborSettings
+                        {
+                            Enabled = true,
+                            MissionRoutes = new List<HarborMissionRoute>
+                            {
+                                new HarborMissionRoute { CheckoutMode = HarborCheckoutModeEnum.HarborOwned },
+                                new HarborMissionRoute { CheckoutMode = HarborCheckoutModeEnum.HarborOwned }
+                            }
+                        }
+                    };
+                    HarborCheckoutService checkouts = new HarborCheckoutService(testDb.Driver, settings);
+                    DockService service = new DockService(logging, testDb.Driver, settings, new GitService(logging), checkouts);
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("harbor-missing-runner-vessel",
+                        "https://example.invalid/missing-runner.git")).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("harbor-missing-runner-captain")).ConfigureAwait(false);
+                    settings.Harbor.MissionRoutes[0].CaptainId = captain.Id;
+                    settings.Harbor.MissionRoutes[1].VesselId = vessel.Id;
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("harbor-missing-runner-mission")
+                    {
+                        VesselId = vessel.Id,
+                        CaptainId = captain.Id,
+                        DockProvisionAttemptId = "attempt-harbor-missing-runner"
+                    }).ConfigureAwait(false);
+
+                    bool held = false;
+                    try
+                    {
+                        await service.ProvisionAsync(vessel, captain, "armada/harbor-missing-runner", mission.Id).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        held = exception.Message == "dock_harbor_checkout_route_incomplete";
+                    }
+
+                    AssertTrue(held, "A matching Harbor-owned captain route with no runner returns the named incomplete-route hold");
+                    AssertTrue(await HarborLocalRepositoryBoundary.HasOwnedCheckoutAsync(testDb.Driver, settings.Harbor,
+                        vessel.Id).ConfigureAwait(false), "A Harbor-owned vessel route with no runner still blocks local repository access");
+                    AssertFalse(Directory.Exists(settings.ReposDirectory), "A malformed owned route must not clone a local repository");
+                    AssertFalse(Directory.Exists(settings.DocksDirectory), "A malformed owned route must not create a local dock");
+                    AssertEqual(0, (await testDb.Driver.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false)).Count,
+                        "The held route creates no local dock row");
+                }
+            });
+
+            await RunTest("Harbor-owned provisioning holds when mission and vessel owners differ", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    string root = Path.Combine(Path.GetTempPath(), "armada-harbor-owner-mismatch-" + Guid.NewGuid().ToString("N"));
+                    ArmadaSettings settings = new ArmadaSettings
+                    {
+                        ReposDirectory = Path.Combine(root, "repos"),
+                        DocksDirectory = Path.Combine(root, "docks"),
+                        Harbor = new HarborSettings
+                        {
+                            Enabled = true,
+                            MissionRoutes = new List<HarborMissionRoute>
+                            {
+                                new HarborMissionRoute
+                                {
+                                    CaptainId = "harbor-owner-mismatch-captain",
+                                    RunnerId = "runner-owner-mismatch",
+                                    CheckoutMode = HarborCheckoutModeEnum.HarborOwned,
+                                    RepositoryGrantId = "grant-owner-mismatch"
+                                }
+                            }
+                        }
+                    };
+                    HarborCheckoutService checkouts = new HarborCheckoutService(testDb.Driver, settings);
+                    DockService service = new DockService(logging, testDb.Driver, settings, new GitService(logging), checkouts);
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("harbor-owner-mismatch-tenant")).ConfigureAwait(false);
+                    UserMaster vesselOwner = await testDb.Driver.Users.CreateAsync(new UserMaster(
+                        tenant.Id, "harbor-vessel-owner@example.invalid", "vessel-owner-password")).ConfigureAwait(false);
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("harbor-owner-mismatch-vessel",
+                        "https://example.invalid/owner-mismatch.git")
+                    {
+                        TenantId = tenant.Id,
+                        UserId = vesselOwner.Id
+                    }).ConfigureAwait(false);
+                    UserMaster missionOwner = await testDb.Driver.Users.CreateAsync(new UserMaster(
+                        tenant.Id, "harbor-owner-mismatch@example.invalid", "owner-mismatch-password")).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("harbor-owner-mismatch-captain")
+                    {
+                        TenantId = tenant.Id,
+                        UserId = missionOwner.Id
+                    }).ConfigureAwait(false);
+                    settings.Harbor.MissionRoutes[0].CaptainId = captain.Id;
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("harbor-owner-mismatch-mission")
+                    {
+                        TenantId = tenant.Id,
+                        UserId = missionOwner.Id,
+                        VesselId = vessel.Id,
+                        CaptainId = captain.Id,
+                        DockProvisionAttemptId = "attempt-harbor-owner-mismatch"
+                    }).ConfigureAwait(false);
+
+                    bool held = false;
+                    try
+                    {
+                        await service.ProvisionAsync(vessel, captain, "armada/harbor-owner-mismatch", mission.Id).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        held = exception.Message == "dock_harbor_mission_owner_mismatch";
+                    }
+
+                    AssertTrue(held, "Harbor-owned work refuses a mission whose author does not own the vessel grant");
+                    AssertFalse(Directory.Exists(settings.ReposDirectory), "the owner hold does not inspect a local repository");
+                    AssertFalse(Directory.Exists(settings.DocksDirectory), "the owner hold does not create a local dock");
+                    AssertEqual(0, (await testDb.Driver.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false)).Count,
+                        "the owner hold creates no durable remote checkout intent");
                 }
             });
 

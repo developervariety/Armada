@@ -20,5 +20,8 @@ namespace Armada.Runtimes.Harbor
 
         /// <summary>Maximum number of retained jobs.</summary>
         public int MaxRetainedJobs { get; set; } = 64;
+
+        /// <summary>Bytes reserved within the shared 1 GiB spool budget for retained verification output; zero disables verification.</summary>
+        public long MaxVerificationSpoolBytes { get; set; }
     }
 }

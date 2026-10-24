@@ -27,6 +27,13 @@ namespace Armada.Runtimes.Harbor
                 {
                     EnsureNoLink(directory);
                     if (Path.GetFileName(directory).StartsWith(".pending-", StringComparison.Ordinal)) continue;
+                    string directoryName = Path.GetFileName(directory);
+                    if (directoryName == "workspace-checkouts" || directoryName == "workspace-operations"
+                        || directoryName == "workspace-checkout-locks" || directoryName == "verification-output")
+                    {
+                        HarborPrivateStorage.ValidatePrivateDirectory(directory);
+                        continue;
+                    }
                     string recordPath = Path.Combine(directory, "job.json");
                     if (!File.Exists(recordPath)) throw Failure("job_metadata_missing", "A retained job has no metadata file.");
                     string jobId = Path.GetFileName(directory);

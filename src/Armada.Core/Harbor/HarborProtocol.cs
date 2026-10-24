@@ -18,6 +18,7 @@ namespace Armada.Core.Harbor
         /// </summary>
         public static readonly string Version = "1.0";
 
+
         #endregion
 
         #region Private-Members

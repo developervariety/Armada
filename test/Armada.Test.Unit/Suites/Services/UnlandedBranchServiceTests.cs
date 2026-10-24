@@ -131,6 +131,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Harbor-owned dock refuses an existing local-path fallback before Git reads it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    Vessel vessel = new Vessel("owned-unlanded-vessel", "https://github.com/test/owned-unlanded.git");
+                    vessel.TenantId = Armada.Core.Constants.DefaultTenantId;
+                    vessel.UserId = Armada.Core.Constants.DefaultUserId;
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "owned-unlanded-local-sentinel-" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.TenantId = vessel.TenantId;
+                    dock.UserId = vessel.UserId;
+                    dock.WorktreePath = vessel.LocalPath;
+                    dock.HostCheckout = new HarborCheckoutBinding
+                    {
+                        RunnerId = "hbr_owned_unlanded",
+                        EnrollmentGeneration = 1,
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        RepositoryGrantId = "grant_owned_unlanded",
+                        RepositoryFingerprint = new string('a', 64),
+                        CheckoutId = "hco_0123456789abcdef0123456789abcdef",
+                        BaseCommit = new string('b', 40),
+                        BranchName = "armada/captain/msn_owned_unlanded",
+                        Revision = "rev_owned_unlanded"
+                    };
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    UnlandedBranchService service = new UnlandedBranchService(
+                        testDb.Driver, new GitService(logging), logging);
+                    List<UnlandedBranchReport> reports = await service.BuildReportAsync(vessel.Id).ConfigureAwait(false);
+
+                    AssertEqual(1, reports.Count, "one owned vessel is reported");
+                    AssertEqual(HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired, reports[0].Error,
+                        "the report refuses local inspection with a named reason");
+                    AssertEqual(0, reports[0].MissionBranchCount, "the local sentinel is not inspected as a branch source");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("BuildReportAsync rejects an unknown vessel id with a specific error", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

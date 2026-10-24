@@ -10,7 +10,9 @@ namespace Armada.Core.Services
     using System.Text.RegularExpressions;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -66,6 +68,12 @@ namespace Armada.Core.Services
         private readonly WorkflowProfileService _WorkflowProfiles;
         private readonly LoggingModule _Logging;
 
+        /// <summary>Harbor route settings used to resolve explicit owned-checkout readiness.</summary>
+        public HarborSettings? HarborSettings { get; set; }
+
+        /// <summary>Owner-bound provider used for readiness checks on configured Harbor repositories.</summary>
+        public HarborCheckoutService? HarborCheckouts { get; set; }
+
         /// <summary>
         /// Instantiate.
         /// </summary>
@@ -100,10 +108,47 @@ namespace Armada.Core.Services
 
             bool checkSpecific = requestedCheckType.HasValue;
 
-            bool hasWorkingDirectory = !String.IsNullOrWhiteSpace(vessel.WorkingDirectory)
-                && Directory.Exists(vessel.WorkingDirectory);
+            HarborMissionRoute? ownedRoute = HarborMissionRouting.ResolveConfiguredForVessel(HarborSettings, vessel.Id);
+            bool usesOwnedCheckout = ownedRoute?.CheckoutMode == HarborCheckoutModeEnum.HarborOwned;
+            bool remoteRepositoryAvailable = false;
+            if (usesOwnedCheckout)
+            {
+                if (HarborSettings?.Enabled != true || HarborCheckouts == null || String.IsNullOrWhiteSpace(ownedRoute!.RepositoryGrantId))
+                {
+                    AddIssue(result, "harbor_owned_readiness_unavailable", ReadinessSeverityEnum.Error,
+                        "Harbor repository unavailable", "The configured Harbor-owned route has no active checkout service or repository grant.", ownedRoute.RunnerId);
+                }
+                else
+                {
+                    try
+                    {
+                        Armada.Core.Harbor.HarborWorkspaceOperationResult observation = await HarborCheckouts.InspectRepositoryAsync(
+                            vessel, ownedRoute.RunnerId, ownedRoute.RepositoryGrantId!, vessel.DefaultBranch ?? "HEAD", token).ConfigureAwait(false);
+                        remoteRepositoryAvailable = observation.Accepted;
+                        if (remoteRepositoryAvailable)
+                        {
+                            result.CurrentBranch = observation.BranchName;
+                            result.CommitsAhead = null;
+                            result.CommitsBehind = null;
+                        }
+                    }
+                    catch (Exception exception) when (!(exception is OperationCanceledException && token.IsCancellationRequested))
+                    {
+                        AddIssue(result, "harbor_owned_readiness_failed", ReadinessSeverityEnum.Error,
+                            "Harbor repository unavailable", "The configured Harbor runner could not verify this repository.", ownedRoute.RunnerId);
+                    }
+                }
+            }
+
+            bool hasWorkingDirectory = usesOwnedCheckout
+                ? remoteRepositoryAvailable
+                : !String.IsNullOrWhiteSpace(vessel.WorkingDirectory) && Directory.Exists(vessel.WorkingDirectory);
             result.HasWorkingDirectory = hasWorkingDirectory;
-            if (!hasWorkingDirectory)
+            if (usesOwnedCheckout && !remoteRepositoryAvailable)
+            {
+                // The explicit route is held above; never probe or use an Admiral-local directory as fallback.
+            }
+            else if (!usesOwnedCheckout && !hasWorkingDirectory)
             {
                 AddIssue(
                     result,
@@ -113,7 +158,7 @@ namespace Armada.Core.Services
                     "This vessel does not have a configured working directory that exists on disk.",
                     vessel.WorkingDirectory);
             }
-            else if (!LooksLikeGitWorkingTree(vessel.WorkingDirectory!))
+            else if (!usesOwnedCheckout && !LooksLikeGitWorkingTree(vessel.WorkingDirectory!))
             {
                 AddIssue(
                     result,
@@ -123,7 +168,7 @@ namespace Armada.Core.Services
                     "The configured working directory exists, but it does not appear to be a Git working tree.",
                     vessel.WorkingDirectory);
             }
-            else
+            else if (!usesOwnedCheckout)
             {
                 await PopulateRepositoryStateAsync(result, vessel.WorkingDirectory!, vessel.DefaultBranch).ConfigureAwait(false);
                 result.ToolchainProbes = DetectToolchains(vessel.WorkingDirectory!);
@@ -146,11 +191,12 @@ namespace Armada.Core.Services
                 }
             }
 
-            bool bareRepoExists = !String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath);
+            bool bareRepoExists = !usesOwnedCheckout && !String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath);
             bool hasRepoUrl = !String.IsNullOrWhiteSpace(vessel.RepoUrl);
-            bool hasUsableWorkingDirectory = !String.IsNullOrWhiteSpace(vessel.WorkingDirectory) && Directory.Exists(vessel.WorkingDirectory);
-            result.HasRepositoryContext = bareRepoExists || hasRepoUrl;
-            if (!bareRepoExists && !hasRepoUrl)
+            bool hasUsableWorkingDirectory = usesOwnedCheckout ? remoteRepositoryAvailable
+                : !String.IsNullOrWhiteSpace(vessel.WorkingDirectory) && Directory.Exists(vessel.WorkingDirectory);
+            result.HasRepositoryContext = remoteRepositoryAvailable || bareRepoExists || hasRepoUrl;
+            if (!usesOwnedCheckout && !bareRepoExists && !hasRepoUrl)
             {
                 AddIssue(
                     result,
@@ -160,7 +206,7 @@ namespace Armada.Core.Services
                     "Armada has neither a usable bare repository path nor a RepoUrl from which it can recover one.",
                     vessel.LocalPath);
             }
-            else if (!bareRepoExists && hasRepoUrl)
+            else if (!usesOwnedCheckout && !bareRepoExists && hasRepoUrl)
             {
                 AddIssue(
                     result,
@@ -215,6 +261,12 @@ namespace Armada.Core.Services
                 .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             result.DeploymentMetadata = BuildDeploymentMetadata(profile);
+
+            if (usesOwnedCheckout && profile.EnvironmentVariables != null && profile.EnvironmentVariables.Count > 0)
+            {
+                AddIssue(result, "harbor_owned_environment_unsupported", ReadinessSeverityEnum.Error,
+                    "Harbor command environment unavailable", "This workflow profile requires per-run environment values that the Harbor command contract does not send.", profile.Name);
+            }
 
             WorkflowProfileValidationResult validation = await _WorkflowProfiles.ValidateAsync(profile, token).ConfigureAwait(false);
             result.AvailableCheckTypes = validation.AvailableCheckTypes ?? new List<string>();

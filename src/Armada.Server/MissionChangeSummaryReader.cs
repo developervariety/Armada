@@ -6,8 +6,9 @@ namespace Armada.Server
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
-    using SyslogLogging;
     using Armada.Core.Authorization;
+    using Armada.Core.Harbor;
+    using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -104,11 +105,29 @@ namespace Armada.Server
 
                 // The vessel is the mission's own, in the mission's tenant; its repository path is never supplied.
                 Vessel? vessel = await database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
-                if (vessel == null
-                    || !OwnershipPolicy.SameTenant(vessel.TenantId, mission.TenantId)
-                    || String.IsNullOrWhiteSpace(vessel.LocalPath)
-                    || !Directory.Exists(vessel.LocalPath))
+                if (vessel == null || !OwnershipPolicy.SameTenant(vessel.TenantId, mission.TenantId))
                     return Refuse(summary, MissionChangeSummary.RepositoryUnavailableReason, "The mission's vessel repository is not readable on this admiral.");
+
+                Dock? dock = null;
+                if (!String.IsNullOrWhiteSpace(mission.DockId))
+                {
+                    dock = await CallerScopedRead.ReadDockAsync(database, caller, mission.DockId, token).ConfigureAwait(false);
+                    if (dock == null)
+                        return Refuse(summary, MissionChangeSummary.RepositoryUnavailableReason, "The mission's recorded dock is not readable.");
+                }
+                string repositoryPath;
+                if (dock?.HostCheckout != null)
+                {
+                    if (!dock.HostCheckout.IsComplete || !String.Equals(dock.VesselId, mission.VesselId, StringComparison.Ordinal))
+                        return Refuse(summary, MissionChangeSummary.RepositoryUnavailableReason, "The mission's Harbor checkout binding is incomplete.");
+                    repositoryPath = HarborCheckoutAddress.ForDock(dock.Id) + "/repository";
+                }
+                else
+                {
+                    if (String.IsNullOrWhiteSpace(vessel.LocalPath) || !Directory.Exists(vessel.LocalPath))
+                        return Refuse(summary, MissionChangeSummary.RepositoryUnavailableReason, "The mission's vessel repository is not readable on this admiral.");
+                    repositoryPath = vessel.LocalPath;
+                }
 
                 MissionStageStartCommit? start = await MissionStageStartCommitResolver.ResolveAsync(
                     database, logDirectory, mission, logging, token).ConfigureAwait(false);
@@ -130,7 +149,7 @@ namespace Armada.Server
                     return Refuse(summary, MissionChangeSummary.BusyReason, "Too many change summaries are being read; retry shortly.");
                 try
                 {
-                    return await CompareAsync(summary, git, vessel.LocalPath!, limits, token).ConfigureAwait(false);
+                    return await CompareAsync(summary, git, repositoryPath, limits, token).ConfigureAwait(false);
                 }
                 finally
                 {

@@ -9,6 +9,12 @@ namespace Armada.Runtimes.Harbor
         public string JobId { get; set; } = String.Empty;
         /// <summary>Server-issued launch key.</summary>
         public string LaunchKey { get; set; } = String.Empty;
+        /// <summary>Durable dock identifier for a checkout-bound launch.</summary>
+        public string? DockId { get; set; }
+        /// <summary>Opaque checkout identifier for a checkout-bound launch.</summary>
+        public string? CheckoutId { get; set; }
+        /// <summary>Immutable checkout revision for a checkout-bound launch.</summary>
+        public string? CheckoutRevision { get; set; }
         /// <summary>Supervisor process identifier.</summary>
         public int SupervisorProcessId { get; set; }
         /// <summary>UTC time when the supervisor started.</summary>

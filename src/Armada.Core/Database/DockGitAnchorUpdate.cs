@@ -57,7 +57,15 @@ namespace Armada.Core.Database
             foreach (string column in new[] { "tenant_id", "user_id", "vessel_id", "captain_id", "worktree_path", "branch_name" })
                 matches.Add(BinaryEquals(column, "@" + column, provider));
             matches.Add("active = @active");
-            return "git_anchors_json = CASE WHEN " + String.Join(" AND ", matches) + " THEN git_anchors_json ELSE NULL END";
+            string condition = String.Join(" AND ", matches);
+            string lifecycleOwner = String.Join(" AND ", new[]
+            {
+                BinaryEquals("tenant_id", "@tenant_id", provider),
+                BinaryEquals("user_id", "@user_id", provider),
+                BinaryEquals("vessel_id", "@vessel_id", provider)
+            });
+            return "git_anchors_json = CASE WHEN " + condition + " THEN git_anchors_json ELSE NULL END, "
+                + "host_checkout_lifecycle_json = CASE WHEN " + lifecycleOwner + " THEN host_checkout_lifecycle_json ELSE NULL END";
         }
 
         private static string BinaryEquals(string column, string parameter, DatabaseTypeEnum provider)

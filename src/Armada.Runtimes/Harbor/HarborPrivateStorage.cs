@@ -2,7 +2,7 @@ namespace Armada.Runtimes.Harbor
 {
     using System;
     using System.IO;
-using System.Runtime.Versioning;
+    using System.Runtime.Versioning;
 
     /// <summary>Applies and validates private permissions for Harbor settings and journal files.</summary>
     public static partial class HarborPrivateStorage
@@ -15,6 +15,17 @@ using System.Runtime.Versioning;
             Directory.CreateDirectory(path);
             if (OperatingSystem.IsWindows()) SecureWindowsDirectory(path);
             else SecureUnixDirectory(path);
+        }
+
+        /// <summary>Validate directory ownership and private access without changing permissions.</summary>
+        /// <param name="path">Existing private directory.</param>
+        public static void ValidatePrivateDirectory(string path)
+        {
+            if (String.IsNullOrWhiteSpace(path)) throw new ArgumentException("A directory path is required.", nameof(path));
+            if (!Directory.Exists(path)) throw new DirectoryNotFoundException("The private directory does not exist.");
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) throw new IOException("A private directory cannot be a link.");
+            if (OperatingSystem.IsWindows()) ValidateWindowsDirectory(path);
+            else ValidateUnixDirectory(path);
         }
 
         /// <summary>Restrict an existing file to the current user and trusted system administrators.</summary>

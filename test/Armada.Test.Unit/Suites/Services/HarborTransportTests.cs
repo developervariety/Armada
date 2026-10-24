@@ -3,11 +3,13 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Net;
     using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Net.Sockets;
     using System.Net.WebSockets;
+    using System.Security.Cryptography;
     using System.Text;
     using System.Text.Json;
     using System.Threading;
@@ -18,10 +20,13 @@ namespace Armada.Test.Unit.Suites.Services
     using WatsonWebserver.Core;
     using System.IO;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Harbor;
     using Armada.Core.Models;
+    using Armada.Core.Recovery;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Runtimes.Harbor;
@@ -56,6 +61,12 @@ namespace Armada.Test.Unit.Suites.Services
                 HarborSettings copied = JsonSerializer.Deserialize<HarborSettings>("{}")!;
                 AssertFalse(copied.Enabled, "absent setting stays disabled");
             });
+
+            await RunTest("HarborWorkspace_ChannelAuthorityGenerationAndTypedResults", HarborWorkspace_ChannelAuthorityGenerationAndTypedResults);
+            await RunTest("HarborWorkspace_RejectsInvalidShapesAndUnavailableRunner", HarborWorkspace_RejectsInvalidShapesAndUnavailableRunner);
+            await RunTest("HarborMissionLaunch_UsesBoundRunnerAndVerifiedCheckoutAddress", HarborMissionLaunch_UsesBoundRunnerAndVerifiedCheckoutAddress);
+            await RunTest("HarborMissionLaunch_BoundCheckoutFailsClosedWhenDisabledOrOffline", HarborMissionLaunch_BoundCheckoutFailsClosedWhenDisabledOrOffline);
+            await RunTest("HarborDiscardUncommittedDock_RetainsBindingWhenReclaimRpcFails", HarborDiscardUncommittedDock_RetainsBindingWhenReclaimRpcFails);
 
             await RunTest("Handshake_DeniesInvalidCredentialsAndIgnoresIdentityHeaders", async () =>
             {
@@ -1010,6 +1021,8 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HarborOwnedMission_ProvisionBriefCommitRestartDiffAndLandingStayOnTheRunner", HarborOwnedMission_ProvisionBriefCommitRestartDiffAndLandingStayOnTheRunner);
+
             await RunTest("HarborRestart_AdoptsExactMissionAttemptAfterRunnerProof", async () =>
             {
                 await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
@@ -1722,6 +1735,698 @@ namespace Armada.Test.Unit.Suites.Services
             };
         }
 
+        private async Task HarborOwnedMission_ProvisionBriefCommitRestartDiffAndLandingStayOnTheRunner()
+        {
+            string root = Path.Combine(Path.GetTempPath(), "armada_harbor_owned_e2e_" + Guid.NewGuid().ToString("N"));
+            string repository = Path.Combine(root, "repository.git");
+            string seed = Path.Combine(root, "seed");
+            string primary = Path.Combine(root, "primary");
+            string checkoutRoot = Path.Combine(root, "checkouts");
+            string state = Path.Combine(root, "state");
+            string work = Path.Combine(root, "work");
+            string release = Path.Combine(work, "release");
+            string counter = Path.Combine(work, "launches");
+            const string grantId = "grant_owned_e2e";
+            string token = "e2e-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                Directory.CreateDirectory(root);
+                Directory.CreateDirectory(checkoutRoot);
+                Directory.CreateDirectory(state);
+                Directory.CreateDirectory(work);
+                await InitializeHarborOwnedRepositoryAsync(root, repository, seed, primary).ConfigureAwait(false);
+
+                await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.OK, await harness.EnrollAsync(harness.Administrator, "hbr_a", harness.OwnerA).ConfigureAwait(false), "runner is enrolled for the repository owner");
+                    Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("Owned Harbor fixture", repository)
+                    {
+                        TenantId = harness.OwnerA.TenantId,
+                        UserId = harness.OwnerA.UserId,
+                        DefaultBranch = "main",
+                        LandingMode = LandingModeEnum.LocalMerge
+                    }).ConfigureAwait(false);
+                    HarborRepositoryGrant grant = new HarborRepositoryGrant
+                    {
+                        Id = grantId, VesselId = vessel.Id, TenantId = harness.OwnerA.TenantId, UserId = harness.OwnerA.UserId,
+                        RepositoryPath = repository, CheckoutRoot = checkoutRoot, WorkingDirectory = primary, RepositoryUrl = repository,
+                        VerificationCommands = new Dictionary<string, string> { ["head"] = "git rev-parse HEAD" }
+                    };
+                    async Task ConfigureConsole(ShippingHarborConsole console)
+                    {
+                        AssertTrue(await WaitUntilAsync(() => console.HasExited || harness.Registry.SessionCount == 1).ConfigureAwait(false), "shipping console connects");
+                        AssertFalse(console.HasExited, console.Diagnostics());
+                    }
+
+                    HarborRepositoryGrant configuredGrant = grant;
+                    await using (ShippingHarborConsole console = new ShippingHarborConsole(root,
+                        "ws://127.0.0.1:" + harness.Primary.Port + "/harbor/link", harness.OwnerA.BearerToken,
+                        configure: settings =>
+                        {
+                            ConfigureOwnedRunnerSettings(settings, checkoutRoot, configuredGrant);
+                        }))
+                    {
+                        await ConfigureConsole(console).ConfigureAwait(false);
+                        OwnedMissionRun run = await StartOwnedMissionRunAsync(harness, vessel, grantId, checkoutRoot, release, counter, token).ConfigureAwait(false);
+                        AssertTrue(await WaitUntilAsync(() => run.Observer.Output.Contains("before offline", StringComparison.Ordinal)).ConfigureAwait(false), "child reads the generated brief and reports readiness");
+                        AssertContains("brief-present=True", run.Observer.Output, "the child sees the owner-generated brief");
+                        AssertContains("mission-token-present=True", run.Observer.Output, "the supervisor injects the scoped mission token");
+                        AssertContains("scoped-home=True", run.Observer.Output, "the supervisor applies the contained mission home");
+                        AssertContains("link-secret-present=False", run.Observer.Output, "the link credential is scrubbed from the child");
+                        string localRecord = File.ReadAllText(Path.Combine(state, run.JobId, "job.json"));
+                        AssertFalse(localRecord.Contains(token, StringComparison.Ordinal), "the private runner journal does not retain the scoped mission token");
+                        AssertFalse(localRecord.Contains("private Harbor-owned prompt", StringComparison.Ordinal), "the private runner journal does not retain the launch prompt");
+                        AssertFalse(File.ReadAllText(Path.Combine(root, "runner.json")).Contains(token, StringComparison.Ordinal), "the shared runner configuration does not retain the scoped mission token");
+                        await console.StopConsoleOnlyAsync().ConfigureAwait(false);
+                        await CompleteOwnedMissionAfterRestartAsync(harness, run, configuredGrant, checkoutRoot, release, counter, root,
+                            grantId, vessel, token).ConfigureAwait(false);
+                    }
+                }
+            }
+            finally
+            {
+                DeleteShippingRunnerFixture(root);
+            }
+        }
+
+        private async Task CompleteOwnedMissionAfterRestartAsync(Harness harness, OwnedMissionRun run, HarborRepositoryGrant grant,
+            string checkoutRoot, string release, string counter, string root, string grantId, Vessel vessel, string token)
+        {
+            HarborOwnedRecovery recovery = new HarborOwnedRecovery(run.Observer);
+            AdmiralInstance restarted = await harness.RestartAdmiralAsync(recovery, _ => { }).ConfigureAwait(false);
+            await using (ShippingHarborConsole reconnected = new ShippingHarborConsole(root,
+                "ws://127.0.0.1:" + restarted.Port + "/harbor/link", harness.OwnerA.BearerToken,
+                configure: runnerSettings => ConfigureOwnedRunnerSettings(runnerSettings, checkoutRoot, grant)))
+            {
+                await WaitForOwnedRunnerAsync(reconnected, restarted).ConfigureAwait(false);
+                AssertTrue(File.Exists(counter) && File.ReadAllLines(counter).Length == 1, "restart adopts the original child without a second writer");
+                File.WriteAllText(release, "continue");
+                await VerifyOriginalChildFinishedAsync(run.Observer, restarted, run.JobId).ConfigureAwait(false);
+
+                HarborCheckoutService restartedCheckouts = new HarborCheckoutService(harness.Driver, run.Settings);
+                restartedCheckouts.SetChannel(restarted.Workspace);
+                HarborWorkspaceOperationResult head = await restartedCheckouts.ExecuteAsync(run.Dock,
+                    HarborCheckoutService.CreateRequest(run.Dock, HarborWorkspaceOperationEnum.InspectCheckout)).ConfigureAwait(false);
+                run.Mission.CommitHash = head.HeadCommit;
+                run.Mission.Status = MissionStatusEnum.WorkProduced;
+                await harness.Driver.Missions.UpdateAsync(run.Mission).ConfigureAwait(false);
+                await VerifyOwnedCheckoutAsync(run, restartedCheckouts).ConfigureAwait(false);
+                await VerifyOwnedDiffAndLandingAsync(harness, restarted, run, restartedCheckouts, vessel, grantId, token,
+                    root, release, counter).ConfigureAwait(false);
+            }
+        }
+
+        private async Task WaitForOwnedRunnerAsync(ShippingHarborConsole console, AdmiralInstance restarted)
+        {
+            AssertTrue(await WaitUntilAsync(() => console.HasExited || restarted.Registry.SessionCount == 1).ConfigureAwait(false), "runner reconnects to the restarted Admiral");
+            AssertFalse(console.HasExited, console.Diagnostics());
+        }
+
+        private async Task VerifyOriginalChildFinishedAsync(HarborOwnedObserver observer, AdmiralInstance restarted, string jobId)
+        {
+            AssertTrue(await WaitUntilAsync(() => observer.Output.Contains("owned-change-committed", StringComparison.Ordinal)).ConfigureAwait(false), "the original child commits after the console restart");
+            AssertTrue(await WaitUntilAsync(() => restarted.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? current)
+                && current.State == HarborJobStateEnum.Exited && current.CompletionDelivered).ConfigureAwait(false), "the restarted Admiral records the confirmed exit");
+            AssertContains("offline output", observer.Output, "output produced while the original console was down reaches the restarted Admiral");
+        }
+
+        private async Task VerifyOwnedCheckoutAsync(OwnedMissionRun run, HarborCheckoutService checkouts)
+        {
+            string checkId = "owned-e2e-head-" + Guid.NewGuid().ToString("N");
+            const string verificationCommand = "git rev-parse HEAD";
+            HarborWorkspaceOperationRequest verifyRequest = HarborCheckoutService.CreateRequest(run.Dock, HarborWorkspaceOperationEnum.RunVerification);
+            verifyRequest.Verification = new HarborVerificationRequest
+            {
+                CommandKey = "head",
+                ExpectedCommandSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(verificationCommand))).ToLowerInvariant(),
+                CheckId = checkId,
+                TimeoutSeconds = 10,
+                OutputLimitBytes = 4096,
+                AcceptedExitCodes = new List<int> { 0 }
+            };
+            HarborWorkspaceOperationResult verified;
+            using (HarborCheckoutOperationScope scope = new HarborCheckoutOperationScope("owned-e2e-verification:" + checkId, run.Mission.CommitHash!))
+                verified = await checkouts.ExecuteAsync(run.Dock, verifyRequest).ConfigureAwait(false);
+            AssertEqual(0, verified.ExitCode, "the configured verification command succeeds on the owned checkout");
+            AssertTrue(!verified.TimedOut && !verified.Cancelled && !verified.Truncated, "the observed zero exit completes verification within the configured cap");
+
+            HarborWorkspaceOperationRequest outputRequest = HarborCheckoutService.CreateRequest(run.Dock, HarborWorkspaceOperationEnum.ReadVerificationOutput);
+            outputRequest.ExpectedHead = run.Mission.CommitHash;
+            outputRequest.MaxBytes = 4096;
+            outputRequest.VerificationOutput = new HarborVerificationOutputRequest
+            {
+                OutputId = verified.VerificationOutputId!, CheckId = checkId, Offset = 0, MaxBytes = 4096
+            };
+            HarborWorkspaceOperationResult output = await checkouts.ExecuteAsync(run.Dock, outputRequest).ConfigureAwait(false);
+            AssertEqual(run.Mission.CommitHash, Encoding.UTF8.GetString(Convert.FromBase64String(output.BytesBase64!)).Trim(), "remote verification output is bound to the committed checkout head");
+            string ownedResult = await checkouts.ReadTextAsync(HarborCheckoutAddress.ForDock(run.Dock.Id), "owned-result.txt").ConfigureAwait(false);
+            AssertContains("brief-has-mission=True", ownedResult, "the actual child read and used the generated mission brief before committing");
+        }
+
+        private async Task RefuseOutsideMissionConfigurationAsync(Harness harness, AdmiralInstance restarted, OwnedMissionRun run,
+            string root, string release, string counter)
+        {
+            string outsideConfiguration = Path.Combine(root, "outside-mission-config");
+            Directory.CreateDirectory(outsideConfiguration);
+            HarborLaunchResult launch = await restarted.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a",
+                "owned-e2e-outside-config:" + run.Mission.Id,
+                new HarborLaunchRequest
+                {
+                    Runtime = "fixture",
+                    WorkingDirectory = run.CheckoutPath,
+                    DockId = run.Dock.Id,
+                    CheckoutBinding = run.Dock.HostCheckout,
+                    MissionConfiguration = new HarborMissionRuntimeConfiguration
+                    {
+                        Token = "denial-" + Guid.NewGuid().ToString("N"),
+                        Directory = outsideConfiguration,
+                        ScopedHome = true
+                    },
+                    Arguments = new List<string>
+                    {
+                        typeof(global::Armada.Test.Unit.Program).Assembly.Location,
+                        "--harbor-runner-child", "owned-commit", release, counter, "CLAUDE.md", run.RuntimeDirectory
+                    }
+                },
+                new HarborJobBinding
+                {
+                    MissionId = run.Mission.Id,
+                    CaptainId = run.Captain.Id,
+                    DockId = run.Dock.Id,
+                    AdmiralProcessId = 77002,
+                    AdmiralProcessStartedUtc = DateTime.UtcNow,
+                    Observer = new HarborOwnedObserver(),
+                    OnRecorded = async (job, cancellationToken) =>
+                    {
+                        run.Mission.HarborJobId = job.JobId;
+                        await harness.Driver.Missions.UpdateAsync(run.Mission, cancellationToken).ConfigureAwait(false);
+                        return true;
+                    }
+                }).ConfigureAwait(false);
+            AssertTrue(launch.Accepted, "the server records a launch attempt before the runner rejects its out-of-checkout configuration: " + launch.Reason);
+            AssertTrue(await WaitUntilAsync(() => restarted.Coordinator.TryGetJob(launch.JobId!, out HarborJobSnapshot? current)
+                && current!.State == HarborJobStateEnum.Uncertain
+                && current.FailureReason == "harbor_runner_error: working_directory_outside_roots").ConfigureAwait(false),
+                "the runner's configuration refusal reaches the durable server fence");
+            HarborLocalJobRecord refused = JsonSerializer.Deserialize<HarborLocalJobRecord>(
+                File.ReadAllText(Path.Combine(root, "state", launch.JobId!, "job.json")))!;
+            AssertEqual("working_directory_outside_roots", refused.FailureReason, "outside configuration has a stable refusal reason");
+            AssertTrue(refused.StopConfirmed && !refused.ProcessId.HasValue, "the supervisor refused the configuration before creating a child");
+            AssertFalse(launch.Completion!.IsCompleted, "a runner error retains the Admiral fence until stop accounting completes");
+            AssertEqual(1, File.ReadAllLines(counter).Length, "a refused outside configuration does not start a second process");
+        }
+
+        private async Task VerifyOwnedDiffAndLandingAsync(Harness harness, AdmiralInstance restarted, OwnedMissionRun run,
+            HarborCheckoutService checkouts, Vessel vessel, string grantId, string token, string root, string release, string counter)
+        {
+            HostAwareGitService hostGit = new HostAwareGitService(new GitService(run.Logging, null, harness.Driver), checkouts);
+            MissionDiffResult diff = await Armada.Server.MissionDiffReader.ReadAsync(harness.Driver, run.Settings.LogDirectory,
+                hostGit, run.Mission).ConfigureAwait(false);
+            AssertTrue(diff.Available && diff.Diff.Contains("owned-result.txt", StringComparison.Ordinal), "MissionDiffReader reads the runner's committed changes through the Harbor Git facade");
+
+            LandingService landing = new LandingService(run.Logging, harness.Driver, run.Settings, hostGit);
+            landing.SetHarborCheckouts(checkouts);
+            AssertTrue(await landing.MergeInDedicatedWorktreeAsync(vessel, run.Mission, "main", run.Mission.BranchName).ConfigureAwait(false), "landing merges the remote-owned branch through a dedicated runner checkout: " + run.Mission.FailureReason);
+            HarborWorkspaceOperationResult published = await checkouts.InspectRepositoryAsync(vessel, "hbr_a", grantId, "refs/heads/main").ConfigureAwait(false);
+            AssertFalse(String.Equals(run.Dock.HostCheckout!.BaseCommit, published.HeadCommit, StringComparison.OrdinalIgnoreCase), "the target branch advances from its original commit after landing");
+            string primaryHead = await hostGit.GetHeadCommitHashAsync(HarborCheckoutAddress.ForDock(run.Dock.Id) + "/working").ConfigureAwait(false) ?? String.Empty;
+            AssertEqual(published.HeadCommit, primaryHead, "the configured primary working checkout matches the published target head");
+            AssertFalse(run.Observer.Output.Contains(token, StringComparison.Ordinal), "mission token values never appear in streamed child output");
+            await VerifyInterruptedReclaimDeleteEscalationAsync(harness, run, checkouts, vessel, grantId, root).ConfigureAwait(false);
+            await VerifyCancelledHarborLandingRefusedAsync(harness, landing, checkouts, run, vessel, root).ConfigureAwait(false);
+            await RefuseOutsideMissionConfigurationAsync(harness, restarted, run, root, release, counter).ConfigureAwait(false);
+        }
+
+        private async Task VerifyInterruptedReclaimDeleteEscalationAsync(Harness harness, OwnedMissionRun run,
+            HarborCheckoutService checkouts, Vessel vessel, string grantId, string root)
+        {
+            string branch = "armada/interrupted-reclaim-" + Guid.NewGuid().ToString("N");
+            Dock dock = await checkouts.ProvisionAsync(vessel, run.Captain, branch, "hbr_a", grantId,
+                "refs/heads/main", false, "cleanup:" + Guid.NewGuid().ToString("N")).ConfigureAwait(false);
+            string address = HarborCheckoutAddress.ForDock(dock.Id) + "/working";
+            string head = await new HostAwareGitService(new GitService(run.Logging, null, harness.Driver), checkouts)
+                .GetHeadCommitHashAsync(address).ConfigureAwait(false) ?? String.Empty;
+            AssertTrue(DockGitAnchorPersistence.IsCommit(head), "the actual runner supplies the interrupted reclaim's pinned head");
+
+            dock.Active = false;
+            dock.CaptainId = null;
+            dock.GitAnchorsSnapshot = new DockGitAnchorSnapshot
+            {
+                DockId = dock.Id,
+                MissionId = run.Mission.Id,
+                VesselId = vessel.Id,
+                ProvisionedCommit = head,
+                ProvisionedUtc = DateTime.UtcNow,
+                Anchors = new GitAnchors { BaseCommit = head }
+            };
+            await harness.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+            vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly;
+            await harness.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+            HarborCheckoutLifecycleIntent interrupted = new HarborCheckoutLifecycleIntent
+            {
+                IntentId = "hcl_" + Guid.NewGuid().ToString("N"),
+                BindingRevision = dock.HostCheckout!.Revision,
+                DockId = dock.Id,
+                BranchName = branch,
+                Purpose = HarborCheckoutLifecyclePurposeEnum.Reclaim,
+                InitialHead = head,
+                ExpectedHead = head,
+                PreserveSnapshot = true,
+                PreserveReferences = true,
+                PreserveBranch = true,
+                Phase = HarborCheckoutLifecyclePhaseEnum.Prepared
+            };
+            AssertTrue(await harness.Driver.Docks.TryWriteHarborLifecycleIntentAsync(dock.Id,
+                JsonSerializer.Serialize(dock.HostCheckout), null, interrupted).ConfigureAwait(false),
+                "the database stores the prepared Reclaim receipt before remote cleanup starts");
+
+            DockService docks = new DockService(run.Logging, harness.Driver, run.Settings,
+                new HostAwareGitService(new GitService(run.Logging, null, harness.Driver), checkouts), checkouts);
+            await VerifyUnconfirmedWriterRetainsBindingAsync(harness, dock, docks).ConfigureAwait(false);
+            AssertTrue(await docks.DeleteAsync(dock.Id, dock.TenantId).ConfigureAwait(false),
+                "Delete resumes Reclaim and persists its post-removal cleanup before deleting the dock");
+            AssertEqual(null, await harness.Driver.Docks.ReadAsync(dock.TenantId!, dock.Id).ConfigureAwait(false),
+                "the dock row is deleted only after both durable lifecycle intents finish");
+            AssertFalse(await GitRefExistsAsync(Path.Combine(root, "repository.git"), "refs/heads/" + branch).ConfigureAwait(false),
+                "the post-reclaim compare-and-delete removes the branch using the stored anchored head");
+        }
+
+        private async Task VerifyUnconfirmedWriterRetainsBindingAsync(Harness harness, Dock dock, DockService docks)
+        {
+            DateTime nowUtc = DateTime.UtcNow;
+            HarborJobRecord uncertain = new HarborJobRecord
+            {
+                JobId = "hjob_cleanup_" + Guid.NewGuid().ToString("N"),
+                RunnerId = dock.HostCheckout!.RunnerId,
+                LaunchKey = "cleanup-fence:" + dock.Id,
+                TenantId = dock.TenantId!,
+                UserId = dock.UserId!,
+                EnrollmentGeneration = dock.HostCheckout.EnrollmentGeneration,
+                SessionGeneration = 1,
+                State = HarborJobStateEnum.Uncertain,
+                ProcessId = 9077,
+                DockId = dock.Id,
+                AdmiralProcessId = ProcessSupervisor.AllocateSyntheticProcessId(),
+                AdmiralProcessStartedUtc = nowUtc,
+                RunnerProcessStartedUtc = nowUtc.AddSeconds(-5),
+                FailureReason = HarborJobCoordinator.ReasonResumeUnconfirmed,
+                Revision = 1,
+                CreatedUtc = nowUtc,
+                LastUpdateUtc = nowUtc
+            };
+            await harness.Driver.HarborJobs.CreateAsync(uncertain).ConfigureAwait(false);
+            bool held = false;
+            try
+            {
+                await docks.DeleteAsync(dock.Id, dock.TenantId).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException exception) when (exception.Message.Contains("dock_worktree_held", StringComparison.Ordinal))
+            {
+                held = true;
+            }
+            AssertTrue(held, "an unconfirmed Harbor writer blocks cleanup even when a Reclaim intent exists");
+            Dock? retained = await harness.Driver.Docks.ReadAsync(dock.TenantId!, dock.Id).ConfigureAwait(false);
+            AssertEqual(dock.HostCheckout.Revision, retained!.HostCheckout!.Revision,
+                "a held cleanup preserves the exact durable checkout binding");
+
+            AdmiralInstance confirmationHost = await harness.RestartAdmiralAsync(new NoMissionRecoveryHost(), _ => { }).ConfigureAwait(false);
+            Principal globalAdministrator = await harness.AddPrincipalAsync(harness.OwnerA.TenantId,
+                "owned-cleanup-stop-admin", false, true).ConfigureAwait(false);
+            HarborJobConfirmStoppedRequest confirmation = new HarborJobConfirmStoppedRequest
+            {
+                ExpectedRevision = uncertain.Revision,
+                EnrollmentGeneration = uncertain.EnrollmentGeneration,
+                RunnerProcessId = uncertain.ProcessId,
+                RunnerProcessStartedUtc = uncertain.RunnerProcessStartedUtc,
+                Evidence = "host_confirmed_process_absent"
+            };
+            HttpReply reply = await harness.RequestAsync(globalAdministrator, System.Net.Http.HttpMethod.Post,
+                "api/v1/harbor-runners/jobs/" + uncertain.JobId + "/confirm-stopped", confirmation, confirmationHost).ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.OK, reply.StatusCode, "the exact global-admin stop proof releases the test fence: " + reply.Body);
+        }
+
+        private static async Task<bool> GitRefExistsAsync(string repository, string reference)
+        {
+            ProcessStartInfo start = new ProcessStartInfo("git")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = Path.GetDirectoryName(repository)!
+            };
+            start.ArgumentList.Add("--git-dir");
+            start.ArgumentList.Add(repository);
+            start.ArgumentList.Add("show-ref");
+            start.ArgumentList.Add("--verify");
+            start.ArgumentList.Add("--quiet");
+            start.ArgumentList.Add(reference);
+            using (Process process = Process.Start(start) ?? throw new InvalidOperationException("The fixture Git process did not start."))
+            {
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                return process.ExitCode == 0;
+            }
+        }
+
+        private async Task VerifyCancelledHarborLandingRefusedAsync(Harness harness, LandingService landing,
+            HarborCheckoutService checkouts, OwnedMissionRun run, Vessel vessel, string root)
+        {
+            string seed = Path.Combine(root, "seed");
+            string branch = "harbor-cancel-" + Guid.NewGuid().ToString("N");
+            await RunGitFixtureAsync(seed, "fetch", "origin").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "checkout", "-B", branch, "origin/main").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(seed, "cancelled-harbor-work.txt"), "must not land\n").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "add", "cancelled-harbor-work.txt").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "commit", "-m", "Prepare cancelled Harbor landing").ConfigureAwait(false);
+            string sourceTip = (await RunGitFixtureOutputAsync(seed, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+            await RunGitFixtureAsync(seed, "push", "-u", "origin", branch).ConfigureAwait(false);
+            HarborCheckoutBinding binding = run.Dock.HostCheckout!;
+            HarborWorkspaceOperationResult before = await checkouts.InspectRepositoryAsync(vessel,
+                binding.RunnerId, binding.RepositoryGrantId,
+                "refs/heads/main").ConfigureAwait(false);
+
+            Mission cancelled = new Mission("Cancelled Harbor publication")
+            {
+                TenantId = run.Mission.TenantId,
+                UserId = run.Mission.UserId,
+                VesselId = vessel.Id,
+                DockId = run.Dock.Id,
+                Status = MissionStatusEnum.WorkProduced,
+                BranchName = branch,
+                CommitHash = sourceTip
+            };
+            cancelled = await harness.Driver.Missions.CreateAsync(cancelled).ConfigureAwait(false);
+            await MissionCancellation.CancelAsync(harness.Driver, cancelled, "cancel before Harbor publication", null).ConfigureAwait(false);
+            bool landed = await landing.MergeInDedicatedWorktreeAsync(vessel, cancelled, "main", branch).ConfigureAwait(false);
+
+            HarborWorkspaceOperationResult after = await checkouts.InspectRepositoryAsync(vessel,
+                binding.RunnerId, binding.RepositoryGrantId,
+                "refs/heads/main").ConfigureAwait(false);
+            Mission stored = (await harness.Driver.Missions.ReadAsync(cancelled.Id).ConfigureAwait(false))!;
+            AssertFalse(landed, "cancelled Harbor work is refused at the publication boundary");
+            AssertEqual(MissionStatusEnum.Cancelled, stored.Status, "Harbor landing does not replace the operator cancellation state");
+            AssertEqual(before.HeadCommit, after.HeadCommit, "cancelled Harbor landing does not advance the remote target");
+
+            await VerifyCancelledHarborQueuePublicationRefusedAsync(harness, checkouts, run, vessel, cancelled, branch, before.HeadCommit!)
+                .ConfigureAwait(false);
+        }
+
+        private async Task VerifyCancelledHarborQueuePublicationRefusedAsync(Harness harness, HarborCheckoutService checkouts,
+            OwnedMissionRun run, Vessel vessel, Mission cancelled, string branch, string targetHead)
+        {
+            HarborCheckoutBinding binding = run.Dock.HostCheckout!;
+            MergeEntry entry = new MergeEntry(branch, "main")
+            {
+                TenantId = cancelled.TenantId,
+                UserId = cancelled.UserId,
+                MissionId = cancelled.Id,
+                VesselId = vessel.Id,
+                Status = MergeStatusEnum.Pushing
+            };
+            entry = await harness.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
+            string attemptId = "mq_" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entry.Id + "\n0"))).ToLowerInvariant();
+            Dock integration = await checkouts.ProvisionAuxiliaryAsync(vessel, "armada/merge-queue/" + entry.Id,
+                binding.RunnerId, binding.RepositoryGrantId, "refs/heads/main", true,
+                attemptId, run.Dock.CaptainId).ConfigureAwait(false);
+            string checkout = HarborCheckoutAddress.ForDock(integration.Id);
+            HostAwareGitService hostGit = new HostAwareGitService(new GitService(run.Logging, null, harness.Driver), checkouts);
+            string? baseHead = await hostGit.GetHeadCommitHashAsync(checkout).ConfigureAwait(false);
+            AssertNotNull(baseHead, "queue integration checkout starts at its pinned target");
+            using (new HarborCheckoutOperationScope("mq-merge:" + attemptId + ":" + baseHead, baseHead!))
+                await hostGit.MergeBranchLocalAsync(checkout, checkout + "/repository", branch).ConfigureAwait(false);
+
+            MergeQueueService queue = new MergeQueueService(run.Logging, harness.Driver, run.Settings, hostGit, new MergeFailureClassifier());
+            queue.SetHarborCheckouts(checkouts);
+            MergeEntry? result = await queue.ProcessSingleAsync(entry.Id, entry.TenantId).ConfigureAwait(false);
+            HarborWorkspaceOperationResult after = await checkouts.InspectRepositoryAsync(vessel,
+                binding.RunnerId, binding.RepositoryGrantId, "refs/heads/main").ConfigureAwait(false);
+            Mission storedMission = (await harness.Driver.Missions.ReadAsync(cancelled.Id).ConfigureAwait(false))!;
+            AssertNotNull(result, "the cancelled queue entry remains inspectable");
+            AssertEqual(MergeStatusEnum.Cancelled, result!.Status, "queue admission records cancellation before publication");
+            AssertEqual(MissionStatusEnum.Cancelled, storedMission.Status, "queue admission preserves cancelled mission state");
+            AssertEqual(targetHead, after.HeadCommit, "cancelled queue publication does not advance the target");
+        }
+
+        private static async Task RunGitFixtureAsync(string workingDirectory, params string[] arguments)
+        {
+            ProcessStartInfo start = new ProcessStartInfo("git")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = workingDirectory
+            };
+            foreach (string argument in arguments) start.ArgumentList.Add(argument);
+            using (Process process = Process.Start(start) ?? throw new InvalidOperationException("The fixture Git process did not start."))
+            {
+                string output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                if (process.ExitCode != 0) throw new InvalidOperationException("Fixture Git failed: " + String.Join(" ", arguments) + "; " + output + error);
+            }
+        }
+
+        private static async Task<string> RunGitFixtureOutputAsync(string workingDirectory, params string[] arguments)
+        {
+            ProcessStartInfo start = new ProcessStartInfo("git")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WorkingDirectory = workingDirectory
+            };
+            foreach (string argument in arguments) start.ArgumentList.Add(argument);
+            using (Process process = Process.Start(start) ?? throw new InvalidOperationException("Fixture Git did not start."))
+            {
+                Task<string> output = process.StandardOutput.ReadToEndAsync();
+                Task<string> error = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                string stdout = await output.ConfigureAwait(false);
+                string stderr = await error.ConfigureAwait(false);
+                if (process.ExitCode != 0) throw new InvalidOperationException("Fixture Git failed: " + String.Join(" ", arguments) + "; " + stdout + stderr);
+                return stdout;
+            }
+        }
+
+        private static async Task InitializeHarborOwnedRepositoryAsync(string root, string repository, string seed, string primary)
+        {
+            Directory.CreateDirectory(seed);
+            await RunGitFixtureAsync(root, "init", "--bare", repository).ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "init", "-b", "main").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "config", "user.name", "Harbor fixture").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "config", "user.email", "harbor-fixture@example.invalid").ConfigureAwait(false);
+            await File.WriteAllTextAsync(Path.Combine(seed, "README.md"), "Harbor owned checkout fixture\n").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "add", "README.md").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "commit", "-m", "Initialize Harbor fixture").ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "remote", "add", "origin", repository).ConfigureAwait(false);
+            await RunGitFixtureAsync(seed, "push", "-u", "origin", "main").ConfigureAwait(false);
+            await RunGitFixtureAsync(root, "--git-dir", repository, "symbolic-ref", "HEAD", "refs/heads/main").ConfigureAwait(false);
+            await RunGitFixtureAsync(root, "--git-dir", repository, "remote", "add", "origin", repository).ConfigureAwait(false);
+            await RunGitFixtureAsync(root, "--git-dir", repository, "config", "user.name", "Harbor fixture").ConfigureAwait(false);
+            await RunGitFixtureAsync(root, "--git-dir", repository, "config", "user.email", "harbor-fixture@example.invalid").ConfigureAwait(false);
+            await RunGitFixtureAsync(root, "clone", repository, primary).ConfigureAwait(false);
+            await RunGitFixtureAsync(primary, "config", "user.name", "Harbor fixture").ConfigureAwait(false);
+            await RunGitFixtureAsync(primary, "config", "user.email", "harbor-fixture@example.invalid").ConfigureAwait(false);
+        }
+
+        private async Task HarborDiscardUncommittedDock_RetainsBindingWhenReclaimRpcFails()
+        {
+            await using Harness harness = await Harness.StartAsync().ConfigureAwait(false);
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.Harbor.Enabled = true;
+            settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_harbor_discard_hold_" + Guid.NewGuid().ToString("N"));
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("discard-hold", "https://example.invalid/repository.git")
+            {
+                TenantId = harness.OwnerA.TenantId, UserId = harness.OwnerA.UserId, DefaultBranch = "main"
+            }).ConfigureAwait(false);
+            Captain captain = await harness.Driver.Captains.CreateAsync(new Captain("discard-hold-captain", AgentRuntimeEnum.ClaudeCode)
+            {
+                TenantId = harness.OwnerA.TenantId, UserId = harness.OwnerA.UserId, State = CaptainStateEnum.Idle
+            }).ConfigureAwait(false);
+            Mission mission = await harness.Driver.Missions.CreateAsync(new Mission("discard-hold")
+            {
+                TenantId = harness.OwnerA.TenantId, UserId = harness.OwnerA.UserId, VesselId = vessel.Id,
+                Status = MissionStatusEnum.Pending, AssignmentState = MissionAssignmentStateEnum.Pending
+            }).ConfigureAwait(false);
+            settings.Harbor.MissionRoutes.Add(new HarborMissionRoute
+            {
+                CaptainId = captain.Id, RunnerId = "hbr_discard", CheckoutMode = HarborCheckoutModeEnum.HarborOwned,
+                RepositoryGrantId = "grant_discard"
+            });
+            AssertTrue(await harness.Driver.HarborRunnerEnrollments.TryEnrollAsync(new HarborRunnerEnrollment
+            {
+                RunnerId = "hbr_discard", TenantId = harness.OwnerA.TenantId, UserId = harness.OwnerA.UserId,
+                AuthMethod = "unit-test", Generation = 1, Active = true
+            }, 0).ConfigureAwait(false), "the exact owner enrollment exists");
+
+            HarborCheckoutService checkouts = new HarborCheckoutService(harness.Driver, settings);
+            checkouts.SetChannel(new ProvisionPreemptionAndReclaimFailureChannel(harness.Driver, captain.Id));
+            DockService docks = new DockService(logging, harness.Driver, settings, new GitService(logging, null, harness.Driver), checkouts);
+            CaptainService captains = new CaptainService(logging, harness.Driver, settings, new GitService(logging, null, harness.Driver), docks);
+            MissionService missions = new MissionService(logging, harness.Driver, settings, docks, captains,
+                resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
+
+            AssertFalse(await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false),
+                "a concurrent captain claim prevents the assignment commit");
+            Mission storedMission = (await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+            Dock? retainedRow = await harness.Driver.Docks.ReadByProvisionAttemptAsync(storedMission.DockProvisionAttemptId!).ConfigureAwait(false);
+            AssertNotNull(retainedRow, "unconfirmed remote reclaim retains the durable dock row and its provision attempt");
+            Dock retained = retainedRow!;
+            AssertNotNull(retained.HostCheckout, "failed remote reclaim retains the durable checkout binding");
+            AssertTrue(retained.Active, "an unconfirmed reclaim does not mark the dock inactive");
+            AssertTrue(retained.HostCheckoutLifecycle != null
+                && retained.HostCheckoutLifecycle.Phase == HarborCheckoutLifecyclePhaseEnum.Prepared,
+                "the incomplete lifecycle receipt remains attached for exact recovery");
+            AssertEqual(MissionStatusEnum.Pending, storedMission.Status, "the mission can retry only after the checkout cleanup is resolved");
+        }
+
+        private sealed class ProvisionPreemptionAndReclaimFailureChannel : IHarborWorkspaceOperations
+        {
+            private readonly DatabaseDriver _Database;
+            private readonly string _CaptainId;
+
+            public ProvisionPreemptionAndReclaimFailureChannel(DatabaseDriver database, string captainId)
+            {
+                _Database = database;
+                _CaptainId = captainId;
+            }
+
+            public async Task<HarborWorkspaceOperationResult> ExecuteAsync(AuthContext auth,
+                HarborWorkspaceOperationRequest request, CancellationToken token = default)
+            {
+                HarborWorkspaceOperationResult result = new HarborWorkspaceOperationResult
+                {
+                    Accepted = true, RequestId = request.RequestId, Operation = request.Operation,
+                    Binding = request.Binding, RepositoryFingerprint = request.ExpectedRepositoryFingerprint
+                };
+                if (request.Operation == HarborWorkspaceOperationEnum.InspectRepository)
+                {
+                    result.HeadCommit = new string('a', 40);
+                    result.BranchName = request.RequestedRevision;
+                    return result;
+                }
+                if (request.Operation == HarborWorkspaceOperationEnum.ProvisionCheckout)
+                {
+                    Captain? captain = await _Database.Captains.ReadAsync(_CaptainId, token).ConfigureAwait(false);
+                    captain!.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = "another-mission";
+                    captain.CurrentDockId = "another-dock";
+                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                    result.HeadCommit = request.Binding!.BaseCommit;
+                    result.BranchName = request.Detached ? "(detached)" : request.Binding.BranchName;
+                    return result;
+                }
+                if (request.Operation == HarborWorkspaceOperationEnum.Git
+                    && request.Git?.Operation == HarborGitOperationEnum.GetHeadCommitHash)
+                {
+                    result.Git = new HarborGitOperationResult { Text = request.Binding?.BaseCommit };
+                    return result;
+                }
+                if (request.Operation == HarborWorkspaceOperationEnum.Git
+                    && request.Git?.Operation == HarborGitOperationEnum.SnapshotDockWork)
+                    throw new InvalidOperationException("simulated_workspace_reclaim_disconnect");
+                throw new InvalidOperationException("unexpected_discard_test_workspace_operation");
+            }
+        }
+
+        private static void ConfigureOwnedRunnerSettings(HarborRunnerSettings settings, string checkoutRoot, HarborRepositoryGrant grant)
+        {
+            settings.Supervisor.WorkingRoots.Add(checkoutRoot);
+            settings.Supervisor.MaxRetainedJobs = 48;
+            settings.Supervisor.MaxVerificationSpoolBytes = 256L * 1024L * 1024L;
+            settings.RepositoryGrants.Add(grant);
+        }
+
+        private static async Task<OwnedMissionRun> StartOwnedMissionRunAsync(Harness harness, Vessel vessel, string grantId,
+            string checkoutRoot, string release, string counter, string token)
+        {
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.Harbor.Enabled = true;
+            settings.LogDirectory = Path.Combine(Path.GetDirectoryName(checkoutRoot)!, "logs");
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            HarborCheckoutService checkouts = new HarborCheckoutService(harness.Driver, settings);
+            checkouts.SetChannel(harness.Workspace);
+            HostAwareGitService hostGit = new HostAwareGitService(new GitService(logging, null, harness.Driver), checkouts);
+            Captain captain = await harness.Driver.Captains.CreateAsync(new Captain("owned-e2e-captain", AgentRuntimeEnum.ClaudeCode)
+            {
+                TenantId = harness.OwnerA.TenantId,
+                UserId = harness.OwnerA.UserId,
+                State = CaptainStateEnum.Working
+            }).ConfigureAwait(false);
+            Dock dock = await checkouts.ProvisionAsync(vessel, captain, "feature/owned-e2e", "hbr_a", grantId,
+                "main", false, "mission:owned-e2e-attempt").ConfigureAwait(false);
+            Mission mission = await harness.Driver.Missions.CreateAsync(new Mission("Harbor owned acceptance", "Read the brief, make a small change, and commit it.")
+            {
+                TenantId = harness.OwnerA.TenantId,
+                UserId = harness.OwnerA.UserId,
+                VesselId = vessel.Id,
+                CaptainId = captain.Id,
+                DockId = dock.Id,
+                BranchName = dock.BranchName,
+                CommitHash = dock.HostCheckout!.BaseCommit,
+                Status = MissionStatusEnum.Assigned,
+                AssignmentState = MissionAssignmentStateEnum.Assigned
+            }).ConfigureAwait(false);
+            captain.CurrentMissionId = mission.Id;
+            captain.CurrentDockId = dock.Id;
+            await harness.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+            DockService docks = new DockService(logging, harness.Driver, settings, hostGit, checkouts);
+            CaptainService captains = new CaptainService(logging, harness.Driver, settings, hostGit, docks);
+            MissionService missions = new MissionService(logging, harness.Driver, settings, docks, captains,
+                git: hostGit,
+                resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
+            missions.SetHarborCheckouts(checkouts);
+            await missions.GenerateClaudeMdAsync(dock.WorktreePath!, mission, vessel, captain).ConfigureAwait(false);
+            string brief = await checkouts.ReadTextAsync(HarborCheckoutAddress.ForDock(dock.Id), "CLAUDE.md").ConfigureAwait(false);
+            if (!brief.Contains("Harbor owned acceptance", StringComparison.Ordinal))
+                throw new InvalidOperationException("The Harbor-owned mission brief was not written through the opaque address.");
+
+            string checkoutPath = Path.Combine(checkoutRoot, dock.HostCheckout.CheckoutId);
+            string runtimeDirectory = Path.Combine(checkoutPath, ".armada", "runtime", captain.Id);
+            using (HarborCheckoutOperationScope scope = new HarborCheckoutOperationScope("owned-e2e-runtime-config", dock.HostCheckout.BaseCommit))
+                await checkouts.WriteTextAsync(HarborCheckoutAddress.ForDock(dock.Id), ".armada/runtime/" + captain.Id + "/.scope", mission.Id, true).ConfigureAwait(false);
+
+            HarborOwnedObserver observer = new HarborOwnedObserver();
+            HarborLaunchRequest launchRequest = new HarborLaunchRequest
+            {
+                Runtime = "fixture",
+                WorkingDirectory = checkoutPath,
+                DockId = dock.Id,
+                CheckoutBinding = dock.HostCheckout,
+                MissionConfiguration = new HarborMissionRuntimeConfiguration { Token = token, Directory = runtimeDirectory, ScopedHome = true },
+                Prompt = "private Harbor-owned prompt",
+                PromptViaStdin = true,
+                Arguments = new List<string>
+                {
+                    typeof(global::Armada.Test.Unit.Program).Assembly.Location,
+                    "--harbor-runner-child", "owned-commit", release, counter, "CLAUDE.md", runtimeDirectory
+                }
+            };
+            HarborLaunchResult launch = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a",
+                "owned-e2e:" + mission.Id, launchRequest, new HarborJobBinding
+                {
+                    MissionId = mission.Id,
+                    CaptainId = captain.Id,
+                    DockId = dock.Id,
+                    AdmiralProcessId = 77001,
+                    AdmiralProcessStartedUtc = DateTime.UtcNow,
+                    Observer = observer,
+                    OnRecorded = async (job, cancellationToken) =>
+                    {
+                        mission.HarborJobId = job.JobId;
+                        await harness.Driver.Missions.UpdateAsync(mission, cancellationToken).ConfigureAwait(false);
+                        return true;
+                    }
+                }).ConfigureAwait(false);
+            if (!launch.Accepted || String.IsNullOrWhiteSpace(launch.JobId))
+                throw new InvalidOperationException("The Harbor-owned child launch failed: " + launch.Reason);
+            return new OwnedMissionRun(settings, logging, checkouts, captain, dock, mission, observer, launch.JobId, checkoutPath, runtimeDirectory);
+        }
+
         private static string DescribeShippingProcess(int processId, DateTime? recorded)
         {
             try
@@ -1764,6 +2469,95 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        private sealed class HarborOwnedObserver : IHarborJobCompletionObserver
+        {
+            private readonly object _Gate = new object();
+            private readonly StringBuilder _Output = new StringBuilder();
+            private readonly TaskCompletionSource<HarborJobSnapshot> _Finished = new TaskCompletionSource<HarborJobSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public string Output
+            {
+                get { lock (_Gate) return _Output.ToString(); }
+            }
+
+            public Task<HarborJobSnapshot> Finished => _Finished.Task;
+
+            public void OnStarted(HarborJobSnapshot job)
+            {
+            }
+
+            public void OnOutput(string jobId, HarborOutput output)
+            {
+                lock (_Gate) _Output.Append(output.Data);
+            }
+
+            public void OnFinished(HarborJobSnapshot job)
+            {
+                _Finished.TrySetResult(job);
+            }
+
+            public Task OnFinishedAsync(HarborJobSnapshot job)
+            {
+                OnFinished(job);
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class OwnedMissionRun
+        {
+            public ArmadaSettings Settings { get; }
+            public LoggingModule Logging { get; }
+            public HarborCheckoutService Checkouts { get; }
+            public Captain Captain { get; }
+            public Dock Dock { get; }
+            public Mission Mission { get; }
+            public HarborOwnedObserver Observer { get; }
+            public string JobId { get; }
+
+            public string CheckoutPath { get; }
+            public string RuntimeDirectory { get; }
+
+            public OwnedMissionRun(ArmadaSettings settings, LoggingModule logging, HarborCheckoutService checkouts,
+                Captain captain, Dock dock, Mission mission, HarborOwnedObserver observer, string jobId, string checkoutPath, string runtimeDirectory)
+            {
+                Settings = settings;
+                Logging = logging;
+                Checkouts = checkouts;
+                Captain = captain;
+                Dock = dock;
+                Mission = mission;
+                Observer = observer;
+                JobId = jobId;
+                CheckoutPath = checkoutPath;
+                RuntimeDirectory = runtimeDirectory;
+            }
+        }
+
+        private sealed class HarborOwnedRecovery : IHarborJobRecoveryHost
+        {
+            private readonly IHarborJobObserver _Observer;
+
+            public HarborOwnedRecovery(IHarborJobObserver observer)
+            {
+                _Observer = observer ?? throw new ArgumentNullException(nameof(observer));
+            }
+
+            public Task<HarborJobRecoveryResult> RestoreAsync(HarborJobSnapshot job, CancellationToken token = default)
+            {
+                return Task.FromResult(new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Adopted, _Observer));
+            }
+
+            public Task<HarborJobRecoveryResult> TryAdoptAsync(HarborJobSnapshot job, HarborRunnerSession session, CancellationToken token = default)
+            {
+                return Task.FromResult(new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Adopted, _Observer));
+            }
+
+            public Task<bool> DeliverCompletionAsync(HarborJobSnapshot job, CancellationToken token = default)
+            {
+                return Task.FromResult(true);
+            }
+        }
+
         private sealed class NoMissionRecoveryHost : IHarborJobRecoveryHost
         {
             public Task<HarborJobRecoveryResult> RestoreAsync(HarborJobSnapshot job, CancellationToken token = default)
@@ -1772,6 +2566,361 @@ namespace Armada.Test.Unit.Suites.Services
                 => throw new InvalidOperationException("An operator job has no mission lifecycle to adopt.");
             public Task<bool> DeliverCompletionAsync(HarborJobSnapshot job, CancellationToken token = default)
                 => throw new InvalidOperationException("The running operator job has no mission completion to restore.");
+        }
+
+        private async Task HarborWorkspace_ChannelAuthorityGenerationAndTypedResults()
+        {
+            await using Harness harness = await Harness.StartAsync().ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.OK, await harness.EnrollAsync(harness.Administrator, "hbr_a", harness.OwnerA).ConfigureAwait(false), "workspace runner enrolled");
+            Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("workspace-vessel", "https://example.invalid/workspace.git")
+            {
+                TenantId = harness.OwnerA.TenantId,
+                UserId = harness.OwnerA.UserId
+            }).ConfigureAwait(false);
+            string fingerprint = new string('a', 64);
+            HarborCheckoutBinding binding = new HarborCheckoutBinding
+            {
+                RunnerId = "hbr_a", EnrollmentGeneration = 1, TenantId = harness.OwnerA.TenantId, UserId = harness.OwnerA.UserId,
+                RepositoryGrantId = "grant_a", RepositoryFingerprint = fingerprint, CheckoutId = "hco_0123456789abcdef0123456789abcdef",
+                BaseCommit = new string('b', 40), BranchName = "main", Revision = "revision_a"
+            };
+            Dock dock = await harness.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+            {
+                TenantId = harness.OwnerA.TenantId, UserId = harness.OwnerA.UserId, HostCheckout = binding
+            }).ConfigureAwait(false);
+            await using FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false);
+            HarborHandshakeAck ack = await runner.HandshakeAsync("hbr_a", workspaceCapability: true).ConfigureAwait(false);
+            AssertTrue(ack.Accepted, "workspace-capable owner connects");
+            AssertEqual(harness.OwnerA.TenantId, ack.TenantId, "ack carries authenticated tenant");
+            AssertEqual(harness.OwnerA.UserId, ack.UserId, "ack carries authenticated user");
+            AssertEqual(1L, ack.EnrollmentGeneration, "ack carries durable enrollment generation");
+            AssertTrue(ack.ConnectionGeneration > 0, "ack carries server connection generation");
+
+            HarborWorkspaceOperationRequest inspect = RepositoryInspectRequest("hbr_a", vessel.Id, "grant_a", fingerprint);
+            HarborWorkspaceOperationResult denied = await harness.Workspace.ExecuteAsync(harness.OwnerB.Auth, inspect).ConfigureAwait(false);
+            AssertEqual("harbor_command_unauthorized", denied.Reason, "another owner cannot command the workspace link");
+            AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "cross-owner request sends no workspace command");
+
+            Task<HarborWorkspaceOperationResult> inspectTask = harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, inspect);
+            HarborWorkspaceOperationRequest inspectWire = await runner.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            AssertTrue(!String.IsNullOrWhiteSpace(inspectWire.RequestId), "server assigns request identity");
+            AssertEqual(inspectWire.RequestId, inspectWire.CorrelationId, "wire correlation is server-issued request identity");
+            AssertEqual(ack.TenantId, inspectWire.TenantId, "wire tenant comes from the verified connection");
+            AssertEqual(ack.UserId, inspectWire.UserId, "wire user comes from the verified connection");
+            AssertEqual("hbr_a", inspectWire.RunnerId, "wire runner is the current session");
+            AssertEqual(ack.EnrollmentGeneration, inspectWire.EnrollmentGeneration, "wire enrollment generation matches handshake");
+            AssertEqual(ack.ConnectionGeneration, inspectWire.ConnectionGeneration, "wire connection generation matches handshake");
+            await runner.SendAsync(new HarborWorkspaceOperationResult
+            {
+                RequestId = "forged-request", CorrelationId = "forged-request", Operation = inspectWire.Operation,
+                Accepted = true, RepositoryFingerprint = fingerprint
+            }).ConfigureAwait(false);
+            AssertEqual("workspace_response_rejected", (await runner.NextAsync<HarborError>().ConfigureAwait(false)).Message,
+                "a result outside the pending request correlation is rejected");
+            await runner.SendAsync(new HarborWorkspaceOperationResult
+            {
+                RequestId = inspectWire.RequestId, CorrelationId = inspectWire.RequestId, Operation = inspectWire.Operation,
+                Accepted = true, RepositoryFingerprint = fingerprint
+            }).ConfigureAwait(false);
+            AssertTrue((await inspectTask.ConfigureAwait(false)).Accepted, "typed repository result completes the exact pending request");
+
+            HarborCheckoutBinding wrongBinding = new HarborCheckoutBinding
+            {
+                RunnerId = binding.RunnerId, EnrollmentGeneration = binding.EnrollmentGeneration, TenantId = binding.TenantId,
+                UserId = binding.UserId, RepositoryGrantId = binding.RepositoryGrantId, RepositoryFingerprint = binding.RepositoryFingerprint,
+                CheckoutId = binding.CheckoutId, BaseCommit = binding.BaseCommit, BranchName = binding.BranchName, Revision = "stale_revision"
+            };
+            HarborWorkspaceOperationRequest staleCheckout = BoundWorkspaceRequest(wrongBinding, dock.Id, vessel.Id, fingerprint);
+            AssertEqual("workspace_checkout_binding_mismatch",
+                (await harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, staleCheckout).ConfigureAwait(false)).Reason,
+                "a stale pinned checkout revision is refused");
+            AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "a mismatched checkout identity is not dispatched");
+
+            HarborWorkspaceOperationRequest git = BoundWorkspaceRequest(binding, dock.Id, vessel.Id, fingerprint);
+            git.Operation = HarborWorkspaceOperationEnum.Git;
+            git.ExpectedHead = binding.BaseCommit;
+            git.Git = new HarborGitOperationRequest { Operation = HarborGitOperationEnum.GetCurrentBranch };
+            Task<HarborWorkspaceOperationResult> gitTask = harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, git);
+            HarborWorkspaceOperationRequest gitWire = await runner.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            AssertEqual(HarborGitOperationEnum.GetCurrentBranch, gitWire.Git!.Operation, "typed Git request crosses the channel");
+            await runner.SendAsync(new HarborWorkspaceOperationResult
+            {
+                RequestId = gitWire.RequestId, CorrelationId = gitWire.RequestId, Operation = gitWire.Operation,
+                Binding = gitWire.Binding, RepositoryFingerprint = fingerprint, Accepted = true,
+                Git = new HarborGitOperationResult { Text = "main" }
+            }).ConfigureAwait(false);
+            HarborWorkspaceOperationResult gitResult = await gitTask.ConfigureAwait(false);
+            AssertEqual("main", gitResult.Git!.Text, "typed Git result survives wire serialization");
+
+            HarborWorkspaceOperationRequest mutation = BoundWorkspaceRequest(binding, dock.Id, vessel.Id, fingerprint);
+            mutation.Operation = HarborWorkspaceOperationEnum.WriteText;
+            mutation.ExpectedHead = binding.BaseCommit;
+            mutation.RelativePath = "notes.txt";
+            mutation.Text = "safe workspace write";
+            mutation.Overwrite = true;
+            mutation.OperationKey = "write-intent-001";
+            Task<HarborWorkspaceOperationResult> firstWrite = harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, mutation);
+            HarborWorkspaceOperationRequest firstWire = await runner.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            await runner.SendAsync(WorkspaceAccepted(firstWire, fingerprint)).ConfigureAwait(false);
+            AssertTrue((await firstWrite.ConfigureAwait(false)).Accepted, "first durable mutation intent is accepted");
+            Task<HarborWorkspaceOperationResult> retryWrite = harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, mutation);
+            HarborWorkspaceOperationRequest retryWire = await runner.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            AssertEqual("write-intent-001", retryWire.OperationKey, "retry retains stable mutation key");
+            AssertTrue(firstWire.RequestId != retryWire.RequestId, "each attempt receives a fresh request correlation");
+            await runner.SendAsync(WorkspaceAccepted(retryWire, fingerprint)).ConfigureAwait(false);
+            AssertTrue((await retryWrite.ConfigureAwait(false)).Accepted, "same mutation identity can complete a later attempt");
+
+            HarborWorkspaceOperationRequest verification = BoundWorkspaceRequest(binding, dock.Id, vessel.Id, fingerprint);
+            verification.Operation = HarborWorkspaceOperationEnum.RunVerification;
+            verification.ExpectedHead = binding.BaseCommit;
+            verification.TimeoutSeconds = 1;
+            verification.OperationKey = "verification-inner-timeout-001";
+            const string verificationCheckId = "unit-check-001";
+            verification.Verification = new HarborVerificationRequest
+            {
+                CommandKey = "unit-check",
+                ExpectedCommandSha256 = new string('c', 64),
+                CheckId = verificationCheckId,
+                TimeoutSeconds = 2
+            };
+            Task<HarborWorkspaceOperationResult> verificationTask = harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, verification);
+            HarborWorkspaceOperationRequest verificationWire = await runner.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromMilliseconds(1200)).ConfigureAwait(false);
+            await runner.SendAsync(new HarborWorkspaceOperationResult
+            {
+                RequestId = verificationWire.RequestId,
+                CorrelationId = verificationWire.RequestId,
+                Operation = verificationWire.Operation,
+                Binding = verificationWire.Binding,
+                RepositoryFingerprint = fingerprint,
+                VerificationCheckId = verificationCheckId,
+                VerificationOutputId = "verification-output-001",
+                Accepted = true
+            }).ConfigureAwait(false);
+            AssertTrue((await verificationTask.ConfigureAwait(false)).Accepted,
+                "the server waits for the configured verification timeout, not the shorter outer request timeout");
+        }
+
+        private async Task HarborWorkspace_RejectsInvalidShapesAndUnavailableRunner()
+        {
+            await using Harness harness = await Harness.StartAsync().ConfigureAwait(false);
+            await harness.EnrollAsync(harness.Administrator, "hbr_a", harness.OwnerA).ConfigureAwait(false);
+            await harness.EnrollAsync(harness.Administrator, "hbr_plain", harness.OwnerA).ConfigureAwait(false);
+            await using FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false);
+            AssertTrue((await runner.HandshakeAsync("hbr_a", workspaceCapability: true).ConfigureAwait(false)).Accepted, "workspace runner connected");
+
+            HarborWorkspaceOperationRequest nestedMismatch = RepositoryInspectRequest("hbr_a", "vessel_a", "grant_a", new string('a', 64));
+            nestedMismatch.Git = new HarborGitOperationRequest { Operation = HarborGitOperationEnum.GetCurrentBranch };
+            HarborWorkspaceOperationResult mismatch = await harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, nestedMismatch).ConfigureAwait(false);
+            AssertEqual("workspace_request_invalid", mismatch.Reason, "Git payload cannot accompany a non-Git operation");
+            nestedMismatch = RepositoryInspectRequest("hbr_a", "vessel_a", "grant_a", new string('a', 64));
+            nestedMismatch.Operation = HarborWorkspaceOperationEnum.Git;
+            AssertEqual("workspace_request_invalid", (await harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, nestedMismatch).ConfigureAwait(false)).Reason,
+                "a Git operation requires its typed payload");
+            nestedMismatch = RepositoryInspectRequest("hbr_a", "vessel_a", "grant_a", new string('a', 64));
+            nestedMismatch.Verification = new HarborVerificationRequest { CommandKey = "verify", ExpectedCommandSha256 = new string('a', 64), CheckId = "check" };
+            AssertEqual("workspace_request_invalid", (await harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, nestedMismatch).ConfigureAwait(false)).Reason,
+                "verification payload cannot accompany another operation");
+            nestedMismatch = RepositoryInspectRequest("hbr_a", "vessel_a", "grant_a", new string('a', 64));
+            nestedMismatch.Version++;
+            AssertEqual("workspace_protocol_unsupported", (await harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, nestedMismatch).ConfigureAwait(false)).Reason,
+                "unsupported workspace protocol is refused before dispatch");
+            nestedMismatch = RepositoryInspectRequest("hbr_a", "vessel_a", "grant_a", new string('a', 64));
+            nestedMismatch.Operation = (HarborWorkspaceOperationEnum)999;
+            AssertEqual("workspace_operation_invalid", (await harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, nestedMismatch).ConfigureAwait(false)).Reason,
+                "unknown workspace operations are refused before dispatch");
+            AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "invalid request shapes never reach the runner");
+
+            await using FakeRunner noWorkspace = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false);
+            AssertTrue((await noWorkspace.HandshakeAsync("hbr_plain").ConfigureAwait(false)).Accepted, "legacy runner connects without workspace capability");
+            HarborWorkspaceOperationRequest unavailable = RepositoryInspectRequest("hbr_plain", "vessel_a", "grant_a", new string('a', 64));
+            HarborWorkspaceOperationResult refused = await harness.Workspace.ExecuteAsync(harness.OwnerA.Auth, unavailable).ConfigureAwait(false);
+            AssertEqual("workspace_runner_unavailable", refused.Reason, "missing negotiated capability refuses the operation");
+            AssertTrue(await noWorkspace.NoMessageAsync().ConfigureAwait(false), "unavailable owner causes no local or remote fallback");
+        }
+
+        private async Task HarborMissionLaunch_UsesBoundRunnerAndVerifiedCheckoutAddress()
+        {
+            await using Harness harness = await Harness.StartAsync().ConfigureAwait(false);
+            await harness.EnrollBothAsync().ConfigureAwait(false);
+            await using FakeRunner runnerA = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false);
+            await using FakeRunner runnerB = await harness.ConnectAsync(harness.OwnerB).ConfigureAwait(false);
+            AssertTrue((await runnerA.HandshakeAsync("hbr_a", workspaceCapability: true).ConfigureAwait(false)).Accepted, "bound runner accepts workspace capability");
+            AssertTrue((await runnerB.HandshakeAsync("hbr_b").ConfigureAwait(false)).Accepted, "configured-route runner connects");
+            using MissionScope scope = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_b", prepare: (root, settings, mission) =>
+            {
+                settings.SeedDockRuntimeMcpConfig = true;
+                settings.Harbor.CaptainMcpBaseUrl = "https://admiral.example/mcp";
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+            HarborCheckoutBinding binding = await SetMissionDockBindingAsync(harness, scope, harness.OwnerA, "hbr_a").ConfigureAwait(false);
+            ArmadaSettings checkoutSettings = new ArmadaSettings();
+            checkoutSettings.Harbor.Enabled = true;
+            HarborCheckoutService checkouts = new HarborCheckoutService(harness.Driver, checkoutSettings);
+            checkouts.SetChannel(harness.Workspace);
+            scope.Handler.SetHarborCheckouts(checkouts);
+
+            Task<int> launchTask = scope.Handler.HandleLaunchAgentAsync(scope.Captain, scope.Mission, scope.Dock);
+            HarborWorkspaceOperationRequest inspect = await runnerA.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            AssertEqual(HarborWorkspaceOperationEnum.InspectCheckout, inspect.Operation, "launch first verifies the durable checkout on its owner");
+            AssertEqual("hbr_a", inspect.RunnerId, "checkout binding takes precedence over the configured route");
+            AssertEqual(scope.Dock.Id, inspect.DockId, "inspection carries the durable dock identity");
+            AssertEqual(binding.CheckoutId, inspect.Binding!.CheckoutId, "inspection carries the complete persisted binding");
+            string runnerDirectory = "/runner/checkouts/primary";
+            await runnerA.SendAsync(new HarborWorkspaceOperationResult
+            {
+                RequestId = inspect.RequestId, CorrelationId = inspect.RequestId, Operation = inspect.Operation,
+                Binding = inspect.Binding, RepositoryFingerprint = binding.RepositoryFingerprint,
+                CanonicalWorkingDirectory = runnerDirectory, Accepted = true
+            }).ConfigureAwait(false);
+
+            HarborWorkspaceOperationRequest scopeFile = await runnerA.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            AssertEqual(HarborWorkspaceOperationEnum.WriteText, scopeFile.Operation, "mission scope marker is written through the owner");
+            AssertEqual(".armada/runtime/" + scope.Captain.Id + "/.scope", scopeFile.RelativePath!, "scope marker stays inside the captain's runtime folder");
+            AssertEqual(scope.Mission.Id, scopeFile.Text!, "scope marker names the exact launched mission");
+            await runnerA.SendAsync(WorkspaceAccepted(scopeFile, binding.RepositoryFingerprint)).ConfigureAwait(false);
+
+            HarborWorkspaceOperationRequest mcpConfig = await runnerA.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            AssertEqual(HarborWorkspaceOperationEnum.WriteText, mcpConfig.Operation, "MCP config is written through the owner");
+            AssertEqual(".armada/runtime/" + scope.Captain.Id + "/armada-mcp.json", mcpConfig.RelativePath!, "MCP config stays inside the captain's runtime folder");
+            AssertContains("https://admiral.example/mcp", mcpConfig.Text ?? String.Empty, "MCP config uses the configured endpoint");
+            AssertContains("${" + McpLaunchCredential.EnvironmentVariable + "}", mcpConfig.Text ?? String.Empty,
+                "MCP config refers to the scoped token by environment name");
+            await runnerA.SendAsync(WorkspaceAccepted(mcpConfig, binding.RepositoryFingerprint)).ConfigureAwait(false);
+
+            HarborWorkspaceOperationRequest gitExclude = await runnerA.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            AssertEqual(HarborWorkspaceOperationEnum.AddGitExclude, gitExclude.Operation, "generated runtime files are excluded through the owner");
+            AssertEqual(".armada/runtime/", gitExclude.RelativePath!, "exclude covers only generated runtime configuration");
+            await runnerA.SendAsync(WorkspaceAccepted(gitExclude, binding.RepositoryFingerprint)).ConfigureAwait(false);
+
+            int processId = await launchTask.ConfigureAwait(false);
+            HarborLaunchRequest launch = await runnerA.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+            AssertEqual(scope.Dock.Id, launch.DockId, "launch preserves dock identity");
+            AssertEqual(binding.CheckoutId, launch.CheckoutBinding!.CheckoutId, "launch preserves the pinned checkout identity");
+            AssertEqual(runnerDirectory, launch.WorkingDirectory, "launch uses only the authenticated runner's canonical path");
+            AssertNotNull(launch.MissionConfiguration, "launch carries private mission runtime configuration");
+            AuthContext? missionToken = harness.SessionTokens.ValidateToken(launch.MissionConfiguration!.Token);
+            AssertNotNull(missionToken, "launch token authenticates with the same service as the MCP endpoint");
+            AssertEqual(scope.Mission.Id, missionToken!.MissionId, "scoped token is tied to this exact mission");
+            AssertEqual(harness.OwnerA.TenantId, missionToken.TenantId, "scoped token keeps the mission owner's tenant");
+            AssertEqual(harness.OwnerA.UserId, missionToken.UserId, "scoped token keeps the mission owner's user");
+            AssertFalse(missionToken.IsAdmin, "mission token does not grant global administrator access");
+            AssertFalse((scopeFile.Text ?? String.Empty).Contains(launch.MissionConfiguration.Token, StringComparison.Ordinal), "scope file does not contain the token value");
+            AssertFalse((mcpConfig.Text ?? String.Empty).Contains(launch.MissionConfiguration.Token, StringComparison.Ordinal), "MCP config does not contain the token value");
+            AssertFalse((launch.Prompt ?? String.Empty).Contains(launch.MissionConfiguration.Token, StringComparison.Ordinal), "launch prompt does not contain the token value");
+            AssertFalse(String.Join("\n", launch.Arguments).Contains(launch.MissionConfiguration.Token, StringComparison.Ordinal), "CLI arguments do not contain the token value");
+            AssertTrue(launch.Arguments.Contains("--mcp-config"), "Claude receives its scoped MCP config path");
+            int configArgument = launch.Arguments.IndexOf("--mcp-config");
+            AssertEqual(runnerDirectory + "/.armada/runtime/" + scope.Captain.Id + "/armada-mcp.json",
+                launch.Arguments[configArgument + 1], "CLI arguments point to the host-scoped config written before launch");
+            AssertTrue(await runnerB.NoMessageAsync().ConfigureAwait(false), "the configured route receives no bound-checkout launch");
+
+            HarborWorkspaceOperationRequest exactDockRequest = HarborCheckoutService.CreateRequest(scope.Dock, HarborWorkspaceOperationEnum.InspectCheckout);
+            Task<HarborWorkspaceOperationResult> exactDockTask = harness.Workspace.ExecuteAsync(missionToken!, exactDockRequest);
+            HarborWorkspaceOperationRequest exactDockWire = await runnerA.NextAsync<HarborWorkspaceOperationRequest>().ConfigureAwait(false);
+            AssertEqual(scope.Dock.Id, exactDockWire.DockId, "the mission token may inspect its exact assigned dock");
+            await runnerA.SendAsync(WorkspaceAccepted(exactDockWire, binding.RepositoryFingerprint)).ConfigureAwait(false);
+            AssertTrue((await exactDockTask.ConfigureAwait(false)).Accepted, "the matching dock passes mission-scoped authorization");
+
+            Dock siblingDock = await harness.Driver.Docks.CreateAsync(new Dock(scope.Dock.VesselId)
+            {
+                TenantId = scope.Dock.TenantId,
+                UserId = scope.Dock.UserId,
+                CaptainId = scope.Captain.Id,
+                BranchName = "feature/sibling-dock",
+                WorktreePath = HarborCheckoutAddress.ForDock("sibling-dock"),
+                HostCheckout = binding
+            }).ConfigureAwait(false);
+            HarborWorkspaceOperationRequest siblingDockRequest = HarborCheckoutService.CreateRequest(siblingDock, HarborWorkspaceOperationEnum.InspectCheckout);
+            siblingDockRequest.TimeoutSeconds = 1;
+            HarborWorkspaceOperationResult siblingDockResult = await harness.Workspace.ExecuteAsync(missionToken!, siblingDockRequest).ConfigureAwait(false);
+            AssertFalse(siblingDockResult.Accepted, "a mission token cannot inspect another dock owned by the same captain");
+            AssertEqual("workspace_mission_dock_mismatch", siblingDockResult.Reason, "the refusal names the mission-to-dock scope failure");
+            AssertTrue(await runnerA.NoMessageAsync().ConfigureAwait(false), "the sibling-dock request never reaches the runner");
+
+            string finalMessagePath = Path.Combine(
+                Path.GetDirectoryName(Path.GetDirectoryName(scope.LogFilePath)!)!, "final-messages", scope.Mission.Id + ".txt");
+            bool finalArtifactWasPresent = false;
+            TaskCompletionSource<string?> consumedFinalMessage = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            scope.Admiral.ExitHandler = _ =>
+            {
+                finalArtifactWasPresent = File.Exists(finalMessagePath);
+                consumedFinalMessage.TrySetResult(scope.Handler.GetAndClearMissionOutput(scope.Mission.Id));
+                return Task.CompletedTask;
+            };
+
+            await runnerA.SendAsync(new HarborStarted { JobId = launch.JobId, ProcessId = 9101 }).ConfigureAwait(false);
+            await runnerA.SendAsync(Output(launch.JobId, 0,
+                "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"The Harbor-owned mission is ready.\"}]}}\n")).ConfigureAwait(false);
+            await runnerA.SendAsync(Output(launch.JobId, 1,
+                "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"The Harbor-owned mission is ready.\"}\n")).ConfigureAwait(false);
+            await runnerA.SendAsync(new HarborExited { JobId = launch.JobId, ExitCode = 0 }).ConfigureAwait(false);
+            RecordedProcessExit exit = await scope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);
+            AssertEqual(processId, exit.ProcessId, "remote exit returns through the mission lifecycle");
+            AssertEqual(0, exit.ExitCode, "runner exit status is retained");
+            string? finalMessage = await consumedFinalMessage.Task.WaitAsync(Wait).ConfigureAwait(false);
+            AssertTrue(finalArtifactWasPresent, "the Admiral-local final-message artifact exists before the exit consumer reads it");
+            AssertEqual("The Harbor-owned mission is ready.", finalMessage,
+                "the Admiral-side exit consumer reads the final reply captured from runner output");
+            AssertFalse(File.Exists(finalMessagePath), "the Admiral-side consumer removes the consumed final-message artifact");
+        }
+
+        private async Task HarborMissionLaunch_BoundCheckoutFailsClosedWhenDisabledOrOffline()
+        {
+            await using Harness harness = await Harness.StartAsync().ConfigureAwait(false);
+            using MissionScope disabled = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a", harborEnabled: false).ConfigureAwait(false);
+            await SetMissionDockBindingAsync(harness, disabled, harness.OwnerA, "hbr_a").ConfigureAwait(false);
+            AssertEqual("harbor_checkout_disabled", await LaunchRefusalAsync(disabled).ConfigureAwait(false),
+                "a durable remote dock does not fall back to a local process when Harbor is disabled");
+
+            using MissionScope offline = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a").ConfigureAwait(false);
+            await SetMissionDockBindingAsync(harness, offline, harness.OwnerA, "hbr_a").ConfigureAwait(false);
+            AssertEqual("harbor_workspace_unavailable", await LaunchRefusalAsync(offline).ConfigureAwait(false),
+                "a durable remote dock does not fall back when its authenticated workspace channel is unavailable");
+        }
+
+        private static async Task<HarborCheckoutBinding> SetMissionDockBindingAsync(Harness harness, MissionScope scope, Principal owner, string runnerId)
+        {
+            HarborCheckoutBinding binding = new HarborCheckoutBinding
+            {
+                RunnerId = runnerId, EnrollmentGeneration = 1, TenantId = owner.TenantId, UserId = owner.UserId,
+                RepositoryGrantId = "grant_" + runnerId, RepositoryFingerprint = new string('c', 64),
+                CheckoutId = "hco_" + Guid.NewGuid().ToString("N"), BaseCommit = new string('d', 40), BranchName = scope.Dock.BranchName!,
+                Revision = "revision_" + runnerId
+            };
+            scope.Dock.HostCheckout = binding;
+            scope.Dock.WorktreePath = HarborCheckoutAddress.ForDock(scope.Dock.Id);
+            await harness.Driver.Docks.DeleteAsync(scope.Dock.Id).ConfigureAwait(false);
+            await harness.Driver.Docks.CreateAsync(scope.Dock).ConfigureAwait(false);
+            return binding;
+        }
+
+        private static HarborWorkspaceOperationRequest RepositoryInspectRequest(string runnerId, string vesselId, string grantId, string fingerprint)
+        {
+            return new HarborWorkspaceOperationRequest
+            {
+                Operation = HarborWorkspaceOperationEnum.InspectRepository, RunnerId = runnerId, VesselId = vesselId,
+                RepositoryGrantId = grantId, ExpectedRepositoryFingerprint = fingerprint
+            };
+        }
+
+        private static HarborWorkspaceOperationRequest BoundWorkspaceRequest(HarborCheckoutBinding binding, string dockId, string vesselId, string fingerprint)
+        {
+            return new HarborWorkspaceOperationRequest
+            {
+                Operation = HarborWorkspaceOperationEnum.InspectCheckout, RunnerId = binding.RunnerId, Binding = binding,
+                DockId = dockId, VesselId = vesselId, RepositoryGrantId = binding.RepositoryGrantId,
+                ExpectedRepositoryFingerprint = fingerprint
+            };
+        }
+
+        private static HarborWorkspaceOperationResult WorkspaceAccepted(HarborWorkspaceOperationRequest request, string fingerprint)
+        {
+            return new HarborWorkspaceOperationResult
+            {
+                RequestId = request.RequestId, CorrelationId = request.RequestId, Operation = request.Operation,
+                Binding = request.Binding, RepositoryFingerprint = fingerprint, Accepted = true
+            };
         }
 
         private static HarborLaunchRequest Plan()
@@ -1834,12 +2983,15 @@ namespace Armada.Test.Unit.Suites.Services
             public HarborRunnerSessionRegistry Registry => Primary.Registry;
             public HarborJobCoordinator Coordinator => Primary.Coordinator;
             public HarborJobService Jobs => Primary.Jobs;
+            public HarborWorkspaceCoordinator Workspace => Primary.Workspace;
+            public Armada.Core.Services.Interfaces.ISessionTokenService SessionTokens { get; }
             public Principal Administrator { get; }
             public Principal OwnerA { get; }
             public Principal OwnerB { get; }
 
             private Harness(TestDatabase database, ArmadaSettings settings, AuthenticationService authentication, LoggingModule logging,
-                AdmiralInstance primary, Principal administrator, Principal ownerA, Principal ownerB)
+                AdmiralInstance primary, Principal administrator, Principal ownerA, Principal ownerB,
+                Armada.Core.Services.Interfaces.ISessionTokenService sessionTokens)
             {
                 _Database = database;
                 _Settings = settings;
@@ -1847,6 +2999,7 @@ namespace Armada.Test.Unit.Suites.Services
                 _Logging = logging;
                 _Admirals.Add(primary);
                 _Http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:" + primary.Port + "/"), Timeout = Wait };
+                SessionTokens = sessionTokens;
                 Administrator = administrator;
                 OwnerA = ownerA;
                 OwnerB = ownerB;
@@ -1902,9 +3055,10 @@ namespace Armada.Test.Unit.Suites.Services
                 logging.Settings.EnableConsole = false;
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.Harbor.Enabled = true;
-                AuthenticationService authentication = new AuthenticationService(database.Driver, new SessionTokenService(), settings, logging);
+                Armada.Core.Services.Interfaces.ISessionTokenService sessionTokens = new SessionTokenService();
+                AuthenticationService authentication = new AuthenticationService(database.Driver, sessionTokens, settings, logging);
                 AdmiralInstance primary = await AdmiralInstance.StartAsync(database, settings, authentication, logging, stopConfirmationTimeout: stopConfirmationTimeout).ConfigureAwait(false);
-                return new Harness(database, settings, authentication, logging, primary, administrator, ownerA, ownerB);
+                return new Harness(database, settings, authentication, logging, primary, administrator, ownerA, ownerB, sessionTokens);
             }
 
             public async Task EnrollBothAsync()
@@ -2003,8 +3157,9 @@ namespace Armada.Test.Unit.Suites.Services
             public HarborRunnerSessionRegistry Registry { get; }
             public HarborJobCoordinator Coordinator { get; }
             public HarborJobService Jobs { get; }
+            public HarborWorkspaceCoordinator Workspace { get; }
 
-            private AdmiralInstance(Webserver server, CancellationTokenSource cancellation, int port, HarborRunnerSessionRegistry registry, HarborJobCoordinator coordinator, HarborJobService jobs)
+            private AdmiralInstance(Webserver server, CancellationTokenSource cancellation, int port, HarborRunnerSessionRegistry registry, HarborJobCoordinator coordinator, HarborJobService jobs, HarborWorkspaceCoordinator workspace)
             {
                 _Server = server;
                 _Cancellation = cancellation;
@@ -2012,6 +3167,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Registry = registry;
                 Coordinator = coordinator;
                 Jobs = jobs;
+                Workspace = workspace;
             }
 
             public static async Task<AdmiralInstance> StartAsync(TestDatabase database, ArmadaSettings settings, AuthenticationService authentication, LoggingModule logging,
@@ -2021,7 +3177,8 @@ namespace Armada.Test.Unit.Suites.Services
                 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, enrollments);
                 HarborJobCoordinator coordinator = new HarborJobCoordinator(registry, enrollments, database.Driver.HarborJobs, logging, stopConfirmationTimeout);
                 HarborJobService jobs = new HarborJobService(coordinator, database.Driver.HarborJobs, enrollments);
-                HarborLinkEndpoint endpoint = new HarborLinkEndpoint(settings.Harbor, authentication, registry, coordinator, logging);
+                HarborWorkspaceCoordinator workspace = new HarborWorkspaceCoordinator(registry, enrollments, new DatabaseHarborWorkspaceBindingVerifier(database.Driver), logging);
+                HarborLinkEndpoint endpoint = new HarborLinkEndpoint(settings.Harbor, authentication, registry, coordinator, logging, workspace);
 
                 int port = ReservePort();
                 WebserverSettings webserverSettings = new WebserverSettings();
@@ -2047,7 +3204,7 @@ namespace Armada.Test.Unit.Suites.Services
                     throw new InvalidOperationException("Harbor job recovery did not complete before the test link started.");
                 }
                 server.Start(cancellation.Token);
-                return new AdmiralInstance(server, cancellation, port, registry, coordinator, jobs);
+                return new AdmiralInstance(server, cancellation, port, registry, coordinator, jobs, workspace);
             }
 
             public void Dispose()
@@ -2119,7 +3276,8 @@ namespace Armada.Test.Unit.Suites.Services
                 LogFilePath = logFilePath;
             }
 
-            public static async Task<MissionScope> CreateAsync(Harness harness, Principal missionOwner, string runnerId, Action<Captain>? configureCaptain = null, Func<LoggingModule, ArmadaSettings, AgentRuntimeFactory>? runtimeFactory = null, Func<string, ArmadaSettings, Mission, Task>? prepare = null)
+            public static async Task<MissionScope> CreateAsync(Harness harness, Principal missionOwner, string runnerId, Action<Captain>? configureCaptain = null,
+                Func<LoggingModule, ArmadaSettings, AgentRuntimeFactory>? runtimeFactory = null, Func<string, ArmadaSettings, Mission, Task>? prepare = null, bool harborEnabled = true)
             {
                 string root = Path.Combine(Path.GetTempPath(), "armada_harbor_mission_" + Guid.NewGuid().ToString("N"));
                 string worktree = Path.Combine(root, "dock");
@@ -2127,9 +3285,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.LogDirectory = Path.Combine(root, "logs");
-                settings.Harbor.Enabled = true;
+                settings.Harbor.Enabled = harborEnabled;
 
-                Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("Harbor mission vessel", "https://example.invalid/harbor-mission")
+                Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("Harbor mission vessel " + Guid.NewGuid().ToString("N"), "https://example.invalid/harbor-mission")
                 {
                     TenantId = missionOwner.TenantId,
                     UserId = missionOwner.UserId
@@ -2187,7 +3345,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         lifecycleEvents.Enqueue(eventType);
                         return Task.CompletedTask;
-                    });
+                    }, sessionTokens: harness.SessionTokens);
                 handler.SetHarborHost(new HarborMissionExecutor(harness.Coordinator, logging));
                 return new MissionScope(root, handler, admiral, captain, mission, dock,
                     Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log"), lifecycleEvents);
@@ -2217,7 +3375,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         lifecycleEvents.Enqueue(eventType);
                         return Task.CompletedTask;
-                    });
+                    }, sessionTokens: harness.SessionTokens);
                 handler.SetHarborHost(new HarborMissionExecutor(harness.Coordinator, logging));
                 return new MissionScope(previous._Root, handler, admiral, previous.Captain, previous.Mission, previous.Dock, previous.LogFilePath, lifecycleEvents);
             }
@@ -2270,8 +3428,10 @@ namespace Armada.Test.Unit.Suites.Services
                 return new FakeRunner(socket);
             }
 
-            public async Task<HarborHandshakeAck> HandshakeAsync(string runnerId, int maxConcurrentJobs = 4)
+            public async Task<HarborHandshakeAck> HandshakeAsync(string runnerId, int maxConcurrentJobs = 4, bool workspaceCapability = false)
             {
+                List<HarborCapability> capabilities = new List<HarborCapability> { new HarborCapability { Name = "claude" } };
+                if (workspaceCapability) capabilities.Add(new HarborCapability { Name = HarborWorkspaceProtocol.CapabilityName, Available = true });
                 HarborHandshake handshake = new HarborHandshake
                 {
                     CorrelationId = "handshake-" + runnerId,
@@ -2279,7 +3439,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Name = "fake " + runnerId,
                     ProtocolVersion = HarborProtocol.Version,
                     MaxConcurrentJobs = maxConcurrentJobs,
-                    Capabilities = new List<HarborCapability> { new HarborCapability { Name = "claude" } }
+                    Capabilities = capabilities
                 };
                 await SendAsync(handshake).ConfigureAwait(false);
                 HarborHandshakeAck ack = await NextAsync<HarborHandshakeAck>().ConfigureAwait(false);

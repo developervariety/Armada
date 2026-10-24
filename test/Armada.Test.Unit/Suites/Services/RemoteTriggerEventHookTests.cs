@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Harbor;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -183,6 +184,58 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all remote trigger event hook tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("HarborPrReconcile_MergedRemotePreservesConcurrentMissionCancellation", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RecordingRemoteTriggerService recording = new RecordingRemoteTriggerService();
+                    StubGitService git = new StubGitService { IsPrMergedResult = true };
+                    (MissionLandingHandler handler, Mission mission, Dock dock, Vessel vessel) =
+                        await CreateHandlerAsync(testDb, recording, git, null).ConfigureAwait(false);
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("Harbor PR test tenant")).ConfigureAwait(false);
+                    UserMaster owner = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "harbor-pr-test@example.invalid", "password")).ConfigureAwait(false);
+                    vessel.TenantId = tenant.Id;
+                    vessel.UserId = owner.Id;
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    dock.TenantId = vessel.TenantId;
+                    dock.UserId = vessel.UserId;
+                    dock.HostCheckout = new HarborCheckoutBinding
+                    {
+                        RunnerId = "hbr_test",
+                        EnrollmentGeneration = 1,
+                        TenantId = dock.TenantId!,
+                        UserId = dock.UserId!,
+                        RepositoryGrantId = "grant_pr_test",
+                        RepositoryFingerprint = new string('a', 64),
+                        CheckoutId = "hco_" + Guid.NewGuid().ToString("N"),
+                        BaseCommit = new string('b', 40),
+                        BranchName = dock.BranchName,
+                        Revision = "revision-1"
+                    };
+                    await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                    Captain? captain = await testDb.Driver.Captains.ReadAsync(mission.CaptainId!).ConfigureAwait(false);
+                    captain!.TenantId = tenant.Id;
+                    captain.UserId = owner.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    mission.TenantId = vessel.TenantId;
+                    mission.UserId = vessel.UserId;
+                    mission.Status = MissionStatusEnum.PullRequestOpen;
+                    mission.PrUrl = "https://example.invalid/repository/pull/12";
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    Mission stalePullRequest = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    Mission current = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    await MissionCancellation.CancelAsync(testDb.Driver, current, "cancel while merged PR is reconciled", null).ConfigureAwait(false);
+                    DateTime? cancelledUtc = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CompletedUtc;
+
+                    bool reconciled = await handler.HandleReconcilePullRequestAsync(stalePullRequest).ConfigureAwait(false);
+                    Mission stored = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertTrue(reconciled, "the remote merged PR is reconciled even when mission status is already cancelled");
+                    AssertEqual(MissionStatusEnum.Cancelled, stored.Status, "Harbor PR reconciliation preserves cancellation");
+                    AssertEqual(cancelledUtc, stored.CompletedUtc, "PR reconciliation does not replace the cancellation timestamp");
+                    AssertEqual("cancel while merged PR is reconciled", stored.FailureReason, "PR reconciliation preserves the operator reason");
+                }
+            });
+
             await RunTest("MissionLandingHandler_WorkProduced_FiresDrainer", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

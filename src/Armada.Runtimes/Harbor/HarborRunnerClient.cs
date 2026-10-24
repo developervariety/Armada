@@ -4,6 +4,7 @@ namespace Armada.Runtimes.Harbor
     using System.Collections.Generic;
     using System.IO;
     using Armada.Core.Harbor;
+    using Armada.Core.Services.Interfaces;
 
     /// <summary>Maintains an authenticated Harbor link and supervises jobs on the local host.</summary>
     public sealed partial class HarborRunnerClient
@@ -14,6 +15,8 @@ namespace Armada.Runtimes.Harbor
         private readonly IReadOnlyList<string> _SupervisorArguments;
         private readonly Action<string> _Log;
         private readonly HarborJobJournal _Journal;
+        private readonly HarborRunnerWorkspace? _Workspace;
+        private int _ActiveWorkspaceOperations;
 
         /// <summary>Create a headless Harbor runner client.</summary>
         /// <param name="settings">Validated runner settings.</param>
@@ -24,7 +27,8 @@ namespace Armada.Runtimes.Harbor
             HarborRunnerSettings settings,
             string supervisorExecutable,
             IReadOnlyList<string> supervisorArguments,
-            Action<string>? log = null)
+            Action<string>? log = null,
+            IGitService? git = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Settings.Validate();
@@ -33,6 +37,7 @@ namespace Armada.Runtimes.Harbor
             _SupervisorArguments = supervisorArguments ?? throw new ArgumentNullException(nameof(supervisorArguments));
             _Log = log ?? (_ => { });
             _Journal = new HarborJobJournal(_Settings.Supervisor);
+            _Workspace = _Settings.RepositoryGrants.Count == 0 ? null : new HarborRunnerWorkspace(_Settings, git);
         }
 
         private FileStream AcquireRunnerLock()

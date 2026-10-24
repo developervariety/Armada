@@ -4,10 +4,10 @@
 agent command on its own host and returns process identity, ordered output and
 the observed exit code through the authenticated Harbor link. It uses no GUI.
 
-The runner supports process-only mission routes. Dock creation, Git operations,
-checks and landing remain on the Admiral for those routes. It advertises only
-its configured runtime commands. It does not advertise checkout, file or Git
-operations.
+The runner supports process-only routes and opt-in
+[Harbor-owned checkouts](HARBOR_CHECKOUTS.md). Dock creation, Git operations,
+checks and landing remain on the Admiral for process-only routes. Owned routes
+require explicit host repository grants and the negotiated workspace capability.
 
 ## Build and configure
 
@@ -113,7 +113,9 @@ executables and the shared allowed launch environment can run.
 named gap and stops the child; it does not report a complete successful replay.
 `maxRetainedJobs` bounds the number of job records, including terminal jobs and
 incomplete admission records. A full journal refuses new jobs. The product of
-these two limits cannot exceed one GiB. Unpublished staging records left by a
+these two limits, plus `maxVerificationSpoolBytes`, cannot exceed one GiB.
+Verification storage defaults to zero; owned verification needs an explicit
+reserve. Unpublished staging records left by a
 failed admission are removed under the exclusive admission lock. Published job
 records remain until manual cleanup. The state directory stores its spool and
 job-count limits. Later consoles and supervisors must use the same limits. To

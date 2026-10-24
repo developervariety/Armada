@@ -132,7 +132,8 @@ namespace Armada.Core.Services
                 }
 
                 BranchCleanupPolicyEnum policy = vessel.BranchCleanupPolicy ?? _Settings.BranchCleanupPolicy;
-                string? skipReason = GetVesselSkipReason(vessel, policy);
+                string? skipReason = await HarborLocalRepositoryBoundary.HasOwnedCheckoutAsync(_Database, _Settings.Harbor, vessel.Id, token).ConfigureAwait(false)
+                    ? HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired : GetVesselSkipReason(vessel, policy);
                 if (skipReason != null)
                 {
                     result.SkippedVessels++;

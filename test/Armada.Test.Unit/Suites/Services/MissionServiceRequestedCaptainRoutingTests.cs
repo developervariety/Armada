@@ -1,7 +1,12 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Context;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -14,7 +19,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Tests that assignment honours a mission's requested captain and its stored fallback tier.
     /// </summary>
-    public sealed class MissionServiceRequestedCaptainRoutingTests : TestSuite
+    public sealed partial class MissionServiceRequestedCaptainRoutingTests : TestSuite
     {
         /// <summary>Suite name.</summary>
         public override string Name => "MissionService Requested Captain Routing";
@@ -83,6 +88,19 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("TryAssign_HarborProvisionRetryKeepsDurableCaptainAndBranch", async () =>
+            {
+                await VerifyHarborProvisionRetryAsync(false).ConfigureAwait(false);
+            });
+            await RunTest("TryAssign_HarborProvisionRetryHoldsWhenOriginalCaptainIsBusy", async () =>
+            {
+                await VerifyHarborProvisionRetryAsync(true).ConfigureAwait(false);
+            });
+            await RunTest("TryAssign_HarborCapacityRefusalClearsAttemptOnlyAfterReclaim", async () =>
+            {
+                await VerifyHarborCapacityRefusalReclaimsBeforeRetryAsync().ConfigureAwait(false);
+            });
+
             await RunTest("TryAssign_IdleRequestedCaptain_IsChosenOverOtherIdleCaptains", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -330,5 +348,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
         }
+
     }
 }

@@ -20,6 +20,12 @@ namespace Armada.Runtimes.Harbor
                 HashSet<string> exitSent = new HashSet<string>(StringComparer.Ordinal);
                 List<Task> background = new List<Task>();
                 Func<HarborMessage, Task> send = message => SendAsync(socket, sendLock, message, connection.Token);
+                List<HarborCapability> capabilities = _Settings.Supervisor.Commands.Keys
+                    .OrderBy(name => name, StringComparer.Ordinal)
+                    .Select(name => new HarborCapability { Name = name, Available = true })
+                    .ToList();
+                if (_Settings.RepositoryGrants.Count > 0)
+                    capabilities.Add(new HarborCapability { Name = HarborWorkspaceProtocol.CapabilityName, Available = true });
 
                 await send(new HarborHandshake
                 {
@@ -29,10 +35,7 @@ namespace Armada.Runtimes.Harbor
                     OsPlatform = Environment.OSVersion.Platform.ToString(),
                     Architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
                     MaxConcurrentJobs = _Settings.MaxConcurrentJobs,
-                    Capabilities = _Settings.Supervisor.Commands.Keys
-                        .OrderBy(name => name, StringComparer.Ordinal)
-                        .Select(name => new HarborCapability { Name = name, Available = true })
-                        .ToList()
+                    Capabilities = capabilities
                 }).ConfigureAwait(false);
 
                 HarborMessage handshakeMessage = await ReceiveAsync(socket, connection.Token).ConfigureAwait(false);
@@ -79,13 +82,13 @@ namespace Armada.Runtimes.Harbor
 
                 ApplyResumeResponse(response, resume.Jobs, records, send, exitSent, background, connection.Token);
                 foreach (HarborMessage earlyMessage in earlyMessages)
-                    await HandleServerMessageAsync(earlyMessage, send, exitSent, background, connection.Token).ConfigureAwait(false);
+                    await HandleServerMessageAsync(earlyMessage, send, exitSent, background, ack, connection.Token).ConfigureAwait(false);
                 Task heartbeat = HeartbeatLoopAsync(socket, sendLock, exitSent, connection.Token);
                 background.Add(heartbeat);
                 Task? receive = null;
                 try
                 {
-                    receive = ReceiveLoopAsync(socket, send, exitSent, background, connection.Token);
+                    receive = ReceiveLoopAsync(socket, send, exitSent, background, ack, connection.Token);
                     background.Add(receive);
                     Task completed = await Task.WhenAny(receive, heartbeat).ConfigureAwait(false);
                     await completed.ConfigureAwait(false);

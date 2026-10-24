@@ -327,6 +327,58 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(BranchWriteReasons.RepositoryMissing, (await service.DescribeControlsAsync(vessel, isAdministrator: true)).MergeUnavailableReason);
                 });
             });
+
+            await RunTest("Harbor-owned dock refuses branch controls and writes before local Git access", async () =>
+            {
+                await WithFixtureAsync(async (fx, db, service, vessel) =>
+                {
+                    vessel.TenantId = Armada.Core.Constants.DefaultTenantId;
+                    vessel.UserId = Armada.Core.Constants.DefaultUserId;
+                    await db.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    vessel.LocalPath = Path.Combine(fx.Root, "owned-local-path-sentinel.git");
+                    Dock dock = new Dock(vessel.Id);
+                    dock.TenantId = vessel.TenantId;
+                    dock.UserId = vessel.UserId;
+                    dock.WorktreePath = vessel.LocalPath;
+                    dock.HostCheckout = new HarborCheckoutBinding
+                    {
+                        RunnerId = "hbr_owned_branch_write",
+                        EnrollmentGeneration = 1,
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        RepositoryGrantId = "grant_owned_branch_write",
+                        RepositoryFingerprint = new string('a', 64),
+                        CheckoutId = "hco_0123456789abcdef0123456789abcdef",
+                        BaseCommit = fx.BaseCommit,
+                        BranchName = "armada/captain/msn_owned_branch_write",
+                        Revision = "rev_owned_branch_write"
+                    };
+                    await db.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    BranchWriteControls controls = await service.DescribeControlsAsync(vessel, isAdministrator: true).ConfigureAwait(false);
+                    AssertFalse(controls.MergeAvailable || controls.PushAvailable, "the controls do not advertise local Git operations");
+                    AssertEqual(HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired, controls.MergeUnavailableReason);
+                    AssertEqual(HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired, controls.PushUnavailableReason);
+
+                    BranchWriteResult merge = await service.MergeAsync(vessel, new BranchMergeRequest
+                    {
+                        SourceRef = "feature/work",
+                        TargetRef = "main",
+                        Strategy = VesselBranchWriteService.StrategyFastForward
+                    }).ConfigureAwait(false);
+                    AssertEqual(HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired, merge.Reason,
+                        "merge refuses before opening the sentinel local path");
+
+                    BranchWriteResult push = await service.PushAsync(vessel, new BranchPushRequest
+                    {
+                        SourceRef = "feature/work",
+                        TargetRef = "main",
+                        Remote = VesselBranchWriteService.AllowedRemote
+                    }).ConfigureAwait(false);
+                    AssertEqual(HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired, push.Reason,
+                        "push refuses before opening the sentinel local path");
+                });
+            });
         }
 
         private async Task WithFixtureAsync(Func<Fixture, TestDatabase, VesselBranchWriteService, Vessel, Task> body)

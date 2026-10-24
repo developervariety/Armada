@@ -80,7 +80,57 @@ namespace Armada.Test.Unit.Suites.Services
                         "the mission never reaches the default tenant as global admin");
                     AssertFalse(string.Equals(ctx.TenantId, tenantA.Id, StringComparison.Ordinal),
                         "the mission cannot read another tenant's records: its scope is its own tenant");
+
+                    string scopedDirectory = "/runner/checkout/.armada/runtime/captain-b";
+                    CaptainLaunchIsolationPlan harborPlan = CaptainLaunchIsolationPlanner.PlanForHarbor(
+                        AgentRuntimeEnum.ClaudeCode, "https://mcp.example.invalid/mcp", scopedDirectory, credential);
+                    AssertEqual(credential.Token!, harborPlan.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable],
+                        "the remote launch carries the authenticated mission owner's scoped token in its environment plan");
+                    AssertEqual(1, harborPlan.FilesToWrite.Count, "Claude receives one isolated Harbor MCP config file");
+                    string config = harborPlan.FilesToWrite[0].Contents;
+                    AssertTrue(config.Contains("https://mcp.example.invalid/mcp", StringComparison.Ordinal),
+                        "the runner config targets the explicitly configured HTTPS endpoint");
+                    AssertTrue(config.Contains("${" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal),
+                        "the config references the scoped token by environment name");
+                    AssertFalse(config.Contains(credential.Token!, StringComparison.Ordinal),
+                        "the scoped token value is absent from the config written to the checkout");
+                    AuthContext? remoteLaunchOwner = tokens.ValidateToken(harborPlan.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable]);
+                    AssertNotNull(remoteLaunchOwner, "the Harbor launch token is a valid mission session token");
+                    AssertEqual(adminB.Id, remoteLaunchOwner!.UserId, "the Harbor token retains the exact mission owner");
                 }
+            });
+
+            await RunTest("Harbor MCP endpoint requires HTTPS except for loopback HTTP", async () =>
+            {
+                McpCredentialReference credential = McpCredentialReference.ForMission("scoped-test-token");
+                string[] rejected = new[]
+                {
+                    "http://mcp.example.invalid/mcp",
+                    "https://user:password@mcp.example.invalid/mcp",
+                    "https://mcp.example.invalid/mcp?token=private",
+                    "https://mcp.example.invalid/mcp#fragment",
+                    "file:///tmp/mcp"
+                };
+                foreach (string endpoint in rejected)
+                {
+                    bool refused = false;
+                    try
+                    {
+                        CaptainLaunchIsolationPlanner.PlanForHarbor(AgentRuntimeEnum.ClaudeCode, endpoint,
+                            "/runner/checkout/.armada/runtime/captain", credential);
+                    }
+                    catch (InvalidOperationException exception)
+                    {
+                        refused = exception.Message == "harbor_captain_mcp_endpoint_invalid";
+                    }
+                    AssertTrue(refused, "endpoint is refused by name: " + endpoint);
+                }
+
+                CaptainLaunchIsolationPlan loopback = CaptainLaunchIsolationPlanner.PlanForHarbor(
+                    AgentRuntimeEnum.ClaudeCode, "http://127.0.0.1:7891/mcp",
+                    "/runner/checkout/.armada/runtime/captain", credential);
+                AssertTrue(loopback.FilesToWrite[0].Contents.Contains("http://127.0.0.1:7891/mcp", StringComparison.Ordinal),
+                    "HTTP remains available for an explicit loopback endpoint");
             });
 
             await RunTest("An autonomous mission runs with the objective owner's scope carried on its voyage, not global admin", async () =>

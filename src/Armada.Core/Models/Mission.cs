@@ -119,6 +119,9 @@ namespace Armada.Core.Models
         /// </summary>
         public string? DockId { get; set; } = null;
 
+        /// <summary>Stable ID for the current dock provisioning attempt, retained across uncertain retries.</summary>
+        public string? DockProvisionAttemptId { get; set; } = null;
+
         /// <summary>
         /// Harbor job that owns this mission attempt, or null for a local process.
         /// </summary>

@@ -22,7 +22,7 @@ namespace Armada.Core.Services
     /// marker are skipped without running any commands. Non-Worker personas are also skipped
     /// unless the settings explicitly list them under AppliedPersonas.
     /// </summary>
-    public class DefinitionOfDoneGate
+    public partial class DefinitionOfDoneGate
     {
         #region Public-Members
 
@@ -485,6 +485,10 @@ namespace Armada.Core.Services
                     diagnostic,
                     DefinitionOfDoneFailureClassEnum.Infra);
             }
+            bool harborOwned = IsHarborOwnedMission(mission, dock);
+            if (harborOwned && (!Armada.Core.Harbor.HarborCheckoutAddress.IsHarbor(worktreePath) || dock.HostCheckout == null))
+                return DefinitionOfDoneResult.Fail("dock-setup", -1,
+                    BuildDiagnosticText("harbor_owned_gate_binding_missing"), DefinitionOfDoneFailureClassEnum.Infra);
 
             WorkflowProfile? profile = await ResolveProfileAsync(mission, token).ConfigureAwait(false);
             string? buildCommand = profile?.BuildCommand;
@@ -634,6 +638,10 @@ namespace Armada.Core.Services
         {
             string? worktreePath = dock.WorktreePath;
             if (String.IsNullOrWhiteSpace(worktreePath)) return DefinitionOfDoneResult.Skipped(skipReason);
+            if (Armada.Core.Harbor.HarborCheckoutAddress.IsHarbor(worktreePath)
+                && await HasDeclaredConsumersAsync(mission, token).ConfigureAwait(false))
+                return DefinitionOfDoneResult.Fail("consumer-verification", -1,
+                    BuildDiagnosticText("harbor_owned_consumer_verification_unsupported"), DefinitionOfDoneFailureClassEnum.Infra);
 
             Vessel? producer = await ReadVesselAsync(mission.TenantId, mission.VesselId!, token).ConfigureAwait(false);
             if (producer == null) return DefinitionOfDoneResult.Skipped(skipReason);
@@ -705,6 +713,10 @@ namespace Armada.Core.Services
             string worktreePath,
             CancellationToken token)
         {
+            if (Armada.Core.Harbor.HarborCheckoutAddress.IsHarbor(worktreePath)
+                && await HasDeclaredConsumersAsync(mission, token).ConfigureAwait(false))
+                return DefinitionOfDoneResult.Fail("consumer-verification", -1,
+                    BuildDiagnosticText("harbor_owned_consumer_verification_unsupported"), DefinitionOfDoneFailureClassEnum.Infra);
             string? cleanHead = await ReadCleanHeadAsync(worktreePath, token).ConfigureAwait(false);
             DefinitionOfDoneResult? vesselPass = null;
 
@@ -730,6 +742,7 @@ namespace Armada.Core.Services
                 string testLabel = "unit-test";
                 if (!String.IsNullOrWhiteSpace(profile?.ContainerlessUnitTestCommand)
                     && _ContainerRuntimeProbe != null
+                    && !Armada.Core.Harbor.HarborCheckoutAddress.IsHarbor(worktreePath)
                     && !await _ContainerRuntimeProbe.IsAvailableAsync(worktreePath, token).ConfigureAwait(false))
                 {
                     selectedTest = profile!.ContainerlessUnitTestCommand!;
@@ -1514,7 +1527,9 @@ namespace Armada.Core.Services
             // The re-run reads its failing tests with the same profile pattern as the run it repeats, so its
             // failure text names them even when the runner prints them early in a long output.
             Regex? failedTestLinePattern = ResolveFailedTestLinePattern(profile, subject);
-            DefinitionOfDoneResult rerun = await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", plan.Command, worktreePath, MergeCommandEnvironment(profile, plan.Environment), failedTestLinePattern, token).ConfigureAwait(false);
+            DefinitionOfDoneResult rerun = Armada.Core.Harbor.HarborCheckoutAddress.IsHarbor(worktreePath)
+                ? await RunHarborRerunAsync(logLabel + " (isolated re-run)", profile, plan, testResult, worktreePath, failedTestLinePattern, token).ConfigureAwait(false)
+                : await RunIsolatedRerunAsync(logLabel + " (isolated re-run)", plan.Command, worktreePath, MergeCommandEnvironment(profile, plan.Environment), failedTestLinePattern, token).ConfigureAwait(false);
             _Logging.Info(_Header + subject + " isolated re-run passed=" + rerun.Passed);
             if (!rerun.Passed)
             {
@@ -1658,8 +1673,11 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "flake_score " + verdict.Outcome + ": re-running " + plan.Count + " failing " + plan.Unit + " in isolation");
-            DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync(
-                rerunLabel, plan.Command, worktreePath, MergeCommandEnvironment(profile, plan.Environment), ResolveFailedTestLinePattern(profile, "flake re-run"), token).ConfigureAwait(false);
+            Regex? rerunPattern = ResolveFailedTestLinePattern(profile, "flake re-run");
+            DefinitionOfDoneResult rerunResult = Armada.Core.Harbor.HarborCheckoutAddress.IsHarbor(worktreePath)
+                ? await RunHarborRerunAsync(rerunLabel, profile, plan, testResult, worktreePath, rerunPattern, token).ConfigureAwait(false)
+                : await RunIsolatedRerunAsync(
+                    rerunLabel, plan.Command, worktreePath, MergeCommandEnvironment(profile, plan.Environment), rerunPattern, token).ConfigureAwait(false);
 
             // Record BOTH results: the original red and the isolated re-run. The re-run is the truth.
             _Logging.Info(_Header + "flake_score re-run outcome passed=" + rerunResult.Passed
@@ -1966,6 +1984,8 @@ namespace Armada.Core.Services
             IReadOnlyDictionary<string, string>? environment = null,
             WorkflowProfile? limitProfile = null)
         {
+            if (Armada.Core.Harbor.HarborCheckoutAddress.IsHarbor(workingDir))
+                return await RunHarborCommandAsync(label, command, workingDir, token, failedTestLinePattern, environment, limitProfile).ConfigureAwait(false);
             ProcessStartInfo startInfo = new ProcessStartInfo(GetShell()) { WorkingDirectory = workingDir };
             BuildServerEnvironment.Apply(startInfo);
             foreach (KeyValuePair<string, string> variable in MergeCommandEnvironment(limitProfile, environment))
@@ -2323,9 +2343,16 @@ namespace Armada.Core.Services
             {
                 _MissionId = missionId;
                 _VesselId = vesselId;
+                OperationId = "dod:" + Guid.NewGuid().ToString("N");
                 FullPasses = fullPasses;
                 _Alone = alone;
             }
+
+            public string MissionId => _MissionId;
+
+            public string? VesselId => _VesselId;
+
+            public string OperationId { get; }
 
             /// <summary>Commands this attempt ran in full and passed on a clean worktree at a known HEAD.</summary>
             public List<DefinitionOfDoneCommandPass> FullPasses { get; }

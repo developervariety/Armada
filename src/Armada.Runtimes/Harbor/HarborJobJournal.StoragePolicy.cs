@@ -12,6 +12,7 @@ namespace Armada.Runtimes.Harbor
             public StoragePolicyRecord() { }
             public long MaxSpoolBytes { get; set; }
             public int MaxRetainedJobs { get; set; }
+            public long MaxVerificationSpoolBytes { get; set; }
         }
 
         private void EnsureStoragePolicyPinned()
@@ -22,7 +23,8 @@ namespace Armada.Runtimes.Harbor
                 StoragePolicyRecord initial = new StoragePolicyRecord
                 {
                     MaxSpoolBytes = _Options.MaxSpoolBytes,
-                    MaxRetainedJobs = _Options.MaxRetainedJobs
+                    MaxRetainedJobs = _Options.MaxRetainedJobs,
+                    MaxVerificationSpoolBytes = _Options.MaxVerificationSpoolBytes
                 };
                 AtomicWrite(path, JsonSerializer.Serialize(initial, _JsonOptions));
                 return;
@@ -31,7 +33,8 @@ namespace Armada.Runtimes.Harbor
             StoragePolicyRecord? stored;
             try { stored = JsonSerializer.Deserialize<StoragePolicyRecord>(ReadBoundedTextFile(path, "storage_policy_too_large", "storage_policy_invalid"), _JsonOptions); }
             catch (JsonException exception) { throw Failure("storage_policy_invalid", "The pinned storage policy is malformed.", exception); }
-            if (stored == null || stored.MaxSpoolBytes != _Options.MaxSpoolBytes || stored.MaxRetainedJobs != _Options.MaxRetainedJobs)
+            if (stored == null || stored.MaxSpoolBytes != _Options.MaxSpoolBytes || stored.MaxRetainedJobs != _Options.MaxRetainedJobs
+                || stored.MaxVerificationSpoolBytes != _Options.MaxVerificationSpoolBytes)
                 throw Failure("storage_policy_mismatch", "The configured storage reservation differs from the journal's pinned policy.");
         }
     }

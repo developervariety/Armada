@@ -325,7 +325,7 @@ namespace Armada.Core.Services
                 List<Dock> activeDocks = await _Database.Docks.EnumerateAsync(token).ConfigureAwait(false);
                 foreach (Dock dock in activeDocks)
                 {
-                    if (dock.Active && !String.IsNullOrWhiteSpace(dock.WorktreePath))
+                    if (dock.Active && dock.HostCheckout == null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
                     {
                         protectedPaths.Add(Path.GetFullPath(dock.WorktreePath!));
                     }
@@ -353,7 +353,7 @@ namespace Armada.Core.Services
                             continue;
                         }
                         Dock? dock = await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
-                        if (dock != null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
+                        if (dock != null && dock.HostCheckout == null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
                         {
                             protectedPaths.Add(Path.GetFullPath(dock.WorktreePath!));
                         }

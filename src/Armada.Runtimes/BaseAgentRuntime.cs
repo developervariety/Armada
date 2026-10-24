@@ -385,7 +385,7 @@ namespace Armada.Runtimes
             if (String.IsNullOrEmpty(launch.WorkingDirectory)) throw new ArgumentException("A runner working directory is required.", nameof(launch));
             if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
 
-            ResetFinalReplyCapture(false);
+            ResetFinalReplyCapture(!String.IsNullOrEmpty(launch.LocalFinalMessageFilePath));
 
             ShowThinking = false;
             WorkingDirectory = launch.WorkingDirectory;
@@ -397,6 +397,9 @@ namespace Armada.Runtimes
             launch.Request = new HarborLaunchRequest
             {
                 Runtime = command,
+                DockId = launch.CheckoutBinding == null ? null : launch.DockId,
+                CheckoutBinding = launch.CheckoutBinding,
+                MissionConfiguration = launch.MissionConfiguration,
                 WorkingDirectory = launch.WorkingDirectory,
                 Model = model,
                 Prompt = UsePromptStdin ? prompt : null,
@@ -412,7 +415,7 @@ namespace Armada.Runtimes
                 await WriteLaunchHeaderAsync(logWriter, command, args, prompt).ConfigureAwait(false);
             }
 
-            HarborRuntimeEvents events = new HarborRuntimeEvents(this, logWriter);
+            HarborRuntimeEvents events = new HarborRuntimeEvents(this, logWriter, launch.LocalFinalMessageFilePath);
             int processId;
             try
             {
@@ -1243,12 +1246,14 @@ namespace Armada.Runtimes
             private readonly StringBuilder _Stdout = new StringBuilder();
             private readonly StringBuilder _Stderr = new StringBuilder();
             private StreamWriter? _Writer;
+            private readonly string? _FinalMessageFilePath;
             private bool _Ended;
 
-            public HarborRuntimeEvents(BaseAgentRuntime runtime, StreamWriter? writer)
+            public HarborRuntimeEvents(BaseAgentRuntime runtime, StreamWriter? writer, string? finalMessageFilePath = null)
             {
                 _Runtime = runtime;
                 _Writer = writer;
+                _FinalMessageFilePath = finalMessageFilePath;
             }
 
             public void OnOutput(int processId, HarborOutputStreamEnum stream, string data)
@@ -1285,7 +1290,7 @@ namespace Armada.Runtimes
                     }
                     StreamWriter? writer = _Writer;
                     _Writer = null;
-                    _Runtime.CompleteExit(processId, exitCode, writer, null);
+                    _Runtime.CompleteExit(processId, exitCode, writer, _FinalMessageFilePath);
                 }
             }
 

@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Routes
     using SyslogLogging;
     using Armada.Core;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Server;
@@ -93,6 +94,77 @@ namespace Armada.Test.Unit.Suites.Routes
                         AssertTrue(reply.Refused, "a mission with no saved diff, snapshot or worktree has no diff: " + reply);
                         AssertContains("No diff available", reply.Body, "the refusal says why: " + reply);
                     }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("MissionDiff_AndChangeSummary_UseTheOpaqueAddressForBoundHarborDock", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    string startCommit = new string('a', 40);
+                    string finalCommit = new string('b', 40);
+                    Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("Harbor-owned evidence vessel", "https://example.invalid/harbor-evidence.git")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        LocalPath = null
+                    }).ConfigureAwait(false);
+                    Mission mission = new Mission("Harbor-owned evidence mission")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.Complete,
+                        BranchName = "feature/harbor-evidence",
+                        CommitHash = finalCommit
+                    };
+                    Dock dock = new Dock(vessel.Id)
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        WorktreePath = null,
+                        BranchName = mission.BranchName,
+                        HostCheckout = new HarborCheckoutBinding
+                        {
+                            RunnerId = "hbr_evidence", EnrollmentGeneration = 1,
+                            TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                            RepositoryGrantId = "grant_evidence", RepositoryFingerprint = new string('c', 64),
+                            CheckoutId = "hco_0123456789abcdef0123456789abcdef", BaseCommit = startCommit, BranchName = mission.BranchName!, Revision = "revision_evidence"
+                        },
+                    };
+                    dock.GitAnchorsSnapshot = new DockGitAnchorSnapshot
+                    {
+                        DockId = dock.Id,
+                        MissionId = mission.Id,
+                        VesselId = vessel.Id,
+                        ProvisionedCommit = startCommit,
+                        ProvisionedUtc = DateTime.UtcNow,
+                        Anchors = new GitAnchors { BaseCommit = startCommit }
+                    };
+                    mission.DockId = dock.Id;
+                    await harness.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                    mission = await harness.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    string sourceCheckoutAddress = HarborCheckoutAddress.ForDock(dock.Id);
+                    harness.Git.DiffResult = "REMOTE-WORKTREE-DIFF";
+                    MissionDiffResult diff = await MissionDiffReader.ReadAsync(
+                        harness.Driver, harness.Settings.LogDirectory, harness.Git, mission).ConfigureAwait(false);
+                    AssertTrue(diff.Available, "a bound dock can provide a live diff with no Admiral worktree");
+                    AssertEqual(sourceCheckoutAddress, harness.Git.DiffCalls[harness.Git.DiffCalls.Count - 1], "live diff uses the agent-owned source checkout root, not the primary landing checkout");
+                    AssertEqual("REMOTE-WORKTREE-DIFF", diff.Diff, "the remote diff result is returned");
+
+                    string repositoryAddress = HarborCheckoutAddress.ForDock(dock.Id) + "/repository";
+                    string? comparedRepository = null;
+                    harness.Git.CommitPairRead = (repository, from, to, max, timeout, limit, token) =>
+                    {
+                        comparedRepository = repository;
+                        AssertEqual(startCommit, from, "summary compares from the recorded dock start commit");
+                        AssertEqual(finalCommit, to, "summary compares to the recorded mission commit");
+                        return Task.FromResult(ChangedPathStatusRead.FromEntries(new List<ChangedPathEntry>(), 1));
+                    };
+                    MissionChangeSummary summary = await MissionChangeSummaryReader.ReadAsync(
+                        harness.Driver, harness.Settings.LogDirectory, harness.Git, McpTestCaller.Operator, mission.Id, null).ConfigureAwait(false);
+                    AssertTrue(summary.Available, "a bound vessel can provide its recorded commit comparison without a local repository");
+                    AssertEqual(repositoryAddress, comparedRepository, "commit comparison uses the dock's opaque repository address");
                 }
             }).ConfigureAwait(false);
 
@@ -428,6 +500,8 @@ namespace Armada.Test.Unit.Suites.Routes
             {
                 Dock dock = new Dock(vessel.Id)
                 {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
                     WorktreePath = Path.Combine(fixture.Root, "reclaimed-dock-" + Guid.NewGuid().ToString("N")),
                     BranchName = mission.BranchName,
                     Active = false

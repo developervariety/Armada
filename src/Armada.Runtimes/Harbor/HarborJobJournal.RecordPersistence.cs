@@ -27,6 +27,9 @@ namespace Armada.Runtimes.Harbor
                 if (record == null || !String.Equals(record.JobId, jobId, StringComparison.Ordinal)
                     || record.NextOutputSequence < record.FirstOutputSequence || record.FirstOutputSequence < 0
                     || record.SupervisorProcessId <= 0 || record.SupervisorStartedUtc.Kind != DateTimeKind.Utc
+                    || (record.CheckoutId == null) != (record.CheckoutRevision == null)
+                    || record.CheckoutId != null && (String.IsNullOrWhiteSpace(record.DockId) || String.IsNullOrWhiteSpace(record.CheckoutRevision))
+                    || record.CheckoutId == null && record.DockId != null
                     || record.IsRunning && (record.StopConfirmed || (!record.ProcessId.HasValue || !record.ProcessStartedUtc.HasValue) && (!record.OutputGap || String.IsNullOrWhiteSpace(record.FailureReason)))
                     || record.ProcessStartedUtc.HasValue && !record.ProcessId.HasValue
                     || record.ProcessId.HasValue && record.ProcessId.Value <= 0

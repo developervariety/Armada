@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using Armada.Core.Services.Interfaces;
     using SyslogLogging;
 
@@ -24,6 +25,7 @@ namespace Armada.Core.Services
 
         private readonly DatabaseDriver _Database;
         private readonly IBranchInventory _Git;
+        private readonly HarborSettings? _HarborSettings;
         private readonly LoggingModule? _Logging;
         private const string _Header = "[UnlandedBranchService] ";
 
@@ -37,8 +39,10 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver used to resolve vessels and missions.</param>
         /// <param name="git">Branch inventory used to enumerate and compare branches.</param>
         /// <param name="logging">Optional logging module.</param>
-        public UnlandedBranchService(DatabaseDriver database, IBranchInventory git, LoggingModule? logging = null)
+        /// <param name="harborSettings">Explicit routes that require a checkout-scoped operation.</param>
+        public UnlandedBranchService(DatabaseDriver database, IBranchInventory git, LoggingModule? logging = null, HarborSettings? harborSettings = null)
         {
+            _HarborSettings = harborSettings;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _Logging = logging;
@@ -90,6 +94,11 @@ namespace Armada.Core.Services
                 DefaultBranch = vessel.DefaultBranch
             };
 
+            if (await HarborLocalRepositoryBoundary.HasOwnedCheckoutAsync(_Database, _HarborSettings, vessel.Id, token).ConfigureAwait(false))
+            {
+                report.Error = HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired;
+                return report;
+            }
             if (String.IsNullOrWhiteSpace(vessel.LocalPath))
             {
                 report.Error = "Vessel has no LocalPath; cannot measure branches.";

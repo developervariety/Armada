@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Opt-in Harbor-owned checkouts keep repository files, Git, verification and
+  landing on the enrolled checkout host. Versioned bindings pin ownership and
+  commits. Durable provision and cleanup intents, authenticated bounded RPC,
+  keyed verification and scoped captain MCP retain the fork's safety rules.
+  Existing routes remain process-only; unavailable owners produce named holds.
+
 - Direct landing rechecks stored operator cancellation after integration
   validation and before publishing. A short shared admission boundary keeps
   cancellation and publication in order without holding it during the suite.

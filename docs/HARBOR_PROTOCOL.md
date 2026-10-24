@@ -9,7 +9,8 @@ enrollment routes. Stored-job safety checks and the administrator stop-confirmat
 See [Opt-in operation](#opt-in-operation).
 
 The [headless console runner](HARBOR_RUNNER.md) implements process-only routes,
-independent job supervision and durable output replay.
+independent job supervision, durable output replay and opt-in
+[Harbor-owned checkouts](HARBOR_CHECKOUTS.md).
 
 ## Transport and framing
 
@@ -41,7 +42,9 @@ closes the link before reading any frame.
 The verified principal must match the durable enrollment of the runner named in the handshake: same tenant,
 user, authentication method and credential. Enrollment requires a credential for bearer and API-key methods,
 so the global `X-Api-Key` cannot own a runner. Enrollment is described in
-[HARBOR_IDENTITY.md](HARBOR_IDENTITY.md). Secrets never appear in any message or log.
+[HARBOR_IDENTITY.md](HARBOR_IDENTITY.md). Enrollment credentials never appear in frames or logs. An owned launch can
+carry its mission-scoped MCP credential in the private launch envelope. The
+runner supplies it to the child environment and does not persist or log it.
 
 ## Message set
 
@@ -247,3 +250,19 @@ in the mission log. A confirmed `exited` result enters the shared mission exit l
 their process and assignment fence. A captain stop sends `kill` and waits for confirmed exit and lifecycle
 handling; sending the command alone is insufficient. The stored stop request survives restart and yields a
 `Stop` decision when its runner returns. There is no fallback to a local process or another runner.
+
+## Owned workspace operations
+
+The optional `workspace` capability version 1 adds typed workspace requests and
+results. Enrollment and connection generations fence each exchange. A fresh
+request ID correlates one exchange; a stable operation key identifies a durable
+mutation across retries. The server rechecks the authenticated enrollment, stored
+dock binding, owner and writer state before dispatch. Results must match the
+captured session and pending request. No offline or local fallback is allowed.
+
+Repository inspection precedes a saved provision intent. Bound operations carry
+the full checkout identity. File paths are relative and bounded. Git operations
+select fixed service methods. Verification selects a host-configured command key
+and digest. Output chunks carry the retained verification identity and byte
+offset, with bounded transfer and full-output hash checks. See
+[configuration and recovery](HARBOR_CHECKOUTS.md) for operation limits and holds.

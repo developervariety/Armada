@@ -49,11 +49,13 @@ namespace Armada.Core.Services
         /// <param name="runnerId">Runner identifier.</param>
         /// <param name="auth">Verified authentication context.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="hasWorkspaceCapability">Whether the accepted handshake advertised workspace operations.</param>
         /// <returns>The new session lease, or the stable denial reason.</returns>
         public async Task<HarborRunnerRegistration> RegisterAsync(
             string runnerId,
             AuthContext auth,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool hasWorkspaceCapability = false)
         {
             if (!Enabled) return HarborRunnerRegistration.Refuse("runner_registration_disabled");
             if (auth == null) return HarborRunnerRegistration.Refuse("runner_identity_unverified");
@@ -103,7 +105,7 @@ namespace Armada.Core.Services
                 }
 
                 if (existing != null) InvalidatePendingForSession(existing);
-                HarborRunnerSession replacement = new HarborRunnerSession(identity, ++_NextGeneration, enrollmentGeneration);
+                HarborRunnerSession replacement = new HarborRunnerSession(identity, ++_NextGeneration, enrollmentGeneration, hasWorkspaceCapability);
                 _Sessions[identity.RunnerId] = replacement;
                 return HarborRunnerRegistration.Accept(replacement);
             }
@@ -263,6 +265,27 @@ namespace Armada.Core.Services
             }
 
             return true;
+        }
+
+        /// <summary>Cancel one pending request owned by the exact current session lease.</summary>
+        /// <param name="session">Session lease that registered the request.</param>
+        /// <param name="requestId">Server-issued request identity.</param>
+        /// <returns>True when the request was removed.</returns>
+        public bool CancelPending(HarborRunnerSession session, string requestId)
+        {
+            if (session == null || String.IsNullOrWhiteSpace(requestId)) return false;
+            lock (_Gate)
+            {
+                if (!_Sessions.TryGetValue(session.Identity.RunnerId, out HarborRunnerSession? current)
+                    || !Object.ReferenceEquals(current, session)
+                    || !_Pending.TryGetValue(requestId, out IPendingRequest? pending)
+                    || !String.Equals(pending.RunnerId, session.Identity.RunnerId, StringComparison.Ordinal)
+                    || pending.Generation != session.Generation) return false;
+                pending.Cancel();
+                _Pending.Remove(requestId);
+                RememberReplay(requestId);
+                return true;
+            }
         }
 
         /// <summary>Number of current runner sessions.</summary>

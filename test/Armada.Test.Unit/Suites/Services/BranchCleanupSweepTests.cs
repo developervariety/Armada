@@ -382,6 +382,50 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Harbor-owned dock skips cleanup before local-path Git access", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    Vessel vessel = new Vessel("owned-sweep-vessel", "https://github.com/test/owned-sweep.git");
+                    vessel.TenantId = Armada.Core.Constants.DefaultTenantId;
+                    vessel.UserId = Armada.Core.Constants.DefaultUserId;
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "owned-sweep-local-sentinel-" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalAndRemote;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.TenantId = vessel.TenantId;
+                    dock.UserId = vessel.UserId;
+                    dock.WorktreePath = vessel.LocalPath;
+                    dock.HostCheckout = new HarborCheckoutBinding
+                    {
+                        RunnerId = "hbr_owned_sweep",
+                        EnrollmentGeneration = 1,
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        RepositoryGrantId = "grant_owned_sweep",
+                        RepositoryFingerprint = new string('a', 64),
+                        CheckoutId = "hco_0123456789abcdef0123456789abcdef",
+                        BaseCommit = new string('b', 40),
+                        BranchName = "armada/captain/msn_owned_sweep",
+                        Revision = "rev_owned_sweep"
+                    };
+                    await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+
+                    BranchCleanupSweepService service = new BranchCleanupSweepService(
+                        logging, testDb.Driver, new ArmadaSettings(), new GitService(logging));
+                    BranchCleanupSweepResult result = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+
+                    AssertEqual(0, result.SweptVessels, "the owned vessel is not passed to local cleanup");
+                    AssertEqual(1, result.SkippedVessels, "the owned vessel is counted as skipped");
+                    AssertTrue(result.SkipReasons.Any(reason => reason.Contains(
+                        HarborLocalRepositoryBoundary.ReasonExplicitCheckoutRequired, StringComparison.Ordinal)),
+                        "the skip reason names the required explicit checkout owner");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("LocalAndRemote deletes a landed origin branch the vessel bare no longer holds", async () =>
             {
                 string rootDir = NewTempDir();

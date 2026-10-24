@@ -13,12 +13,13 @@ namespace Armada.Server
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Core.Harbor;
     using Armada.Server.WebSocket;
 
     /// <summary>
     /// Handles mission landing orchestration: diff capture, merge/PR flows, voyage completion, and PR reconciliation.
     /// </summary>
-    public class MissionLandingHandler
+    public partial class MissionLandingHandler
     {
         #region Private-Members
 
@@ -42,6 +43,7 @@ namespace Armada.Server
         private ICodeIndexService? _CodeIndexService;
         private LeakHunkAdapter? _LeakHunkAdapter;
         private LandingEvidenceCollector _LandingEvidence;
+        private HarborCheckoutService? _HarborCheckouts;
 
         #endregion
 
@@ -110,6 +112,13 @@ namespace Armada.Server
         public void SetWebSocketHub(ArmadaWebSocketHub? hub)
         {
             _WebSocketHub = hub;
+        }
+
+        /// <summary>Wire the authenticated checkout provider used by Harbor-owned mission docks.</summary>
+        /// <param name="checkouts">The shared checkout provider.</param>
+        public void SetHarborCheckouts(HarborCheckoutService? checkouts)
+        {
+            _HarborCheckouts = checkouts;
         }
 
         /// <summary>
@@ -193,6 +202,8 @@ namespace Armada.Server
 
             if (String.IsNullOrEmpty(dock.WorktreePath) || String.IsNullOrEmpty(dock.BranchName))
                 return;
+            if (dock.HostCheckoutLifecycle != null && dock.HostCheckout == null)
+                throw new InvalidOperationException("harbor_checkout_lifecycle_incomplete");
 
             // A Judge PASS held for operator review never lands until an operator clears the hold.
             if (mission.HeldForOperatorReview)
@@ -312,7 +323,8 @@ namespace Armada.Server
                     landingAttempted = true;
                     try
                     {
-                        await _Git.PushBranchAsync(dock.WorktreePath).ConfigureAwait(false);
+                        await RunHarborMutationAsync(dock, "mission-pr-push:" + mission.Id,
+                            () => _Git.PushBranchAsync(dock.WorktreePath)).ConfigureAwait(false);
                         _Logging.Info(_Header + "pushed branch " + dock.BranchName);
 
                         string prBody;
@@ -335,10 +347,8 @@ namespace Armada.Server
                         Dictionary<string, string> prContext = _TemplateService.BuildContext(mission, null, vessel, voyage, dock);
                         prBody = _TemplateService.RenderPrDescription(_Settings.MessageTemplates, prBody, prContext);
 
-                        string prUrl = await _Git.CreatePullRequestAsync(
-                            dock.WorktreePath,
-                            mission.Title,
-                            prBody).ConfigureAwait(false);
+                        string prUrl = await RunHarborMutationAsync(dock, "mission-pr-create:" + mission.Id,
+                            () => _Git.CreatePullRequestAsync(dock.WorktreePath, mission.Title, prBody)).ConfigureAwait(false);
 
                         mission.PrUrl = prUrl;
                         await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
@@ -394,7 +404,8 @@ namespace Armada.Server
                         {
                             try
                             {
-                                await _Git.EnableAutoMergeAsync(dock.WorktreePath, prUrl).ConfigureAwait(false);
+                                await RunHarborMutationAsync(dock, "mission-pr-automerge:" + mission.Id,
+                                    () => _Git.EnableAutoMergeAsync(dock.WorktreePath, prUrl)).ConfigureAwait(false);
                                 _Logging.Info(_Header + "enabled auto-merge for PR: " + prUrl);
 
                                 // Poll for merge completion, then transition to Complete
@@ -418,7 +429,8 @@ namespace Armada.Server
                         landingFailureReasonCode = "landing_push_failed";
                     }
                 }
-                else if (effectivePush && vessel != null && !String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath))
+                else if (effectivePush && vessel != null && (dock.HostCheckout != null
+                    || (!String.IsNullOrEmpty(vessel.WorkingDirectory) && !String.IsNullOrEmpty(vessel.LocalPath))))
                 {
                     // effectivePush gate: this clause is the LocalMerge / legacy-AutoPush
                     // landing path. Without the gate, vessels with WorkingDirectory set
@@ -433,14 +445,24 @@ namespace Armada.Server
                     // the bare repo as indicators -- the worktree may already be gone at this point.
                     bool hasChanges = true;
                     bool branchExists = false;
-                    if (!String.IsNullOrEmpty(dock.BranchName) && !String.IsNullOrEmpty(vessel.LocalPath))
+                    string repositoryPath = dock.HostCheckout != null
+                        ? HarborCheckoutAddress.ForDock(dock.Id) + "/repository"
+                        : vessel.LocalPath!;
+                    string workingPath = dock.HostCheckout != null
+                        ? HarborCheckoutAddress.ForDock(dock.Id) + "/working"
+                        : vessel.WorkingDirectory!;
+                    if (!String.IsNullOrEmpty(dock.BranchName))
                     {
                         // Also check if the branch actually exists in the bare repo
                         try
                         {
-                            branchExists = await _Git.BranchExistsAsync(vessel.LocalPath, dock.BranchName).ConfigureAwait(false);
+                            branchExists = await _Git.BranchExistsAsync(repositoryPath, dock.BranchName).ConfigureAwait(false);
                         }
-                        catch { }
+                        catch (Exception exception)
+                        {
+                            if (dock.HostCheckout != null)
+                                throw new InvalidOperationException("harbor_landing_source_unavailable", exception);
+                        }
                     }
 
                     if (String.IsNullOrEmpty(mission.DiffSnapshot) || mission.DiffSnapshot.Trim().Length == 0)
@@ -490,13 +512,14 @@ namespace Armada.Server
                             if (branchExists && !String.IsNullOrEmpty(dock.BranchName))
                             {
                                 await CleanupMissionBranchAsync(
-                                    vessel.LocalPath,
-                                    vessel.WorkingDirectory,
+                                    repositoryPath,
+                                    workingPath,
                                     dock.BranchName,
                                     cleanupPolicy,
                                     "after successful no-op landing",
                                     mission.Id,
-                                    dock.WorktreePath).ConfigureAwait(false);
+                                    dock.HostCheckout == null ? dock.WorktreePath : null,
+                                    dock.HostCheckout == null ? null : dock).ConfigureAwait(false);
                             }
                         }
                     }
@@ -533,13 +556,14 @@ namespace Armada.Server
                             using IDisposable cleanupAdmission = await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id).ConfigureAwait(false);
                             if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission).ConfigureAwait(false)) return;
                             await CleanupMissionBranchAsync(
-                                vessel.LocalPath,
-                                vessel.WorkingDirectory,
+                                repositoryPath,
+                                workingPath,
                                 dock.BranchName,
                                 cleanupPolicy,
                                 "after successful landing",
                                 mission.Id,
-                                dock.WorktreePath).ConfigureAwait(false);
+                                dock.HostCheckout == null ? dock.WorktreePath : null,
+                                dock.HostCheckout == null ? null : dock).ConfigureAwait(false);
                         }
                         else if (!landingSucceeded)
                         {
@@ -1058,6 +1082,17 @@ namespace Armada.Server
             if (!String.IsNullOrEmpty(mission.VesselId))
                 vessel = await _Database.Vessels.ReadAsync(mission.VesselId).ConfigureAwait(false);
 
+            Dock? missionDock = !String.IsNullOrWhiteSpace(mission.DockId)
+                ? await _Database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
+                : null;
+            if (missionDock?.HostCheckoutLifecycle != null && missionDock.HostCheckout == null)
+            {
+                _Logging.Warn(_Header + "PR reconciler: Harbor binding is incomplete for mission " + mission.Id);
+                return false;
+            }
+            if (missionDock?.HostCheckout != null)
+                return await HandleHarborReconcilePullRequestAsync(mission, vessel, missionDock).ConfigureAwait(false);
+
             string? workingDir = vessel?.WorkingDirectory ?? vessel?.LocalPath;
             if (String.IsNullOrEmpty(workingDir)) return false;
 
@@ -1382,7 +1417,8 @@ namespace Armada.Server
             BranchCleanupPolicyEnum cleanupPolicy,
             string cleanupReason,
             string missionId,
-            string? activeWorktreePath = null)
+            string? activeWorktreePath = null,
+            Dock? harborDock = null)
         {
             if (String.IsNullOrEmpty(branchName)) return;
 
@@ -1407,7 +1443,8 @@ namespace Armada.Server
 
             try
             {
-                await _Git.DeleteLocalBranchAsync(bareRepoPath, branchName).ConfigureAwait(false);
+                await RunHarborMutationAsync(harborDock, "mission-branch-delete:" + missionId + ":" + branchName,
+                    () => _Git.DeleteLocalBranchAsync(bareRepoPath, branchName)).ConfigureAwait(false);
                 _Logging.Info(_Header + "deleted branch " + branchName + " from bare repo " + cleanupReason);
             }
             catch (Exception branchEx)
@@ -1420,7 +1457,8 @@ namespace Armada.Server
             {
                 try
                 {
-                    await _Git.DeleteRemoteBranchAsync(workingDirectory, branchName).ConfigureAwait(false);
+                    await RunHarborMutationAsync(harborDock, "mission-remote-branch-delete:" + missionId + ":" + branchName,
+                        () => _Git.DeleteRemoteBranchAsync(workingDirectory, branchName)).ConfigureAwait(false);
                     _Logging.Info(_Header + "deleted remote branch " + branchName + " " + cleanupReason);
                 }
                 catch (Exception remoteBranchEx)
@@ -1429,6 +1467,30 @@ namespace Armada.Server
                     await EmitBranchCleanupFailedAsync(missionId, branchName, workingDirectory, remoteBranchEx.Message).ConfigureAwait(false);
                 }
             }
+        }
+
+        private async Task RunHarborMutationAsync(Dock? dock, string workflowId, Func<Task> operation)
+        {
+            if (dock?.HostCheckout == null)
+            {
+                await operation().ConfigureAwait(false);
+                return;
+            }
+            string address = HarborCheckoutAddress.ForDock(dock.Id);
+            string? head = await _Git.GetHeadCommitHashAsync(address).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(head)) throw new InvalidOperationException("harbor_checkout_head_unavailable");
+            using (new HarborCheckoutOperationScope(workflowId, head!))
+                await operation().ConfigureAwait(false);
+        }
+
+        private async Task<T> RunHarborMutationAsync<T>(Dock? dock, string workflowId, Func<Task<T>> operation)
+        {
+            if (dock?.HostCheckout == null) return await operation().ConfigureAwait(false);
+            string address = HarborCheckoutAddress.ForDock(dock.Id);
+            string? head = await _Git.GetHeadCommitHashAsync(address).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(head)) throw new InvalidOperationException("harbor_checkout_head_unavailable");
+            using (new HarborCheckoutOperationScope(workflowId, head!))
+                return await operation().ConfigureAwait(false);
         }
 
         /// <summary>

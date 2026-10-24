@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Harbor;
     using Armada.Core.Settings;
     using Armada.Core.Services.Interfaces;
 
@@ -17,7 +18,7 @@ namespace Armada.Core.Services
     /// merges against the up-to-date target branch, eliminating the cascade
     /// failures that occur with batch-style processing.
     /// </summary>
-    public class MergeQueueService : IMergeQueueService
+    public partial class MergeQueueService : IMergeQueueService
     {
         #region Private-Members
 
@@ -44,6 +45,7 @@ namespace Armada.Core.Services
         private LandingEvidenceCollector _LandingEvidence;
         private IncidentService _Incidents;
         private IntegrationCandidateValidator? _IntegrationValidator;
+        private HarborCheckoutService? _HarborCheckouts;
 
         private bool _Processing = false;
         private readonly object _ProcessLock = new object();
@@ -132,6 +134,13 @@ namespace Armada.Core.Services
         public void SetIntegrationValidator(IntegrationCandidateValidator validator)
         {
             _IntegrationValidator = validator ?? throw new ArgumentNullException(nameof(validator));
+        }
+
+        /// <summary>Wire the authenticated checkout provider used by Harbor-owned mission docks.</summary>
+        /// <param name="checkouts">The shared checkout provider.</param>
+        public void SetHarborCheckouts(HarborCheckoutService? checkouts)
+        {
+            _HarborCheckouts = checkouts;
         }
 
         #endregion
@@ -518,33 +527,41 @@ namespace Armada.Core.Services
             // Clean up git branches associated with this entry
             if (!String.IsNullOrEmpty(entry.BranchName))
             {
-                string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
-                if (!String.IsNullOrEmpty(repoPath))
+                HarborQueueContext? harbor = await ReadHarborQueueContextAsync(entry, token).ConfigureAwait(false);
+                if (harbor != null)
                 {
-                    // Delete remote branch
-                    try
+                    await CleanupDeletedHarborEntryAsync(entry, harbor, token).ConfigureAwait(false);
+                }
+                else
+                {
+                    string? repoPath = await GetRepoPathAsync(entry, token).ConfigureAwait(false);
+                    if (!String.IsNullOrEmpty(repoPath))
                     {
-                        await RunGitAsync(repoPath, token, "push", "origin", "--delete", entry.BranchName).ConfigureAwait(false);
-                        _Logging.Info(_Header + "deleted remote branch " + entry.BranchName);
-                    }
-                    catch (Exception ex) when (GitRemoteRefRule.IsRemoteRefAbsent(ex.Message))
-                    {
-                        _Logging.Debug(_Header + "remote branch " + entry.BranchName + " already absent from origin; nothing to delete");
-                    }
-                    catch (Exception ex)
-                    {
-                        _Logging.Warn(_Header + "remote branch delete for " + entry.BranchName + " failed: " + ex.Message);
-                    }
+                        // Delete remote branch
+                        try
+                        {
+                            await RunGitAsync(repoPath, token, "push", "origin", "--delete", entry.BranchName).ConfigureAwait(false);
+                            _Logging.Info(_Header + "deleted remote branch " + entry.BranchName);
+                        }
+                        catch (Exception ex) when (GitRemoteRefRule.IsRemoteRefAbsent(ex.Message))
+                        {
+                            _Logging.Debug(_Header + "remote branch " + entry.BranchName + " already absent from origin; nothing to delete");
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Warn(_Header + "remote branch delete for " + entry.BranchName + " failed: " + ex.Message);
+                        }
 
-                    // Delete local branch
-                    try
-                    {
-                        await _Git.DeleteLocalBranchAsync(repoPath, entry.BranchName, token).ConfigureAwait(false);
-                        _Logging.Info(_Header + "deleted local branch " + entry.BranchName);
-                    }
-                    catch (Exception ex)
-                    {
-                        _Logging.Debug(_Header + "local branch delete for " + entry.BranchName + " skipped: " + ex.Message);
+                        // Delete local branch
+                        try
+                        {
+                            await _Git.DeleteLocalBranchAsync(repoPath, entry.BranchName, token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "deleted local branch " + entry.BranchName);
+                        }
+                        catch (Exception ex)
+                        {
+                            _Logging.Debug(_Header + "local branch delete for " + entry.BranchName + " skipped: " + ex.Message);
+                        }
                     }
                 }
             }
@@ -1024,6 +1041,10 @@ namespace Armada.Core.Services
 
         private async Task<bool> AdvanceLandingStateMachineOneStepAsync(MergeEntry entry, string repoPath, CancellationToken token)
         {
+            HarborQueueContext? harbor = await ReadHarborQueueContextAsync(entry, token).ConfigureAwait(false);
+            if (harbor != null)
+                return await AdvanceHarborLandingStateMachineOneStepAsync(entry, harbor, token).ConfigureAwait(false);
+
             if (entry.Status == MergeStatusEnum.Queued || entry.Status == MergeStatusEnum.Rebasing)
             {
                 await PersistStatusAsync(entry, MergeStatusEnum.Rebasing, token).ConfigureAwait(false);
@@ -1949,6 +1970,26 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "PR-fallback recovery: repo path missing for " + mergeEntryId);
                 return false;
+            }
+
+            HarborQueueContext? harbor = await ReadHarborQueueContextAsync(entry, token).ConfigureAwait(false);
+            if (harbor != null)
+            {
+                if (String.IsNullOrEmpty(entry.AuditCriticalTrigger))
+                {
+                    entry.AuditCriticalTrigger = "recovery_exhausted";
+                    entry.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                }
+                Dock? integration = await ReadHarborIntegrationAsync(entry, token).ConfigureAwait(false);
+                if (integration == null)
+                {
+                    await PrepareHarborIntegrationAsync(entry, harbor, token).ConfigureAwait(false);
+                    integration = await ReadHarborIntegrationAsync(entry, token).ConfigureAwait(false);
+                }
+                if (integration == null) return false;
+                entry.Status = MergeStatusEnum.CreatingPR;
+                return await OpenHarborPullRequestAsync(entry, integration, token).ConfigureAwait(false);
             }
 
             // Force the trigger so TryOpenPullRequestAsync's internal callers and the
@@ -3426,6 +3467,13 @@ namespace Armada.Core.Services
 
         private async Task CleanupWorktreeAsync(MergeEntry entry, string worktreePath, CancellationToken token)
         {
+            HarborQueueContext? harbor = await ReadHarborQueueContextAsync(entry, token).ConfigureAwait(false);
+            if (harbor != null)
+            {
+                Dock? integration = await ReadHarborIntegrationAsync(entry, token).ConfigureAwait(false);
+                if (integration != null) await RemoveHarborIntegrationAsync(entry, integration, token).ConfigureAwait(false);
+                return;
+            }
             try
             {
                 await _Git.RemoveWorktreeAsync(worktreePath, token).ConfigureAwait(false);
@@ -3458,6 +3506,9 @@ namespace Armada.Core.Services
 
         private async Task<string?> GetRepoPathAsync(MergeEntry entry, CancellationToken token)
         {
+            HarborQueueContext? harbor = await ReadHarborQueueContextAsync(entry, token).ConfigureAwait(false);
+            if (harbor != null) return HarborCheckoutAddress.ForDock(harbor.SourceDock.Id) + "/repository";
+
             if (!String.IsNullOrEmpty(entry.VesselId))
             {
                 Vessel? vessel = !String.IsNullOrEmpty(entry.TenantId)

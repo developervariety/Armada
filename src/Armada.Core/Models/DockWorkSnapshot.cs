@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -29,6 +30,7 @@ namespace Armada.Core.Models
 
         #region Constructors-and-Factories
 
+        [JsonConstructor]
         private DockWorkSnapshot(DockWorkSnapshotStatusEnum status, string? refName, string? commitSha, string message)
         {
             Status = status;

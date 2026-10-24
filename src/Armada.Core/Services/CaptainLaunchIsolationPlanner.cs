@@ -34,7 +34,7 @@ namespace Armada.Core.Services
     /// Side-effect free (writes nothing) so it can be unit tested in isolation; the caller materializes the
     /// returned files and applies the environment/arguments.
     /// </summary>
-    public static class CaptainLaunchIsolationPlanner
+    public static partial class CaptainLaunchIsolationPlanner
     {
         #region Public-Methods
 

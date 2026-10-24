@@ -28,6 +28,7 @@ namespace Armada.Server.Harbor
         private readonly IAuthenticationService _Authentication;
         private readonly HarborRunnerSessionRegistry _Registry;
         private readonly HarborJobCoordinator _Coordinator;
+        private readonly HarborWorkspaceCoordinator? _Workspace;
         private readonly LoggingModule _Logging;
 
         #endregion
@@ -40,17 +41,20 @@ namespace Armada.Server.Harbor
         /// <param name="registry">Enabled session registry backed by durable enrollment.</param>
         /// <param name="coordinator">Job coordinator.</param>
         /// <param name="logging">Logging module.</param>
+        /// <param name="workspace">Typed workspace coordinator, when workspace operations are enabled.</param>
         public HarborLinkEndpoint(
             HarborSettings settings,
             IAuthenticationService authentication,
             HarborRunnerSessionRegistry registry,
             HarborJobCoordinator coordinator,
-            LoggingModule logging)
+            LoggingModule logging,
+            HarborWorkspaceCoordinator? workspace = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
             _Registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _Coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+            _Workspace = workspace;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
@@ -120,6 +124,7 @@ namespace Armada.Server.Harbor
             finally
             {
                 if (connection.Session != null) _Coordinator.Detach(connection.Session);
+                if (connection.Session != null) _Workspace?.Detach(connection.Session);
                 connection.Disconnect();
             }
         }
@@ -169,7 +174,16 @@ namespace Armada.Server.Harbor
                     return false;
                 }
                 _Coordinator.Attach(connection.Session, handshake.MaxConcurrentJobs, send);
-                await send(new HarborHandshakeAck { CorrelationId = handshake.CorrelationId, Accepted = true }, token).ConfigureAwait(false);
+                _Workspace?.Attach(connection.Session, send);
+                await send(new HarborHandshakeAck
+                {
+                    CorrelationId = handshake.CorrelationId,
+                    Accepted = true,
+                    TenantId = connection.Session.Identity.TenantId,
+                    UserId = connection.Session.Identity.UserId,
+                    EnrollmentGeneration = connection.Session.EnrollmentGeneration,
+                    ConnectionGeneration = connection.Session.Generation
+                }, token).ConfigureAwait(false);
                 idle.CancelAfter(TimeSpan.FromSeconds(_Settings.IdleTimeoutSeconds));
                 _Logging.Info(_Header + "runner " + connection.Session.Identity.RunnerId + " connected at generation " + connection.Session.Generation);
                 return true;
@@ -196,6 +210,15 @@ namespace Armada.Server.Harbor
                     await RejectAsync(session, send, resumeRequest.CorrelationId, exception.Message, true).ConfigureAwait(false);
                     return false;
                 }
+                return true;
+            }
+
+            if (parsed is HarborWorkspaceOperationResult workspaceResult)
+            {
+                bool completed = _Workspace != null
+                    && await _Workspace.HandleResultAsync(current, workspaceResult, token).ConfigureAwait(false);
+                if (!completed)
+                    await send(new HarborError { CorrelationId = workspaceResult.CorrelationId, Message = "workspace_response_rejected" }, token).ConfigureAwait(false);
                 return true;
             }
 

@@ -20,6 +20,18 @@ namespace Armada.Core.Harbor
         /// </summary>
         public string? McpBaseUrl { get; set; } = null;
 
+        /// <summary>Verified tenant identifier bound to the accepted runner connection.</summary>
+        public string? TenantId { get; set; } = null;
+
+        /// <summary>Verified user identifier bound to the accepted runner connection.</summary>
+        public string? UserId { get; set; } = null;
+
+        /// <summary>Durable enrollment generation accepted for this connection.</summary>
+        public long EnrollmentGeneration { get; set; }
+
+        /// <summary>Server-assigned connection generation for this session lease.</summary>
+        public long ConnectionGeneration { get; set; }
+
         /// <summary>
         /// Human-readable reason the handshake was rejected, or null on acceptance.
         /// </summary>
