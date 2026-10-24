@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Repeated pipeline handoffs preserve operator requirements after generated
+  output and voyage board notes. New blocks have matching end markers;
+  replacement and compaction preserve text outside those boundaries and leave
+  ambiguous legacy blocks whole.
+
 - Automatic Check discovery has an independent heartbeat after startup repair.
   A health pass waiting for completion or landing work no longer stops new
   Check sweeps. Eligibility, command locks and gate requirements are unchanged;

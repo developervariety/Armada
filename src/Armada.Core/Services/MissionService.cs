@@ -8759,7 +8759,6 @@ namespace Armada.Core.Services
                     List<CoordinationMessage> voyageNotes = await _Database.CoordinationMessages
                         .EnumerateByVoyageAsync(nextMission.VoyageId!, noteCutoff, 10, token).ConfigureAwait(false);
                     voyageNotes.Reverse();
-                    handoffDescription = RemoveVoyageBoardNotesSection(handoffDescription);
                     string notesBlock = BuildVoyageBoardNotesBlock(voyageNotes);
                     if (notesBlock.Length > 0)
                     {
@@ -8775,6 +8774,10 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "voyage board-note injection failed for mission " + nextMission.Id + ": " + ex.Message);
                 }
             }
+
+            // Close every new block after all owned content, including board notes. Plain text
+            // appended later belongs to the operator, not to a replaceable generated section.
+            handoffDescription += "\n" + BuildHandoffEndMarker(completedMission.Id);
 
             int descriptionBudget = nextMission.IsReadOnlyMode ? _MaxReportOnlyDescriptionChars : _MaxMissionDescriptionChars;
             if (handoffDescription.Length > descriptionBudget)
@@ -8978,6 +8981,8 @@ namespace Armada.Core.Services
         private const string _HandoffMarkerPrefix = "<!-- ARMADA:HANDOFF:";
 
         private const string _HandoffMarkerSuffix = " -->";
+
+        private const string _HandoffEndMarkerPrefix = "<!-- ARMADA:HANDOFF-END:";
 
         private static List<PrestagedFile>? MergePrestagedFiles(
             List<PrestagedFile>? inherited,
@@ -9238,12 +9243,54 @@ namespace Armada.Core.Services
             return _HandoffMarkerPrefix + (completedMissionId ?? "") + _HandoffMarkerSuffix;
         }
 
+        /// <summary>Build the closing boundary of one generated prior-stage block.</summary>
+        /// <param name="completedMissionId">The upstream mission id.</param>
+        /// <returns>The mission-specific closing marker.</returns>
+        internal static string BuildHandoffEndMarker(string completedMissionId)
+        {
+            return _HandoffEndMarkerPrefix + (completedMissionId ?? "") + _HandoffMarkerSuffix;
+        }
+
+        /// <summary>Find the end of a complete owned block without crossing another opening marker.</summary>
+        /// <param name="description">The complete description.</param>
+        /// <param name="markerIndex">Opening marker position.</param>
+        /// <param name="missionId">Id read from a complete opening marker.</param>
+        /// <param name="bodyEnd">Position of the matching closing marker.</param>
+        /// <returns>End-exclusive position, or -1 for an ambiguous legacy or malformed block.</returns>
+        private static int FindHandoffBlockEnd(string description, int markerIndex, out string missionId, out int bodyEnd)
+        {
+            missionId = String.Empty;
+            bodyEnd = -1;
+            int idStart = markerIndex + _HandoffMarkerPrefix.Length;
+            int nextMarker = description.IndexOf(_HandoffMarkerPrefix, idStart, StringComparison.Ordinal);
+            int suffix = description.IndexOf(_HandoffMarkerSuffix, idStart, StringComparison.Ordinal);
+            if (suffix < 0 || (nextMarker >= 0 && suffix >= nextMarker)) return -1;
+
+            missionId = description.Substring(idStart, suffix - idStart);
+            if (missionId.Length == 0) return -1;
+            string endMarker = BuildHandoffEndMarker(missionId);
+            bodyEnd = description.IndexOf(endMarker, suffix + _HandoffMarkerSuffix.Length, StringComparison.Ordinal);
+            if (bodyEnd < 0 || (nextMarker >= 0 && bodyEnd >= nextMarker)) return -1;
+            return bodyEnd + endMarker.Length;
+        }
+
+        /// <summary>Include the generated separator when it immediately precedes an opening marker.</summary>
+        /// <param name="description">The complete description.</param>
+        /// <param name="markerIndex">Opening marker position.</param>
+        /// <returns>The beginning of the owned range.</returns>
+        private static int HandoffBlockStart(string description, int markerIndex)
+        {
+            const string separator = "\n\n---\n";
+            return markerIndex >= separator.Length
+                && String.CompareOrdinal(description, markerIndex - separator.Length, separator, 0, separator.Length) == 0
+                ? markerIndex - separator.Length : markerIndex;
+        }
+
         /// <summary>
         /// Removes a previously injected handoff block for one upstream mission from a description, so the
         /// caller can re-append a fresh block without duplicating it. The block runs from the "\n\n---\n"
-        /// separator that precedes its marker (or from the marker itself when the separator is absent) to
-        /// the start of the next handoff marker, or to the end of the description. A description with no
-        /// matching marker is returned unchanged.
+        /// separator that precedes its marker (or the marker itself) through its matching closing marker.
+        /// Unclosed legacy blocks and text outside complete blocks are preserved verbatim.
         /// </summary>
         /// <param name="description">Existing mission description; may be null or empty.</param>
         /// <param name="completedMissionId">Id of the upstream mission whose block should be removed.</param>
@@ -9254,29 +9301,29 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(completedMissionId)) return description;
 
             string marker = BuildHandoffMarker(completedMissionId);
-            int markerIndex = description.IndexOf(marker, StringComparison.Ordinal);
-            if (markerIndex < 0) return description;
-
-            const string separator = "\n\n---\n";
-            int blockStart = markerIndex;
-            if (markerIndex >= separator.Length &&
-                String.CompareOrdinal(description, markerIndex - separator.Length, separator, 0, separator.Length) == 0)
+            System.Text.StringBuilder builder = new System.Text.StringBuilder();
+            int cursor = 0;
+            int searchFrom = 0;
+            while (true)
             {
-                blockStart = markerIndex - separator.Length;
+                int markerIndex = description.IndexOf(marker, searchFrom, StringComparison.Ordinal);
+                if (markerIndex < 0) break;
+                int blockEnd = FindHandoffBlockEnd(description, markerIndex, out _, out _);
+                if (blockEnd < 0)
+                {
+                    // Legacy text has no recoverable operator-note boundary. Leave it intact,
+                    // but keep looking so a later complete block of this same mission is replaced.
+                    searchFrom = markerIndex + marker.Length;
+                    continue;
+                }
+
+                int blockStart = HandoffBlockStart(description, markerIndex);
+                builder.Append(description, cursor, blockStart - cursor);
+                cursor = blockEnd;
+                searchFrom = blockEnd;
             }
-
-            int nextMarkerIndex = description.IndexOf(_HandoffMarkerPrefix, markerIndex + marker.Length, StringComparison.Ordinal);
-            if (nextMarkerIndex < 0)
-                return description.Substring(0, blockStart).TrimEnd();
-
-            int nextBlockStart = nextMarkerIndex;
-            if (nextMarkerIndex >= separator.Length &&
-                String.CompareOrdinal(description, nextMarkerIndex - separator.Length, separator, 0, separator.Length) == 0)
-            {
-                nextBlockStart = nextMarkerIndex - separator.Length;
-            }
-
-            return description.Substring(0, blockStart) + description.Substring(nextBlockStart);
+            builder.Append(description.Substring(cursor));
+            return builder.ToString();
         }
 
         /// <summary>
@@ -9308,15 +9355,19 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(description)) return description ?? "";
             if (!description.Contains(_HandoffMarkerPrefix, StringComparison.Ordinal)) return description;
 
-            const string separator = "\n\n---\n";
-
-            int newestMarkerIndex = keepNewestFull
-                ? description.LastIndexOf(_HandoffMarkerPrefix, StringComparison.Ordinal)
-                : -1;
+            int newestMarker = -1;
+            if (keepNewestFull)
+            {
+                int scan = 0;
+                while ((scan = description.IndexOf(_HandoffMarkerPrefix, scan, StringComparison.Ordinal)) >= 0)
+                {
+                    if (FindHandoffBlockEnd(description, scan, out _, out _) >= 0) newestMarker = scan;
+                    scan += _HandoffMarkerPrefix.Length;
+                }
+            }
 
             System.Text.StringBuilder builder = new System.Text.StringBuilder();
             int cursor = 0;
-
             while (true)
             {
                 int markerIndex = description.IndexOf(_HandoffMarkerPrefix, cursor, StringComparison.Ordinal);
@@ -9326,45 +9377,28 @@ namespace Armada.Core.Services
                     break;
                 }
 
-                int suffixIndex = description.IndexOf(_HandoffMarkerSuffix, markerIndex, StringComparison.Ordinal);
-                if (suffixIndex < 0)
+                int blockEnd = FindHandoffBlockEnd(description, markerIndex, out string missionId, out _);
+                if (blockEnd < 0)
                 {
-                    // A marker with no terminator is malformed. Copy the rest verbatim rather than
-                    // guessing where the block ends; losing real brief text is worse than a large brief.
-                    builder.Append(description.Substring(cursor));
-                    break;
+                    int nextMarker = description.IndexOf(_HandoffMarkerPrefix,
+                        markerIndex + _HandoffMarkerPrefix.Length, StringComparison.Ordinal);
+                    if (nextMarker < 0)
+                    {
+                        builder.Append(description.Substring(cursor));
+                        break;
+                    }
+                    int nextBlockStart = HandoffBlockStart(description, nextMarker);
+                    builder.Append(description, cursor, nextBlockStart - cursor);
+                    cursor = nextBlockStart;
+                    continue;
                 }
 
-                int idStart = markerIndex + _HandoffMarkerPrefix.Length;
-                string missionId = description.Substring(idStart, suffixIndex - idStart);
-                int markerEnd = suffixIndex + _HandoffMarkerSuffix.Length;
-
-                int blockStart = markerIndex;
-                if (markerIndex >= separator.Length &&
-                    String.CompareOrdinal(description, markerIndex - separator.Length, separator, 0, separator.Length) == 0)
-                {
-                    blockStart = markerIndex - separator.Length;
-                }
-
-                int nextMarkerIndex = description.IndexOf(_HandoffMarkerPrefix, markerEnd, StringComparison.Ordinal);
-                int blockEnd = nextMarkerIndex < 0 ? description.Length : nextMarkerIndex;
-                if (nextMarkerIndex >= separator.Length &&
-                    nextMarkerIndex >= 0 &&
-                    String.CompareOrdinal(description, nextMarkerIndex - separator.Length, separator, 0, separator.Length) == 0)
-                {
-                    blockEnd = nextMarkerIndex - separator.Length;
-                }
-
-                builder.Append(description.Substring(cursor, blockStart - cursor));
-
-                string blockText = description.Substring(blockStart, blockEnd - blockStart);
-                builder.Append(markerIndex == newestMarkerIndex
-                    ? blockText
-                    : BuildCompactHandoffBlock(missionId, blockText));
-
+                int blockStart = HandoffBlockStart(description, markerIndex);
+                builder.Append(description, cursor, blockStart - cursor);
+                string block = description.Substring(blockStart, blockEnd - blockStart);
+                builder.Append(markerIndex == newestMarker ? block : BuildCompactHandoffBlock(missionId, block));
                 cursor = blockEnd;
             }
-
             return builder.ToString();
         }
 
@@ -9379,11 +9413,15 @@ namespace Armada.Core.Services
         private static string BuildCompactHandoffBlock(string missionId, string block)
         {
             if (block.Contains(_CompactedHandoffHeading, StringComparison.Ordinal)) return block;
+            string endMarker = BuildHandoffEndMarker(missionId);
+            int bodyEnd = block.LastIndexOf(endMarker, StringComparison.Ordinal);
+            if (bodyEnd < 0) return block;
+            string body = block.Substring(0, bodyEnd);
 
             string branch = "unknown";
             string persona = "prior";
 
-            string[] lines = block.Split('\n');
+            string[] lines = body.Split('\n');
             foreach (string line in lines)
             {
                 if (line.StartsWith("Branch: ", StringComparison.Ordinal))
@@ -9400,14 +9438,14 @@ namespace Armada.Core.Services
 
             // The stage's report essentials (verdict, blocking findings, follow-ups, added tests and the
             // complete-output reference) survive compaction; only the pasted output and diff are dropped.
-            string essentials = StageReportEssentials.ExtractLast(block);
+            string essentials = StageReportEssentials.ExtractLast(body);
             string compacted = "\n\n---\n" +
                 BuildHandoffMarker(missionId) + "\n" +
                 _CompactedHandoffHeading + "\n" +
                 "Stage: " + persona + ". Mission: " + missionId + ". Branch: " + branch + ".\n" +
                 "Its full output and diff are not repeated here. They are on that branch, " +
                 "and the mission record holds the complete log. Read them only if this stage needs them.\n" +
-                (essentials.Length > 0 ? "\n" + essentials : String.Empty);
+                (essentials.Length > 0 ? "\n" + essentials : String.Empty) + "\n" + endMarker;
 
             // A stage that produced very little leaves a block smaller than this reference. Replacing it
             // would add bytes to save bytes, and would also throw away real content to do it. Keep
@@ -10466,26 +10504,6 @@ namespace Armada.Core.Services
             }
 
             return sb.ToString().TrimEnd();
-        }
-
-        /// <summary>
-        /// Removes any previously injected voyage board-notes section so a repeated handoff
-        /// replaces rather than duplicates it.
-        /// </summary>
-        internal static string RemoveVoyageBoardNotesSection(string description)
-        {
-            const string headerMarker = "### Board notes on this voyage";
-            if (String.IsNullOrEmpty(description)) return description ?? "";
-
-            int markerIndex = description.IndexOf(headerMarker, StringComparison.Ordinal);
-            if (markerIndex < 0) return description;
-
-            // The section runs until the next markdown section header or the end.
-            int searchFrom = markerIndex + headerMarker.Length;
-            int nextHeader = description.IndexOf("\n### ", searchFrom, StringComparison.Ordinal);
-            if (nextHeader < 0) nextHeader = description.IndexOf("\n## ", searchFrom, StringComparison.Ordinal);
-            if (nextHeader < 0) return description.Substring(0, markerIndex).TrimEnd();
-            return (description.Substring(0, markerIndex).TrimEnd() + "\n" + description.Substring(nextHeader + 1)).TrimEnd();
         }
 
         private static string BuildMailboxNotesBlock(List<Signal> signals)

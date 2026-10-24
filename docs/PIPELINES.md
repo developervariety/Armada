@@ -172,6 +172,12 @@ none of an entry records `mission.architect_plan_gate_inputs_missing` with the
 unnamed entries. The plan still hands off. See
 [OPERATIONAL_ASSETS.md](OPERATIONAL_ASSETS.md) for the field.
 
+New generated handoff blocks have matching mission-specific opening and closing
+markers. The closing marker follows the voyage board notes. Repeated preparation
+replaces only a complete matching block; compaction also stays inside that pair.
+Plain operator text outside the pair stays unchanged. Legacy or malformed blocks
+with no matching close remain whole because their operator-note boundary is unknown.
+
 Each handoff block ends with a report-essentials section for the stage that
 just finished: the complete-output reference (`mission-output:<id>`) with its
 length and UTF-8 SHA-256, the verdict, every blocking finding, and the

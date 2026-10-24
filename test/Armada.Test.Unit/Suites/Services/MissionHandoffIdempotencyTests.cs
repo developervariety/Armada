@@ -44,13 +44,13 @@ namespace Armada.Test.Unit.Suites.Services
                 : _Preamble + stripped + block;
         }
 
+        private static string EndMarker(string id) => "<!-- ARMADA:HANDOFF-END:" + id + " -->";
+
         /// <summary>
         /// Builds a prior-stage block body of realistic size. A real block carries agent output and a
         /// diff and runs to thousands of characters. A toy body is smaller than the compact reference
         /// that would replace it, so compaction correctly leaves it alone and the test proves nothing.
         /// </summary>
-        private static string EndMarker(string id) => "<!-- ARMADA:HANDOFF-END:" + id + " -->";
-
         private string LargeBody(string tag)
         {
             return "## Prior Stage Output\n" + tag + "\n" +
