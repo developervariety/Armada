@@ -68,6 +68,17 @@ namespace Armada.Core.Services
                 }
             }
 
+            public void AppendSummary(DefinitionOfDoneResult result)
+            {
+                foreach (var entry in _Budgets)
+                {
+                    if (entry.Value == null) continue;
+                    result.GateCommandOutput = (result.GateCommandOutput ?? String.Empty) + Environment.NewLine
+                        + "DoD execution budget summary " + entry.Key.Subject + "/" + entry.Key.Family + ": "
+                        + entry.Value.Timing;
+                }
+            }
+
             public GateExecutionBudget? Resolve(string subject, string family, WorkflowProfile? profile, Func<TimeSpan> resolveLimit)
             {
                 var key = (subject, family);
@@ -100,6 +111,9 @@ namespace Armada.Core.Services
             public TimeSpan Limit { get; }
             public bool HasFailure => _FailureReason != null || _Execution >= Limit;
             public bool TimedOut => HasFailure && _FailureClass == DefinitionOfDoneFailureClassEnum.Timeout;
+            public string Timing => "command_execution_ms="
+                + (_ExecutionKnown ? Math.Ceiling(_Execution.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) : "unknown")
+                + "; shared_execution_budget_ms=" + Math.Ceiling(Limit.TotalMilliseconds).ToString(CultureInfo.InvariantCulture);
 
             public bool TryGetRemaining(out TimeSpan remaining)
             {
@@ -163,9 +177,7 @@ namespace Armada.Core.Services
             public DefinitionOfDoneResult ApplyTo(DefinitionOfDoneResult result, string label)
             {
                 if (_Execution >= Limit) MarkExhausted();
-                string timing = "DoD execution budget: command_execution_ms="
-                    + (_ExecutionKnown ? Math.Ceiling(_Execution.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) : "unknown")
-                    + "; shared_execution_budget_ms=" + Math.Ceiling(Limit.TotalMilliseconds).ToString(CultureInfo.InvariantCulture);
+                string timing = "DoD execution budget: " + Timing;
                 if (!(result.GateCommandOutput ?? String.Empty).Contains(Environment.NewLine + timing, StringComparison.Ordinal))
                     result.GateCommandOutput = (result.GateCommandOutput ?? String.Empty) + Environment.NewLine + timing;
                 if (_FailureReason == null) return result;

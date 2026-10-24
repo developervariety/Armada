@@ -1131,6 +1131,7 @@ namespace Armada.Test.Unit.Suites.Services
                             CreateWorkerMission("ten_load_budget", "vsl_load_budget"),
                             new Dock { WorktreePath = boundedPath }).ConfigureAwait(false);
                         AssertFalse(bounded.Passed, "Host-load recovery cannot reset an explicit profile's exhausted execution budget.");
+                        AssertTrue(bounded.HostLoadTimeout, "The exhausted budget retains measured host-load context without starting a fresh attempt.");
                         AssertEqual(1, CountCommandRuns(boundedPath), "The exhausted command must not start again after load falls.");
                         AssertTrue(File.Exists(Path.Combine(boundedPath, "hang.marker")), "The original command actually started before its timeout.");
                     }

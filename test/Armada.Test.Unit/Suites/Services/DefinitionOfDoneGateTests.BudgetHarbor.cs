@@ -98,6 +98,10 @@ namespace Armada.Test.Unit.Suites.Services
                 channel.OutputReadDelay = TimeSpan.FromMilliseconds(20);
                 DefinitionOfDoneResult fits = await EvaluateAsync().ConfigureAwait(false);
                 AssertTrue(fits.Passed, "A Harbor full command and retry that fit 30 seconds may pass.");
+                AssertContains("DoD execution budget summary", fits.GateCommandOutput ?? String.Empty,
+                    "The final gate retains budget timing even when an isolated pass is not full-suite proof.");
+                AssertContains("command_execution_ms=28501", fits.GateCommandOutput ?? String.Empty,
+                    "The retained total includes the full command and its isolated retry.");
                 AssertEqual("30,1", String.Join(",", channel.Timeouts), "The retry receives only one whole remaining second.");
                 AssertEqual(2, channel.VerificationCount, "The successful case really entered the isolated retry.");
                 AssertTrue(channel.SawBoundRetry, "The retry names the actual first output, Check identity and failing test.");

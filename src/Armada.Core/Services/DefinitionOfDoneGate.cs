@@ -209,6 +209,13 @@ namespace Armada.Core.Services
                     // commands (a vessel suite lock, for example), at any load average; it runs once more as well, and so
                     // does a command still writing output at its limit, which was working rather than hung. The re-run
                     // holds the host alone, so neither another command's load nor a lock both take can reach it.
+                    if (!run.CancelledByMission && !result.Passed && result.TimedOut && DeclaredExecutionBudgetFailed)
+                    {
+                        // Keep the actual host context without replenishing an exhausted budget.
+                        HostLoadReading atLimit = _HostLoad.Read();
+                        result.HostLoadTimeout |= result.FailureClass == DefinitionOfDoneFailureClassEnum.Timeout
+                            && (_HostLoad.RanOverloaded(atLimit) || result.TimedOutOnSharedHost || result.TimedOutWhileProgressing);
+                    }
                     if (!run.CancelledByMission
                         && !result.Passed
                         && result.TimedOut
@@ -253,6 +260,7 @@ namespace Armada.Core.Services
                     throw new DefinitionOfDoneGateCancelledException(mission.Id);
                 }
 
+                _ExecutionBudgets.Value?.AppendSummary(result);
                 return result;
             }
         }
