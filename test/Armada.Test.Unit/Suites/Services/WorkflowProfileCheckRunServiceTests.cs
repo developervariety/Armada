@@ -463,7 +463,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Task<CheckRun>? retriedExecution = null;
                         try
                         {
-                            retriedExecution = bounded.RunPendingAsync(auth, retryPending.Id, fixtureStop.Token);
+                            retriedExecution = bounded.RunPendingAsync(auth, retryPending.Id, token: fixtureStop.Token);
                             await WaitUntilAsync(() => File.Exists(readyFile)).ConfigureAwait(false);
                             string blockerKey = "retry-budget-holder-" + Guid.NewGuid().ToString("N");
                             blockerRequest = HostWideCommandLock.AcquireAloneAsync(blockerKey, "retry execution budget test", fixtureStop.Token);
