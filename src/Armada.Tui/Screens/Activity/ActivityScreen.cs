@@ -5,6 +5,7 @@ namespace Armada.Tui.Screens.Activity
     using System.Globalization;
     using System.Linq;
     using System.Threading.Tasks;
+    using Armada.Client;
     using Armada.Client.Models;
     using Armada.Core.Models;
     using Armada.Tui.Input;
@@ -175,7 +176,7 @@ namespace Armada.Tui.Screens.Activity
         /// <summary>
         /// The timeline query for the current filters (the dashboard's <c>buildQuery</c>).
         /// </summary>
-        /// <param name="pageSize">Page size (250 for the list, 5000 for exports).</param>
+        /// <param name="pageSize">Page size (250 for the list, 500 per page for exports).</param>
         /// <returns>Query.</returns>
         public HistoricalTimelineQuery BuildQuery(int pageSize = 250)
         {
@@ -296,7 +297,7 @@ namespace Armada.Tui.Screens.Activity
         }
 
         /// <summary>
-        /// Ask for a path and export the current view (up to 5000 entries) as JSON, CSV, or Markdown.
+        /// Ask for a path and export the whole filtered view, every page, as JSON, CSV, or Markdown.
         /// </summary>
         /// <param name="format">"json", "csv", or "md".</param>
         public void Export(string format)
@@ -316,10 +317,11 @@ namespace Armada.Tui.Screens.Activity
             if (Exporting != null) return;
             Exporting = format;
             UpdateExportButtons();
-            HistoricalTimelineQuery query = BuildQuery(5000);
-            ScreenOps.Run(Context, () => Context.Client.EnumerateHistoryTimelineAsync(query), result =>
+            // Export the whole filtered view, every page (the dashboard's exportCurrentView); one request is capped at 1000.
+            HistoricalTimelineQuery query = BuildQuery(500);
+            ScreenOps.Run(Context, () => ReadAllHistoryAsync(query), all =>
             {
-                List<HistoricalTimelineEntry> all = result?.Objects ?? new List<HistoricalTimelineEntry>();
+                query.PageNumber = 1;
                 DateTime now = Context.Clock.UtcNow;
                 string content = format == "json" ? ActivityExports.Json(query, all, now)
                     : format == "csv" ? ActivityExports.Csv(all)
@@ -449,6 +451,15 @@ namespace Armada.Tui.Screens.Activity
         #endregion
 
         #region Private-Methods
+
+        private Task<List<HistoricalTimelineEntry>> ReadAllHistoryAsync(HistoricalTimelineQuery query)
+        {
+            return ArmadaPaging.ReadAllAsync<HistoricalTimelineEntry>((page, token) =>
+            {
+                query.PageNumber = page;
+                return Context.Client.EnumerateHistoryTimelineAsync(query, token);
+            });
+        }
 
         private void ConfigureSelect(SelectField<string> field, string allLabel)
         {

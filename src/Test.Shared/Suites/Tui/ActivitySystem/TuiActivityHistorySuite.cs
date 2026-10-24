@@ -126,7 +126,7 @@ namespace Test.Shared.Suites.Tui.ActivitySystem
                         TuiCase.Contains(md, "# Armada History Export", "md heading");
                         TuiCase.Contains(md, "Entries: 3", "md count");
                         TuiCase.Contains(md, "- Source: deployment", "md source");
-                        AssertTrue(stub.BodiesFor<Armada.Core.Models.HistoricalTimelineQuery>("POST", "/api/v1/history/enumerate").Any(q => q.PageSize == 5000), "export page size");
+                        AssertTrue(stub.BodiesFor<Armada.Core.Models.HistoricalTimelineQuery>("POST", "/api/v1/history/enumerate").Any(q => q.PageSize == 500 && q.PageNumber == 1), "export reads pages of 500 from the first");
                     }
                 }
                 finally
