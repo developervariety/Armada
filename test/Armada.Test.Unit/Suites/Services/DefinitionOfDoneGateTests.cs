@@ -1115,6 +1115,25 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(8.0, record.OverloadThreshold, "overloaded means above twice the core count");
                     AssertTrue(record.LoadFell, "load fell before the re-run");
                     AssertEqual(60.0, record.WaitedSeconds, "two 30-second rechecks were waited on the injected clock");
+
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        string boundedPath = Path.Combine(worktreePath, "bounded-load-retry");
+                        Directory.CreateDirectory(boundedPath);
+                        await EnsureVesselWithProfileAsync(testDb, "ten_load_budget", "vsl_load_budget",
+                            boundedPath, HangOnceCommand(), null, vesselName: "Explicit Load Budget Vessel",
+                            gateCommandTimeoutSeconds: 30).ConfigureAwait(false);
+                        FakeHostLoad boundedLoad = new FakeHostLoad(4, 3.0, 20.0, 3.0);
+                        FastTimeoutGate boundedGate = new FastTimeoutGate(
+                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 900 },
+                            testDb.Driver, logging, TimeSpan.FromSeconds(1), boundedLoad.Monitor);
+                        DefinitionOfDoneResult bounded = await boundedGate.EvaluateAsync(
+                            CreateWorkerMission("ten_load_budget", "vsl_load_budget"),
+                            new Dock { WorktreePath = boundedPath }).ConfigureAwait(false);
+                        AssertFalse(bounded.Passed, "Host-load recovery cannot reset an explicit profile's exhausted execution budget.");
+                        AssertEqual(1, CountCommandRuns(boundedPath), "The exhausted command must not start again after load falls.");
+                        AssertTrue(File.Exists(Path.Combine(boundedPath, "hang.marker")), "The original command actually started before its timeout.");
+                    }
                 }
                 finally
                 {
@@ -1354,6 +1373,49 @@ namespace Armada.Test.Unit.Suites.Services
                     DefinitionOfDoneConfiguration globalConfig = await globalGate.DescribeAsync(globalMission).ConfigureAwait(false);
                     AssertEqual(900, globalConfig.CommandTimeoutSeconds, "the effective configuration reports the global limit");
                     AssertEqual(DefinitionOfDoneGate.CommandTimeoutSettingsSource, globalConfig.CommandTimeoutSource, "the limit is named as the settings'");
+
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        string retryPath = Path.Combine(withLimit, "aggregate-retry");
+                        Directory.CreateDirectory(retryPath);
+                        const string failingName = "Sample.Tests.BudgetFixture.Completes_within_bound";
+                        string fullCommand = "sleep 0.1; printf '  Failed " + failingName
+                            + " [1 ms]\\n0 passed; 1 failed.\\n'; exit 1";
+                        string retryCommand = "touch retry-started; sleep 0.1; exit 0";
+                        await EnsureVesselWithProfileAsync(testDb, "ten_retry_budget", "vsl_retry_budget",
+                            retryPath, null, fullCommand, vesselName: "Explicit Retry Budget Vessel",
+                            isolatedTestRerunCommand: retryCommand, gateCommandTimeoutSeconds: 30).ConfigureAwait(false);
+                        DefinitionOfDoneSettings retrySettings = new DefinitionOfDoneSettings
+                        {
+                            Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 900
+                        };
+                        FastTimeoutGate fittingGate = new FastTimeoutGate(retrySettings, testDb.Driver, logging, TimeSpan.FromSeconds(1));
+                        Mission retryMission = CreateWorkerMission("ten_retry_budget", "vsl_retry_budget");
+                        DefinitionOfDoneResult fitting = await fittingGate.EvaluateAsync(retryMission,
+                            new Dock { WorktreePath = retryPath }).ConfigureAwait(false);
+                        bool fittingEnteredRetry = File.Exists(Path.Combine(retryPath, "retry-started"));
+                        File.Delete(Path.Combine(retryPath, "retry-started"));
+                        List<WorkflowProfile> retryProfiles = await testDb.Driver.WorkflowProfiles.EnumerateAllAsync(
+                            new WorkflowProfileQuery { TenantId = "ten_retry_budget", VesselId = "vsl_retry_budget" }).ConfigureAwait(false);
+                        AssertEqual(1, retryProfiles.Count);
+                        WorkflowProfile retryProfile = retryProfiles[0];
+                        retryProfile.UnitTestCommand = fullCommand.Replace("sleep 0.1", "sleep 0.65", StringComparison.Ordinal);
+                        retryProfile.IsolatedTestRerunCommand = retryCommand.Replace("sleep 0.1", "sleep 0.65", StringComparison.Ordinal);
+                        await testDb.Driver.WorkflowProfiles.UpdateAsync(retryProfile).ConfigureAwait(false);
+                        FastTimeoutGate lateGate = new FastTimeoutGate(retrySettings, testDb.Driver, logging, TimeSpan.FromSeconds(1));
+                        DefinitionOfDoneResult late = await lateGate.EvaluateAsync(retryMission,
+                            new Dock { WorktreePath = retryPath }).ConfigureAwait(false);
+                        AssertTrue(fittingEnteredRetry && File.Exists(Path.Combine(retryPath, "retry-started")),
+                            "Both cases must enter retry; a timeout of the first command is not aggregate-budget proof.");
+                        AssertTrue(fitting.Passed, "An isolated retry that fits the remaining execution budget may pass.");
+                        AssertFalse(late.Passed, "The full command and isolated retry share the explicit execution budget.");
+                        AssertTrue(fittingGate.ConfiguredSeconds.Count > 0 && lateGate.ConfiguredSeconds.Count > 0,
+                            "The native timeout seam resolved both execution budgets.");
+                        foreach (int configured in fittingGate.ConfiguredSeconds)
+                            AssertEqual(30, configured, "The fitting native retry uses the profile limit, never the global limit.");
+                        foreach (int configured in lateGate.ConfiguredSeconds)
+                            AssertEqual(30, configured, "The bounded native retry uses the profile limit, never the global limit.");
+                    }
                 }
                 finally
                 {
