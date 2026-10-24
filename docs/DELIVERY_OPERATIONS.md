@@ -522,6 +522,15 @@ outcomes remain available for recovery. A late evaluation reads the durable
 mission and voyage cancellation state after registration, before waiting or
 running commands. Failed captain recall leaves the voyage and its gate active.
 
+Direct landing also reads stored mission and voyage cancellation after
+integration validation, before it pushes or advances the target ref. Operator
+mission and voyage cancellation share that publication boundary in one Admiral
+process. The suite and captain recall run outside it. When cancellation is
+durable first, publication is refused, the source branch stays available, and
+late landing work emits no completion or landing-failure event. This does not
+stop an integration Check already running or undo a ref that advanced before
+cancellation. The merge-queue path has separate publication control.
+
 A Check command may run for 30 minutes. The time starts when the process starts,
 which is after the Check holds its runner place and the host command slot, so a
 Check that queued for hours still gets the full time. On every path that ends a

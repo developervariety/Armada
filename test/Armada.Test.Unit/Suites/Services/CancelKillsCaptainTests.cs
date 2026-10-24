@@ -61,7 +61,10 @@ namespace Armada.Test.Unit.Suites.Services
                         await Task.CompletedTask;
                     };
 
-                    RecordingRecallAdmiralDouble admiralDouble = new RecordingRecallAdmiralDouble(testDb.Driver);
+                    RecordingRecallAdmiralDouble admiralDouble = new RecordingRecallAdmiralDouble(testDb.Driver)
+                    {
+                        FailActiveMissionOnRecall = true
+                    };
 
                     Func<JsonElement?, Task<object>>? cancelHandler = null;
                     McpVoyageTools.Register(
@@ -80,6 +83,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(admiralDouble.RecalledCaptainIds.Contains(captain.Id),
                         "The in-flight captain must be recalled, which stops its agent process and resets it");
 
+                    AssertTrue(admiralDouble.MissionsFailedDuringRecall.Contains(mission.Id),
+                        "Recall must persist its normal active-mission Failed state before voyage cancellation finishes");
                     Mission? readMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Cancelled, readMission!.Status, "InProgress mission must be cancelled");
                     AssertNull(readMission.ProcessId, "Mission ProcessId must be cleared");

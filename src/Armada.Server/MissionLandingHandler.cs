@@ -186,6 +186,11 @@ namespace Armada.Server
         /// </summary>
         public async Task HandleMissionCompleteAsync(Mission mission, Dock dock)
         {
+            using (await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id).ConfigureAwait(false))
+            {
+                if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission).ConfigureAwait(false)) return;
+            }
+
             if (String.IsNullOrEmpty(dock.WorktreePath) || String.IsNullOrEmpty(dock.BranchName))
                 return;
 
@@ -525,6 +530,8 @@ namespace Armada.Server
                         // Preserve branch on failure for retry.
                         if (landingSucceeded)
                         {
+                            using IDisposable cleanupAdmission = await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id).ConfigureAwait(false);
+                            if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission).ConfigureAwait(false)) return;
                             await CleanupMissionBranchAsync(
                                 vessel.LocalPath,
                                 vessel.WorkingDirectory,
@@ -770,6 +777,8 @@ namespace Armada.Server
             // Transition mission status based on landing result
             if (landingAttempted)
             {
+                using IDisposable admission = await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id).ConfigureAwait(false);
+                if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission).ConfigureAwait(false)) return;
                 if (landingSucceeded)
                 {
                     mission.Status = MissionStatusEnum.Complete;
@@ -917,6 +926,8 @@ namespace Armada.Server
 
         private async Task CompleteWithoutLandingAsync(Mission mission, string reason)
         {
+            using IDisposable admission = await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id).ConfigureAwait(false);
+            if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission).ConfigureAwait(false)) return;
             _Logging.Info(_Header + "mission " + mission.Id + " is not landed: " + reason);
             if (mission.Status == MissionStatusEnum.WorkProduced || mission.Status == MissionStatusEnum.LandingFailed)
             {
@@ -955,11 +966,15 @@ namespace Armada.Server
 
         private async Task RefuseLandingAsync(Mission mission, MissionStatusEnum status, string reason)
         {
-            mission.Status = status;
-            mission.FailureReason = reason;
-            mission.CompletedUtc = DateTime.UtcNow;
-            mission.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            using (await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id).ConfigureAwait(false))
+            {
+                if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission).ConfigureAwait(false)) return;
+                mission.Status = status;
+                mission.FailureReason = reason;
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            }
 
             try
             {

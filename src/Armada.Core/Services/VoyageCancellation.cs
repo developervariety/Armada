@@ -74,6 +74,7 @@ namespace Armada.Core.Services
                 return result;
 
             List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+            Dictionary<string, string> recalledActiveMissions = new Dictionary<string, string>(StringComparer.Ordinal);
             if (recallCaptain != null)
             {
                 List<string> assignedCaptains = new List<string>();
@@ -92,9 +93,24 @@ namespace Armada.Core.Services
                 {
                     // Keep the voyage nonterminal until every live writer is stopped. If recall
                     // fails, the exception escapes and occupancy remains conservative.
+                    Captain? holder = await database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+                    Mission? active = missions.FirstOrDefault(m => m.Id == holder?.CurrentMissionId
+                        && m.CaptainId == captainId
+                        && (m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.InProgress));
                     await recallCaptain(captainId, CancellationToken.None).ConfigureAwait(false);
+                    if (active != null) recalledActiveMissions[active.Id] = captainId;
                 }
             }
+
+            using IDisposable admission = await DirectLandingAdmission.AcquireAsync(database, voyage.TenantId, voyage.Id, String.Empty, token).ConfigureAwait(false);
+            Voyage? current = await database.Voyages.ReadAsync(voyage.Id, token).ConfigureAwait(false);
+            if (current == null || current.Status == VoyageStatusEnum.Cancelled || current.Status == VoyageStatusEnum.Complete)
+            {
+                result.Voyage = current ?? voyage;
+                return result;
+            }
+            voyage = current;
+            missions = await database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
 
             voyage.Status = VoyageStatusEnum.Cancelled;
             voyage.CompletedUtc = DateTime.UtcNow;
@@ -111,7 +127,10 @@ namespace Armada.Core.Services
 
             foreach (Mission mission in missions)
             {
-                if (MissionStateMachine.IsCancelledWithVoyage(mission.Status))
+                bool failedByThisRecall = mission.Status == MissionStatusEnum.Failed
+                    && recalledActiveMissions.TryGetValue(mission.Id, out string? recalledCaptainId)
+                    && String.Equals(mission.CaptainId, recalledCaptainId, StringComparison.Ordinal);
+                if (MissionStateMachine.IsCancelledWithVoyage(mission.Status) || failedByThisRecall)
                 {
                     if (!String.IsNullOrEmpty(mission.CaptainId))
                     {

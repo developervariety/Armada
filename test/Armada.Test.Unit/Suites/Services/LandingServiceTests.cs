@@ -1031,6 +1031,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await AssertCancellationDuringValidationAsync("none").ConfigureAwait(false);
                 await AssertCancellationDuringValidationAsync("voyage").ConfigureAwait(false);
                 await AssertCancellationDuringValidationAsync("mission").ConfigureAwait(false);
+                await AssertCancellationDuringValidationAsync("voyage-drift").ConfigureAwait(false);
             });
 
             // A Check that already passed at exactly the candidate commit with the same command decides the
@@ -1205,6 +1206,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string before = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
                     string remoteBefore = (await RunGitAsync(fixture.SourceDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
                     string sourceTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.LeftBranch).ConfigureAwait(false)).Trim();
+                    string expectedCancelledTarget = before;
                     await File.WriteAllTextAsync(fixture.HookFile, "while [ ! -f " + releaseFile + " ]; do sleep 0.02; done\n").ConfigureAwait(false);
                     landing = service.MergeInDedicatedWorktreeAsync(vessel, mission, "main", fixture.LeftBranch, "Merge armada mission");
                     DateTime deadline = DateTime.UtcNow.AddSeconds(10);
@@ -1212,7 +1214,12 @@ namespace Armada.Test.Unit.Suites.Services
                         await Task.Delay(10).ConfigureAwait(false);
                     AssertEqual(1, CountCheckRuns(fixture), "the actual integration command entered its held check");
                     AssertFalse(landing.IsCompleted, "validation is still held before cancellation");
-                    if (cancellation == "voyage")
+                    if (cancellation == "voyage-drift")
+                    {
+                        expectedCancelledTarget = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.RightBranch).ConfigureAwait(false)).Trim();
+                        await RunGitAsync(fixture.BareDir, "update-ref", "refs/heads/main", expectedCancelledTarget, before).ConfigureAwait(false);
+                    }
+                    if (cancellation == "voyage" || cancellation == "voyage-drift")
                     {
                         await VoyageCancellation.CancelVoyageAsync(testDb.Driver, voyage, "operator cancel during validation")
                             .WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
@@ -1240,7 +1247,8 @@ namespace Armada.Test.Unit.Suites.Services
                     string targetAfter = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
                     string remoteAfter = (await RunGitAsync(fixture.SourceDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
                     AssertEqual(cancellation == "none", landed, "only the uncancelled candidate may publish after a green integration check");
-                    AssertEqual(cancellation == "none" ? sourceTip : before, targetAfter, "cancelled work cannot advance the bare target");
+                    AssertEqual(cancellation == "none" ? sourceTip : expectedCancelledTarget, targetAfter,
+                        "cancelled work cannot advance the bare target or undo another actor's legitimate target move");
                     AssertEqual(cancellation == "none" ? sourceTip : remoteBefore, remoteAfter, "cancelled work cannot advance the remote target");
                     AssertEqual(sourceTip, (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.LeftBranch).ConfigureAwait(false)).Trim(),
                         "the source branch remains available for recovery");

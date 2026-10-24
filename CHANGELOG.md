@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Direct landing rechecks stored operator cancellation after integration
+  validation and before publishing. A short shared admission boundary keeps
+  cancellation and publication in order without holding it during the suite.
+  Cancelled source work stays available, and late completion does not emit
+  false landing success or failure events.
+
 - A headless Harbor console runs resolved agent commands through independent
   job supervisors. Private bounded journals retain process start identity and
   ordered output across console restart. Authenticated reconnect replays output

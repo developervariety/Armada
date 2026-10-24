@@ -64,6 +64,7 @@ namespace Armada.Core.Services
                     "Mission " + mission.Id + " is " + mission.Status + " and cannot be cancelled; a finished mission keeps its outcome.");
             }
 
+            bool activeOnEntry = mission.Status == MissionStatusEnum.Assigned || mission.Status == MissionStatusEnum.InProgress;
             string? recalledCaptainId = null;
             if (!String.IsNullOrEmpty(mission.CaptainId))
             {
@@ -102,6 +103,18 @@ namespace Armada.Core.Services
                     }
                 }
             }
+
+            using IDisposable admission = await DirectLandingAdmission.AcquireAsync(database, mission.TenantId, mission.VoyageId, mission.Id, token).ConfigureAwait(false);
+            Mission? current = await database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            // Recall itself marks its current Assigned/InProgress mission Failed. That expected
+            // transition belongs to this cancel; unrelated terminal outcomes still keep their verdict.
+            bool failedByThisRecall = current != null && activeOnEntry && recalledCaptainId != null
+                && current.Status == MissionStatusEnum.Failed
+                && String.Equals(current.CaptainId, recalledCaptainId, StringComparison.Ordinal);
+            if (current == null || (!failedByThisRecall && !MissionStateMachine.IsValidTransition(current.Status, MissionStatusEnum.Cancelled)))
+                return MissionCancellationResult.Refused(current ?? mission, NotCancellableCode,
+                    "Mission " + mission.Id + " changed while its captain was recalled and cannot be cancelled.");
+            mission = current;
 
             mission.Status = MissionStatusEnum.Cancelled;
             if (!String.IsNullOrWhiteSpace(reason)) mission.FailureReason = reason;

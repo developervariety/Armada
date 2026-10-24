@@ -109,6 +109,8 @@ namespace Armada.Core.Services
             string? commitMessage = null,
             CancellationToken token = default)
         {
+            if (vessel == null) throw new ArgumentNullException(nameof(vessel));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
             Stopwatch elapsed = Stopwatch.StartNew();
             LandingMeasure measure = new LandingMeasure();
             try
@@ -282,10 +284,14 @@ namespace Armada.Core.Services
 
                 _Logging.Info(_Header + "retrying landing for mission " + missionId + " branch " + missionBranch);
 
-                // Transition back to WorkProduced for landing attempt
-                mission.Status = MissionStatusEnum.WorkProduced;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                // Cancellation and retry admission use the same short publication boundary.
+                using (await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id, token).ConfigureAwait(false))
+                {
+                    if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission, token).ConfigureAwait(false)) return outcome;
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
                 outcome.Attempted = true;
                 outcome.VoyageId = mission.VoyageId;
 
@@ -376,10 +382,12 @@ namespace Armada.Core.Services
                 // Ensure mission goes back to LandingFailed with the captured reason
                 try
                 {
+                    using IDisposable admission = await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id, token).ConfigureAwait(false);
                     mission = !String.IsNullOrEmpty(tenantId)
                         ? await _Database.Missions.ReadAsync(tenantId, missionId, token).ConfigureAwait(false)
                         : await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
-                    if (mission != null && mission.Status != MissionStatusEnum.LandingFailed)
+                    if (mission != null && !await DirectLandingAdmission.IsCancelledAsync(_Database, mission, token).ConfigureAwait(false)
+                        && mission.Status != MissionStatusEnum.LandingFailed)
                     {
                         mission.Status = MissionStatusEnum.LandingFailed;
                         mission.FailureReason = failureReason;
@@ -436,9 +444,17 @@ namespace Armada.Core.Services
             string worktreePath = Path.Combine(integrationRoot, mission.Id);
             Directory.CreateDirectory(integrationRoot);
 
-            measure.Attempted = true;
             while (true)
             {
+                using (await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id, token).ConfigureAwait(false))
+                {
+                    if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission, token).ConfigureAwait(false))
+                    {
+                        measure.Outcome = ArmadaMetrics.OutcomeCanceled;
+                        return false;
+                    }
+                }
+                measure.Attempted = true;
                 bool succeeded = false;
                 bool refusedByValidation = false;
                 bool worktreeCreatedThisAttempt = false;
@@ -511,6 +527,13 @@ namespace Armada.Core.Services
 
                     if (!refusedByValidation)
                     {
+                        using IDisposable admission = await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id, token).ConfigureAwait(false);
+                        if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission, token).ConfigureAwait(false))
+                        {
+                            _Logging.Info(_Header + "publication refused for cancelled mission or voyage " + mission.Id);
+                            measure.Outcome = ArmadaMetrics.OutcomeCanceled;
+                            return false;
+                        }
                         // LocalMerge lands into the local repository only -- pushing to a remote is
                         // the operator's decision, never automatic. Pushing here made every landing
                         // fail once the local default branch diverged from the remote: git rejects
@@ -617,6 +640,15 @@ namespace Armada.Core.Services
                 if (failure == null || !IsTargetBranchDrift(failure))
                 {
                     return false;
+                }
+
+                using (await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id, token).ConfigureAwait(false))
+                {
+                    if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission, token).ConfigureAwait(false))
+                    {
+                        measure.Outcome = ArmadaMetrics.OutcomeCanceled;
+                        return false;
+                    }
                 }
 
                 int maxRetries = _Settings.MaxLandingRetries;
@@ -1227,6 +1259,8 @@ namespace Armada.Core.Services
         {
             try
             {
+                using IDisposable admission = await DirectLandingAdmission.AcquireAsync(_Database, mission.TenantId, mission.VoyageId, mission.Id, token).ConfigureAwait(false);
+                if (await DirectLandingAdmission.IsCancelledAsync(_Database, mission, token).ConfigureAwait(false)) return;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             }
             catch (Exception ex)
