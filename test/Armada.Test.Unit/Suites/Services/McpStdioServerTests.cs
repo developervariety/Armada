@@ -560,7 +560,7 @@ namespace Armada.Test.Unit.Suites.Services
             using (HttpClient client = new HttpClient())
             {
                 client.Timeout = TimeSpan.FromSeconds(30);
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
+                client.DefaultRequestHeaders.TryAddWithoutValidation("X-Api-Key", settings.ApiKey);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
                 string endpoint = "http://127.0.0.1:" + settings.McpPort.ToString(System.Globalization.CultureInfo.InvariantCulture) + "/mcp";

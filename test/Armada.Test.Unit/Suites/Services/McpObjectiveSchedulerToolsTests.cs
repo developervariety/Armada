@@ -146,12 +146,15 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(scheduler.PausedBy == null && scheduler.PausedUtc == null, "Resume through the tool drops the attribution.");
             }).ConfigureAwait(false);
 
-            await RunTest("ClearStalePause_IsRegisteredOnlyWithCoordination_AndRequiresClearedBy", async () =>
+            await RunTest("StdioCatalog_ClearStalePauseIsUnavailableWithoutCoordination_AndRequiresClearedBy", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new ArmadaSettings());
                 Dictionary<string, Func<JsonElement?, Task<object>>> without = RegisterHandlers(testDb.Driver, scheduler);
-                AssertFalse(without.ContainsKey("armada_objective_scheduler_clear_stale_pause"), "No coordination service: a clear that cannot be announced is not offered.");
+                AssertTrue(without.ContainsKey("armada_objective_scheduler_clear_stale_pause"), "The clear tool stays visible without coordination.");
+                string unavailable = JsonSerializer.Serialize(await without["armada_objective_scheduler_clear_stale_pause"](
+                    Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
+                AssertContains("Unavailable: coordination board", unavailable, "Missing coordination returns a named unavailable result.");
 
                 CoordinationService coordination = new CoordinationService(new LoggingModule { Settings = { EnableConsole = false } }, testDb.Driver);
                 Dictionary<string, Func<JsonElement?, Task<object>>> with = RegisterHandlers(testDb.Driver, scheduler, null, coordination);
