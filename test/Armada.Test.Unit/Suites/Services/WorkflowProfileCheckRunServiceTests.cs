@@ -540,6 +540,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Vessel vessel = CreateVessel("ten_check_timeout", "usr_check_timeout", workingDirectory);
                     await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    string timeoutCommand = "printf 'timeout-stdout\\n'; printf 'timeout-stderr\\n' >&2; "
+                        + "printf '  Failed Sample.Tests.TimeoutFixture.Partial_result [5 ms]\\nFailed!  - Failed:     1, Passed:     0, Total:     1\\n'; sleep 20";
                     WorkflowProfile profile = new WorkflowProfile
                     {
                         TenantId = "ten_check_timeout",
@@ -547,7 +549,9 @@ namespace Armada.Test.Unit.Suites.Services
                         Name = "Timeout Workflow",
                         Scope = WorkflowProfileScopeEnum.Vessel,
                         VesselId = vessel.Id,
-                        BuildCommand = "sleep 20"
+                        BuildCommand = timeoutCommand,
+                        UnitTestCommand = timeoutCommand,
+                        IsolatedTestRerunCommand = "printf 'unexpected-timeout-rerun\\n'; exit 0"
                     };
                     await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
 
@@ -560,7 +564,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Type = CheckRunTypeEnum.Build,
                         Status = CheckRunStatusEnum.Pending,
                         Label = "Timed-out Build",
-                        Command = "sleep 20"
+                        Command = profile.BuildCommand
                     }).ConfigureAwait(false);
 
                     AuthContext auth = AuthContext.Authenticated("ten_check_timeout", "usr_check_timeout", false, false, "UnitTest");
@@ -568,11 +572,30 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertEqual(CheckRunStatusEnum.Failed, completed.Status);
                     AssertContains("timed out", completed.Output ?? String.Empty, "the record names the timeout");
+                    AssertContains("timeout-stdout", completed.Output ?? String.Empty, "A pending timeout retains bounded stdout.");
+                    AssertContains("timeout-stderr", completed.Output ?? String.Empty, "A pending timeout retains bounded stderr.");
                     AssertNotNull(completed.StartedUtc, "the command started");
                     AssertNotNull(completed.CompletedUtc);
                     long expected = Convert.ToInt64(Math.Round((completed.CompletedUtc!.Value - completed.StartedUtc!.Value).TotalMilliseconds));
                     AssertEqual(expected, completed.DurationMs, "the run time is the time from start to completion");
                     AssertTrue((completed.DurationMs ?? 0) >= 900, "the command ran for its one-second timeout: " + completed.DurationMs);
+
+                    CheckRun directTimeout = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.UnitTest
+                    }).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Failed, directTimeout.Status);
+                    AssertEqual(-1, directTimeout.ExitCode);
+                    AssertContains("timeout-stdout", directTimeout.Output ?? String.Empty, "A direct timeout retains bounded stdout.");
+                    AssertContains("timeout-stderr", directTimeout.Output ?? String.Empty, "A direct timeout retains bounded stderr.");
+                    AssertContains("timed out", directTimeout.Output ?? String.Empty);
+                    AssertTrue(!(directTimeout.Output ?? String.Empty).Contains("--- ISOLATED RE-RUN:", StringComparison.Ordinal),
+                        "Partial failure names from an interrupted suite must not trigger an isolated pass.");
+                    AssertContains("command_execution_ms=", directTimeout.Output ?? String.Empty);
+                    AssertTrue((directTimeout.DurationMs ?? 0) >= 900);
+                    AssertTrue(directTimeout.SatisfiedBy == null, "A timeout is an executed failure, not reused proof.");
 
                     // The declared execution budget belongs to the full run and its isolated retry
                     // together. Each command below fits one second on its own; both do not.
@@ -582,7 +605,8 @@ namespace Armada.Test.Unit.Suites.Services
                         + " [5 ms]\\nFailed!  - Failed:     1, Passed:     0, Total:     1\\n'; exit 1";
                     string retryStartedFile = Path.Combine(workingDirectory, "retry-started");
                     string quotedRetryStartedFile = "'" + retryStartedFile.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
-                    profile.IsolatedTestRerunCommand = "touch " + quotedRetryStartedFile + "; sleep 0.65; printf 'retry finished\\n'; exit 0";
+                    profile.IsolatedTestRerunCommand = "touch " + quotedRetryStartedFile
+                        + "; printf 'retry-timeout-stdout\\n'; printf 'retry-timeout-stderr\\n' >&2; sleep 0.65; printf 'retry finished\\n'; exit 0";
                     await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
 
                     CheckRun retryPending = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
@@ -613,6 +637,8 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         AssertContains("timed out", retried.Output ?? String.Empty, "the retry names its exhausted remaining timeout");
                         AssertContains(failingName, retried.Output ?? String.Empty, "The full command failed the named test before retry.");
+                        AssertContains("retry-timeout-stdout", retried.Output ?? String.Empty, "An interrupted retry retains its stdout.");
+                        AssertContains("retry-timeout-stderr", retried.Output ?? String.Empty, "An interrupted retry retains its stderr.");
                         AssertTrue((retried.DurationMs ?? 0) >= 900, "the final duration includes full and retry execution");
                     }
 
