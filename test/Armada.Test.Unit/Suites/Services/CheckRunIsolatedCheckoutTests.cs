@@ -252,7 +252,7 @@ namespace Armada.Test.Unit.Suites.Services
                         channel.RetryDurationMilliseconds = 500;
                         channel.VerificationTimeouts.Clear();
                         CheckRun fits = await RunBudgetedAsync(pending).ConfigureAwait(false);
-                        AssertEqual(CheckRunStatusEnum.Passed, fits.Status, "a measured Harbor retry can fit the remainder");
+                        AssertEqual(CheckRunStatusEnum.Passed, fits.Status, "a measured Harbor retry can fit the remainder: " + fits.Summary + "\n" + fits.Output);
                         AssertEqual("30,1", String.Join(",", channel.VerificationTimeouts),
                             "both execution paths pass the profile budget and floor the remote retry remainder");
                         AssertContains("full run failed", fits.Summary ?? String.Empty);
@@ -1391,7 +1391,7 @@ namespace Armada.Test.Unit.Suites.Services
                         bool retry = request.Verification.Rerun != null;
                         VerificationTimeouts.Add(request.Verification.TimeoutSeconds);
                         byte[] stdout = Encoding.UTF8.GetBytes(!retry && FirstExitCode != 0
-                            ? "FAIL Example.Tests.Case: assertion failed\n0 passed; 1 failed.\n"
+                            ? "Failed Example.Tests.Case [1 ms]\n0 passed; 1 failed.\n"
                             : "Tests: 2 passed, 0 failed, 2 total\n");
                         byte[] stderr = Array.Empty<byte>();
                         string outputId = "fake-output-" + checkId;
