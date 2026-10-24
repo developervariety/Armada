@@ -82,6 +82,14 @@ namespace Armada.Helm.Commands
                     }
                     armadaSettings.StallThresholdMinutes = stallThreshold;
                     break;
+                case "stagechecktimeoutminutes":
+                    if (!int.TryParse(value, out int stageCheckTimeout) || stageCheckTimeout < 1 || stageCheckTimeout > 240)
+                    {
+                        AnsiConsole.MarkupLine("[red]Invalid number. Use 1 to 240.[/]");
+                        return 1;
+                    }
+                    armadaSettings.StageCheckTimeoutMinutes = stageCheckTimeout;
+                    break;
                 case "landingmode":
                     if (!Enum.TryParse<LandingModeEnum>(value.Trim(), true, out LandingModeEnum landingMode)
                         || !Enum.IsDefined(typeof(LandingModeEnum), landingMode))
@@ -161,7 +169,7 @@ namespace Armada.Helm.Commands
                     break;
                 default:
                     AnsiConsole.MarkupLine($"[red]Unknown configuration key:[/] [bold]{Markup.Escape(settings.Key)}[/]");
-                    AnsiConsole.MarkupLine("[dim]Valid keys: dataDirectory, databasePath, logDirectory, docksDirectory, reposDirectory, admiralPort, mcpPort, heartbeatIntervalSeconds, stallThresholdMinutes, landingMode, apiKey, defaultRuntime, notifications, terminalBell, idleCaptainTimeoutSeconds, maxCaptains, messageTemplates.enableCommitMetadata, messageTemplates.enablePrMetadata, messageTemplates.commitMessageTemplate, messageTemplates.prDescriptionTemplate, messageTemplates.mergeCommitTemplate[/]");
+                    AnsiConsole.MarkupLine("[dim]Valid keys: dataDirectory, databasePath, logDirectory, docksDirectory, reposDirectory, admiralPort, mcpPort, heartbeatIntervalSeconds, stallThresholdMinutes, stageCheckTimeoutMinutes, landingMode, apiKey, defaultRuntime, notifications, terminalBell, idleCaptainTimeoutSeconds, maxCaptains, messageTemplates.enableCommitMetadata, messageTemplates.enablePrMetadata, messageTemplates.commitMessageTemplate, messageTemplates.prDescriptionTemplate, messageTemplates.mergeCommitTemplate[/]");
                     return 1;
             }
 

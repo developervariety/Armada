@@ -192,6 +192,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Time limit, in minutes, for each stage-check command a vessel's workflow profile defines (its build and unit-test
+        /// commands, run in the dock after a stage's agent exits). A command that runs longer is reported as a timed-out
+        /// check. Set it above the slowest command's real duration, or give the profile a narrower test command.
+        /// Must be in range [1, 240].
+        /// </summary>
+        public int StageCheckTimeoutMinutes
+        {
+            get => _StageCheckTimeoutMinutes;
+            set
+            {
+                if (value < 1 || value > 240) throw new ArgumentOutOfRangeException(nameof(StageCheckTimeoutMinutes), "Must be between 1 and 240");
+                _StageCheckTimeoutMinutes = value;
+            }
+        }
+
+        /// <summary>
         /// Maximum number of automatic landing retries when landing fails due to target-branch drift.
         /// Set to 0 to disable auto-retry. Must be in range [0, 10].
         /// </summary>
@@ -885,6 +901,7 @@ namespace Armada.Core.Settings
         private int _CaptainCrashLoopWindowMinutes = 15;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
+        private int _StageCheckTimeoutMinutes = Constants.DefaultStageCheckTimeoutMinutes;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
         private int _MaxMissionRuntimeMinutes = Constants.DefaultMaxMissionRuntimeMinutes;
         private int _ReviewTimeoutMinutes = Constants.DefaultReviewTimeoutMinutes;

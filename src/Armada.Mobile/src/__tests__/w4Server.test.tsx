@@ -96,7 +96,7 @@ describe('Settings > Server', () => {
     await waitFor(() => expect(screen.getByTestId('settings-landing-mode-option-LocalMerge')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('settings-landing-mode-option-LocalMerge'));
     await act(async () => { await fireEvent.press(screen.getByTestId('settings-agent-save')); });
-    expect(api.updateSettings).toHaveBeenCalledWith({ heartbeatIntervalSeconds: 30, stallThresholdMinutes: 10, idleCaptainTimeoutSeconds: 0, landingMode: 'LocalMerge' });
+    expect(api.updateSettings).toHaveBeenCalledWith({ heartbeatIntervalSeconds: 30, stallThresholdMinutes: 10, stageCheckTimeoutMinutes: 15, idleCaptainTimeoutSeconds: 0, landingMode: 'LocalMerge' });
     await waitFor(() => expect(h.notifications().toasts.map((x) => x.message)).toContain('Agent settings saved'));
   });
 

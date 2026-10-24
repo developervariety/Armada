@@ -34,6 +34,7 @@ namespace Armada.Helm.Commands
             table.AddRow("mcpPort", armadaSettings.McpPort.ToString());
             table.AddRow("heartbeatIntervalSeconds", armadaSettings.HeartbeatIntervalSeconds.ToString());
             table.AddRow("stallThresholdMinutes", armadaSettings.StallThresholdMinutes.ToString());
+            table.AddRow("stageCheckTimeoutMinutes", armadaSettings.StageCheckTimeoutMinutes.ToString());
             table.AddRow("landingMode", (armadaSettings.LandingMode ?? LandingModeEnum.MergeAndPush).ToString());
             table.AddRow("apiKey", String.IsNullOrEmpty(armadaSettings.ApiKey) ? "[dim](not set)[/]" : "[dim]****[/]");
             table.AddRow("messageTemplates.enableCommitMetadata", armadaSettings.MessageTemplates.EnableCommitMetadata.ToString());

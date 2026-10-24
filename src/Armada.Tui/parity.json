@@ -4561,6 +4561,14 @@
     },
     {
       "kind": "setting",
+      "key": "settings.stageCheckTimeoutMinutes",
+      "status": "implemented",
+      "tui": "ServerSettingsScreen",
+      "workstream": "W7.7",
+      "notes": ""
+    },
+    {
+      "kind": "setting",
       "key": "settings.stallThresholdMinutes",
       "status": "implemented",
       "tui": "ServerSettingsScreen",

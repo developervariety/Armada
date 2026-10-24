@@ -105,6 +105,7 @@ export function AgentSettingsSection({ settings, locked, onSaved }: SectionProps
   const draft = useDraft({
     heartbeatIntervalSeconds: String(settings.heartbeatIntervalSeconds),
     stallThresholdMinutes: String(settings.stallThresholdMinutes),
+    stageCheckTimeoutMinutes: String(settings.stageCheckTimeoutMinutes ?? 15),
     idleCaptainTimeoutSeconds: String(settings.idleCaptainTimeoutSeconds),
     landingMode: settings.landingMode || DEFAULT_GLOBAL_LANDING_MODE,
     blockDependentsOfFailedStages: settings.blockDependentsOfFailedStages ?? false,
@@ -119,6 +120,7 @@ export function AgentSettingsSection({ settings, locked, onSaved }: SectionProps
     <SettingsSection title={t('Agent Settings')} description={t('Settings that control captain monitoring, stalling, cleanup, and how finished missions land.')} testID="settings-agent">
       <NumberField label={t('Heartbeat Interval (seconds)')} hint={t('Health check interval, minimum 5 seconds')} value={v.heartbeatIntervalSeconds} onChange={(x) => draft.set({ heartbeatIntervalSeconds: x })} disabled={locked} />
       <NumberField label={t('Stall Threshold (minutes)')} hint={t('Minutes before a captain is considered stalled')} value={v.stallThresholdMinutes} onChange={(x) => draft.set({ stallThresholdMinutes: x })} disabled={locked} />
+      <NumberField label={t('Stage Check Timeout (minutes)')} hint={t('Minutes each stage-check command may run')} value={v.stageCheckTimeoutMinutes} onChange={(x) => draft.set({ stageCheckTimeoutMinutes: x })} disabled={locked} />
       <NumberField label={t('Idle Captain Timeout (seconds)')} hint={t('Auto-remove idle captains after this many seconds (0 = disabled)')} value={v.idleCaptainTimeoutSeconds} onChange={(x) => draft.set({ idleCaptainTimeoutSeconds: x })} disabled={locked} />
       <SelectField
         label={t('Default Landing Mode')}
@@ -151,6 +153,7 @@ export function AgentSettingsSection({ settings, locked, onSaved }: SectionProps
           const ok = await save({
             heartbeatIntervalSeconds: intOr(v.heartbeatIntervalSeconds, 5),
             stallThresholdMinutes: intOr(v.stallThresholdMinutes, 1),
+            stageCheckTimeoutMinutes: Math.min(240, Math.max(1, intOr(v.stageCheckTimeoutMinutes, 15))),
             idleCaptainTimeoutSeconds: intOr(v.idleCaptainTimeoutSeconds, 0),
             landingMode: v.landingMode || DEFAULT_GLOBAL_LANDING_MODE,
             ...(blockingSupported ? { blockDependentsOfFailedStages: v.blockDependentsOfFailedStages } : {}),

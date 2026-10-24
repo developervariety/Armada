@@ -4617,6 +4617,14 @@
     },
     {
       "kind": "setting",
+      "key": "settings.stageCheckTimeoutMinutes",
+      "status": "implemented",
+      "mobile": "src/screens/system/ServerSettingsTab.tsx",
+      "workstream": "W4.4",
+      "notes": ""
+    },
+    {
+      "kind": "setting",
       "key": "settings.stallThresholdMinutes",
       "status": "implemented",
       "mobile": "src/screens/system/ServerSettingsTab.tsx",

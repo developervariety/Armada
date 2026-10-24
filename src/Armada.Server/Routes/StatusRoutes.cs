@@ -487,6 +487,12 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Retention days must be non-negative; zero disables expiry." };
                 }
+                if (body.StageCheckTimeoutMinutes.HasValue && (body.StageCheckTimeoutMinutes.Value < 1 || body.StageCheckTimeoutMinutes.Value > 240))
+                {
+                    // Checked before anything is applied, so a refused request changes no setting.
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "StageCheckTimeoutMinutes must be between 1 and 240." };
+                }
                 if (body.DataRetentionDays.HasValue) _settings.DataRetentionDays = body.DataRetentionDays.Value;
                 if (body.RequestHistoryRetentionDays.HasValue) _settings.RequestHistoryRetentionDays = body.RequestHistoryRetentionDays.Value;
 
@@ -504,6 +510,9 @@ namespace Armada.Server.Routes
 
                 if (body.StallThresholdMinutes.HasValue)
                     _settings.StallThresholdMinutes = body.StallThresholdMinutes.Value;
+
+                if (body.StageCheckTimeoutMinutes.HasValue)
+                    _settings.StageCheckTimeoutMinutes = body.StageCheckTimeoutMinutes.Value;
 
                 if (body.IdleCaptainTimeoutSeconds.HasValue)
                     _settings.IdleCaptainTimeoutSeconds = body.IdleCaptainTimeoutSeconds.Value;
@@ -716,6 +725,7 @@ namespace Armada.Server.Routes
                 MaxCaptains = _settings.MaxCaptains,
                 HeartbeatIntervalSeconds = _settings.HeartbeatIntervalSeconds,
                 StallThresholdMinutes = _settings.StallThresholdMinutes,
+                StageCheckTimeoutMinutes = _settings.StageCheckTimeoutMinutes,
                 IdleCaptainTimeoutSeconds = _settings.IdleCaptainTimeoutSeconds,
                 PlanningSessionInactivityTimeoutMinutes = _settings.PlanningSessionInactivityTimeoutMinutes,
                 PlanningSessionAbandonmentTimeoutMinutes = _settings.PlanningSessionAbandonmentTimeoutMinutes,

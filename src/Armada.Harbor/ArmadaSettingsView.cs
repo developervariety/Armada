@@ -33,6 +33,7 @@ namespace Armada.Harbor
         private readonly NumericUpDown _MaxCaptains = Number(0, 1000);
         private readonly NumericUpDown _HeartbeatSeconds = Number(5, 3600);
         private readonly NumericUpDown _StallMinutes = Number(1, 1440);
+        private readonly NumericUpDown _StageCheckMinutes = Number(1, 240);
         private readonly NumericUpDown _IdleCaptainSeconds = Number(0, 86400);
         private readonly NumericUpDown _PlanningInactivityMinutes = Number(0, 10080);
         private readonly NumericUpDown _PlanningAbandonMinutes = Number(0, 43200);
@@ -109,6 +110,7 @@ namespace Armada.Harbor
             AddField(form, "Max captains", _MaxCaptains, "0 means no limit.", "The most captains the Admiral may have registered at once. Creating another fails once the limit is reached. 0 means no limit.");
             AddField(form, "Heartbeat interval (seconds)", _HeartbeatSeconds, "At least 5.", "Seconds between the Admiral's health checks of running captains (at least 5). Shorter notices a dead captain sooner at the cost of more checks.");
             AddField(form, "Stall threshold (minutes)", _StallMinutes, "A captain with no progress this long is stalled.", "Minutes a working captain may go without any output or progress before the Admiral marks it Stalled and its mission needs attention.");
+            AddField(form, "Stage check timeout (minutes)", _StageCheckMinutes, "Each build or test check after a stage may run this long.", "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out. Set it above the slowest command, or give the workflow profile a narrower test command.");
             AddField(form, "Idle captain timeout (seconds)", _IdleCaptainSeconds, "0 keeps idle captains indefinitely.", "Seconds a captain may sit idle with no mission before the Admiral removes it automatically. Create it again when you need it. 0 keeps idle captains indefinitely.");
             AddField(form, "Planning inactivity timeout (minutes)", _PlanningInactivityMinutes, "0 never stops an inactive planning session.", "Minutes a planning session may go without a message before it is stopped. Its transcript is kept. 0 never stops an inactive session.");
             AddField(form, "Planning abandonment timeout (minutes)", _PlanningAbandonMinutes, "0 turns abandonment cleanup off.", "Minutes after which a planning session whose captain process is no longer running is reclaimed, even when the inactivity timeout is off. 0 turns this cleanup off.");
@@ -209,6 +211,7 @@ namespace Armada.Harbor
             _MaxCaptains.Value = data.MaxCaptains;
             _HeartbeatSeconds.Value = data.HeartbeatIntervalSeconds;
             _StallMinutes.Value = data.StallThresholdMinutes;
+            _StageCheckMinutes.Value = data.StageCheckTimeoutMinutes ?? 15;
             _IdleCaptainSeconds.Value = data.IdleCaptainTimeoutSeconds;
             _PlanningInactivityMinutes.Value = data.PlanningSessionInactivityTimeoutMinutes;
             _PlanningAbandonMinutes.Value = data.PlanningSessionAbandonmentTimeoutMinutes;
@@ -229,6 +232,7 @@ namespace Armada.Harbor
             if ((value = Changed(_MaxCaptains, _Loaded.MaxCaptains)).HasValue) { changes.MaxCaptains = value; count++; }
             if ((value = Changed(_HeartbeatSeconds, _Loaded.HeartbeatIntervalSeconds)).HasValue) { changes.HeartbeatIntervalSeconds = value; count++; }
             if ((value = Changed(_StallMinutes, _Loaded.StallThresholdMinutes)).HasValue) { changes.StallThresholdMinutes = value; count++; }
+            if ((value = Changed(_StageCheckMinutes, _Loaded.StageCheckTimeoutMinutes ?? 15)).HasValue) { changes.StageCheckTimeoutMinutes = value; count++; }
             if ((value = Changed(_IdleCaptainSeconds, _Loaded.IdleCaptainTimeoutSeconds)).HasValue) { changes.IdleCaptainTimeoutSeconds = value; count++; }
             if ((value = Changed(_PlanningInactivityMinutes, _Loaded.PlanningSessionInactivityTimeoutMinutes)).HasValue) { changes.PlanningSessionInactivityTimeoutMinutes = value; count++; }
             if ((value = Changed(_PlanningAbandonMinutes, _Loaded.PlanningSessionAbandonmentTimeoutMinutes)).HasValue) { changes.PlanningSessionAbandonmentTimeoutMinutes = value; count++; }

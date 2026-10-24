@@ -134,6 +134,9 @@ namespace Armada.Tui.Screens.Admin
         /// <summary>Stall threshold.</summary>
         public InputField StallThreshold { get; } = new InputField();
 
+        /// <summary>Stage check timeout.</summary>
+        public InputField StageCheckTimeout { get; } = new InputField();
+
         /// <summary>Idle captain timeout.</summary>
         public InputField IdleCaptainTimeout { get; } = new InputField();
 
@@ -586,6 +589,8 @@ namespace Armada.Tui.Screens.Admin
             ServerSettingsGroup agent = Group("agent", "Save Agent Settings", SaveAgentSettings, null);
             AddNumber(agent, "Heartbeat Interval (seconds)", HeartbeatInterval, "Health check interval, minimum 5 seconds", v => ServerSettingsRules.AtLeast(Context.Loc, v, 5, null));
             AddNumber(agent, "Stall Threshold (minutes)", StallThreshold, "Minutes before a captain is considered stalled", v => ServerSettingsRules.AtLeast(Context.Loc, v, 1, null));
+            // Empty when the server does not report it (an older Admiral): left out of the save rather than refused.
+            AddNumber(agent, "Stage Check Timeout (minutes)", StageCheckTimeout, "Minutes each stage-check command may run", v => String.IsNullOrWhiteSpace(v) ? null : ServerSettingsRules.Between(Context.Loc, v, 1, 240));
             AddNumber(agent, "Idle Captain Timeout (seconds)", IdleCaptainTimeout, "Auto-remove idle captains after this many seconds (0 = disabled)", v => ServerSettingsRules.AtLeast(Context.Loc, v, 0, null));
             DefaultLandingMode.ModalHost = Context.Modals;
             DefaultLandingMode.PickerTitle = "Default Landing Mode";
@@ -1002,6 +1007,7 @@ namespace Armada.Tui.Screens.Admin
             {
                 HeartbeatInterval.Value = Num(s.HeartbeatIntervalSeconds);
                 StallThreshold.Value = Num(s.StallThresholdMinutes);
+                StageCheckTimeout.Value = Num(s.StageCheckTimeoutMinutes);
                 IdleCaptainTimeout.Value = Num(s.IdleCaptainTimeoutSeconds);
                 DefaultLandingMode.SetValue((s.LandingMode ?? LandingModeEnum.MergeAndPush).ToString());
                 RequireHarborForLaunch.Visible = s.RequireHarborForLaunch.HasValue;
@@ -1349,6 +1355,7 @@ namespace Armada.Tui.Screens.Admin
                 SettingsData d = new SettingsData();
                 d.HeartbeatIntervalSeconds = IntOf(HeartbeatInterval);
                 d.StallThresholdMinutes = IntOf(StallThreshold);
+                d.StageCheckTimeoutMinutes = IntOf(StageCheckTimeout);
                 d.IdleCaptainTimeoutSeconds = IntOf(IdleCaptainTimeout);
                 d.LandingMode = Enum.TryParse<LandingModeEnum>(DefaultLandingMode.Value ?? "", out LandingModeEnum landingMode) ? landingMode : (LandingModeEnum?)null;
                 d.RequireHarborForLaunch = RequireHarborForLaunch.Visible ? RequireHarborForLaunch.Value : (bool?)null;

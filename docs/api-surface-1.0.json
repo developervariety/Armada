@@ -19043,6 +19043,12 @@
       "experimental": false
     },
     {
+      "key": "stageCheckTimeoutMinutes",
+      "type": "int",
+      "default": "15",
+      "experimental": false
+    },
+    {
       "key": "stallThresholdMinutes",
       "type": "int",
       "default": "10",

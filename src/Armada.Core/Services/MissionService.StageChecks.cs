@@ -84,7 +84,8 @@ namespace Armada.Core.Services
                         if (result.TimedOut)
                         {
                             _Logging.Warn(_Header + "stage check for mission " + mission.Id + " timed out running " + command);
-                            return "The stage check timed out: " + command + ". Its success has not been verified. Investigate and rerun the check.";
+                            return "The stage check timed out after " + _Settings.StageCheckTimeoutMinutes + " minutes: " + command + ". Its success has not been verified. "
+                                + "Investigate and rerun the check. If the command is simply slower than that, an operator can raise stageCheckTimeoutMinutes or give the vessel's workflow profile a narrower test command.";
                         }
 
                         if (result.ExitCode != 0)
@@ -121,8 +122,6 @@ namespace Armada.Core.Services
                 return "The stage verification could not run: " + ex.Message + ". Restore dependencies and rerun the configured checks.";
             }
         }
-
-        private static readonly TimeSpan _StageVerificationTimeout = TimeSpan.FromMinutes(15);
 
         /// <inheritdoc />
         public Task CommitDockWorkAsync(Mission mission, Captain captain, Dock dock, CancellationToken token = default)

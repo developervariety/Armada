@@ -6013,7 +6013,10 @@
         "{{count}} of them are pinned.": "{{count}} de ellas están fijadas.",
         "Conversations deleted.": "Conversaciones eliminadas.",
         "The conversations could not be deleted.": "No se pudieron eliminar las conversaciones.",
-        "{{count}} conversations were not deleted.": "No se eliminaron {{count}} conversaciones."
+        "{{count}} conversations were not deleted.": "No se eliminaron {{count}} conversaciones.",
+        "Stage Check Timeout (minutes)": "Tiempo límite de la comprobación de etapa (minutos)",
+        "Minutes each stage-check command may run": "Minutos que puede durar cada comando de comprobación de etapa",
+        "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "Minutos que puede tardar cada comando de comprobación de etapa (los comandos de compilación y pruebas unitarias de un repositorio, ejecutados tras una etapa) antes de considerarse agotado (predeterminado 15, de 1 a 240). Póngalo por encima del comando más lento o dé al perfil de flujo de trabajo un comando de prueba más acotado."
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -10963,7 +10966,10 @@
         "{{count}} of them are pinned.": "其中 {{count}} 个已置顶。",
         "Conversations deleted.": "对话已删除。",
         "The conversations could not be deleted.": "无法删除这些对话。",
-        "{{count}} conversations were not deleted.": "{{count}} 个对话未被删除。"
+        "{{count}} conversations were not deleted.": "{{count}} 个对话未被删除。",
+        "Stage Check Timeout (minutes)": "阶段检查超时（分钟）",
+        "Minutes each stage-check command may run": "每个阶段检查命令可运行的分钟数",
+        "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "每个阶段检查命令（阶段完成后运行的仓库构建和单元测试命令）在被判定为超时前可运行的分钟数（默认 15，范围 1 到 240）。请将其设置为高于最慢命令的耗时，或为工作流配置提供范围更小的测试命令。"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15876,7 +15882,10 @@
         "{{count}} of them are pinned.": "其中 {{count}} 個已置頂。",
         "Conversations deleted.": "對話已刪除。",
         "The conversations could not be deleted.": "無法刪除這些對話。",
-        "{{count}} conversations were not deleted.": "{{count}} 個對話未被刪除。"
+        "{{count}} conversations were not deleted.": "{{count}} 個對話未被刪除。",
+        "Stage Check Timeout (minutes)": "階段檢查逾時（分鐘）",
+        "Minutes each stage-check command may run": "每個階段檢查指令可執行的分鐘數",
+        "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "每個階段檢查指令（階段完成後執行的儲存庫建置與單元測試指令）在被判定逾時前可執行的分鐘數（預設 15，範圍 1 到 240）。請設定為高於最慢指令的耗時，或為工作流程設定檔提供範圍較小的測試指令。"
       },
       "sections": {}
     },
@@ -20749,7 +20758,10 @@
         "{{count}} of them are pinned.": "當中 {{count}} 個已置頂。",
         "Conversations deleted.": "對話已刪除。",
         "The conversations could not be deleted.": "無法刪除呢啲對話。",
-        "{{count}} conversations were not deleted.": "{{count}} 個對話無刪除到。"
+        "{{count}} conversations were not deleted.": "{{count}} 個對話無刪除到。",
+        "Stage Check Timeout (minutes)": "階段檢查逾時（分鐘）",
+        "Minutes each stage-check command may run": "每個階段檢查指令可以行幾多分鐘",
+        "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "每個階段檢查指令（階段完成後行嘅儲存庫建置同單元測試指令）喺被當作逾時之前可以行幾多分鐘（預設 15，範圍 1 至 240）。請設定高過最慢嗰個指令，或者俾工作流程設定檔一個範圍細啲嘅測試指令。"
       },
       "sections": {}
     },
@@ -25638,7 +25650,10 @@
         "{{count}} of them are pinned.": "そのうち {{count}} 件はピン留めされています。",
         "Conversations deleted.": "会話を削除しました。",
         "The conversations could not be deleted.": "会話を削除できませんでした。",
-        "{{count}} conversations were not deleted.": "{{count}} 件の会話は削除されませんでした。"
+        "{{count}} conversations were not deleted.": "{{count}} 件の会話は削除されませんでした。",
+        "Stage Check Timeout (minutes)": "ステージチェックのタイムアウト（分）",
+        "Minutes each stage-check command may run": "各ステージチェックコマンドの実行可能時間（分）",
+        "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "各ステージチェックコマンド（ステージ後に実行されるリポジトリのビルドと単体テストのコマンド）がタイムアウトと見なされるまでの分数（既定値 15、1～240）。最も遅いコマンドより長く設定するか、ワークフロープロファイルにより範囲の狭いテストコマンドを指定してください。"
       },
       "sections": {}
     },
@@ -30518,7 +30533,10 @@
         "{{count}} of them are pinned.": "{{count}} davon sind angepinnt.",
         "Conversations deleted.": "Unterhaltungen gelöscht.",
         "The conversations could not be deleted.": "Die Unterhaltungen konnten nicht gelöscht werden.",
-        "{{count}} conversations were not deleted.": "{{count}} Unterhaltungen wurden nicht gelöscht."
+        "{{count}} conversations were not deleted.": "{{count}} Unterhaltungen wurden nicht gelöscht.",
+        "Stage Check Timeout (minutes)": "Zeitlimit der Stufenprüfung (Minuten)",
+        "Minutes each stage-check command may run": "Minuten, die jeder Stufenprüfungsbefehl laufen darf",
+        "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "Minuten, die jeder Stufenprüfungsbefehl (Build- und Unit-Test-Befehle eines Repositorys, nach einer Stufe ausgeführt) laufen darf, bevor er als abgelaufen gilt (Standard 15, 1 bis 240). Setzen Sie den Wert über den langsamsten Befehl oder geben Sie dem Workflow-Profil einen engeren Testbefehl."
       },
       "sections": {}
     },
@@ -35398,7 +35416,10 @@
         "{{count}} of them are pinned.": "{{count}} d’entre elles sont épinglées.",
         "Conversations deleted.": "Conversations supprimées.",
         "The conversations could not be deleted.": "Les conversations n’ont pas pu être supprimées.",
-        "{{count}} conversations were not deleted.": "{{count}} conversations n’ont pas été supprimées."
+        "{{count}} conversations were not deleted.": "{{count}} conversations n’ont pas été supprimées.",
+        "Stage Check Timeout (minutes)": "Délai de la vérification d'étape (minutes)",
+        "Minutes each stage-check command may run": "Minutes autorisées pour chaque commande de vérification d'étape",
+        "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "Minutes que chaque commande de vérification d'étape (les commandes de build et de tests unitaires d'un dépôt, exécutées après une étape) peut prendre avant d'être signalée comme expirée (15 par défaut, de 1 à 240). Réglez-le au-dessus de la commande la plus lente, ou donnez au profil de workflow une commande de test plus ciblée."
       },
       "sections": {}
     },
@@ -40278,7 +40299,10 @@
         "{{count}} of them are pinned.": "{{count}} di esse sono fissate.",
         "Conversations deleted.": "Conversazioni eliminate.",
         "The conversations could not be deleted.": "Non è stato possibile eliminare le conversazioni.",
-        "{{count}} conversations were not deleted.": "{{count}} conversazioni non sono state eliminate."
+        "{{count}} conversations were not deleted.": "{{count}} conversazioni non sono state eliminate.",
+        "Stage Check Timeout (minutes)": "Timeout della verifica di fase (minuti)",
+        "Minutes each stage-check command may run": "Minuti consentiti per ogni comando di verifica di fase",
+        "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "Minuti che ogni comando di verifica di fase (i comandi di build e di test unitari di un repository, eseguiti dopo una fase) può impiegare prima di essere segnalato come scaduto (predefinito 15, da 1 a 240). Impostalo oltre il comando più lento oppure assegna al profilo di workflow un comando di test più mirato."
       },
       "sections": {}
     }

@@ -17,14 +17,14 @@ namespace Armada.Core.Services
     {
         #region Private-Methods
 
-        private static async Task<HostCommandResult> RunStageCommandAsync(IHostCommandExecutor executor, bool windows, string workingDirectory, string command, CancellationToken token)
+        private async Task<HostCommandResult> RunStageCommandAsync(IHostCommandExecutor executor, bool windows, string workingDirectory, string command, CancellationToken token)
         {
             return await executor.RunAsync(new HostCommandRequest
             {
                 Executable = windows ? "cmd.exe" : "/bin/sh",
                 WorkingDirectory = workingDirectory,
                 Arguments = windows ? new List<string> { "/c", command } : new List<string> { "-lc", command },
-                TimeoutMs = (int)_StageVerificationTimeout.TotalMilliseconds,
+                TimeoutMs = (int)TimeSpan.FromMinutes(_Settings.StageCheckTimeoutMinutes).TotalMilliseconds,
                 Kind = HostCommandKindEnum.CheckRun,
                 Label = "Stage check: " + command
             }, token).ConfigureAwait(false);

@@ -37,6 +37,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(Constants.DefaultMcpPort, settings.McpPort);
                 AssertEqual(Constants.DefaultHeartbeatIntervalSeconds, settings.HeartbeatIntervalSeconds);
                 AssertEqual(Constants.DefaultStallThresholdMinutes, settings.StallThresholdMinutes);
+                AssertEqual(Constants.DefaultStageCheckTimeoutMinutes, settings.StageCheckTimeoutMinutes);
                 AssertEqual(Constants.DefaultMaxRecoveryAttempts, settings.MaxRecoveryAttempts);
                 AssertEqual(Constants.DefaultMaxLogFileSizeBytes, settings.MaxLogFileSizeBytes);
                 AssertEqual(Constants.DefaultMaxLogFileCount, settings.MaxLogFileCount);
@@ -54,6 +55,17 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(settings.Agents.Count >= 2, "Should have at least 2 default agents");
                 AssertEqual(Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode, settings.Agents[0].Runtime);
                 AssertEqual(Armada.Core.Enums.AgentRuntimeEnum.Codex, settings.Agents[1].Runtime);
+            }));
+
+            cases.Add(Case("stage_check_timeout_range", "ArmadaSettings StageCheckTimeoutMinutes accepts 1 to 240 and refuses values outside it", TestTags.Negative, () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.StageCheckTimeoutMinutes = 1;
+                settings.StageCheckTimeoutMinutes = 240;
+                AssertEqual(240, settings.StageCheckTimeoutMinutes);
+                AssertThrows<ArgumentOutOfRangeException>(() => settings.StageCheckTimeoutMinutes = 0);
+                AssertThrows<ArgumentOutOfRangeException>(() => settings.StageCheckTimeoutMinutes = 241);
+                AssertEqual(240, settings.StageCheckTimeoutMinutes, "a refused value leaves the setting unchanged");
             }));
 
             cases.Add(Case("set_port_invalid_range_throws", "ArmadaSettings SetPort InvalidRange Throws", TestTags.Negative, () =>

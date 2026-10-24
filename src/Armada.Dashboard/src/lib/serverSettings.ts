@@ -66,6 +66,7 @@ export interface ServerSettings {
   maxCaptains: number;
   heartbeatIntervalSeconds: number;
   stallThresholdMinutes: number;
+  stageCheckTimeoutMinutes?: number;
   idleCaptainTimeoutSeconds: number;
   planningSessionInactivityTimeoutMinutes: number;
   planningSessionAbandonmentTimeoutMinutes: number;

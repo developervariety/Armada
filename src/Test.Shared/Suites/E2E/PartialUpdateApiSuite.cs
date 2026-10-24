@@ -34,6 +34,7 @@ namespace Test.Shared.Suites.E2E
                 Case("captain_put_keeps_omitted_fields", "Captain PUT keeps personas and other fields the body omits", CaptainPartialUpdateAsync),
                 Case("captain_merge_keeps_omitted_model_endpoint", "Captain merge keeps ModelEndpointId when the body omits it", CaptainMergeModelEndpointAsync),
                 Case("settings_require_harbor_for_launch_roundtrip", "RequireHarborForLaunch is returned by GET and changed by PUT settings", RequireHarborSettingAsync),
+                Case("settings_stage_check_timeout_roundtrip", "StageCheckTimeoutMinutes is returned by GET, changed by PUT, and refused outside 1 to 240", StageCheckTimeoutSettingAsync),
             });
         }
 
@@ -206,6 +207,40 @@ namespace Test.Shared.Suites.E2E
             {
                 using (StringContent content = JsonHelper.ToJsonContent(new { RequireHarborForLaunch = before.RequireHarborForLaunch }))
                 using (HttpResponseMessage restore = await client.PutAsync("/api/v1/settings", content, token).ConfigureAwait(false)) { }
+            }
+        }
+
+        private async Task StageCheckTimeoutSettingAsync(CancellationToken token)
+        {
+            E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+            HttpClient client = fixture.AuthClient;
+            int before = (await ReadClientSettingsAsync(client, token).ConfigureAwait(false)).StageCheckTimeoutMinutes ?? -1;
+            AssertEqual(Armada.Core.Constants.DefaultStageCheckTimeoutMinutes, before, "reported with its default");
+            try
+            {
+                using (StringContent content = JsonHelper.ToJsonContent(new { StageCheckTimeoutMinutes = 45 }))
+                using (HttpResponseMessage put = await client.PutAsync("/api/v1/settings", content, token).ConfigureAwait(false))
+                    AssertEqual(HttpStatusCode.OK, put.StatusCode, await put.Content.ReadAsStringAsync(token).ConfigureAwait(false));
+                AssertEqual(45, (await ReadClientSettingsAsync(client, token).ConfigureAwait(false)).StageCheckTimeoutMinutes, "GET after PUT");
+
+                using (StringContent content = JsonHelper.ToJsonContent(new { StageCheckTimeoutMinutes = 241 }))
+                using (HttpResponseMessage put = await client.PutAsync("/api/v1/settings", content, token).ConfigureAwait(false))
+                    AssertEqual(HttpStatusCode.BadRequest, put.StatusCode, "out of range");
+                AssertEqual(45, (await ReadClientSettingsAsync(client, token).ConfigureAwait(false)).StageCheckTimeoutMinutes, "a refused value changes nothing");
+            }
+            finally
+            {
+                using (StringContent content = JsonHelper.ToJsonContent(new { StageCheckTimeoutMinutes = before }))
+                using (HttpResponseMessage restore = await client.PutAsync("/api/v1/settings", content, token).ConfigureAwait(false)) { }
+            }
+        }
+
+        private static async Task<Armada.Client.Models.SettingsData> ReadClientSettingsAsync(HttpClient client, CancellationToken token)
+        {
+            using (HttpResponseMessage get = await client.GetAsync("/api/v1/settings", token).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.OK, get.StatusCode);
+                return await JsonHelper.DeserializeAsync<Armada.Client.Models.SettingsData>(get).ConfigureAwait(false);
             }
         }
 

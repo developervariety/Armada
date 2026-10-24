@@ -91,6 +91,11 @@ namespace Armada.Core
         public static readonly int DefaultStallThresholdMinutes = 10;
 
         /// <summary>
+        /// Default time limit, in minutes, for each stage-check command (a vessel's build and unit-test commands).
+        /// </summary>
+        public static readonly int DefaultStageCheckTimeoutMinutes = 15;
+
+        /// <summary>
         /// Default maximum number of auto-recovery attempts per captain.
         /// </summary>
         public static readonly int DefaultMaxRecoveryAttempts = 3;

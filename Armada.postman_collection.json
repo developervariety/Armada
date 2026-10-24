@@ -1099,6 +1099,34 @@
                     }
                 },
                 {
+                    "name": "Update Agent Settings",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"HeartbeatIntervalSeconds\": 10,\n  \"StallThresholdMinutes\": 10,\n  \"StageCheckTimeoutMinutes\": 30\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/settings",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "settings"
+                            ]
+                        },
+                        "description": "Agent settings. StageCheckTimeoutMinutes (1 to 240, default 15) limits each stage-check command (a vessel's build and unit-test commands run after a stage); a value outside the range answers 400 and changes nothing."
+                    }
+                },
+                {
                     "name": "Stop Server",
                     "request": {
                         "method": "POST",

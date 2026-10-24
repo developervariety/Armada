@@ -58,6 +58,11 @@ namespace Armada.Server
         public int? StallThresholdMinutes { get; set; }
 
         /// <summary>
+        /// Time limit in minutes for each stage-check command (1 to 240).
+        /// </summary>
+        public int? StageCheckTimeoutMinutes { get; set; }
+
+        /// <summary>
         /// Idle captain timeout in seconds (0 = disabled).
         /// </summary>
         public int? IdleCaptainTimeoutSeconds { get; set; }

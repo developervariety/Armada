@@ -230,6 +230,7 @@ export default function Server() {
       const updated = await updateSettings({
         heartbeatIntervalSeconds: settings.heartbeatIntervalSeconds,
         stallThresholdMinutes: settings.stallThresholdMinutes,
+        ...(settings.stageCheckTimeoutMinutes !== undefined ? { stageCheckTimeoutMinutes: settings.stageCheckTimeoutMinutes } : {}),
         idleCaptainTimeoutSeconds: settings.idleCaptainTimeoutSeconds,
         landingMode: settings.landingMode || DEFAULT_GLOBAL_LANDING_MODE,
         ...(settings.requireHarborForLaunch !== undefined ? { requireHarborForLaunch: settings.requireHarborForLaunch } : {}),
@@ -744,6 +745,22 @@ export default function Server() {
                   }
                   min={1}
                   title={t('Minutes a working captain may go without a heartbeat before it is treated as stalled, stopped and recovered (default 10, minimum 1).')}
+                />
+              </div>
+              <div className="form-group">
+                <label title={t('Minutes each stage-check command (a vessel\'s build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.')}>{t('Stage Check Timeout (minutes)')}</label>
+                <input aria-label={t('Minutes each stage-check command may run')}
+                  type="number"
+                  value={settings.stageCheckTimeoutMinutes ?? 15}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      stageCheckTimeoutMinutes: Math.min(240, Math.max(1, parseInt(e.target.value) || 1)),
+                    })
+                  }
+                  min={1}
+                  max={240}
+                  title={t('Minutes each stage-check command (a vessel\'s build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.')}
                 />
               </div>
               <div className="form-group">
