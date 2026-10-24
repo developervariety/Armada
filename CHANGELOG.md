@@ -6,6 +6,11 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Cancelling a mission stops its agent
+
+- **Cancel stops the agent before the mission is marked cancelled.** Cancelling a mission or a voyage on any surface (REST `DELETE /api/v1/missions/{id}` and `DELETE /api/v1/voyages/{id}`, MCP `cancel_mission` and `cancel_voyage`, WebSocket `cancel_mission` and `cancel_voyage`), and deleting a vessel with active missions, now goes through one shared cancel: the captain's process is stopped through the lifecycle that owns it (on its Harbor when it runs there) and the exit confirmed, then the captain is released, then the mission is set to `Cancelled`. Before, every path only changed the status and forgot the process, so an agent could keep running, and committing, on a Harbor after its mission was cancelled. REST mission cancel also never released the captain. When the stop is not confirmed, the cancel is refused (REST `409`, MCP and WebSocket `Conflict`) and nothing changes; voyage cancel lists such missions in `NotCancelled`.
+- **Find and stop a Harbor job directly.** `GET /api/v1/harbors/{id}/jobs` (paged; `open=true` for jobs that have not ended) and `POST /api/v1/harbors/{id}/jobs/{jobId}/stop`, with the MCP tools `list_harbor_jobs` and `stop_harbor_job`, stop an agent no mission or captain still points at.
+
 ### Ask Armada: select several conversations and delete them at once
 
 - **Multi-select in the conversation list.** Every row in Ask Armada's recent-conversations list now carries a checkbox to its left, with a select-all checkbox for the visible rows and a clear-selection control. The header shows the selected count and a `Delete (N)` button once at least one conversation is ticked, and the selection is pruned when a search, filter, refresh, or delete removes a row.

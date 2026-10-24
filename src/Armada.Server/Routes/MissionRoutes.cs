@@ -839,10 +839,16 @@ namespace Armada.Server.Routes
                         ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
-                mission.Status = MissionStatusEnum.Cancelled;
-                mission.CompletedUtc = DateTime.UtcNow;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                mission = await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                try
+                {
+                    mission = await _admiral.CancelMissionAsync(mission).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = ex.Message };
+                }
+                _webSocketHub?.BroadcastMissionChange(mission, MissionStatusEnum.Cancelled.ToString());
                 return (object)mission;
             },
             api => api

@@ -161,6 +161,8 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [update_harbor](#update_harbor)
     - [delete_harbor](#delete_harbor)
     - [set_harbor_enabled](#set_harbor_enabled)
+    - [list_harbor_jobs](#list_harbor_jobs)
+    - [stop_harbor_job](#stop_harbor_job)
   - **Objectives**
     - [get_objective](#get_objective)
     - [create_objective](#create_objective)
@@ -225,7 +227,7 @@ camelCase exceptions are the `inbox` envelope, `count`, `criticalCount`, `warnin
 envelopes, the `delete_cli_permission_rule` result, and the `cli_permission_prompt` answer). Unlike REST, MCP results keep null-valued properties. Enums are emitted as their
 names, as on REST. New tools, new optional arguments,
 and new result fields may be added in minor releases. Tools whose description starts with `[Experimental]` (the Harbor
-tools `get_harbor`, `get_harbor_metrics`, `create_harbor`, `update_harbor`, `delete_harbor`, `set_harbor_enabled`) are excluded from the
+tools `get_harbor`, `get_harbor_metrics`, `create_harbor`, `update_harbor`, `delete_harbor`, `set_harbor_enabled`, `list_harbor_jobs`, `stop_harbor_job`) are excluded from the
 promise.
 
 Armada exposes a full MCP server that allows AI agents and MCP-compatible clients to interact with the Admiral orchestrator. MCP covers Armada's core orchestration and management surfaces directly from tool-calling clients:
@@ -2171,7 +2173,7 @@ Cancel a specific mission.
 |---|---|---|---|
 | `missionId` | string | Yes | Mission ID to cancel (prefix `msn_`) |
 
-Sets the mission status to `Cancelled`. Returns `{ "Error": "Mission not found", "ErrorCode": "NotFound" }` if the ID does not exist.
+Returns the cancelled mission. Cancelling stops the mission's agent first: the captain's process is stopped through the lifecycle that owns it (on its Harbor when it runs there) and the exit is confirmed, then the captain is released when it holds no other active mission, then the mission is set to `Cancelled`. The dock is kept for inspection. When the stop is not confirmed (for example the owning Harbor is disconnected), nothing changes and the cancel is refused, so no other work is assigned to a captain whose agent may still run. Returns `{ "Error": "Mission not found", "ErrorCode": "NotFound" }` if the ID does not exist, and `ErrorCode` `Conflict` when the agent did not confirm it stopped.
 
 **Response:** The updated [Mission](#mission) object with status `Cancelled`.
 
@@ -2242,7 +2244,7 @@ Retry landing for a mission in `LandingFailed` status. Rebases the mission branc
 
 ### cancel_voyage
 
-Cancel an entire voyage and all its pending missions. Missions that are already `Complete` or `Cancelled` are not affected.
+Cancel an entire voyage and its `Pending`, `Assigned`, and `Blocked` missions, each the same way `cancel_mission` does (a running agent is stopped first). In-progress missions and missions that are already `Complete` or `Cancelled` are not affected. A mission whose agent did not confirm it stopped is left unchanged and listed in the response's `NotCancelled`.
 
 **Input Schema:**
 
@@ -3741,7 +3743,7 @@ Returns `{ "Error": "entryIds is required and must not be empty", "ErrorCode": "
 ### get_harbor
 
 > **Experimental.** The Harbor tools below (`get_harbor`, `get_harbor_metrics`, `create_harbor`, `update_harbor`, `delete_harbor`,
-> `set_harbor_enabled`) belong to Harbor split mode, which is experimental for 1.0 and excluded from the compatibility
+> `set_harbor_enabled`, `list_harbor_jobs`, `stop_harbor_job`) belong to Harbor split mode, which is experimental for 1.0 and excluded from the compatibility
 > promise. Their descriptions start with `[Experimental]`.
 
 Inspect one registered Harbor (host runner) by ID, including its advertised capabilities and connection status.
@@ -3909,6 +3911,50 @@ Enable or disable a Harbor for routing. A disabled Harbor keeps its docks but re
 | `enabled` | bool | Yes | `true` to enable, `false` to disable |
 
 **Response:** The updated [Harbor](#harbor) object, or an error object (`ErrorCode` `InvalidArgument` when `harborId` is missing, `NotFound` when the Harbor does not exist).
+
+---
+
+### list_harbor_jobs
+
+One page of the captain launches recorded on a Harbor, newest first. Use `openOnly` to find an agent left running after its mission was cancelled.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "harborId": { "type": "string", "description": "Harbor ID (hbr_ prefix)" },
+    "openOnly": { "type": "boolean", "description": "Only jobs that have not ended (default false: jobs launched in the last 7 days)" },
+    "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
+    "pageSize": { "type": "integer", "description": "Results per page (1 to 1000, default 10)" }
+  },
+  "required": ["harborId"]
+}
+```
+
+**Response:** `EnumerationResult<HarborJobRecord>`, or `ErrorCode` `NotFound` when the Harbor does not exist or is not visible.
+
+---
+
+### stop_harbor_job
+
+Ask a connected Harbor to stop one job by ID (from `list_harbor_jobs`). Requires TenantAdmin.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "harborId": { "type": "string", "description": "Harbor ID (hbr_ prefix)" },
+    "jobId": { "type": "string", "description": "Job ID as listed by list_harbor_jobs" }
+  },
+  "required": ["harborId", "jobId"]
+}
+```
+
+**Response:** `HarborJobStopResult` with `Status` `Requested` (sent; the Harbor reports the exit) or `AlreadyEnded`; `ErrorCode` `NotFound` for an unknown job and `Conflict` when the Harbor is not connected.
 
 ---
 

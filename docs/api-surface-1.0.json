@@ -2033,6 +2033,44 @@
     },
     {
       "method": "GET",
+      "route": "/api/v1/harbors/{id}/jobs",
+      "auth": "Authenticated",
+      "resource": "Harbor:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<HarborJobRecord>",
+        "404": ""
+      },
+      "tags": [
+        "Experimental",
+        "Harbors"
+      ],
+      "summary": "[Experimental] List a Harbor's jobs",
+      "experimental": true
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harbors/{id}/jobs/{jobId}/stop",
+      "auth": "TenantAdmin",
+      "resource": "Harbor:Execute",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "HarborJobStopResult",
+        "202": "HarborJobStopResult",
+        "404": "",
+        "409": "ApiErrorResponse"
+      },
+      "tags": [
+        "Experimental",
+        "Harbors"
+      ],
+      "summary": "[Experimental] Stop a Harbor job",
+      "experimental": true
+    },
+    {
+      "method": "GET",
       "route": "/api/v1/harbors/{id}/metrics",
       "auth": "Authenticated",
       "resource": "Harbor:Read",
@@ -9350,6 +9388,35 @@
       "experimental": false
     },
     {
+      "name": "list_harbor_jobs",
+      "auth": "Authenticated",
+      "resource": "Harbor:Read",
+      "arguments": [
+        {
+          "name": "harborId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "openOnly",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        }
+      ],
+      "description": "[Experimental] One page of the captain launches recorded on a Harbor, newest first: job ID, mission, captain, runtime, launch and end times, outcome, and whether a stop was requested. openOnly lists only jobs that have not ended; use it to find an agent left running after its mission was cancelled.",
+      "experimental": true
+    },
+    {
       "name": "list_objectives",
       "auth": "Authenticated",
       "resource": "Objective:Read",
@@ -10231,6 +10298,25 @@
       ],
       "description": "Stop a specific captain agent, killing its process and recalling it to idle state",
       "experimental": false
+    },
+    {
+      "name": "stop_harbor_job",
+      "auth": "TenantAdmin",
+      "resource": "Harbor:Execute",
+      "arguments": [
+        {
+          "name": "harborId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "jobId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "[Experimental] Ask a connected Harbor to stop one job by ID (from list_harbor_jobs), for an agent no mission or captain still points at. Returns Requested (sent; the Harbor reports the exit), AlreadyEnded, HarborNotConnected, or NotFound.",
+      "experimental": true
     },
     {
       "name": "stop_server",

@@ -158,6 +158,19 @@ namespace Armada.Core.Services.Interfaces
         Task<ArmadaStatus> GetStatusAsync(AuthContext caller, CancellationToken token = default);
 
         /// <summary>
+        /// Cancel a mission on every surface the same way: stop the captain's agent process first (on its Harbor when it
+        /// runs there) and wait for the exit to be confirmed, then release the captain when it holds no other active
+        /// mission, then mark the mission Cancelled. The dock is kept for inspection.
+        /// </summary>
+        /// <param name="mission">Mission to cancel, already read with the caller's scope.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The updated mission.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when mission is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the agent process could not be stopped or its exit was not
+        /// confirmed; the mission, captain and dock are left unchanged so nothing else is assigned while it may still run.</exception>
+        Task<Mission> CancelMissionAsync(Mission mission, CancellationToken token = default);
+
+        /// <summary>
         /// Stop a specific captain gracefully.
         /// </summary>
         /// <param name="captainId">Captain identifier.</param>

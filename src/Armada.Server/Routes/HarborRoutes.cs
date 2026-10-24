@@ -21,6 +21,7 @@ namespace Armada.Server.Routes
         private readonly HarborConnectionManager _Connections;
         private readonly Armada.Core.Database.DatabaseDriver? _Database;
         private readonly HarborMetricsService? _Metrics;
+        private readonly HarborJobControlService? _Jobs;
         private static readonly JsonSerializerOptions _BodyJsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -35,8 +36,10 @@ namespace Armada.Server.Routes
         /// <param name="connections">Harbor connection manager (for the connectivity probe).</param>
         /// <param name="database">Database driver, for command audit records (optional).</param>
         /// <param name="metrics">Harbor metrics service (optional; without it the metrics route answers 404).</param>
-        public HarborRoutes(HarborService harbors, HarborConnectionManager connections, Armada.Core.Database.DatabaseDriver? database = null, HarborMetricsService? metrics = null)
+        /// <param name="jobs">Harbor job control (optional; without it the job routes answer 404).</param>
+        public HarborRoutes(HarborService harbors, HarborConnectionManager connections, Armada.Core.Database.DatabaseDriver? database = null, HarborMetricsService? metrics = null, HarborJobControlService? jobs = null)
         {
+            _Jobs = jobs;
             _Harbors = harbors ?? throw new ArgumentNullException(nameof(harbors));
             _Connections = connections ?? throw new ArgumentNullException(nameof(connections));
             _Database = database;
@@ -218,6 +221,74 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Harbor ID (hbr_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/harbors/{id}/jobs", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+
+                EnumerationQuery query = new EnumerationQuery();
+                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                bool openOnly = String.Equals(req.Query.GetValueOrDefault("open"), "true", StringComparison.OrdinalIgnoreCase);
+                EnumerationResult<HarborJobRecord>? page = _Jobs == null ? null
+                    : await _Jobs.EnumerateJobsAsync(ctx, req.Parameters["id"], openOnly, query).ConfigureAwait(false);
+                if (page == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Harbor not found" };
+                }
+
+                return page;
+            },
+            api => api
+                .WithTag("Harbors")
+                .WithSummary("List a Harbor's jobs")
+                .WithDescription("One page of the captain launches the Admiral recorded on a Harbor, newest first. open=true lists only jobs that have not ended; otherwise createdAfter and createdBefore bound the launch time (default: the last 7 days).")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Harbor ID (hbr_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("open", "true to list only jobs that have not ended", false))
+                .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Page number (1-based)", false))
+                .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size (1 to 1000, default 10)", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<HarborJobRecord>>("Jobs"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/harbors/{id}/jobs/{jobId}/stop", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                if (_Jobs == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Harbor job control is not available" };
+                }
+
+                HarborJobStopResult result = await _Jobs.StopJobAsync(ctx, req.Parameters["id"], req.Parameters["jobId"]).ConfigureAwait(false);
+                switch (result.Status)
+                {
+                    case HarborJobStopStatusEnum.NotFound:
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = result.Message };
+                    case HarborJobStopStatusEnum.HarborNotConnected:
+                        req.Http.Response.StatusCode = 409;
+                        return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = result.Message };
+                    case HarborJobStopStatusEnum.Requested:
+                        req.Http.Response.StatusCode = 202;
+                        return result;
+                    default:
+                        return result;
+                }
+            },
+            api => api
+                .WithTag("Harbors")
+                .WithSummary("Stop a Harbor job")
+                .WithDescription("Asks a connected Harbor to stop one job by ID, for an agent no mission or captain still points at. 202 when the stop was sent (the Harbor reports the exit), 200 when the job had already ended, 409 when the Harbor is not connected.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Harbor ID (hbr_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Path("jobId", "Job ID as listed by GET /api/v1/harbors/{id}/jobs"))
+                .WithResponse(202, OpenApiJson.For<HarborJobStopResult>("Stop sent"))
+                .WithResponse(200, OpenApiJson.For<HarborJobStopResult>("Job had already ended"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("Harbor not connected"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/harbors/{id}/enable", async (ApiRequest req) =>

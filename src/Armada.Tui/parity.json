@@ -2753,6 +2753,14 @@
     },
     {
       "kind": "api",
+      "key": "listHarborJobs",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListHarborJobsAsync",
+      "workstream": "W0.2",
+      "notes": "Harbors (host runners)"
+    },
+    {
+      "kind": "api",
       "key": "listHarbors",
       "status": "implemented",
       "tui": "ArmadaClient.ListHarborsAsync",
@@ -3374,6 +3382,14 @@
       "tui": "ArmadaClient.StopCaptainAsync",
       "workstream": "W0.2",
       "notes": "Captains"
+    },
+    {
+      "kind": "api",
+      "key": "stopHarborJob",
+      "status": "implemented",
+      "tui": "ArmadaClient.StopHarborJobAsync",
+      "workstream": "W0.2",
+      "notes": "Harbors (host runners)"
     },
     {
       "kind": "api",

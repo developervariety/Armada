@@ -228,7 +228,7 @@ Boolean include flags (all default to `false`): `includeDescription` (missions, 
 | `mission_status` | `missionId` (required) | Get mission details |
 | `create_mission` | `title` (required), `description` (required), `vesselId` (required), `voyageId`, `persona`, `mode` (Implementation/Audit/Research), `tier` (Economy/Standard/Premium), `selectedPlaybooks` | Create and dispatch a standalone mission |
 | `update_mission` | `missionId` (required), `title`, `description`, `vesselId`, `voyageId`, `priority`, `branchName`, `prUrl`, `parentMissionId`, `persona`, `mode` | Update mission metadata |
-| `cancel_mission` | `missionId` (required) | Cancel a mission |
+| `cancel_mission` | `missionId` (required) | Cancel a mission (stops its agent first; refused with `Conflict` when the stop is not confirmed) |
 | `restart_mission` | `missionId` (required), `title`, `description` | Reset a Failed or Cancelled mission to Pending for re-dispatch |
 | `retry_landing` | `missionId` (required) | Rebase a `LandingFailed` mission onto the current target and retry landing |
 | `purge_mission` | `missionId` (required) | Permanently delete a mission (cannot be undone) |

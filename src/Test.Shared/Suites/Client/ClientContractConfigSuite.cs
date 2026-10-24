@@ -151,7 +151,7 @@ namespace Test.Shared.Suites.Client
                 await c.DeleteWorkflowProfileAsync(createdWorkflow.Id);
             }));
 
-            cases.Add(Case("harbors_and_endpoints", "Harbor CRUD, enable and disable, and metrics; model endpoint CRUD, validate, and health sweep", async (c, fx) =>
+            cases.Add(Case("harbors_and_endpoints", "Harbor CRUD, enable and disable, metrics, and jobs; model endpoint CRUD, validate, and health sweep", async (c, fx) =>
             {
                 string s = ClientContract.Suffix();
                 Harbor harbor = (await c.CreateHarborAsync(new Harbor { Name = "contract-harbor-" + s }))!;
@@ -165,6 +165,10 @@ namespace Test.Shared.Suites.Client
                 AssertEqual(60, metrics?.BucketCount ?? 0, "1h in 1-minute buckets");
                 AssertEqual(3, metrics?.Slots.MaxConcurrentJobs ?? 0, "capacity in the slot series");
                 AssertEqual("24h", (await c.GetHarborMetricsAsync(harbor.Id))?.Range, "24h by default");
+                EnumerationResult<HarborJobRecord>? jobs = await c.ListHarborJobsAsync(harbor.Id, true, new ArmadaPageQuery { PageNumber = 1, PageSize = 5 });
+                AssertEqual(0L, jobs?.TotalRecords ?? -1, "a new Harbor has no recorded jobs");
+                AssertEqual(5, jobs?.PageSize ?? 0, "the page size is echoed");
+                await AssertThrowsAsync<ArmadaApiException>(() => c.StopHarborJobAsync(harbor.Id, "hjob_missing"));
                 await c.DeleteHarborAsync(harbor.Id);
 
                 ModelEndpoint endpoint = new ModelEndpoint();

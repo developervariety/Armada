@@ -38,6 +38,7 @@ namespace Armada.Core.Authorization
             Add("get_fleet", "Fleet", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_harbor", "Harbor", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_harbor_metrics", "Harbor", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_harbor_jobs", "Harbor", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_memory", "Memory", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_merge_entry", "MergeQueue", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_mission_diff", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
@@ -109,6 +110,7 @@ namespace Armada.Core.Authorization
             Add("update_harbor", "Harbor", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("delete_harbor", "Harbor", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
             Add("set_harbor_enabled", "Harbor", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("stop_harbor_job", "Harbor", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
 
             // Writes and executions, mirroring the REST routes for the same resources
             Add("add_vessel", "Vessel", ResourceOperationEnum.Create, PermissionLevel.TenantAdmin);

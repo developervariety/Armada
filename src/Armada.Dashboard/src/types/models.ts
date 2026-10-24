@@ -2631,6 +2631,37 @@ export interface Harbor {
   lastUpdateUtc: string;
 }
 
+/** One captain launch the Admiral recorded on a Harbor. */
+export interface HarborJobRecord {
+  id: string;
+  jobId: string;
+  harborId: string;
+  tenantId?: string | null;
+  kind: string;
+  runtime: string;
+  model?: string | null;
+  missionId?: string | null;
+  captainId?: string | null;
+  launchedUtc: string;
+  startedUtc?: string | null;
+  firstOutputUtc?: string | null;
+  endedUtc?: string | null;
+  timeToFirstOutputMs?: number | null;
+  durationMs?: number | null;
+  exitCode?: number | null;
+  outcome: string;
+  stopRequested: boolean;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+/** Result of asking a Harbor to stop one job. */
+export interface HarborJobStopResult {
+  status: 'Requested' | 'AlreadyEnded' | 'HarborNotConnected' | 'NotFound';
+  job?: HarborJobRecord | null;
+  message: string;
+}
+
 export type HarborMetricsRange = '1h' | '24h' | '7d';
 export type HarborLinkSegmentState = 'Unknown' | 'Connected' | 'Reconnecting' | 'Down';
 

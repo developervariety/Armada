@@ -240,6 +240,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/account/password` | PUT | Authenticated | Change the caller's password (current password required) |
 | `/api/v1/check-runs`, `/api/v1/check-runs/import`, `/api/v1/check-runs/sync/github-actions`, `/api/v1/check-runs/{id}/retry` | POST | TenantAdmin | Check runs execute shell commands (`DELETE /api/v1/check-runs/{id}` is also TenantAdmin) |
 | `/api/v1/harbors/{id}/probe` | POST | TenantAdmin | Runs a command on the Harbor host |
+| `/api/v1/harbors/{id}/jobs/{jobId}/stop` | POST | TenantAdmin | Stops a job on the Harbor host |
 | `/api/v1/workspace/vessels/{vesselId}/exec` | POST | TenantAdmin | Writes an `audit.command` event |
 | `/api/v1/workspace/vessels/{vesselId}/open-terminal` | POST | Authenticated | Opens a terminal window: on a Harbor only for its owner or an admin of its tenant, on the Admiral's computer only for an admin calling from that computer |
 | `/api/v1/*/enumerate` | POST | Authenticated | Scoped exactly like the matching `GET` list |
@@ -2963,7 +2964,7 @@ completes once the entry lands (or fails, or is cancelled).
 
 #### DELETE /api/v1/voyages/{id}
 
-Cancel a voyage. Sets the voyage status to `Cancelled` and cancels all `Pending` or `Assigned` missions. In-progress missions are not affected.
+Cancel a voyage. Sets the voyage status to `Cancelled` and cancels its `Pending`, `Assigned`, and `Blocked` missions the same way `DELETE /api/v1/missions/{id}` does (a running agent is stopped first). In-progress missions are not affected. A mission whose agent did not confirm it stopped is left unchanged and listed in `NotCancelled`.
 
 **Permission:** TenantAdmin
 
@@ -2977,7 +2978,8 @@ Cancel a voyage. Sets the voyage status to `Cancelled` and cancels all `Pending`
 ```json
 {
   "Voyage": { "Id": "vyg_abc123", "Status": "Cancelled", "..." : "..." },
-  "CancelledMissions": 3
+  "CancelledMissions": 3,
+  "NotCancelled": [ { "MissionId": "msn_def456", "Reason": "The mission was not cancelled because its agent process ..." } ]
 }
 ```
 
@@ -3361,7 +3363,7 @@ Deny a mission waiting at a review gate. The mission either returns for rework o
 
 #### DELETE /api/v1/missions/{id}
 
-Cancel a mission by setting its status to `Cancelled`. Returns the full updated mission.
+Cancel a mission. Returns the full updated mission. Cancelling stops the mission's agent first: the captain's process is stopped through the lifecycle that owns it (on its Harbor when it runs there) and the exit is confirmed, then the captain is released when it holds no other active mission, then the mission is set to `Cancelled`. The dock is kept for inspection. When the stop is not confirmed (for example the owning Harbor is disconnected), nothing changes and the cancel is refused, so no other work is assigned to a captain whose agent may still run.
 
 **Permission:** TenantAdmin
 
@@ -3372,7 +3374,7 @@ Cancel a mission by setting its status to `Cancelled`. Returns the full updated 
 
 **Response:** `200 OK` - [Mission](#mission) (with `Status: "Cancelled"`)
 
-**Error:** `404` - Mission not found
+**Errors:** `404` - Mission not found; `409` - the agent did not confirm it stopped (the mission is unchanged; reconnect the owning Harbor and retry)
 
 ---
 
@@ -5113,6 +5115,33 @@ Run a one-off host command on a connected Harbor over its link and return the re
 
 - Response: `200 OK` - `HostCommandResult`
 - Errors: `404 Not Found`; `409 Conflict` when the Harbor is not connected (no link to probe over)
+
+#### GET /api/v1/harbors/{id}/jobs
+
+One page of the captain launches the Admiral recorded on a Harbor, newest launch first. Use it with the stop route below to find and stop an agent no mission or captain still points at.
+
+**Permission:** Authenticated (the Harbor must be visible to the caller)
+
+**Query Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `open` | `true` to list only jobs that have not ended |
+| `pageNumber` | Page number (1-based, default 1) |
+| `pageSize` | Page size (1 to 1000, default 10) |
+| `createdAfter`, `createdBefore` | Launch-time window when `open` is not set (default: the last 7 days) |
+
+- Response: `200 OK` - `EnumerationResult<HarborJobRecord>` (`JobId`, `MissionId`, `CaptainId`, `Runtime`, `Model`, `LaunchedUtc`, `EndedUtc`, `Outcome`, `ExitCode`, `StopRequested`, ...)
+- Errors: `404 Not Found` when the Harbor does not exist or is not visible
+
+#### POST /api/v1/harbors/{id}/jobs/{jobId}/stop
+
+Ask a connected Harbor to stop one job. The Admiral stops tracking it at once; the Harbor stops the process and reports the exit, which closes the job record.
+
+**Permission:** TenantAdmin
+
+- Response: `202 Accepted` - `HarborJobStopResult` with `Status: "Requested"`; `200 OK` with `Status: "AlreadyEnded"` when the job had already ended (nothing is sent)
+- Errors: `404 Not Found` (no such job on that Harbor); `409 Conflict` when the Harbor is not connected. A disconnected Harbor stops jobs this Admiral no longer owns when it reconnects.
 
 ---
 

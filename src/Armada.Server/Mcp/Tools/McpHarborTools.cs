@@ -24,7 +24,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Tool registration delegate.</param>
         /// <param name="harbors">Harbor service.</param>
         /// <param name="metrics">Harbor metrics service, for get_harbor_metrics (optional; without it the tool is not registered).</param>
-        public static void Register(RegisterToolDelegate register, HarborService harbors, HarborMetricsService? metrics = null)
+        /// <param name="jobs">Harbor job control, for list_harbor_jobs and stop_harbor_job (optional; without it they answer Unavailable).</param>
+        public static void Register(RegisterToolDelegate register, HarborService harbors, HarborMetricsService? metrics = null, HarborJobControlService? jobs = null)
         {
             if (metrics != null)
             {
@@ -176,6 +177,61 @@ namespace Armada.Server.Mcp.Tools
                     {
                         return (object)McpToolError.FromException(ex);
                     }
+                });
+
+            register(
+                "list_harbor_jobs",
+                "One page of the captain launches recorded on a Harbor, newest first: job ID, mission, captain, runtime, launch and end times, outcome, and whether a stop was requested. openOnly lists only jobs that have not ended; use it to find an agent left running after its mission was cancelled.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        harborId = new { type = "string", description = "Harbor ID (hbr_ prefix)" },
+                        openOnly = new { type = "boolean", description = "Only jobs that have not ended (default false: jobs launched in the last 7 days)" },
+                        pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
+                        pageSize = new { type = "integer", description = "Results per page (1 to 1000, default 10)" }
+                    },
+                    required = new[] { "harborId" }
+                },
+                async (args) =>
+                {
+                    if (jobs == null) return (object)McpToolError.Unavailable("Harbor job control is not available on this server.");
+                    HarborJobsArgs request = JsonSerializer.Deserialize<HarborJobsArgs>(args!.Value, _JsonOptions)
+                        ?? throw new InvalidOperationException("Could not deserialize HarborJobsArgs.");
+                    if (String.IsNullOrWhiteSpace(request.HarborId)) return (object)McpToolError.InvalidArgument("harborId is required.");
+                    EnumerationQuery query = new EnumerationQuery { PageNumber = request.PageNumber ?? 1, PageSize = request.PageSize ?? 10 };
+                    AuthContext auth = McpToolHelpers.ResolveCallerContext();
+                    EnumerationResult<HarborJobRecord>? page = await jobs.EnumerateJobsAsync(auth, request.HarborId, request.OpenOnly ?? false, query).ConfigureAwait(false);
+                    if (page == null) return (object)McpToolError.NotFound("Harbor not found");
+                    return (object)page;
+                });
+
+            register(
+                "stop_harbor_job",
+                "Ask a connected Harbor to stop one job by ID (from list_harbor_jobs), for an agent no mission or captain still points at. Returns Requested (sent; the Harbor reports the exit), AlreadyEnded, HarborNotConnected, or NotFound.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        harborId = new { type = "string", description = "Harbor ID (hbr_ prefix)" },
+                        jobId = new { type = "string", description = "Job ID as listed by list_harbor_jobs" }
+                    },
+                    required = new[] { "harborId", "jobId" }
+                },
+                async (args) =>
+                {
+                    if (jobs == null) return (object)McpToolError.Unavailable("Harbor job control is not available on this server.");
+                    HarborJobsArgs request = JsonSerializer.Deserialize<HarborJobsArgs>(args!.Value, _JsonOptions)
+                        ?? throw new InvalidOperationException("Could not deserialize HarborJobsArgs.");
+                    if (String.IsNullOrWhiteSpace(request.HarborId) || String.IsNullOrWhiteSpace(request.JobId))
+                        return (object)McpToolError.InvalidArgument("harborId and jobId are required.");
+                    AuthContext auth = McpToolHelpers.ResolveCallerContext();
+                    HarborJobStopResult result = await jobs.StopJobAsync(auth, request.HarborId, request.JobId!).ConfigureAwait(false);
+                    if (result.Status == Armada.Core.Enums.HarborJobStopStatusEnum.NotFound) return (object)McpToolError.NotFound(result.Message);
+                    if (result.Status == Armada.Core.Enums.HarborJobStopStatusEnum.HarborNotConnected) return (object)McpToolError.Conflict(result.Message);
+                    return (object)result;
                 });
 
             register(

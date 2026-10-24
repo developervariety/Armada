@@ -393,34 +393,20 @@ namespace Armada.Server.WebSocket
                         cvVoyage.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.Voyages.UpdateAsync(cvVoyage).ConfigureAwait(false);
                         List<Mission> cvMissions = await _Database.Missions.EnumerateByVoyageAsync(cvId).ConfigureAwait(false);
+                        List<object> cvNotCancelled = new List<object>();
                         foreach (Mission m in cvMissions)
                         {
                             if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.Blocked)
                             {
-                                if (!String.IsNullOrEmpty(m.CaptainId))
+                                try
                                 {
-                                    Captain? captain = await _Database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
-                                    if (captain != null && captain.CurrentMissionId == m.Id)
-                                    {
-                                        List<Mission> otherMissions = (await _Database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
-                                            .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                        if (otherMissions.Count == 0)
-                                        {
-                                            captain.State = CaptainStateEnum.Idle;
-                                            captain.CurrentMissionId = null;
-                                            captain.CurrentDockId = null;
-                                            captain.ProcessId = null;
-                                            captain.RecoveryAttempts = 0;
-                                            captain.LastUpdateUtc = DateTime.UtcNow;
-                                            await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                                        }
-                                    }
+                                    Mission cancelled = await _Admiral.CancelMissionAsync(m).ConfigureAwait(false);
+                                    m.Status = cancelled.Status;
                                 }
-
-                                m.Status = MissionStatusEnum.Cancelled;
-                                m.CompletedUtc = DateTime.UtcNow;
-                                m.LastUpdateUtc = DateTime.UtcNow;
-                                await _Database.Missions.UpdateAsync(m).ConfigureAwait(false);
+                                catch (InvalidOperationException ex)
+                                {
+                                    cvNotCancelled.Add(new { MissionId = m.Id, Reason = ex.Message });
+                                }
                             }
                         }
                         int cvCancelled = cvMissions.Count(m => m.Status == MissionStatusEnum.Cancelled);
@@ -432,7 +418,7 @@ namespace Armada.Server.WebSocket
                                 _BroadcastMissionChange(cvCm, MissionStatusEnum.Cancelled.ToString());
                             }
                         }
-                        return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cvVoyage, CancelledMissions = cvCancelled } };
+                        return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cvVoyage, CancelledMissions = cvCancelled, NotCancelled = cvNotCancelled } };
                     }
                 }
 
@@ -593,30 +579,14 @@ namespace Armada.Server.WebSocket
                         return WebSocketCommandError.Create("cancel_mission", WebSocketCommandErrorCodeEnum.NotFound, "Mission not found");
                     else
                     {
-                        if (!String.IsNullOrEmpty(cmMission.CaptainId))
+                        try
                         {
-                            Captain? cmCaptain = await _Database.Captains.ReadAsync(cmMission.CaptainId).ConfigureAwait(false);
-                            if (cmCaptain != null && cmCaptain.CurrentMissionId == cmMission.Id)
-                            {
-                                List<Mission> cmOther = (await _Database.Missions.EnumerateByCaptainAsync(cmCaptain.Id).ConfigureAwait(false))
-                                    .Where(om => om.Id != cmMission.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                if (cmOther.Count == 0)
-                                {
-                                    cmCaptain.State = CaptainStateEnum.Idle;
-                                    cmCaptain.CurrentMissionId = null;
-                                    cmCaptain.CurrentDockId = null;
-                                    cmCaptain.ProcessId = null;
-                                    cmCaptain.RecoveryAttempts = 0;
-                                    cmCaptain.LastUpdateUtc = DateTime.UtcNow;
-                                    await _Database.Captains.UpdateAsync(cmCaptain).ConfigureAwait(false);
-                                }
-                            }
+                            cmMission = await _Admiral.CancelMissionAsync(cmMission).ConfigureAwait(false);
                         }
-
-                        cmMission.Status = MissionStatusEnum.Cancelled;
-                        cmMission.CompletedUtc = DateTime.UtcNow;
-                        cmMission.LastUpdateUtc = DateTime.UtcNow;
-                        cmMission = await _Database.Missions.UpdateAsync(cmMission).ConfigureAwait(false);
+                        catch (InvalidOperationException ex)
+                        {
+                            return WebSocketCommandError.Create("cancel_mission", WebSocketCommandErrorCodeEnum.Conflict, ex.Message);
+                        }
                         _BroadcastMissionChange(cmMission, MissionStatusEnum.Cancelled.ToString());
                         return new { type = "command.result", action = "cancel_mission", data = (object)cmMission };
                     }

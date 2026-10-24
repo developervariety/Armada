@@ -177,6 +177,8 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/harbors/{id}/enable", "Harbor", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/harbors/{id}/disable", "Harbor", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/harbors/{id}/probe", "Harbor", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("GET", "/api/v1/harbors/{id}/jobs", "Harbor", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/harbors/{id}/jobs/{jobId}/stop", "Harbor", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
 
             // HistoryRoutes
             Add("GET", "/api/v1/history", "History", ResourceOperationEnum.Read, PermissionLevel.Authenticated);

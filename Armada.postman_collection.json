@@ -98,6 +98,11 @@
             "type": "string"
         },
         {
+            "key": "harborJobId",
+            "value": "",
+            "type": "string"
+        },
+        {
             "key": "proxyBaseUrl",
             "value": "http://localhost:7893",
             "type": "string"
@@ -4399,6 +4404,37 @@
                     }
                 },
                 {
+                    "name": "Delete Ask Threads",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Ids\": [\"{{askThreadId}}\"]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/delete/multiple",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "delete",
+                                "multiple"
+                            ]
+                        },
+                        "description": "Bulk delete the caller's conversations. Returns the deleted IDs and the skipped IDs with a reason; another user's or an unknown thread is skipped."
+                    }
+                },
+                {
                     "name": "Enumerate Thread Messages",
                     "request": {
                         "method": "POST",
@@ -6135,6 +6171,64 @@
                             ]
                         },
                         "description": "Probes a Harbor for liveness and capability, updating its status."
+                    }
+                },
+                {
+                    "name": "List Harbor Jobs",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/harbors/{{harborId}}/jobs?open=true&pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "harbors",
+                                "{{harborId}}",
+                                "jobs"
+                            ],
+                            "query": [
+                                {
+                                    "key": "open",
+                                    "value": "true"
+                                },
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25"
+                                }
+                            ]
+                        },
+                        "description": "One page of the captain launches recorded on a Harbor, newest first. open=true lists only jobs that have not ended."
+                    }
+                },
+                {
+                    "name": "Stop Harbor Job",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/harbors/{{harborId}}/jobs/{{harborJobId}}/stop",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "harbors",
+                                "{{harborId}}",
+                                "jobs",
+                                "{{harborJobId}}",
+                                "stop"
+                            ]
+                        },
+                        "description": "Asks a connected Harbor to stop one job (TenantAdmin). 202 when sent, 200 when it had already ended, 409 when the Harbor is not connected."
                     }
                 }
             ]

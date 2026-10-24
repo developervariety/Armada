@@ -54,6 +54,35 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>listHarborJobs</c>: GET `/api/v1/harbors/${encodeURIComponent(id)}/jobs`, one page, newest first.
+        /// </summary>
+        /// <param name="id">Harbor id.</param>
+        /// <param name="openOnly">Only jobs that have not ended.</param>
+        /// <param name="query">Paging, or null for the first page of 10.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<HarborJobRecord>?> ListHarborJobsAsync(string id, bool openOnly = false, ArmadaPageQuery? query = null, CancellationToken token = default)
+        {
+            string page = ArmadaQueryString.FromPage(query);
+            string open = openOnly ? (page.Length == 0 ? "?open=true" : "&open=true") : "";
+            return GetAsync<EnumerationResult<HarborJobRecord>>($"/api/v1/harbors/{E(id)}/jobs{page}{open}", null, token);
+        }
+
+        /// <summary>
+        /// Dashboard <c>stopHarborJob</c>: POST `/api/v1/harbors/${encodeURIComponent(id)}/jobs/${encodeURIComponent(jobId)}/stop`.
+        /// </summary>
+        /// <param name="id">Harbor id.</param>
+        /// <param name="jobId">Job id, as listed by <see cref="ListHarborJobsAsync"/>.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>What happened.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response (404 not found, 409 Harbor not connected), timeout, or transport failure.</exception>
+        public Task<HarborJobStopResult?> StopHarborJobAsync(string id, string jobId, CancellationToken token = default)
+        {
+            return PostAsync<HarborJobStopResult>($"/api/v1/harbors/{E(id)}/jobs/{E(jobId)}/stop", new { }, null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>createHarbor</c>: POST '/api/v1/harbors'.
         /// </summary>
         /// <param name="data">data.</param>

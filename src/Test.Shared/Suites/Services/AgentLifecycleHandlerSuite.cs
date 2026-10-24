@@ -1520,6 +1520,11 @@ namespace Test.Shared.Suites.Services
                 throw new NotImplementedException();
             }
 
+            public Task<Mission> CancelMissionAsync(Mission mission, CancellationToken token = default)
+            {
+                throw new NotImplementedException();
+            }
+
             public Task RecallCaptainAsync(string captainId, CancellationToken token = default)
             {
                 throw new NotImplementedException();

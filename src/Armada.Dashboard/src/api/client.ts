@@ -76,6 +76,8 @@ import type {
   Harbor,
   HarborMetrics,
   HarborMetricsRange,
+  HarborJobRecord,
+  HarborJobStopResult,
   ModelEndpoint,
   Memory,
   ModelEndpointProbeResult,
@@ -1151,6 +1153,13 @@ export const enableHarbor = (id: string) => post<Harbor>(`/api/v1/harbors/${enco
 export const disableHarbor = (id: string) => post<Harbor>(`/api/v1/harbors/${encodeURIComponent(id)}/disable`, {});
 export const getHarborMetrics = (id: string, range: HarborMetricsRange = '24h') =>
   get<HarborMetrics>(`/api/v1/harbors/${encodeURIComponent(id)}/metrics?range=${encodeURIComponent(range)}`);
+/** One page of a Harbor's recorded jobs, newest first; openOnly lists only jobs that have not ended. */
+export const listHarborJobs = (id: string, params: { openOnly?: boolean; pageNumber?: number; pageSize?: number } = {}) =>
+  get<EnumerationResult<HarborJobRecord>>(`/api/v1/harbors/${encodeURIComponent(id)}/jobs${buildQuery({
+    pageNumber: params.pageNumber, pageSize: params.pageSize, filters: params.openOnly ? { open: 'true' } : undefined })}`);
+/** Ask a connected Harbor to stop one job (for an agent no mission or captain still points at). */
+export const stopHarborJob = (id: string, jobId: string) =>
+  post<HarborJobStopResult>(`/api/v1/harbors/${encodeURIComponent(id)}/jobs/${encodeURIComponent(jobId)}/stop`, {});
 
 // Model endpoints (embedding/inference)
 export const listModelEndpoints = () => get<ModelEndpoint[]>('/api/v1/model-endpoints');

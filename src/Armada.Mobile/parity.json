@@ -1497,6 +1497,14 @@
     },
     {
       "kind": "api",
+      "key": "deleteAskThreads",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W1.1",
+      "notes": "Mobile deletes conversations one at a time from the conversation menu; multi-select bulk delete is a dashboard list affordance"
+    },
+    {
+      "kind": "api",
       "key": "deleteBacklogItem",
       "status": "implemented",
       "mobile": "src/screens/objectives",
@@ -2793,6 +2801,14 @@
     },
     {
       "kind": "api",
+      "key": "listHarborJobs",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.2",
+      "notes": "Operator recovery for orphaned Harbor jobs; use the dashboard, TUI, or the list_harbor_jobs MCP tool"
+    },
+    {
+      "kind": "api",
       "key": "listHarbors",
       "status": "implemented",
       "mobile": "src/screens/configuration/HarborsTab",
@@ -3446,6 +3462,14 @@
       "mobile": "src/screens/captains",
       "workstream": "W3.2",
       "notes": "Captains"
+    },
+    {
+      "kind": "api",
+      "key": "stopHarborJob",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.2",
+      "notes": "Operator recovery for orphaned Harbor jobs; use the dashboard, TUI, or the stop_harbor_job MCP tool"
     },
     {
       "kind": "api",

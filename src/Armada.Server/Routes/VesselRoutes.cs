@@ -33,6 +33,7 @@ namespace Armada.Server.Routes
         private readonly IVesselService _VesselService;
         private readonly ManualLandingReconciler? _ManualLandingReconciler;
         private readonly VesselHostResolver? _Hosts;
+        private readonly IAdmiralService? _Admiral;
 
         /// <summary>
         /// Instantiate.
@@ -50,6 +51,8 @@ namespace Armada.Server.Routes
         /// <param name="manualLandingReconciler">Optional reconciler that completes manual-landing missions after a branch merge.</param>
         /// <param name="hosts">Optional resolver that finds a vessel's checkout on a connected Harbor when the Admiral has no
         /// repository for it (git status and the branch, history, push, and merge routes then run on that Harbor).</param>
+        /// <param name="admiral">Optional admiral service; deleting a vessel cancels its active missions through it, which stops
+        /// their agent processes. Without it the missions are only marked cancelled.</param>
         public VesselRoutes(
             DatabaseDriver database,
             VesselReadinessService readiness,
@@ -62,8 +65,10 @@ namespace Armada.Server.Routes
             ArmadaSettings? settings = null,
             IVesselService? vesselService = null,
             ManualLandingReconciler? manualLandingReconciler = null,
-            VesselHostResolver? hosts = null)
+            VesselHostResolver? hosts = null,
+            IAdmiralService? admiral = null)
         {
+            _Admiral = admiral;
             _ManualLandingReconciler = manualLandingReconciler;
             _Hosts = hosts;
             _database = database;
@@ -951,6 +956,12 @@ namespace Armada.Server.Routes
                     || mission.Status == Armada.Core.Enums.MissionStatusEnum.Review
                     || mission.Status == Armada.Core.Enums.MissionStatusEnum.Testing)
                 {
+                    if (_Admiral != null)
+                    {
+                        // Stop the agent before the mission row goes away; a failed stop blocks the delete.
+                        try { await _Admiral.CancelMissionAsync(mission).ConfigureAwait(false); }
+                        catch (InvalidOperationException ex) { errors.Add("Mission " + mission.Id + ": " + ex.Message); continue; }
+                    }
                     mission.Status = Armada.Core.Enums.MissionStatusEnum.Cancelled;
                     mission.FailureReason = "Vessel deleted";
                     mission.CompletedUtc = DateTime.UtcNow;

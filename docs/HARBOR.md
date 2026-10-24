@@ -276,18 +276,28 @@ produced while a link is down is replayed after the reconnect (see
 Harbor registrations are managed through the same REST and MCP surfaces as the rest of Armada.
 
 Over REST, the routes live under `/api/v1/harbors` -- list, register, read, update, delete,
-enable/disable, and `POST /api/v1/harbors/{id}/probe`, which runs a one-off host command (default `git --version`) on a
-connected Harbor over its link -- and are documented with request and response shapes in
+enable/disable, `POST /api/v1/harbors/{id}/probe`, which runs a one-off host command (default `git --version`) on a
+connected Harbor over its link, and `GET /api/v1/harbors/{id}/jobs` with `POST /api/v1/harbors/{id}/jobs/{jobId}/stop`
+(see [Stopping a job directly](#stopping-a-job-directly)) -- and are documented with request and response shapes in
 [REST_API.md](REST_API.md#harbors). Only `name`, `maxConcurrentJobs`, and `enabled` are operator-editable;
 everything else (`connectionStatus`, `lastSeenUtc`, `protocolVersion`, `osPlatform`, `architecture`) is
 reported by the link and preserved server-side.
 
-Over MCP, the tools are `get_harbor`, `get_harbor_metrics`, `create_harbor`, `update_harbor`, `delete_harbor`, and
-`set_harbor_enabled`, and the `enumerate` tool accepts an entityType of `harbors` for paginated browsing.
+Over MCP, the tools are `get_harbor`, `get_harbor_metrics`, `create_harbor`, `update_harbor`, `delete_harbor`,
+`set_harbor_enabled`, `list_harbor_jobs`, and `stop_harbor_job`, and the `enumerate` tool accepts an entityType of `harbors` for paginated browsing.
 See [MCP_API.md](MCP_API.md) for the tool schemas.
 
 Disabling a Harbor is a soft off-switch: it keeps its docks and any running work, but the router stops
 sending it new missions. Deleting a Harbor removes the registration entirely, with its metrics.
+
+### Stopping a job directly
+
+Cancelling a mission or voyage stops the mission's agent on its Harbor before the mission is marked `Cancelled`; when
+the Harbor does not confirm the exit, the cancel is refused and nothing changes. To find and stop an agent no mission or
+captain points at any more, list the Harbor's open jobs (`GET /api/v1/harbors/{id}/jobs?open=true`, or MCP
+`list_harbor_jobs` with `openOnly`) and stop one by its job ID (`POST /api/v1/harbors/{id}/jobs/{jobId}/stop`, or MCP
+`stop_harbor_job`; TenantAdmin). A disconnected Harbor cannot receive the stop, but it stops every job this Admiral no
+longer owns when it reconnects.
 
 ## Harbor metrics
 

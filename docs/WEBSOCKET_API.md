@@ -1705,8 +1705,10 @@ Create a new voyage. When `data` includes both a `VesselId` and a non-empty `Mis
 
 #### cancel_voyage
 
-Cancel a voyage. Its `Pending` and `Assigned` missions are also cancelled (an assigned captain with no other active
-mission returns to `Idle`); `InProgress` missions keep running.
+Cancel a voyage. Its `Pending`, `Assigned`, and `Blocked` missions are also cancelled the same way `cancel_mission`
+cancels one (a running agent is stopped first; an assigned captain with no other active mission returns to `Idle`);
+`InProgress` missions keep running. A mission whose agent did not confirm it stopped is left unchanged and listed in
+the reply's `NotCancelled`.
 
 **Request:**
 
@@ -1961,8 +1963,8 @@ Transition a mission to a new status. The transition must be valid according to 
 
 #### cancel_mission
 
-Cancel a mission. Its captain returns to `Idle` when this was its only active mission. The reply's `data` is the
-cancelled mission.
+Cancel a mission. Cancelling stops the mission's agent first: the captain's process is stopped through the lifecycle that owns it (on its Harbor when it runs there) and the exit is confirmed, then the captain is released when it holds no other active mission, then the mission is set to `Cancelled`. The dock is kept for inspection. When the stop is not confirmed (for example the owning Harbor is disconnected), nothing changes and the cancel is refused, so no other work is assigned to a captain whose agent may still run. The reply's `data` is the cancelled mission; an unconfirmed stop
+answers `command.error` with code `Conflict`.
 
 **Request:**
 

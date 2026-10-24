@@ -258,36 +258,20 @@ namespace Armada.Server.Mcp.Tools
                     // Cancel only pending/assigned missions (in-progress work is left running)
                     List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId).ConfigureAwait(false);
                     int cancelledCount = 0;
+                    List<object> notCancelled = new List<object>();
                     foreach (Mission m in missions)
                     {
                         if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.Blocked)
                         {
-                            // Release the captain if this mission was assigned to one
-                            if (!String.IsNullOrEmpty(m.CaptainId))
+                            try
                             {
-                                Captain? captain = await database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
-                                if (captain != null && captain.CurrentMissionId == m.Id)
-                                {
-                                    List<Mission> otherMissions = (await database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
-                                        .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                    if (otherMissions.Count == 0)
-                                    {
-                                        captain.State = CaptainStateEnum.Idle;
-                                        captain.CurrentMissionId = null;
-                                        captain.CurrentDockId = null;
-                                        captain.ProcessId = null;
-                                        captain.RecoveryAttempts = 0;
-                                        captain.LastUpdateUtc = DateTime.UtcNow;
-                                        await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                                    }
-                                }
+                                await admiral.CancelMissionAsync(m).ConfigureAwait(false);
+                                cancelledCount++;
                             }
-
-                            m.Status = MissionStatusEnum.Cancelled;
-                            m.CompletedUtc = DateTime.UtcNow;
-                            m.LastUpdateUtc = DateTime.UtcNow;
-                            await database.Missions.UpdateAsync(m).ConfigureAwait(false);
-                            cancelledCount++;
+                            catch (InvalidOperationException ex)
+                            {
+                                notCancelled.Add(new { MissionId = m.Id, Reason = ex.Message });
+                            }
                         }
                     }
 
@@ -295,7 +279,7 @@ namespace Armada.Server.Mcp.Tools
                     voyage.CompletedUtc = DateTime.UtcNow;
                     voyage.LastUpdateUtc = DateTime.UtcNow;
                     voyage = await database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
-                    return (object)new { Voyage = voyage, CancelledMissions = cancelledCount };
+                    return (object)new { Voyage = voyage, CancelledMissions = cancelledCount, NotCancelled = notCancelled };
                 });
 
             register(

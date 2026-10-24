@@ -45,7 +45,9 @@ namespace Armada.Core.ApiSurface
             "create_harbor",
             "update_harbor",
             "delete_harbor",
-            "set_harbor_enabled"
+            "set_harbor_enabled",
+            "list_harbor_jobs",
+            "stop_harbor_job"
         };
 
         // Settings keys use the camelCase JSON names of settings.json; a prefix covers the key and its children.

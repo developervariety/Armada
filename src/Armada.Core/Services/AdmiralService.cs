@@ -511,6 +511,56 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<Mission> CancelMissionAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+
+            Captain? captain = String.IsNullOrEmpty(mission.CaptainId)
+                ? null
+                : await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);
+            bool ownsCaptain = captain != null && captain.CurrentMissionId == mission.Id;
+
+            // Stop the process before releasing anything. The stop handler resolves the owning Harbor from the
+            // captain's current mission, so it must run while the captain still points at this mission.
+            if (ownsCaptain && captain!.ProcessId.HasValue && _Captains.OnStopAgent != null)
+            {
+                try
+                {
+                    await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "cancel of mission " + mission.Id + " could not stop the agent for captain " + captain.Id + ": " + ex.Message);
+                    throw new InvalidOperationException(
+                        "The mission was not cancelled because its agent process (" + captain.Name + ") did not confirm it stopped. "
+                        + "Reconnect the owning Harbor and retry the cancel. Detail: " + ex.Message, ex);
+                }
+            }
+
+            if (ownsCaptain)
+            {
+                List<Mission> otherActive = (await _Database.Missions.EnumerateByCaptainAsync(captain!.Id, token).ConfigureAwait(false))
+                    .Where(m => m.Id != mission.Id && (m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Assigned)).ToList();
+                if (otherActive.Count == 0)
+                {
+                    captain.State = CaptainStateEnum.Idle;
+                    captain.CurrentMissionId = null;
+                    captain.CurrentDockId = null;
+                    captain.ProcessId = null;
+                    captain.RecoveryAttempts = 0;
+                    captain.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                }
+            }
+
+            mission.Status = MissionStatusEnum.Cancelled;
+            mission.ProcessId = null;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            return await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
         public async Task RecallCaptainAsync(string captainId, CancellationToken token = default)
         {
             await _Captains.RecallAsync(captainId, token: token).ConfigureAwait(false);

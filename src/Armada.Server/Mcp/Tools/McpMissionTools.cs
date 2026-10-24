@@ -231,32 +231,14 @@ namespace Armada.Server.Mcp.Tools
                     Mission? mission = await McpCallerScope.ReadMissionAsync(database, caller, missionId).ConfigureAwait(false);
                     if (mission == null) return (object)McpToolError.NotFound("Mission not found");
 
-                    // Release the captain if this mission was assigned to one
-                    if (!String.IsNullOrEmpty(mission.CaptainId))
+                    try
                     {
-                        Captain? captain = await database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false);
-                        if (captain != null && captain.CurrentMissionId == mission.Id)
-                        {
-                            List<Mission> otherMissions = (await database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false))
-                                .Where(m => m.Id != mission.Id && (m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Assigned)).ToList();
-                            if (otherMissions.Count == 0)
-                            {
-                                captain.State = CaptainStateEnum.Idle;
-                                captain.CurrentMissionId = null;
-                                captain.CurrentDockId = null;
-                                captain.ProcessId = null;
-                                captain.RecoveryAttempts = 0;
-                                captain.LastUpdateUtc = DateTime.UtcNow;
-                                await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                            }
-                        }
+                        return (object)await admiral.CancelMissionAsync(mission).ConfigureAwait(false);
                     }
-
-                    mission.Status = MissionStatusEnum.Cancelled;
-                    mission.CompletedUtc = DateTime.UtcNow;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    return (object)mission;
+                    catch (InvalidOperationException ex)
+                    {
+                        return (object)McpToolError.Conflict(ex.Message);
+                    }
                 });
 
             register(

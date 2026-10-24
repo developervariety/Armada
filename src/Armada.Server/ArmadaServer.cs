@@ -174,6 +174,7 @@ namespace Armada.Server
         private HarborService _HarborService = null!;
         private HarborMetricsRecorder _HarborMetricsRecorder = null!;
         private HarborMetricsService _HarborMetricsService = null!;
+        private HarborJobControlService _HarborJobControl = null!;
         private HarborConnectionManager _HarborConnectionManager = null!;
         private CaptainLaunchRouter _LaunchRouter = null!;
         private HarborLinkEndpoint _HarborLinkEndpoint = null!;
@@ -354,6 +355,7 @@ namespace Armada.Server
             _ManualLandingReconciler.Hosts = _VesselHosts;
             if (_FleetCategorizationService is FleetCategorizationService categorization) categorization.Hosts = _VesselHosts;
             _HarborMetricsService = new HarborMetricsService(_Database, _HarborService, _Settings.Harbor);
+            _HarborJobControl = new HarborJobControlService(_HarborService, _Database, _HarborConnectionManager);
             _HarborLinkEndpoint = new HarborLinkEndpoint(
                 _HarborConnectionManager,
                 _Settings.Harbor,
@@ -1293,7 +1295,7 @@ namespace Armada.Server
             VesselContextService vesselContextService = new VesselContextService(_Database, _RuntimeFactory, _Docks, _PromptTemplateService, _Logging);
             vesselContextService.LaunchRouter = _LaunchRouter;
             vesselContextService.PlaceDockAsync = _AgentLifecycle.ResolveDockPlacementAsync;
-            new VesselRoutes(_Database, _VesselReadinessService, _LandingPreviewService, EmitEventAsync, _JsonOptions, _Docks, vesselContextService, _Git, _Settings, _VesselService, _ManualLandingReconciler, _VesselHosts)
+            new VesselRoutes(_Database, _VesselReadinessService, _LandingPreviewService, EmitEventAsync, _JsonOptions, _Docks, vesselContextService, _Git, _Settings, _VesselService, _ManualLandingReconciler, _VesselHosts, _Admiral)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Vessel import (bulk onboarding)
@@ -1351,7 +1353,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Harbors (host runners)
-            new HarborRoutes(_HarborService, _HarborConnectionManager, _Database, _HarborMetricsService)
+            new HarborRoutes(_HarborService, _HarborConnectionManager, _Database, _HarborMetricsService, _HarborJobControl)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Structured check runs
@@ -1868,7 +1870,8 @@ namespace Armada.Server
                 _AskThreads,
                 _AskTurns,
                 _AskActions,
-                _MissionService);
+                _MissionService,
+                _HarborJobControl);
         }
 
         /// <summary>

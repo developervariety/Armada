@@ -73,6 +73,7 @@ namespace Armada.Server.Mcp
         /// <param name="askTurns">Optional Ask Armada turn coordinator.</param>
         /// <param name="askActions">Optional Ask Armada action service.</param>
         /// <param name="missionService">Optional mission service; with it the review gate tools (approve_mission_review, deny_mission_review) decide gates, without it they answer Unavailable.</param>
+        /// <param name="harborJobs">Optional Harbor job control; without it list_harbor_jobs and stop_harbor_job answer Unavailable.</param>
         /// <param name="cliPermissionService">Optional CLI permission service; without it the CLI permission tools are
         /// registered and answer a typed Unavailable error.</param>
         public static void RegisterAll(
@@ -109,7 +110,8 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.Ask.AskThreadService? askThreads = null,
             Armada.Server.Ask.AskTurnCoordinator? askTurns = null,
             Armada.Server.Ask.AskActionService? askActions = null,
-            IMissionService? missionService = null)
+            IMissionService? missionService = null,
+            HarborJobControlService? harborJobs = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             register = MapToolExceptions(MarkExperimental(register));
@@ -117,7 +119,7 @@ namespace Armada.Server.Mcp
             if (logging != null) McpInboxTools.Register(register, database, logging, settings);
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
-            McpVesselTools.Register(register, database, dockService, vesselService, settings);
+            McpVesselTools.Register(register, database, dockService, vesselService, settings, admiral);
             if (vesselImportService != null) McpVesselImportTools.Register(register, vesselImportService, fleetCategorizationService);
             McpVoyageTools.Register(register, database, admiral, settings);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, missionService);
@@ -140,7 +142,7 @@ namespace Armada.Server.Mcp
             if (logging != null) McpMemoryTools.Register(register, database, logging);
             if (settings != null) McpBackupTools.Register(register, database, settings);
             if (modelEndpointService != null) McpModelEndpointTools.Register(register, modelEndpointService);
-            if (harborService != null) McpHarborTools.Register(register, harborService, new HarborMetricsService(database, harborService, settings?.Harbor ?? new Armada.Core.Settings.HarborServerSettings()));
+            if (harborService != null) McpHarborTools.Register(register, harborService, new HarborMetricsService(database, harborService, settings?.Harbor ?? new Armada.Core.Settings.HarborServerSettings()), harborJobs);
             // Registered even without the service: each fleet action tool then answers a typed Unavailable error.
             McpFleetActionTools.Register(register, fleetActionService);
             if (vesselHealthService != null) McpVesselHealthTools.Register(register, vesselHealthService);
@@ -203,7 +205,7 @@ namespace Armada.Server.Mcp
             if (logging != null) RegisterCatalogGroup("Armada MCP / Inbox", register => McpInboxTools.Register(register, database, logging, settings));
             RegisterCatalogGroup("Armada MCP / Enumeration", register => McpEnumerateTools.Register(register, database, mergeQueue));
             RegisterCatalogGroup("Armada MCP / Fleets", register => McpFleetTools.Register(register, database));
-            RegisterCatalogGroup("Armada MCP / Vessels", register => McpVesselTools.Register(register, database, dockService, vesselService, settings));
+            RegisterCatalogGroup("Armada MCP / Vessels", register => McpVesselTools.Register(register, database, dockService, vesselService, settings, admiral));
             if (vesselImportService != null) RegisterCatalogGroup("Armada MCP / Vessel Import", register => McpVesselImportTools.Register(register, vesselImportService, fleetCategorizationService));
             RegisterCatalogGroup("Armada MCP / Voyages", register => McpVoyageTools.Register(register, database, admiral, settings));
             RegisterCatalogGroup("Armada MCP / Missions", register => McpMissionTools.Register(register, database, admiral, settings, git, landingService));

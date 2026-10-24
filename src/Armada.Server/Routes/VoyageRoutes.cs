@@ -288,38 +288,20 @@ namespace Armada.Server.Routes
                     ? await _database.Missions.EnumerateByVoyageAsync(id).ConfigureAwait(false)
                     : await _database.Missions.EnumerateByVoyageAsync(ctx.TenantId!, id).ConfigureAwait(false);
                 int cancelledCount = 0;
+                List<object> notCancelled = new List<object>();
                 foreach (Mission m in missions)
                 {
                     if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.Blocked)
                     {
-                        // Release the captain if this mission was assigned to one
-                        if (!String.IsNullOrEmpty(m.CaptainId))
+                        try
                         {
-                            Captain? captain = await _database.Captains.ReadAsync(m.CaptainId).ConfigureAwait(false);
-                            if (captain != null && captain.CurrentMissionId == m.Id)
-                            {
-                                List<Mission> otherMissions = (ctx.IsAdmin
-                                    ? await _database.Missions.EnumerateByCaptainAsync(captain.Id).ConfigureAwait(false)
-                                    : await _database.Missions.EnumerateByCaptainAsync(ctx.TenantId!, captain.Id).ConfigureAwait(false))
-                                    .Where(om => om.Id != m.Id && (om.Status == MissionStatusEnum.InProgress || om.Status == MissionStatusEnum.Assigned)).ToList();
-                                if (otherMissions.Count == 0)
-                                {
-                                    captain.State = CaptainStateEnum.Idle;
-                                    captain.CurrentMissionId = null;
-                                    captain.CurrentDockId = null;
-                                    captain.ProcessId = null;
-                                    captain.RecoveryAttempts = 0;
-                                    captain.LastUpdateUtc = DateTime.UtcNow;
-                                    await _database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                                }
-                            }
+                            await _admiral.CancelMissionAsync(m).ConfigureAwait(false);
+                            cancelledCount++;
                         }
-
-                        m.Status = MissionStatusEnum.Cancelled;
-                        m.CompletedUtc = DateTime.UtcNow;
-                        m.LastUpdateUtc = DateTime.UtcNow;
-                        await _database.Missions.UpdateAsync(m).ConfigureAwait(false);
-                        cancelledCount++;
+                        catch (InvalidOperationException ex)
+                        {
+                            notCancelled.Add(new { MissionId = m.Id, Reason = ex.Message });
+                        }
                     }
                 }
                 // Broadcast voyage and mission cancellations for dashboard toast notifications
@@ -335,7 +317,7 @@ namespace Armada.Server.Routes
                     }
                 }
 
-                return (object)new { Voyage = voyage, CancelledMissions = cancelledCount };
+                return (object)new { Voyage = voyage, CancelledMissions = cancelledCount, NotCancelled = notCancelled };
             },
             api => api
                 .WithResponse(200, OpenApiResponseMetadata.Create("Successful response"))

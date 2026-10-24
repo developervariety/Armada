@@ -24,8 +24,8 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 376 | 12 |
-| MCP tools | 175 | 6 |
+| REST routes | 378 | 14 |
+| MCP tools | 177 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
@@ -160,6 +160,8 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/harbors/{id}` | Authenticated | `Harbor` | 200 `Harbor`, 400, 404 | experimental |
 | POST | `/api/v1/harbors/{id}/disable` | Authenticated |  | 200 `Harbor`, 404 | experimental |
 | POST | `/api/v1/harbors/{id}/enable` | Authenticated |  | 200 `Harbor`, 404 | experimental |
+| GET | `/api/v1/harbors/{id}/jobs` | Authenticated |  | 200 `EnumerationResult<HarborJobRecord>`, 404 | experimental |
+| POST | `/api/v1/harbors/{id}/jobs/{jobId}/stop` | TenantAdmin |  | 200 `HarborJobStopResult`, 202 `HarborJobStopResult`, 404, 409 `ApiErrorResponse` | experimental |
 | GET | `/api/v1/harbors/{id}/metrics` | Authenticated |  | 200 `HarborMetrics`, 400, 404 | experimental |
 | POST | `/api/v1/harbors/{id}/probe` | TenantAdmin | `HarborProbeRequest` (optional) | 200 `HostCommandResult`, 404, 409 `ApiErrorResponse` | experimental |
 | GET | `/api/v1/history` | Authenticated |  | 200 `EnumerationResult<HistoricalTimelineEntry>` |  |
@@ -531,6 +533,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `list_backlog_refinement_sessions` | Authenticated | `objectiveId*: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `list_cli_permission_requests` | Authenticated | `captainId: string`, `limit: integer`, `missionId: string`, `status: string`, `threadId: string`, `vesselId: string` |  |
 | `list_cli_permission_rules` | Authenticated | `captainId: string`, `scope: string`, `vesselId: string` |  |
+| `list_harbor_jobs` | Authenticated | `harborId*: string`, `openOnly: boolean`, `pageNumber: integer`, `pageSize: integer` | experimental |
 | `list_objectives` | Authenticated | `backlogState: string`, `category: string`, `effort: string`, `fleetId: string`, `kind: string`, `owner: string`, `pageNumber: integer`, `pageSize: integer`, `parentObjectiveId: string`, `priority: string`, `search: string`, `status: string`, `targetVersion: string`, `vesselId: string` |  |
 | `list_prompt_templates` | Authenticated | `category: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `mark_ask_thread_read` | Authenticated | `threadId*: string` |  |
@@ -570,6 +573,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `stop_all` | TenantAdmin |  |  |
 | `stop_backlog_refinement_session` | TenantAdmin | `sessionId*: string` |  |
 | `stop_captain` | TenantAdmin | `captainId*: string` |  |
+| `stop_harbor_job` | TenantAdmin | `harborId*: string`, `jobId*: string` | experimental |
 | `stop_server` | AdminOnly |  |  |
 | `summarize_ask_thread` | Authenticated | `threadId*: string` |  |
 | `summarize_backlog_refinement_session` | TenantAdmin | `messageId: string`, `sessionId*: string` |  |

@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Linq;
 
     /// <summary>
     /// Paginated result wrapper for enumeration queries.
@@ -76,6 +77,21 @@ namespace Armada.Core.Models
                 : 0;
             result.Objects = data ?? new List<T>();
             return result;
+        }
+
+        /// <summary>
+        /// Page an in-memory list with the query's page number and size.
+        /// </summary>
+        /// <param name="query">The enumeration query.</param>
+        /// <param name="all">Every matching record, already filtered and ordered.</param>
+        /// <returns>The requested page.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when query is null.</exception>
+        public static EnumerationResult<T> Page(EnumerationQuery query, List<T> all)
+        {
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            List<T> source = all ?? new List<T>();
+            List<T> page = source.Skip(query.Offset).Take(query.PageSize).ToList();
+            return Create(query, page, source.Count);
         }
 
         #endregion
