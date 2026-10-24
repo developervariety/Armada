@@ -379,6 +379,7 @@ namespace Armada.Core.Services
                 TenantId = template.TenantId ?? voyage.TenantId,
                 UserId = template.UserId,
                 VesselId = template.VesselId ?? work.VesselId,
+                MissionId = work.Id,
                 VoyageId = voyage.Id,
                 WorkflowProfileId = template.WorkflowProfileId,
                 Type = template.Type,

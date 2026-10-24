@@ -7,6 +7,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Newly armed lane Checks name the work mission they measure. Lanes that share
+  a commit retain separate pending, passing and failing review results.
+
 - Declared DoD execution budgets survive post-test, isolated, flake and host-load
   retries. Native isolated retries retain their source profile limit. Each
   vessel or consumer keeps separate build and test budgets; slot waits and
