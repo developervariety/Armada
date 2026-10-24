@@ -29,11 +29,11 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for coordination data access.</param>
-        /// <param name="coordination">Coordination service.</param>
+        /// <param name="coordination">Optional coordination service.</param>
         /// <param name="dispatchHold">Optional dispatch hold shared with the admiral's dispatch paths.</param>
         /// <param name="triageAdapter">Optional D11 <c>inbox_triage</c> adapter. When set and in Gate mode it annotates each board note with an <c>attention</c> label and a <c>noteKind</c> and sorts the read by attention; it never hides a note. Null or Off leaves the deterministic order.</param>
         /// <param name="jobs">Optional background job service. When set, hold status and engage list the jobs accepted but not finished, which a restart would record as Lost.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CoordinationService coordination, Armada.Core.Services.DispatchHold? dispatchHold = null, Armada.Core.Services.InboxTriageAdapter? triageAdapter = null, LongRunningJobService? jobs = null)
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CoordinationService? coordination, Armada.Core.Services.DispatchHold? dispatchHold = null, Armada.Core.Services.InboxTriageAdapter? triageAdapter = null, LongRunningJobService? jobs = null)
         {
             register(
                 "armada_coordination_post",
@@ -61,6 +61,8 @@ namespace Armada.Server.Mcp.Tools
                     CoordinationPostArgs request = JsonSerializer.Deserialize<CoordinationPostArgs>(args!.Value, _JsonOptions)!;
                     if (String.IsNullOrWhiteSpace(request.Content))
                         return (object)new { Error = "content is required and must not be empty" };
+                    if (coordination == null)
+                        return McpToolUnavailable.Create("coordination board");
                     string? authenticatedParticipant = ArmadaMcpHttpServer.CurrentParticipantKey;
                     string? authorName = await coordination.ResolveCallerNameAsync(
                         request.AuthorName,
@@ -125,6 +127,8 @@ namespace Armada.Server.Mcp.Tools
                     string? keyRefusal = await HeaderParticipantKeyRefusalAsync(coordination, request.ParticipantKey).ConfigureAwait(false);
                     if (keyRefusal != null)
                         return (object)new { Error = keyRefusal };
+                    if (coordination == null)
+                        return McpToolUnavailable.Create("coordination board");
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
 
                     try
@@ -225,6 +229,8 @@ namespace Armada.Server.Mcp.Tools
                     string? participantKey = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.ParticipantKey;
                     if (String.IsNullOrWhiteSpace(participantKey))
                         return (object)new { Error = "participantKey is required when the session sends no " + ArmadaMcpHttpServer.ParticipantHeaderName + " header" };
+                    if (coordination == null)
+                        return McpToolUnavailable.Create("coordination board");
                     string? displayName = await coordination.ResolveCallerNameAsync(
                         request.DisplayName, participantKey, McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
 
@@ -287,14 +293,16 @@ namespace Armada.Server.Mcp.Tools
                         {
                             if (String.IsNullOrWhiteSpace(request.SubjectId) || String.IsNullOrWhiteSpace(request.SubjectType))
                                 return (object)new { Error = "subjectType and subjectId are required for action=claim" };
-                            if (String.IsNullOrWhiteSpace(participantKey))
-                                return (object)new { Error = "participantKey is required for action=claim when the session sends no " + ArmadaMcpHttpServer.ParticipantHeaderName + " header - name your session" };
-                            string? claimDisplayName = await coordination.ResolveCallerNameAsync(
-                                request.DisplayName, participantKey, McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
-
                             CoordinationClaimSubjectEnum subjectType;
                             if (!Enum.TryParse(request.SubjectType!, true, out subjectType))
                                 return (object)new { Error = "subjectType must be vessel or objective" };
+                            if (String.IsNullOrWhiteSpace(participantKey))
+                                return (object)new { Error = "participantKey is required for action=claim when the session sends no " + ArmadaMcpHttpServer.ParticipantHeaderName + " header - name your session" };
+                            if (coordination == null)
+                                return McpToolUnavailable.Create("coordination board");
+                            string? claimDisplayName = await coordination.ResolveCallerNameAsync(
+                                request.DisplayName, participantKey, McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
+
                             CoordinationClaim claim = await coordination.ClaimAsync(
                                 participantKey!, claimDisplayName!, subjectType, request.SubjectId!,
                                 request.Note, request.TtlHours ?? 4, request.RoomKey).ConfigureAwait(false);
@@ -312,6 +320,8 @@ namespace Armada.Server.Mcp.Tools
                             {
                                 return (object)new { Error = "An authenticated participant can release only its own claim." };
                             }
+                            if (coordination == null)
+                                return McpToolUnavailable.Create("coordination board");
                             CoordinationClaim? released = await coordination.ReleaseClaimAsync(request.ClaimId!).ConfigureAwait(false);
                             if (released == null) return (object)new { Status = "not_found", ClaimId = request.ClaimId! };
                             return (object)released;
@@ -323,6 +333,8 @@ namespace Armada.Server.Mcp.Tools
                             bool hasSubjectType = !String.IsNullOrWhiteSpace(request.SubjectType);
                             if (hasSubjectType && !Enum.TryParse(request.SubjectType!, true, out subjectTypeParsed))
                                 return (object)new { Error = "subjectType must be vessel or objective" };
+                            if (coordination == null)
+                                return McpToolUnavailable.Create("coordination board");
                             CoordinationClaimSubjectEnum? subjectType = hasSubjectType ? subjectTypeParsed : null;
 
                             List<CoordinationClaim> claims = await coordination.EnumerateActiveClaimsAsync(
@@ -359,6 +371,9 @@ namespace Armada.Server.Mcp.Tools
                     CampaignStatusArgs request = args != null && args.HasValue
                         ? JsonSerializer.Deserialize<CampaignStatusArgs>(args.Value, _JsonOptions) ?? new CampaignStatusArgs()
                         : new CampaignStatusArgs();
+
+                    if (coordination == null)
+                        return McpToolUnavailable.Create("coordination board");
 
                     List<CoordinationRoom> rooms = await database.CoordinationRooms.EnumerateAsync().ConfigureAwait(false);
                     string fleetRoomKey = CoordinationService.DefaultRoomKey;
@@ -509,7 +524,6 @@ namespace Armada.Server.Mcp.Tools
                         wantsFull);
                 });
 
-            if (dispatchHold != null)
             {
                 register(
                     "armada_dispatch_hold",
@@ -531,10 +545,18 @@ namespace Armada.Server.Mcp.Tools
                         string action = String.IsNullOrWhiteSpace(request.Action) ? "status" : request.Action!.Trim().ToLowerInvariant();
 
                         if (String.Equals(action, "status", StringComparison.Ordinal))
+                        {
+                            if (dispatchHold == null)
+                                return McpToolUnavailable.Create("dispatch hold");
                             return (object)new { Active = dispatchHold.Snapshot() != null, Hold = dispatchHold.Snapshot(), UnfinishedJobs = UnfinishedJobs(jobs), RunningGates = RunningGates(), GateReruns = MissionService.GateRerunsInFlight(), HostSlot = HostWideCommandLock.Snapshot() };
+                        }
 
                         if (String.Equals(action, "clear", StringComparison.Ordinal))
                         {
+                            if (dispatchHold == null)
+                                return McpToolUnavailable.Create("dispatch hold");
+                            if (coordination == null)
+                                return McpToolUnavailable.Create("coordination board");
                             bool wasActive = dispatchHold.Snapshot() != null;
                             dispatchHold.Clear();
                             if (wasActive)
@@ -550,6 +572,10 @@ namespace Armada.Server.Mcp.Tools
                         {
                             if (String.IsNullOrWhiteSpace(request.Reason))
                                 return (object)new { Error = "reason is required when engaging the hold" };
+                            if (dispatchHold == null)
+                                return McpToolUnavailable.Create("dispatch hold");
+                            if (coordination == null)
+                                return McpToolUnavailable.Create("coordination board");
                             string? setBy = await coordination.ResolveCallerNameAsync(
                                 request.SetBy, ArmadaMcpHttpServer.CurrentParticipantKey, McpCallerContext.Current?.PrincipalDisplay).ConfigureAwait(false);
                             if (String.IsNullOrWhiteSpace(setBy))
@@ -787,12 +813,13 @@ namespace Armada.Server.Mcp.Tools
         /// it, so a name the header key posted or heartbeated under within the address window means
         /// the header key. A name another key uses, and any other key, stays refused.
         /// </summary>
-        private static async Task<string?> HeaderParticipantKeyRefusalAsync(CoordinationService coordination, string? requestedKey)
+        private static async Task<string?> HeaderParticipantKeyRefusalAsync(CoordinationService? coordination, string? requestedKey)
         {
             string? headerKey = ArmadaMcpHttpServer.CurrentParticipantKey;
             string? baseKey = ArmadaMcpHttpServer.CurrentParticipantBaseKey;
             string? refusal = ParticipantKeyRefusal(headerKey, requestedKey, baseKey);
             if (refusal == null) return null;
+            if (coordination == null) return refusal;
 
             List<string> names;
             try { names = await coordination.NamesDeliveredToAsync(headerKey!).ConfigureAwait(false); }

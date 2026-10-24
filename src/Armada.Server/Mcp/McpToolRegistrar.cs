@@ -149,7 +149,7 @@ namespace Armada.Server.Mcp
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine, captainAdministration, missionOperations.Notifier);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
-            if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter, longRunningJobs);
+            McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter, longRunningJobs);
             McpSignalTools.Register(register, database, () => remoteTriggerService?.GetAgentWakeStatus().EffectiveParticipantKey);
             McpEventTools.Register(register, database, missionOperations.Notifier);
             McpTokenUsageTools.Register(register, database);
@@ -176,16 +176,15 @@ namespace Armada.Server.Mcp
                     McpOperationalAssetTools.Register(register, database, workflowProfiles, environments, runbookService);
             }
             if (incidentService != null) McpIncidentTools.Register(register, incidentService, objectiveService);
-            if (objectiveScheduler != null && objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService, coordinationService);
+            if (objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService, coordinationService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
             McpMemoryTools.Register(register, database, logging);
 
             // The captain-facing context fetch tool sits in the mission-scoped catalogue beside
-            // the memory tools. It is registered only when a built context index was supplied.
-            if (contextRetrieval != null)
-                McpContextTools.Register(register, contextRetrieval, database, effectiveSettings, logging, contextParticipantKeyProvider);
+            // the memory tools. Its handler reports when this host has no built context index.
+            McpContextTools.Register(register, contextRetrieval, database, effectiveSettings, logging, contextParticipantKeyProvider);
 
             // The captain-facing typed-decision tools sit in the mission-scoped catalogue beside the
             // memory tools. They need the recorder, which needs a logging module; where none was
@@ -225,7 +224,7 @@ namespace Armada.Server.Mcp
                     () => effectiveSettings.TypedDecisions,
                     logging);
             }
-            if (typedDecisionEval != null) McpTypedDecisionEvalTools.Register(register, typedDecisionEval);
+            McpTypedDecisionEvalTools.Register(register, typedDecisionEval);
             if (settings != null) McpBackupTools.Register(register, new DatabaseBackupService(database, settings));
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService, followUpRoutingAdapter);
@@ -242,7 +241,7 @@ namespace Armada.Server.Mcp
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
             if (logging != null) McpTraceTools.Register(register, new TraceRecorder(database, logging));
             if (terminalVoyageMissions != null) McpTerminalVoyageMissionTools.Register(register, terminalVoyageMissions, longRunningJobs);
-            if (harborJobs != null) McpHarborJobTools.Register(register, harborJobs);
+            McpHarborJobTools.Register(register, harborJobs);
             if (missionService != null) McpReviewHoldTools.Register(register, missionService);
             if (missionService != null) McpHandoffHoldTools.Register(register, missionService);
         }

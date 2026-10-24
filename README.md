@@ -96,6 +96,9 @@ marks caller-filtered tool catalogs as private cache entries. Both versions
 load large API-runtime MCP catalogs on demand. The fork selects names from
 the caller-filtered catalog and keeps the same authenticated connection for
 execution; small catalogs and discovery-name collisions remain eager.
+Both transports list server-dependent tools with the same schemas. Standalone
+stdio returns `Unavailable` when a required process service is absent, while
+local record-backed tools remain available.
 
 Both versions serialize SQLite writes through a FIFO gate shared by each database
 file. The fork includes shared persistence methods, migrations, expiry deletes and live restore. Reads stay independent and existing durability settings apply.

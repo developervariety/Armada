@@ -617,7 +617,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(handlers.ContainsKey("armada_mark_objective_auto_dispatchable"), "Registrar should include mark auto-dispatchable tool.");
             }).ConfigureAwait(false);
 
-            await RunTest("McpToolRegistrar_RegisterAll_OmitsSchedulerToolsWithoutScheduler", async () =>
+            await RunTest("StdioCatalog_SchedulerToolsStayVisibleWithoutScheduler", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 ObjectiveService objectives = new ObjectiveService(testDb.Driver);
@@ -629,9 +629,30 @@ namespace Armada.Test.Unit.Suites.Services
                     new StubAdmiralService(),
                     objectiveService: objectives);
 
-                AssertFalse(handlers.ContainsKey("armada_objective_scheduler_status"), "Registrar should omit scheduler tools without scheduler.");
-                AssertFalse(handlers.ContainsKey("armada_objective_scheduler_set"), "Registrar should omit scheduler set tool without scheduler.");
-                AssertFalse(handlers.ContainsKey("armada_mark_objective_auto_dispatchable"), "Registrar should omit mark tool without scheduler.");
+                AssertTrue(handlers.ContainsKey("armada_objective_scheduler_status"), "Registrar should keep the scheduler status tool visible without a scheduler.");
+                AssertTrue(handlers.ContainsKey("armada_objective_scheduler_set"), "Registrar should keep the scheduler set tool visible without a scheduler.");
+                AssertTrue(handlers.ContainsKey("armada_mark_objective_auto_dispatchable"), "Registrar should keep the mark tool visible without a scheduler.");
+
+                string status = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_status"](JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false), _JsonOptions);
+                string set = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_set"](JsonSerializer.SerializeToElement(new { enabled = false })).ConfigureAwait(false), _JsonOptions);
+                AssertContains("Unavailable:", status, "missing scheduler status is reported as unavailable");
+                AssertContains("Unavailable:", set, "missing scheduler set is reported as unavailable");
+
+                AuthContext auth = McpTestCaller.Operator;
+                Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Standalone auto-dispatch objective"
+                }).ConfigureAwait(false);
+                object markResult = await handlers["armada_mark_objective_auto_dispatchable"](JsonSerializer.SerializeToElement(new
+                {
+                    objectiveId = objective.Id,
+                    enabled = true
+                })).ConfigureAwait(false);
+                string mark = JsonSerializer.Serialize(markResult, _JsonOptions);
+                AssertContains("\"autoDispatchEnabled\":true", mark, "the record-backed mark tool remains available without the scheduler");
+                Objective? persisted = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertNotNull(persisted);
+                AssertTrue(persisted!.AutoDispatchEnabled, "the record-backed opt-in is persisted without a scheduler");
             }).ConfigureAwait(false);
         }
 

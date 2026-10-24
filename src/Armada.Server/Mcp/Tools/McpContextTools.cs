@@ -13,6 +13,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Settings;
+    using Armada.Server.Mcp;
     using SyslogLogging;
 
     /// <summary>
@@ -59,8 +60,8 @@ namespace Armada.Server.Mcp.Tools
         /// Register the context fetch tool.
         /// </summary>
         /// <param name="register">Tool registration delegate.</param>
-        /// <param name="retrieval">The retrieval service over the built context index. When null the
-        /// tool is not registered (a minimal harness without a built index).</param>
+        /// <param name="retrieval">The retrieval service over the built context index, or null when
+        /// the host does not have a built index.</param>
         /// <param name="database">Database driver, for resolving the calling mission's vessel and persona.</param>
         /// <param name="settings">Armada settings supplying <c>contextRetrieval</c>.</param>
         /// <param name="logging">Optional logging module.</param>
@@ -76,8 +77,6 @@ namespace Armada.Server.Mcp.Tools
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             if (settings == null) throw new ArgumentNullException(nameof(settings));
-            if (retrieval == null) return; // No built index; nothing to serve.
-
             Func<string?> participantKey = participantKeyProvider ?? (() => null);
 
             register(
@@ -93,7 +92,12 @@ namespace Armada.Server.Mcp.Tools
                         missionId = new { type = "string", description = "The calling mission id, used to resolve your vessel and persona and to scope the per-mission budget. Optional." }
                     }
                 },
-                async (args) => await HandleAsync(args, retrieval, database, settings, logging, participantKey).ConfigureAwait(false));
+                async (args) =>
+                {
+                    McpCallerContext.Require();
+                    if (retrieval == null) return McpToolUnavailable.Create("context retrieval");
+                    return await HandleAsync(args, retrieval, database, settings, logging, participantKey).ConfigureAwait(false);
+                });
         }
 
         /// <summary>

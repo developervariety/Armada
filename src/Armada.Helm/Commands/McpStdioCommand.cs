@@ -196,7 +196,7 @@ namespace Armada.Helm.Commands
             // and this host's storage, so the stdio host supplies them too. Services that live only inside the
             // running admiral process (the dispatch hold, the objective scheduler, planning and refinement session
             // coordinators, the coordination board's live broadcast and wake, harbor jobs and the context index)
-            // are not built here; their tools stay unregistered or report the service as unavailable.
+            // are not built here; their tools remain listed and return Unavailable when called.
             DeploymentEnvironmentService environmentService = new DeploymentEnvironmentService(database, workflowProfileService, logging);
             ReleaseWebhookDispatcher? releaseWebhookDispatcher = armadaSettings.CdWebhook != null && armadaSettings.CdWebhook.IsConfigured()
                 ? new ReleaseWebhookDispatcher(armadaSettings.CdWebhook, logging)

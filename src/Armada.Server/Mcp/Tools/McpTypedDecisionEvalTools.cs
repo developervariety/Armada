@@ -3,6 +3,7 @@ namespace Armada.Server.Mcp.Tools
     using System;
     using System.Text.Json;
     using System.Threading;
+    using Armada.Server.Mcp;
     using Armada.Core.Models;
     using Armada.Core.Services;
 
@@ -28,11 +29,10 @@ namespace Armada.Server.Mcp.Tools
         /// Register the evaluation tool.
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
-        /// <param name="evalService">The evaluation service.</param>
-        public static void Register(RegisterToolDelegate register, TypedDecisionEvalService evalService)
+        /// <param name="evalService">The evaluation service, or null when the host cannot run evaluations.</param>
+        public static void Register(RegisterToolDelegate register, TypedDecisionEvalService? evalService)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
-            if (evalService == null) throw new ArgumentNullException(nameof(evalService));
 
             register(
                 ToolName,
@@ -57,6 +57,7 @@ namespace Armada.Server.Mcp.Tools
                     AuthContext caller = McpCallerContext.Require();
                     if (!caller.IsAdmin)
                         return (object)new { Error = "Running the typed-decision evaluation requires a global administrator.", Reason = GlobalAdministratorRequiredReason };
+                    if (evalService == null) return McpToolUnavailable.Create("typed decision evaluation");
 
                     string? decision = null;
                     if (args.HasValue && args.Value.ValueKind == JsonValueKind.Object)

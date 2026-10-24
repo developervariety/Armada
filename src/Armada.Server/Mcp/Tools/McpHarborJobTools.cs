@@ -8,9 +8,11 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Server.Mcp;
 
     /// <summary>
-    /// Registers the operator tools that list, inspect and stop Harbor jobs. Registered only while Harbor is enabled.
+    /// Registers the operator tools that list, inspect and stop Harbor jobs. Calls return a stable unavailable result
+    /// when the host does not provide Harbor jobs.
     /// Every tool applies the shared runner authorization rule through <see cref="HarborJobService"/>; stopping
     /// also needs a tenant or global administrator, the same level as the REST route.
     /// </summary>
@@ -46,11 +48,10 @@ namespace Armada.Server.Mcp.Tools
 
         /// <summary>Register the Harbor job tools.</summary>
         /// <param name="register">Tool registration delegate.</param>
-        /// <param name="jobs">Harbor job service.</param>
-        public static void Register(RegisterToolDelegate register, HarborJobService jobs)
+        /// <param name="jobs">Harbor job service, or null when Harbor is not available in this host.</param>
+        public static void Register(RegisterToolDelegate register, HarborJobService? jobs)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
-            if (jobs == null) throw new ArgumentNullException(nameof(jobs));
 
             register(
                 ListToolName,
@@ -68,6 +69,7 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     AuthContext caller = McpCallerContext.Require();
+                    if (jobs == null) return McpToolUnavailable.Create("Harbor jobs");
                     JobArgs parsed = Parse(args);
                     List<HarborJobRecord> list = await jobs.ListAsync(caller, parsed.RunnerId, parsed.ActiveOnly ?? false, parsed.Limit ?? 100, CancellationToken.None).ConfigureAwait(false);
                     return (object)new { Jobs = list };
@@ -88,6 +90,7 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     AuthContext caller = McpCallerContext.Require();
+                    if (jobs == null) return McpToolUnavailable.Create("Harbor jobs");
                     JobArgs parsed = Parse(args);
                     HarborJobRecord? record = await jobs.GetAsync(caller, parsed.JobId ?? String.Empty, CancellationToken.None).ConfigureAwait(false);
                     if (record == null) return (object)new { Error = "Harbor job not found", Reason = "harbor_job_unknown" };
@@ -111,6 +114,7 @@ namespace Armada.Server.Mcp.Tools
                     AuthContext caller = McpCallerContext.Require();
                     if (!caller.IsAdmin && !caller.IsTenantAdmin)
                         return (object)new { Stopped = false, Reason = AdministratorRequiredReason };
+                    if (jobs == null) return McpToolUnavailable.Create("Harbor jobs");
                     JobArgs parsed = Parse(args);
                     HarborCommandResult result = await jobs.StopAsync(caller, parsed.JobId ?? String.Empty, CancellationToken.None).ConfigureAwait(false);
                     return (object)new { Stopped = result.Accepted, Reason = result.Reason };

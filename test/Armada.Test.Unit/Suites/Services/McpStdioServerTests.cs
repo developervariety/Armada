@@ -3,9 +3,16 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
+    using System.Net;
+    using System.Net.Http;
+    using System.Net.Http.Headers;
+    using System.Net.Sockets;
     using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -106,6 +113,138 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("armada_test_tool", tools[0].GetProperty("name").GetString());
                 AssertEqual("Test tool", tools[0].GetProperty("description").GetString());
                 AssertEqual("object", tools[0].GetProperty("inputSchema").GetProperty("type").GetString());
+            }).ConfigureAwait(false);
+
+            await RunTest("StdioCatalog_HarborEnabledMatchesAuthenticatedHttpCatalog", async () =>
+            {
+                foreach (bool harborEnabled in new[] { false, true })
+                {
+                    string root = Path.Combine(Path.GetTempPath(), "armada_stdio_catalog_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(root);
+                    ArmadaServer? httpServer = null;
+                    try
+                    {
+                        ArmadaSettings settings = CreateCatalogSettings(root, harborEnabled);
+                        httpServer = CreateCatalogServer(settings);
+                        await httpServer.StartAsync().ConfigureAwait(false);
+
+                        List<CatalogTool> httpTools = await ReadHttpCatalogAsync(settings).ConfigureAwait(false);
+                        List<CatalogTool> stdioTools;
+                        using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                        {
+                            LoggingModule logging = CreateQuietLogging();
+                            settings.CodeIndex.Enabled = false;
+                            GitService git = new GitService(logging, database: testDb.Driver);
+                            CodeIndexService codeIndex = new CodeIndexService(logging, testDb.Driver, settings, git);
+                            Dictionary<string, CatalogRegistration> registrations = new Dictionary<string, CatalogRegistration>(StringComparer.Ordinal);
+                            McpStdioCommand.RegisterTools(
+                                (name, description, schema, handler) => registrations.Add(name, new CatalogRegistration(name, description, schema, handler)),
+                                testDb.Driver,
+                                settings,
+                                logging,
+                                git,
+                                codeIndex);
+
+                            ArmadaMcpStdioServer stdio = CreateServer();
+                            foreach (CatalogRegistration registration in registrations.Values)
+                            {
+                                stdio.RegisterTool(registration.Name, registration.Description, registration.InputSchema, registration.Handler);
+                            }
+
+                            string request = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}";
+                            byte[] output;
+                            using (McpCallerContext.Begin(AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "LocalStdio", null, "Local stdio operator")))
+                            {
+                                output = await RunServerAsync(stdio, CreateFrame(request)).ConfigureAwait(false);
+                            }
+                            StdioRpcResponse response = JsonSerializer.Deserialize<StdioRpcResponse>(ReadSingleMessage(output).Body, CatalogJsonOptions())
+                                ?? throw new InvalidDataException("The stdio tools/list response was empty.");
+                            stdioTools = response.Result?.Tools ?? new List<CatalogTool>();
+                        }
+
+                        List<CatalogTool> orderedHttp = httpTools.OrderBy(tool => tool.Name, StringComparer.Ordinal).ToList();
+                        List<CatalogTool> orderedStdio = stdioTools.OrderBy(tool => tool.Name, StringComparer.Ordinal).ToList();
+                        AssertEqual(orderedHttp.Count, orderedHttp.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count(), "HTTP catalog names must be unique");
+                        AssertEqual(orderedStdio.Count, orderedStdio.Select(tool => tool.Name).Distinct(StringComparer.Ordinal).Count(), "stdio catalog names must be unique");
+                        AssertEqual(String.Join("\n", orderedHttp.Select(tool => tool.Name)), String.Join("\n", orderedStdio.Select(tool => tool.Name)), "stdio and HTTP must expose the same full tool names");
+                        for (int index = 0; index < orderedHttp.Count; index++)
+                        {
+                            AssertEqual(JsonSerializer.Serialize(orderedHttp[index].InputSchema), JsonSerializer.Serialize(orderedStdio[index].InputSchema), "input schema for " + orderedHttp[index].Name);
+                        }
+                    }
+                    finally
+                    {
+                        if (httpServer != null) httpServer.Stop();
+                        DeleteCatalogDirectory(root);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("StdioCatalog_UnavailableProcessServicesRemainVisibleAndNamed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateQuietLogging();
+                    string root = Path.Combine(Path.GetTempPath(), "armada_stdio_unavailable_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(root);
+                    try
+                    {
+                        ArmadaSettings settings = new ArmadaSettings();
+                        settings.CodeIndex.Enabled = false;
+                        settings.DocksDirectory = Path.Combine(root, "docks");
+                        settings.ReposDirectory = Path.Combine(root, "repos");
+                        settings.LogDirectory = Path.Combine(root, "logs");
+                        GitService git = new GitService(logging, database: testDb.Driver);
+                        CodeIndexService codeIndex = new CodeIndexService(logging, testDb.Driver, settings, git);
+                        Dictionary<string, CatalogRegistration> registrations = new Dictionary<string, CatalogRegistration>(StringComparer.Ordinal);
+                        McpStdioCommand.RegisterTools(
+                            (name, description, schema, handler) => registrations.Add(name, new CatalogRegistration(name, description, schema, handler)),
+                            testDb.Driver,
+                            settings,
+                            logging,
+                            git,
+                            codeIndex);
+
+                        ArmadaMcpStdioServer server = CreateServer();
+                        foreach (CatalogRegistration registration in registrations.Values)
+                            server.RegisterTool(registration.Name, registration.Description, registration.InputSchema, registration.Handler);
+
+                        List<UnavailableCallCase> calls = new List<UnavailableCallCase>
+                        {
+                            new UnavailableCallCase("armada_coordination_post", "{\"content\":\"stdio catalog probe\",\"authorName\":\"stdio-test\"}", "Unavailable: coordination board"),
+                            new UnavailableCallCase("armada_objective_scheduler_status", "{}", "Unavailable: objective scheduler"),
+                            new UnavailableCallCase("armada_dispatch_hold", "{\"action\":\"status\"}", "Unavailable: dispatch hold"),
+                            new UnavailableCallCase("create_backlog_refinement_session", "{\"objectiveId\":\"obj_demo\",\"captainId\":\"cpt_demo\"}", "Unavailable: objective refinement"),
+                            new UnavailableCallCase("create_backlog_planning_session", "{\"objectiveId\":\"obj_demo\",\"captainId\":\"cpt_demo\",\"vesselId\":\"vsl_demo\"}", "Unavailable: planning sessions"),
+                            new UnavailableCallCase("armada_fetch_context", "{\"query\":\"stdio catalog probe\"}", "Unavailable: context retrieval"),
+                            new UnavailableCallCase("armada_typed_decision_eval", "{}", "Unavailable: typed decision evaluation"),
+                            new UnavailableCallCase("armada_harbor_jobs", "{}", "Unavailable: Harbor jobs"),
+                            new UnavailableCallCase("armada_harbor_job_stop", "{\"jobId\":\"hjob_demo\"}", "Unavailable: Harbor jobs"),
+                            new UnavailableCallCase("armada_stop_server", "{}", "Unavailable: server shutdown")
+                        };
+                        string[] requests = calls.Select((call, index) => CreateToolCallRequest(index + 1, call.Name, call.ArgumentsJson)).ToArray();
+                        byte[] output;
+                        using (McpCallerContext.Begin(AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "LocalStdio", null, "Local stdio operator")))
+                        {
+                            output = await RunServerAsync(server, CombineFrames(requests)).ConfigureAwait(false);
+                        }
+
+                        List<string> messages = ReadLineMessages(output);
+                        AssertEqual(calls.Count, messages.Count, "stdio returns one framed response for each tool call");
+                        for (int index = 0; index < calls.Count; index++)
+                        {
+                            StdioRpcResponse response = JsonSerializer.Deserialize<StdioRpcResponse>(messages[index], CatalogJsonOptions())
+                                ?? throw new InvalidDataException("The stdio unavailable response was empty.");
+                            AssertNotNull(response.Error, calls[index].Name + " must be a JSON-RPC tool error");
+                            AssertEqual(-32603, response.Error!.Code, calls[index].Name + " maps an unavailable result to the stdio internal error code");
+                            AssertContains(calls[index].ErrorPrefix, response.Error.Message, calls[index].Name + " keeps its named unavailable reason");
+                        }
+                    }
+                    finally
+                    {
+                        DeleteCatalogDirectory(root);
+                    }
+                }
             }).ConfigureAwait(false);
 
             await RunTest("FramedToolsCall_PassesArgumentsAndReturnsContent", async () =>
@@ -380,6 +519,221 @@ namespace Armada.Test.Unit.Suites.Services
             return tools;
         }
 
+        private static ArmadaSettings CreateCatalogSettings(string root, bool harborEnabled)
+        {
+            DatabaseSettings database = new DatabaseSettings
+            {
+                Type = DatabaseTypeEnum.Sqlite,
+                Filename = Path.Combine(root, "armada.db")
+            };
+            ArmadaSettings settings = new ArmadaSettings
+            {
+                DataDirectory = root,
+                DatabasePath = database.Filename,
+                Database = database,
+                LogDirectory = Path.Combine(root, "logs"),
+                DocksDirectory = Path.Combine(root, "docks"),
+                ReposDirectory = Path.Combine(root, "repos"),
+                AdmiralPort = FreePort(),
+                McpPort = FreePort(),
+                ApiKey = "stdio-catalog-" + Guid.NewGuid().ToString("N"),
+                HeartbeatIntervalSeconds = 300,
+                WebSocketEnabled = true
+            };
+            settings.Rest.Hostname = "127.0.0.1";
+            settings.AutonomousObjectiveScheduler.Enabled = false;
+            settings.Harbor.Enabled = harborEnabled;
+            settings.CodeIndex.Enabled = false;
+            settings.SettingsFilePath = Path.Combine(root, "settings.json");
+            settings.InitializeDirectories();
+            return settings;
+        }
+
+        private static ArmadaServer CreateCatalogServer(ArmadaSettings settings)
+        {
+            LoggingModule logging = CreateQuietLogging();
+            return new ArmadaServer(logging, settings, quiet: true);
+        }
+
+        private static async Task<List<CatalogTool>> ReadHttpCatalogAsync(ArmadaSettings settings)
+        {
+            using (HttpClient client = new HttpClient())
+            {
+                client.Timeout = TimeSpan.FromSeconds(30);
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+                string endpoint = "http://127.0.0.1:" + settings.McpPort.ToString(System.Globalization.CultureInfo.InvariantCulture) + "/mcp";
+                int id = 0;
+                CatalogHttpSession session = new CatalogHttpSession();
+                await SendHttpMcpRequestAsync(client, endpoint, "initialize", new Dictionary<string, object>
+                {
+                    ["protocolVersion"] = "2025-03-26",
+                    ["capabilities"] = new Dictionary<string, object>(),
+                    ["clientInfo"] = new Dictionary<string, object> { ["name"] = "stdio-catalog-test", ["version"] = "1.0" }
+                }, ++id, session).ConfigureAwait(false);
+
+                List<CatalogTool> tools = new List<CatalogTool>();
+                string? cursor = null;
+                do
+                {
+                    Dictionary<string, object> parameters = new Dictionary<string, object>();
+                    if (cursor != null) parameters["cursor"] = cursor;
+                    string json = await SendHttpMcpRequestAsync(client, endpoint, "tools/list", parameters, ++id, session).ConfigureAwait(false);
+                    StdioRpcResponse response = JsonSerializer.Deserialize<StdioRpcResponse>(json, CatalogJsonOptions())
+                        ?? throw new InvalidDataException("The HTTP tools/list response was empty.");
+                    if (response.Error != null) throw new InvalidDataException("HTTP tools/list failed: " + response.Error.Message);
+                    if (response.Result?.Tools != null) tools.AddRange(response.Result.Tools);
+                    cursor = response.Result?.NextCursor;
+                }
+                while (!String.IsNullOrWhiteSpace(cursor));
+
+                return tools;
+            }
+        }
+
+        private static async Task<string> SendHttpMcpRequestAsync(
+            HttpClient client,
+            string endpoint,
+            string method,
+            object parameters,
+            int id,
+            CatalogHttpSession session)
+        {
+            Dictionary<string, object> payload = new Dictionary<string, object>
+            {
+                ["jsonrpc"] = "2.0",
+                ["id"] = id,
+                ["method"] = method,
+                ["params"] = parameters
+            };
+            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, endpoint))
+            {
+                request.Content = new StringContent(JsonSerializer.Serialize(payload, CatalogJsonOptions()), Encoding.UTF8, "application/json");
+                if (!String.IsNullOrWhiteSpace(session.SessionId)) request.Headers.TryAddWithoutValidation("Mcp-Session-Id", session.SessionId);
+                using (HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false))
+                {
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode) throw new InvalidDataException("HTTP MCP returned status " + (int)response.StatusCode + ": " + body);
+                    if (response.Headers.TryGetValues("Mcp-Session-Id", out IEnumerable<string>? sessionValues))
+                        session.SessionId = sessionValues.FirstOrDefault(value => !String.IsNullOrWhiteSpace(value)) ?? session.SessionId;
+                    string trimmed = body.Trim();
+                    if (trimmed.StartsWith("{", StringComparison.Ordinal)) return trimmed;
+                    foreach (string line in body.Split('\n'))
+                    {
+                        string item = line.Trim();
+                        if (item.StartsWith("data:", StringComparison.Ordinal))
+                        {
+                            string data = item.Substring(5).Trim();
+                            if (data.StartsWith("{", StringComparison.Ordinal)) return data;
+                        }
+                    }
+                }
+            }
+            throw new InvalidDataException("HTTP MCP response had no JSON-RPC envelope.");
+        }
+
+        private static JsonSerializerOptions CatalogJsonOptions()
+        {
+            return new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                Converters = { new JsonStringEnumConverter() }
+            };
+        }
+
+        private static LoggingModule CreateQuietLogging()
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            return logging;
+        }
+
+        private static int FreePort()
+        {
+            using (TcpListener listener = new TcpListener(IPAddress.Loopback, 0))
+            {
+                listener.Start();
+                return ((IPEndPoint)listener.LocalEndpoint).Port;
+            }
+        }
+
+        private static void DeleteCatalogDirectory(string path)
+        {
+            if (Directory.Exists(path)) Directory.Delete(path, true);
+        }
+
+        private sealed class CatalogRegistration
+        {
+            public CatalogRegistration(string name, string description, object inputSchema, Func<JsonElement?, Task<object>> handler)
+            {
+                Name = name;
+                Description = description;
+                InputSchema = inputSchema;
+                Handler = handler;
+            }
+
+            public string Name { get; }
+
+            public string Description { get; }
+
+            public object InputSchema { get; }
+
+            public Func<JsonElement?, Task<object>> Handler { get; }
+        }
+
+        private sealed class CatalogHttpSession
+        {
+            public string? SessionId { get; set; }
+        }
+
+        private sealed class StdioRpcResponse
+        {
+            public StdioRpcResult? Result { get; set; }
+
+            public StdioRpcError? Error { get; set; }
+        }
+
+        private sealed class StdioRpcResult
+        {
+            public List<CatalogTool> Tools { get; set; } = new List<CatalogTool>();
+
+            public string? NextCursor { get; set; }
+        }
+
+        private sealed class StdioRpcError
+        {
+            public int Code { get; set; }
+
+            public string Message { get; set; } = String.Empty;
+        }
+
+        private sealed class CatalogTool
+        {
+            public string Name { get; set; } = String.Empty;
+
+            public string Description { get; set; } = String.Empty;
+
+            public JsonElement InputSchema { get; set; }
+        }
+
+        private sealed class UnavailableCallCase
+        {
+            public UnavailableCallCase(string name, string argumentsJson, string errorPrefix)
+            {
+                Name = name;
+                ArgumentsJson = argumentsJson;
+                ErrorPrefix = errorPrefix;
+            }
+
+            public string Name { get; }
+
+            public string ArgumentsJson { get; }
+
+            public string ErrorPrefix { get; }
+        }
+
         private static ArmadaMcpStdioServer CreateServer()
         {
             return new ArmadaMcpStdioServer
@@ -417,6 +771,25 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             return stream.ToArray();
+        }
+
+        private static string CreateToolCallRequest(int id, string name, string argumentsJson)
+        {
+            return "{\"jsonrpc\":\"2.0\",\"id\":" + id.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                + ",\"method\":\"tools/call\",\"params\":{\"name\":" + JsonSerializer.Serialize(name)
+                + ",\"arguments\":" + argumentsJson + "}}";
+        }
+
+        private static List<string> ReadLineMessages(byte[] output)
+        {
+            string text = Encoding.UTF8.GetString(output);
+            List<string> messages = new List<string>();
+            foreach (string line in text.Split('\n'))
+            {
+                string message = line.TrimEnd('\r');
+                if (!String.IsNullOrWhiteSpace(message)) messages.Add(message);
+            }
+            return messages;
         }
 
         private static MessageReadResult ReadSingleMessage(byte[] output)

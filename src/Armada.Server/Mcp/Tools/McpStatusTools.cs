@@ -36,22 +36,22 @@ namespace Armada.Server.Mcp.Tools
                     return (object)status;
                 });
 
-            if (onStop != null)
-            {
-                register(
-                    "armada_stop_server",
-                    "Initiate a graceful shutdown of the Admiral server",
-                    new { type = "object", properties = new { } },
-                    (args) =>
+            register(
+                "armada_stop_server",
+                "Initiate a graceful shutdown of the Admiral server",
+                new { type = "object", properties = new { } },
+                (args) =>
+                {
+                    if (onStop == null)
+                        return Task.FromResult(McpToolUnavailable.Create("server shutdown"));
+
+                    _ = Task.Run(async () =>
                     {
-                        _ = Task.Run(async () =>
-                        {
-                            await Task.Delay(500).ConfigureAwait(false);
-                            onStop();
-                        });
-                        return Task.FromResult((object)new { Status = "shutting_down" });
+                        await Task.Delay(500).ConfigureAwait(false);
+                        onStop();
                     });
-            }
+                    return Task.FromResult((object)new { Status = "shutting_down" });
+                });
         }
     }
 }

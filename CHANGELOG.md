@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Standalone stdio lists server-dependent MCP tools with the same schemas. Calls
+  return named `Unavailable` errors when the required service is absent. Local
+  record-backed tools and authorization rules remain in effect.
+
 - Runtime provider failures carry typed HTTP status and machine error codes
   through process exit to account routing. Existing quota, credit and
   authentication rules, retry-time parsing and text fallback remain in effect.

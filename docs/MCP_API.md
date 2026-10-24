@@ -155,8 +155,21 @@ Continuation request:
 }
 ```
 
-Catalog size depends on the running build, enabled services, and caller role.
-Follow every `nextCursor`; do not infer completeness from a fixed tool count.
+Catalog size depends on the running build and caller role. Follow every
+`nextCursor`; do not infer completeness from a fixed tool count.
+
+Standalone stdio lists server-dependent tools with the same names and schemas
+as HTTP. These include the coordination board, scheduler, planning and
+refinement sessions, context retrieval, typed-decision evaluation, Harbor jobs
+and server shutdown. If the required service is absent, the handler returns
+`ErrorCode: "Unavailable"` and an `Error` message that starts with `Unavailable:`.
+Stdio reports this as JSON-RPC error `-32603` with the named message. HTTP
+retains the handler error fields in its tool result. Authorization checks
+still apply before a tool can use a service.
+
+Stdio runs as an explicit local operator. Its record-backed tools act on the
+configured database and local storage. Listing a process-dependent tool does
+not create a server service or grant control of a running admiral.
 
 Each returned tool contains:
 

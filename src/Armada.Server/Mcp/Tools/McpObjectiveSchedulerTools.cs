@@ -37,23 +37,20 @@ namespace Armada.Server.Mcp.Tools
         /// Registers the objective scheduler MCP tools.
         /// </summary>
         /// <param name="register">Tool registration delegate.</param>
-        /// <param name="scheduler">Autonomous objective scheduler instance.</param>
+        /// <param name="scheduler">Optional autonomous objective scheduler instance.</param>
         /// <param name="database">Database driver for objective persistence.</param>
         /// <param name="objectiveService">Objective service for updating objectives.</param>
         /// <param name="coordination">
-        /// Coordination service for presence and board notes. When supplied, the stale-pause clear
-        /// tool is registered; without it the tool is absent, because a clear that cannot be
-        /// announced is not acceptable.
+        /// Optional coordination service for presence and board notes.
         /// </param>
         public static void Register(
             RegisterToolDelegate register,
-            AutonomousObjectiveScheduler scheduler,
+            AutonomousObjectiveScheduler? scheduler,
             DatabaseDriver database,
             ObjectiveService objectiveService,
             CoordinationService? coordination = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
-            if (scheduler == null) throw new ArgumentNullException(nameof(scheduler));
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (objectiveService == null) throw new ArgumentNullException(nameof(objectiveService));
 
@@ -63,6 +60,8 @@ namespace Armada.Server.Mcp.Tools
                 new { type = "object", properties = new { } },
                 async (args) =>
                 {
+                    if (scheduler == null)
+                        return McpToolUnavailable.Create("objective scheduler");
                     await Task.CompletedTask.ConfigureAwait(false);
                     return (object)BuildStatus(scheduler);
                 });
@@ -90,6 +89,9 @@ namespace Armada.Server.Mcp.Tools
                     SchedulerSetArgs? request = args.HasValue
                         ? JsonSerializer.Deserialize<SchedulerSetArgs>(args.Value, _JsonOptions)
                         : null;
+
+                    if (scheduler == null)
+                        return McpToolUnavailable.Create("objective scheduler");
 
                     if (request != null)
                     {
@@ -125,8 +127,6 @@ namespace Armada.Server.Mcp.Tools
                     return (object)status;
                 });
 
-            if (coordination != null)
-            {
                 register(
                     "armada_objective_scheduler_clear_stale_pause",
                     "Clear a scheduler pause whose owning session has left. The autonomy layer's one permitted write to the pause: clear only, never engage. It succeeds only when the pause names its owner, the owner is absent from the coordination presence window, and the absence exceeds the configured threshold (settings autonomousObjectiveScheduler.stalePauseAbsenceMinutes, floor 30). Before clearing it wakes every active session and posts a board note naming the stale owner, the recorded reason, the set time and the measured absence, then it clears once and persists. A pause with no recorded owner is refused; an operator must clear it. The dispatch hold is never touched. Use dryRun to read the decision without acting.",
@@ -147,6 +147,10 @@ namespace Armada.Server.Mcp.Tools
                             : null;
                         if (request == null || String.IsNullOrWhiteSpace(request.ClearedBy))
                             return (object)new { error = "clearedBy is required - name your session so the announcement says who cleared the pause." };
+                        if (scheduler == null)
+                            return McpToolUnavailable.Create("objective scheduler");
+                        if (coordination == null)
+                            return McpToolUnavailable.Create("coordination board");
 
                         DateTime nowUtc = DateTime.UtcNow;
                         DateTime? ownerLastSeenUtc = null;
@@ -215,7 +219,6 @@ namespace Armada.Server.Mcp.Tools
                         bool persisted = await scheduler.TryPersistAsync().ConfigureAwait(false);
                         return (object)new { Cleared = true, CanClear = true, Reason = decision.Reason, Announcement = announcement, BoardNoteId = noteId, SettingsPersisted = persisted, Evidence = evidence };
                     });
-            }
 
             register(
                 "armada_mark_objective_auto_dispatchable",
