@@ -305,9 +305,14 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             Status = VoyageStatusEnum.InProgress
                         });
-                        produced.Status = MissionStatusEnum.WorkProduced;
-                        produced.VoyageId = voyage.Id;
-                        await testDb.Driver.Missions.UpdateAsync(produced);
+                        produced = await testDb.Driver.Missions.CreateAsync(new Mission("Produced work waiting for its gate", "Run the configured verification.")
+                        {
+                            Status = MissionStatusEnum.WorkProduced,
+                            VoyageId = voyage.Id,
+                            VesselId = mission.VesselId,
+                            DockId = entities.Dock.Id,
+                            Persona = "Worker"
+                        });
                         profile.BuildCommand = "echo ran > voyage-gate-started.txt";
                         await testDb.Driver.WorkflowProfiles.UpdateAsync(profile);
                         string commandMarker = Path.Combine(worktreePath, "voyage-gate-started.txt");
