@@ -18,6 +18,11 @@ namespace Armada.Core.Harbor
         public string JobId { get; set; } = string.Empty;
 
         /// <summary>
+        /// Server-issued attempt key retained by the runner for authenticated restart recovery.
+        /// </summary>
+        public string LaunchKey { get; set; } = string.Empty;
+
+        /// <summary>
         /// Runtime identifier (for example "claude", "codex", "opencode").
         /// </summary>
         public string Runtime { get; set; } = string.Empty;

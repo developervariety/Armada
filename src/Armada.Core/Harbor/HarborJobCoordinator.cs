@@ -666,6 +666,7 @@ namespace Armada.Core.Harbor
                 CorrelationId = request.CorrelationId,
                 TraceParent = request.TraceParent,
                 JobId = record.JobId,
+                LaunchKey = record.LaunchKey,
                 Runtime = request.Runtime,
                 WorkingDirectory = request.WorkingDirectory,
                 Model = request.Model,

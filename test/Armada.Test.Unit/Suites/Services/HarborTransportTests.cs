@@ -139,6 +139,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(launch.Accepted, "launch on A accepted: " + launch.Reason);
                 HarborLaunchRequest received = await runnerA.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
                 AssertEqual(launch.JobId, received.JobId, "launch reaches the selected runner with the server job id");
+                HarborJobRecord? serverIssuedJob = await harness.Driver.HarborJobs.ReadAsync(launch.JobId!).ConfigureAwait(false);
+                AssertTrue(serverIssuedJob != null && !String.IsNullOrWhiteSpace(serverIssuedJob.LaunchKey), "the server persists its launch key");
+                AssertEqual(serverIssuedJob!.LaunchKey, received.LaunchKey, "the deserialized wire launch carries the exact server-issued key");
                 AssertTrue(await runnerB.NoMessageAsync().ConfigureAwait(false), "other runner receives nothing");
                 string jobId = launch.JobId!;
 
@@ -945,6 +948,22 @@ namespace Armada.Test.Unit.Suites.Services
                                 await reconnected.SendAsync(new HarborResumeRequest { Jobs = new List<HarborResumeJobInfo> { wrongProof } }).ConfigureAwait(false);
                                 HarborResumeJobResult refused = (await reconnected.NextAsync<HarborResumeResponse>().ConfigureAwait(false)).Jobs[0];
                                 AssertEqual(HarborResumeDecisionEnum.Reject, refused.Decision, "a different runner process start time is not adopted");
+
+                                HarborResumeJobInfo unknownExitProof = new HarborResumeJobInfo
+                                {
+                                    JobId = jobId,
+                                    LaunchKey = uncertain.LaunchKey,
+                                    ProcessId = 9005,
+                                    ProcessStartedUtc = uncertain.RunnerProcessStartedUtc!.Value,
+                                    IsRunning = false,
+                                    StopConfirmed = true,
+                                    ExitCode = null,
+                                    NextOutputSequence = 1
+                                };
+                                await reconnected.SendAsync(new HarborResumeRequest { Jobs = new List<HarborResumeJobInfo> { unknownExitProof } }).ConfigureAwait(false);
+                                HarborResumeJobResult unknownExit = (await reconnected.NextAsync<HarborResumeResponse>().ConfigureAwait(false)).Jobs[0];
+                                AssertEqual(HarborResumeDecisionEnum.Reject, unknownExit.Decision, "terminal proof without an exit code is not adopted");
+                                AssertEqual("harbor_resume_exit_code_unknown", unknownExit.Reason, "unknown terminal exit code has a stable refusal reason");
 
                                 HarborResumeJobInfo proof = new HarborResumeJobInfo
                                 {

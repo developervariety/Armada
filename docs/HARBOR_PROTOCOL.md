@@ -157,11 +157,13 @@ blocked. This safety check applies even when the Harbor link is disabled. Planne
 Harbor jobs and retains their assignment.
 
 After an authenticated handshake, a runner sends `resume` with its retained job proofs. Each proof names the
-job and launch key, runner process identifier and UTC start time, running or confirmed-stopped state, and the
+job and launch key received in the launch message, runner process identifier and UTC start time, running or confirmed-stopped state, and the
 first and next retained output sequences. The Admiral verifies the durable owner and enrollment, current session,
 exact mission attempt, process identity, and a replay range that contains the next persisted sequence. Its
 `resumeAck` gives a decision and `replayFromSequence` for each job. Accepted output must arrive in sequence;
-missing output does not permit a terminal result to bypass the replay fence.
+missing output does not permit a terminal result to bypass the replay fence. A stopped proof requires a known
+exit code (`harbor_resume_exit_code_unknown` otherwise). Jobs without a recorded process identifier and UTC start
+time cannot be adopted. These jobs stay fenced until a global administrator confirms their stop.
 
 A confirmed terminal result is durable before lifecycle delivery. A requeue stores its computed captain
 and quarantine policy as a completion intent before it clears assignment pointers. Stable fact, event and signal

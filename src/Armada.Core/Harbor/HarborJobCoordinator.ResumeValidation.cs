@@ -29,6 +29,7 @@ namespace Armada.Core.Harbor
                 return "harbor_resume_output_gap";
             }
             if (proof.IsRunning == proof.StopConfirmed) return "harbor_resume_state_invalid";
+            if (proof.StopConfirmed && !proof.ExitCode.HasValue) return "harbor_resume_exit_code_unknown";
             return null;
         }
 
