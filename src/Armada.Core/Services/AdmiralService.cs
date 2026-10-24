@@ -116,6 +116,12 @@ namespace Armada.Core.Services
         private ArmadaSettings _Settings;
         private ISystemResourceProbe _ResourceProbe = new SystemResourceProbe();
         private long _MemoryPressureDeferrals = 0;
+        // Process ids whose exit handler is running, with a count for overlapping callbacks; the health check skips them.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, int> _ExitsInProgress =
+            new System.Collections.Concurrent.ConcurrentDictionary<int, int>();
+        // Missions with a resume in place in flight, so a second path reporting the same stop does not launch again.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _ResumingMissions =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
         // When each mission's current run of transient failures began, for TransientOutageGraceMinutes.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _TransientOutageStarts =
             new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
@@ -897,8 +903,23 @@ namespace Armada.Core.Services
         {
             if (exitInfo == null) throw new ArgumentNullException(nameof(exitInfo));
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
-            int? exitCode = exitInfo.ExitCode;
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
+
+            // While this runs (it can verify the stage for many minutes) the health check leaves the process alone.
+            _ExitsInProgress.AddOrUpdate(processId, 1, (_, count) => count + 1);
+            try
+            {
+                await HandleProcessExitCoreAsync(processId, exitInfo, captainId, missionId, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (_ExitsInProgress.AddOrUpdate(processId, 0, (_, count) => count - 1) <= 0) _ExitsInProgress.TryRemove(processId, out _);
+            }
+        }
+
+        private async Task HandleProcessExitCoreAsync(int processId, RuntimeExitInfo exitInfo, string captainId, string missionId, CancellationToken token)
+        {
+            int? exitCode = exitInfo.ExitCode;
 
             // System-scoped: process exit handler receives only IDs with no tenant context;
             // tenant is unknown until the entity is read.
@@ -1390,6 +1411,13 @@ namespace Armada.Core.Services
             else if (OnIsProcessTracked != null && OnIsProcessTracked(processId!.Value))
             {
                 isAlive = true;
+            }
+            else if (_ExitsInProgress.ContainsKey(processId!.Value))
+            {
+                // This admiral's exit handler for the process is still running (a stage check can take many minutes):
+                // it owns the outcome for as long as it runs, beyond the time-limited handled-exit record below.
+                _Logging.Debug(_Header + "captain " + captain.Id + " process " + processId + " exit is still being handled -- skipping");
+                return;
             }
             else if (OnIsProcessExitHandled != null && OnIsProcessExitHandled(processId!.Value))
             {
@@ -2165,6 +2193,26 @@ namespace Armada.Core.Services
 
         private async Task<bool> TryResumeInPlaceAsync(Captain captain, Mission mission, string failureReason, CancellationToken token, TimeSpan delay = default)
         {
+            // One resume per mission at a time: two paths (a stage-check result and an exit observed by the health check)
+            // reaching here for the same stop must not launch two agents into one dock.
+            if (!_ResumingMissions.TryAdd(mission.Id, 0))
+            {
+                _Logging.Info(_Header + "mission " + mission.Id + " is already being resumed; not resuming again (" + failureReason + ")");
+                return true;
+            }
+
+            try
+            {
+                return await ResumeInPlaceAsync(captain, mission, failureReason, token, delay).ConfigureAwait(false);
+            }
+            finally
+            {
+                _ResumingMissions.TryRemove(mission.Id, out _);
+            }
+        }
+
+        private async Task<bool> ResumeInPlaceAsync(Captain captain, Mission mission, string failureReason, CancellationToken token, TimeSpan delay)
+        {
             if (delay > TimeSpan.Zero)
             {
                 // Back off before hitting the endpoint again. The captain keeps holding the mission meanwhile (its old
@@ -2185,6 +2233,16 @@ namespace Armada.Core.Services
 
                 mission = current;
                 captain = holder;
+            }
+
+            // A resume that finished just before this one already attached a new agent (a process other than the one this
+            // call is replacing): the stop this call reports is handled, so launching again would put a second agent into
+            // the dock.
+            Mission? latest = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            if (latest != null && latest.ProcessId.HasValue && latest.ProcessId != mission.ProcessId)
+            {
+                _Logging.Info(_Header + "mission " + mission.Id + " already has agent process " + latest.ProcessId.Value + "; not resuming again (" + failureReason + ")");
+                return true;
             }
 
             Dock? dock = String.IsNullOrEmpty(mission.DockId) ? null : await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
@@ -2291,7 +2349,7 @@ namespace Armada.Core.Services
             {
                 // Bounded: CaptainService.TryRecoverAsync counts the relaunch in the persisted RedispatchAttempts, and
                 // every caller checks InterruptedRedispatchLimit before entering this path.
-                await TryResumeInPlaceAsync(captain, mission, "Agent interrupted by server/Harbor restart (exit " + exitCode + ")", token).ConfigureAwait(false);
+                await TryResumeInPlaceAsync(captain, mission, "The agent process ended without reporting an exit (exit " + exitCode + "), for example after a server or Harbor restart", token).ConfigureAwait(false);
                 return;
             }
 

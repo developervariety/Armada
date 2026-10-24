@@ -1651,6 +1651,74 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("health_check_skips_exit_whose_handler_is_still_running", "While an exit handler is still verifying the stage (past the handled-exit record's lifetime), the health check does not decide the same exit again", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                using (ManualResetEventSlim handlerPaused = new ManualResetEventSlim(false))
+                using (ManualResetEventSlim releaseHandler = new ManualResetEventSlim(false))
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    LoggingModule logging = CreateLogging();
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, db, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                    AdmiralService service = new AdmiralService(logging, db, settings, captainService, missionService, new VoyageService(logging, db), dockService);
+
+                    // A Harbor job's synthetic handle: an OS probe reads it as vanished (exit -1), and the time-limited
+                    // handled-exit record has expired, as it did 5 minutes into msn_mvmiaphg_7NXYdbigLoJ's stage check.
+                    const int processId = 1000000006;
+                    service.OnIsProcessTracked = pid => false;
+                    service.OnIsProcessExitHandled = pid => false;
+                    // The stage check pauses where it reads the verifier's output, standing in for a long test run.
+                    missionService.OnPeekMissionOutput = id =>
+                    {
+                        handlerPaused.Set();
+                        releaseHandler.Wait(TimeSpan.FromSeconds(30));
+                        return null;
+                    };
+
+                    Voyage voyage = new Voyage("Long Check Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage);
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("long-check", "https://github.com/test/long-check.git")).ConfigureAwait(false);
+                    Dock dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { WorktreePath = Path.GetTempPath(), BranchName = "armada/long-check" }).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Long Check Mission");
+                    mission.VoyageId = voyage.Id;
+                    mission.Persona = Armada.Core.PersonaCatalog.TestEngineer;
+                    mission.DockId = dock.Id;
+                    mission.VesselId = vessel.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = processId;
+                    await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("long-check-captain");
+                    captain.Runtime = AgentRuntimeEnum.ApiEndpoint;
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = processId;
+                    await db.Captains.CreateAsync(captain);
+                    mission.CaptainId = captain.Id;
+                    await db.Missions.UpdateAsync(mission);
+
+                    Task exit = Task.Run(() => service.HandleProcessExitAsync(processId, 0, captain.Id, mission.Id));
+                    AssertTrue(handlerPaused.Wait(TimeSpan.FromSeconds(30)), "The exit handler should reach the stage check");
+
+                    await service.HealthCheckAsync().ConfigureAwait(false);
+                    Mission? during = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    List<ArmadaEvent> events = await db.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+                    releaseHandler.Set();
+                    await exit.ConfigureAwait(false);
+
+                    AssertEqual(0, during!.RedispatchAttempts, "No interruption relaunch is counted while the exit handler runs");
+                    AssertFalse(events.Exists(e => e.EventType == "mission.resumed" || e.EventType == "captain.completed"),
+                        "The health check records no second exit and resumes nothing: " + String.Join(", ", events.Select(e => e.EventType)));
+                }
+            }));
+
             cases.Add(CaseAsync("health_check_leaves_tracked_process_to_its_exit_callback", "The health check treats a process its runtime still tracks as alive instead of probing the OS for a synthetic id", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
