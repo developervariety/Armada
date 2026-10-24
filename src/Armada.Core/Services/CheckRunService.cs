@@ -59,6 +59,7 @@ namespace Armada.Core.Services
         public static readonly TimeSpan DefaultCommandTimeout = TimeSpan.FromMinutes(30);
 
         private readonly TimeSpan _CommandTimeout = DefaultCommandTimeout;
+        private readonly bool _HasCommandTimeoutOverride;
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _PendingRunLocks =
             new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
 
@@ -156,7 +157,11 @@ namespace Armada.Core.Services
             TimeSpan? commandTimeout = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
-            if (commandTimeout.HasValue && commandTimeout.Value > TimeSpan.Zero) _CommandTimeout = commandTimeout.Value;
+            if (commandTimeout.HasValue && commandTimeout.Value > TimeSpan.Zero)
+            {
+                _CommandTimeout = commandTimeout.Value;
+                _HasCommandTimeoutOverride = true;
+            }
             _WorkflowProfiles = workflowProfiles ?? throw new ArgumentNullException(nameof(workflowProfiles));
             _Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -407,6 +412,7 @@ namespace Armada.Core.Services
                 IsolatedCheckout? isolatedCheckout = null;
                 string executionDirectory = run.WorkingDirectory!;
                 string executionCommand = run.Command;
+                CheckCommandBudget budget = CreateCommandBudget(profile, run.Type);
 
                 CommandExecutionResult execution;
 
@@ -466,8 +472,8 @@ namespace Armada.Core.Services
                         run = claim.Run;
                         OnCheckRunChanged?.Invoke(run);
                         Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
-                        execution = await ExecuteCommandAsync(
-                            executionCommand, executionDirectory, _CommandTimeout, token, commandEnvironment).ConfigureAwait(false);
+                        execution = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
+                            executionCommand, executionDirectory, timeout, token, commandEnvironment)).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -488,19 +494,16 @@ namespace Armada.Core.Services
 
                 run.ExitCode = execution.ExitCode;
                 run.Output = execution.Output;
-                run.CompletedUtc = DateTime.UtcNow;
-                run.SettleRunDuration();
-                run.DurationMs ??= 0;
-                run.LastUpdateUtc = DateTime.UtcNow;
                 run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
 
                 string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
                 run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
                 ParseExecutionSummaries(run, artifactDirectory);
                 run.Summary = BuildSummary(run, profile);
-                await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, request.DiffBaseCommit, token).ConfigureAwait(false);
+                await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, request.DiffBaseCommit, budget, token).ConfigureAwait(false);
 
                 await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
+                FinishExecutedRun(run, budget);
 
                 run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
                 OnCheckRunChanged?.Invoke(run);
@@ -1171,6 +1174,7 @@ namespace Armada.Core.Services
             IsolatedCheckout? isolatedCheckout = null;
             string executionDirectory = run.WorkingDirectory!;
             string executionCommand = run.Command;
+            CheckCommandBudget budget = CreateCommandBudget(profile, run.Type);
 
             CommandExecutionResult execution;
 
@@ -1238,8 +1242,8 @@ namespace Armada.Core.Services
                     run = claim.Run;
                     OnCheckRunChanged?.Invoke(run);
                     Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
-                    execution = await ExecuteCommandAsync(
-                        executionCommand, executionDirectory, _CommandTimeout, token, commandEnvironment).ConfigureAwait(false);
+                    execution = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
+                        executionCommand, executionDirectory, timeout, token, commandEnvironment)).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -1260,19 +1264,16 @@ namespace Armada.Core.Services
 
             run.ExitCode = execution.ExitCode;
             run.Output = execution.Output;
-            run.CompletedUtc = DateTime.UtcNow;
-            run.SettleRunDuration();
-            run.DurationMs ??= 0;
-            run.LastUpdateUtc = DateTime.UtcNow;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
 
             string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
             run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
             ParseExecutionSummaries(run, artifactDirectory);
             run.Summary = BuildSummary(run, profile);
-            await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, null, token).ConfigureAwait(false);
+            await ApplyIsolatedRerunAsync(run, profile, execution, executionCommand, executionDirectory, null, budget, token).ConfigureAwait(false);
 
             await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
+            FinishExecutedRun(run, budget);
 
             run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
@@ -1638,6 +1639,94 @@ namespace Armada.Core.Services
                 throw new InvalidOperationException("Deployment not found or not accessible.");
         }
 
+        /// <summary>
+        /// An explicit profile budget bounds Build and UnitTest execution. Other check types and
+        /// profiles without that declaration keep the default per-command timeout. A caller's
+        /// positive constructor override remains authoritative, including subsecond test bounds.
+        /// </summary>
+        internal TimeSpan ResolveCheckCommandTimeout(WorkflowProfile? profile, CheckRunTypeEnum type)
+        {
+            if (_HasCommandTimeoutOverride) return _CommandTimeout;
+            if (IsProfileBudgetCheck(type) && profile?.GateCommandTimeoutSeconds is int seconds)
+            {
+                return TimeSpan.FromSeconds(Math.Clamp(seconds,
+                    WorkflowProfile.MinimumGateCommandTimeoutSeconds, WorkflowProfile.MaximumGateCommandTimeoutSeconds));
+            }
+            return DefaultCommandTimeout;
+        }
+
+        private static bool IsProfileBudgetCheck(CheckRunTypeEnum type)
+        {
+            return type == CheckRunTypeEnum.Build || type == CheckRunTypeEnum.UnitTest;
+        }
+
+        private CheckCommandBudget CreateCommandBudget(WorkflowProfile? profile, CheckRunTypeEnum type)
+        {
+            bool shared = IsProfileBudgetCheck(type)
+                && (_HasCommandTimeoutOverride || profile?.GateCommandTimeoutSeconds != null);
+            return new CheckCommandBudget(ResolveCheckCommandTimeout(profile, type), shared);
+        }
+
+        private static void FinishExecutedRun(CheckRun run, CheckCommandBudget budget)
+        {
+            // Completion belongs after every command and checkout cleanup. Duration keeps its
+            // documented StartedUtc-to-CompletedUtc meaning, including an isolated retry's wait.
+            // The appended monotonic measurements separate that wait from active command time.
+            run.CompletedUtc = DateTime.UtcNow;
+            run.SettleRunDuration();
+            run.DurationMs ??= 0;
+            run.LastUpdateUtc = run.CompletedUtc.Value;
+            run.Output = (run.Output ?? String.Empty) + Environment.NewLine + Environment.NewLine
+                + "Check execution timing: command_execution_ms=" + budget.ExecutionMilliseconds
+                + "; retry_slot_wait_ms=" + budget.RetrySlotWaitMilliseconds
+                + "; " + (budget.Shared ? "shared_execution_budget_ms=" : "per_command_timeout_ms=")
+                + Convert.ToInt64(Math.Ceiling(budget.Limit.TotalMilliseconds));
+        }
+
+        private sealed class CheckCommandBudget
+        {
+            public CheckCommandBudget(TimeSpan limit, bool shared)
+            {
+                Limit = limit;
+                Shared = shared;
+            }
+
+            public TimeSpan Limit { get; }
+            public bool Shared { get; }
+            public TimeSpan RetrySlotWait { get; set; }
+            public bool Exhausted => Shared && _Execution >= Limit;
+            public long ExecutionMilliseconds => Convert.ToInt64(Math.Ceiling(_Execution.TotalMilliseconds));
+            public long RetrySlotWaitMilliseconds => Convert.ToInt64(Math.Ceiling(RetrySlotWait.TotalMilliseconds));
+            private TimeSpan _Execution;
+
+            public async Task<CommandExecutionResult> ExecuteAsync(Func<TimeSpan, Task<CommandExecutionResult>> execute)
+            {
+                TimeSpan remaining = Shared ? Limit - _Execution : Limit;
+                if (remaining <= TimeSpan.Zero)
+                    return new CommandExecutionResult { Output = "Check command timed out: shared execution budget exhausted before the isolated re-run." };
+
+                CommandExecutionResult result;
+                long start = Stopwatch.GetTimestamp();
+                try
+                {
+                    result = await execute(remaining).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _Execution += Stopwatch.GetElapsedTime(start);
+                }
+
+                // Process exit and cancellation can race at the deadline. A late zero exit is
+                // not proof that the complete execution fitted inside the declared budget.
+                if (Shared && _Execution >= Limit && result.ExitCode == 0)
+                {
+                    result.ExitCode = -1;
+                    result.Output += Environment.NewLine + "Check command timed out: shared execution budget exhausted.";
+                }
+                return result;
+            }
+        }
+
         private async Task<CommandExecutionResult> ExecuteCommandAsync(
             string command,
             string workingDirectory,
@@ -1799,6 +1888,7 @@ namespace Armada.Core.Services
             string executionCommand,
             string executionDirectory,
             string? diffBaseCommit,
+            CheckCommandBudget budget,
             CancellationToken token)
         {
             if (run.Status != CheckRunStatusEnum.Failed || !IsTestCheckType(run.Type)) return;
@@ -1834,6 +1924,14 @@ namespace Armada.Core.Services
                 return;
             }
 
+            if (budget.Exhausted)
+            {
+                const string exhausted = "Not re-run in isolation: shared execution budget exhausted.";
+                run.Summary += " " + exhausted + triage;
+                run.Output += Environment.NewLine + Environment.NewLine + exhausted;
+                return;
+            }
+
             Dictionary<string, string> environment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
             foreach (KeyValuePair<string, string> pair in plan.Environment) environment[pair.Key] = pair.Value;
 
@@ -1842,9 +1940,14 @@ namespace Armada.Core.Services
             CommandExecutionResult rerun;
             try
             {
+                long slotWaitStart = Stopwatch.GetTimestamp();
                 using (await HostWideCommandLock.AcquireAsync(run.Id, DescribeSlotOwner(run) + " (isolated re-run)", run.VesselId, token).ConfigureAwait(false))
                 {
-                    rerun = await ExecuteCommandAsync(plan.Command, executionDirectory, _CommandTimeout, token, environment).ConfigureAwait(false);
+                    budget.RetrySlotWait += Stopwatch.GetElapsedTime(slotWaitStart);
+                    // Re-evaluate the remainder after admission. Waiting for the slot spends no
+                    // command budget, and the full run has already spent its own execution time.
+                    rerun = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
+                        plan.Command, executionDirectory, timeout, token, environment)).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)

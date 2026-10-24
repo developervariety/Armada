@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- An explicit profile time budget covers a Build or UnitTest Check's full run
+  and isolated retry together. Retry slot waits stay outside that budget.
+  Completion now follows retry work, and the output separates active command
+  time from retry slot wait so the recorded duration does not hide a retry.
+
 - Direct landing rechecks stored operator cancellation after integration
   validation and before publishing. A short shared admission boundary keeps
   cancellation and publication in order without holding it during the suite.

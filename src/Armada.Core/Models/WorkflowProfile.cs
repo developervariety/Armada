@@ -136,7 +136,9 @@ namespace Armada.Core.Models
         /// <summary>
         /// Seconds each definition-of-done gate command run with this profile may take before it is stopped as a
         /// time limit: the vessel's build, unit-test and post-test-step retry, and a consumer's build and tests when
-        /// this is the consumer's profile. Null uses the global <c>DefinitionOfDone.CommandTimeoutSeconds</c>. A save
+        /// this is the consumer's profile. An explicit value also bounds a Build or UnitTest Check's full command
+        /// plus its isolated retry together, excluding host-slot waits. Null uses the global
+        /// <c>DefinitionOfDone.CommandTimeoutSeconds</c> for DoD and the existing Check default for Checks. A save
         /// refuses a value outside [<see cref="MinimumGateCommandTimeoutSeconds"/>,
         /// <see cref="MaximumGateCommandTimeoutSeconds"/>].
         /// </summary>

@@ -531,13 +531,24 @@ late landing work emits no completion or landing-failure event. This does not
 stop an integration Check already running or undo a ref that advanced before
 cancellation. The merge-queue path has separate publication control.
 
-A Check command may run for 30 minutes. The time starts when the process starts,
-which is after the Check holds its runner place and the host command slot, so a
-Check that queued for hours still gets the full time. On every path that ends a
-started Check (exit, timeout, error, or the cancel at an admiral restart),
-`DurationMs` is `CompletedUtc - StartedUtc`. No setting turns any of this off. Deployment deploy, verify,
-and rollback Checks stay under the deployment action so the deployment record
-remains authoritative.
+A Check command has a 30-minute default. An explicit workflow profile
+`GateCommandTimeoutSeconds` also sets the shared execution budget for a Build or
+UnitTest Check: its full command and isolated retry must fit that budget together.
+Other Check types keep their existing per-command limit. A timeout is a failure.
+The budget is fixed for the run and uses a monotonic clock. Initial and retry
+host-slot waits spend no execution budget; a retry gets only the remainder after
+it acquires its slot. A positive service-constructor timeout override remains
+authoritative for callers that provide one.
+
+On every path that ends a started Check (exit, timeout, error, or the cancel at an
+Admiral restart), `DurationMs` is `CompletedUtc - StartedUtc`. Completion follows
+isolated retry work and checkout cleanup, so this duration includes a retry's
+slot wait and other work after the first command. The output's final
+`Check execution timing` line records active command milliseconds and retry-slot
+wait milliseconds separately. `QueueDurationMs` still describes creation to the
+first command start. These are different measures; do not read the wall duration
+as pure test time. Deployment deploy, verify, and rollback Checks stay under the
+deployment action so the deployment record remains authoritative.
 
 While the dispatch hold is engaged, the heartbeat runs eligible Checks for
 work on active voyages. These Checks let existing voyages pass their Check gate

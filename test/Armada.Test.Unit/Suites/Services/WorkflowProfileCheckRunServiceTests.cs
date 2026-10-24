@@ -426,6 +426,82 @@ namespace Armada.Test.Unit.Suites.Services
                         "QueueDurationMs must include the measured host-slot wait.");
                     AssertTrue(executionDurationMs >= 0 && executionDurationMs < queueDurationMs,
                         "DurationMs must exclude the longer host-slot wait.");
+
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        // Queue an exclusive holder behind the full run and ahead of its retry.
+                        // The retry waits longer than its execution budget, then still fits the
+                        // remaining command time. Its wait must remain visible in the output.
+                        using CancellationTokenSource fixtureStop = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                        CheckRunService bounded = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging,
+                            commandTimeout: TimeSpan.FromSeconds(2));
+                        string readyFile = Path.Combine(workingDirectory, "full-ready");
+                        string releaseFile = Path.Combine(workingDirectory, "full-release");
+                        string Quote(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
+                        profile.GateCommandTimeoutSeconds = 30;
+                        profile.UnitTestCommand = "printf '  Failed Sample.Tests.QueueFixture.Case [5 ms]\\nFailed!  - Failed: 1, Passed: 0, Total: 1\\n'; touch "
+                            + Quote(readyFile) + "; while [ ! -f " + Quote(releaseFile) + " ]; do sleep 0.01; done; exit 1";
+                        profile.IsolatedTestRerunCommand = "sleep 0.05; exit 0";
+                        await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                        CheckRun retryPending = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            TenantId = vessel.TenantId,
+                            UserId = vessel.UserId,
+                            VesselId = vessel.Id,
+                            WorkflowProfileId = profile.Id,
+                            Type = CheckRunTypeEnum.UnitTest,
+                            Command = profile.UnitTestCommand
+                        }).ConfigureAwait(false);
+
+                        async Task WaitUntilAsync(Func<bool> ready)
+                        {
+                            while (!ready()) await Task.Delay(10, fixtureStop.Token).ConfigureAwait(false);
+                        }
+
+                        IDisposable? retryBlocker = null;
+                        Task<IDisposable>? blockerRequest = null;
+                        Task<CheckRun>? retriedExecution = null;
+                        try
+                        {
+                            retriedExecution = bounded.RunPendingAsync(auth, retryPending.Id, fixtureStop.Token);
+                            await WaitUntilAsync(() => File.Exists(readyFile)).ConfigureAwait(false);
+                            string blockerKey = "retry-budget-holder-" + Guid.NewGuid().ToString("N");
+                            blockerRequest = HostWideCommandLock.AcquireAloneAsync(blockerKey, "retry execution budget test", fixtureStop.Token);
+                            await WaitUntilAsync(() => HostWideCommandLock.Snapshot().FindWaiter(blockerKey) != null).ConfigureAwait(false);
+                            await File.WriteAllTextAsync(releaseFile, "release", fixtureStop.Token).ConfigureAwait(false);
+                            retryBlocker = await blockerRequest.ConfigureAwait(false);
+                            blockerRequest = null;
+                            await WaitUntilAsync(() => HostWideCommandLock.Snapshot().FindWaiter(retryPending.Id) != null).ConfigureAwait(false);
+                            await Task.Delay(2100, fixtureStop.Token).ConfigureAwait(false);
+                            retryBlocker.Dispose();
+                            retryBlocker = null;
+                            CheckRun retried = await retriedExecution.ConfigureAwait(false);
+                            retriedExecution = null;
+                            AssertEqual(CheckRunStatusEnum.Passed, retried.Status,
+                                "Retry-slot wait does not consume the shared execution budget.");
+                            System.Text.RegularExpressions.Match timing = System.Text.RegularExpressions.Regex.Match(
+                                retried.Output ?? String.Empty, "command_execution_ms=([0-9]+); retry_slot_wait_ms=([0-9]+)");
+                            AssertTrue(timing.Success, "The result exposes command time and retry wait separately.");
+                            AssertTrue(Int64.Parse(timing.Groups[1].Value) < 2000, "The commands fit the two-second execution budget.");
+                            AssertTrue(Int64.Parse(timing.Groups[2].Value) >= 2000, "The measured retry wait exceeds that budget.");
+                            AssertTrue((retried.DurationMs ?? 0) >= 2000, "The wall duration includes the retry wait.");
+                        }
+                        finally
+                        {
+                            fixtureStop.Cancel();
+                            retryBlocker?.Dispose();
+                            if (blockerRequest != null)
+                            {
+                                try { (await blockerRequest.ConfigureAwait(false)).Dispose(); }
+                                catch (OperationCanceledException) { }
+                            }
+                            if (retriedExecution != null)
+                            {
+                                try { await retriedExecution.ConfigureAwait(false); }
+                                catch (OperationCanceledException) { }
+                            }
+                        }
+                    }
                 }
                 finally
                 {
@@ -444,6 +520,18 @@ namespace Armada.Test.Unit.Suites.Services
                 WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
                 VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
                 CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging, commandTimeout: TimeSpan.FromSeconds(1));
+                CheckRunService defaultTimeouts = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+                WorkflowProfile declaredBudget = new WorkflowProfile { GateCommandTimeoutSeconds = 600 };
+                AssertEqual(TimeSpan.FromMinutes(10), defaultTimeouts.ResolveCheckCommandTimeout(declaredBudget, CheckRunTypeEnum.Build),
+                    "An explicit profile budget covers a Build Check.");
+                AssertEqual(TimeSpan.FromMinutes(10), defaultTimeouts.ResolveCheckCommandTimeout(declaredBudget, CheckRunTypeEnum.UnitTest),
+                    "An explicit profile budget covers a UnitTest Check.");
+                AssertEqual(CheckRunService.DefaultCommandTimeout, defaultTimeouts.ResolveCheckCommandTimeout(null, CheckRunTypeEnum.UnitTest),
+                    "An undeclared Check retains the existing default.");
+                AssertEqual(CheckRunService.DefaultCommandTimeout, defaultTimeouts.ResolveCheckCommandTimeout(declaredBudget, CheckRunTypeEnum.Deploy),
+                    "A deployment keeps its separate default command timeout.");
+                AssertEqual(TimeSpan.FromSeconds(1), checkRuns.ResolveCheckCommandTimeout(declaredBudget, CheckRunTypeEnum.UnitTest),
+                    "The positive constructor override remains authoritative.");
 
                 await EnsureTenantAndUserAsync(testDb, "ten_check_timeout", "usr_check_timeout").ConfigureAwait(false);
                 string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-timeout-" + Guid.NewGuid().ToString("N"));
@@ -492,7 +580,9 @@ namespace Armada.Test.Unit.Suites.Services
                     profile.GateCommandTimeoutSeconds = 30;
                     profile.UnitTestCommand = "sleep 0.65; printf '  Failed " + failingName
                         + " [5 ms]\\nFailed!  - Failed:     1, Passed:     0, Total:     1\\n'; exit 1";
-                    profile.IsolatedTestRerunCommand = "sleep 0.65; printf 'retry finished\\n'; exit 0";
+                    string retryStartedFile = Path.Combine(workingDirectory, "retry-started");
+                    string quotedRetryStartedFile = "'" + retryStartedFile.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
+                    profile.IsolatedTestRerunCommand = "touch " + quotedRetryStartedFile + "; sleep 0.65; printf 'retry finished\\n'; exit 0";
                     await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
 
                     CheckRun retryPending = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
@@ -506,20 +596,39 @@ namespace Armada.Test.Unit.Suites.Services
                         Command = profile.UnitTestCommand
                     }).ConfigureAwait(false);
                     CheckRun retriedPending = await checkRuns.RunPendingAsync(auth, retryPending.Id).ConfigureAwait(false);
+                    bool pendingEnteredRetry = File.Exists(retryStartedFile);
+                    File.Delete(retryStartedFile);
                     CheckRun retriedNew = await checkRuns.RunAsync(auth, new CheckRunRequest
                     {
                         VesselId = vessel.Id,
                         WorkflowProfileId = profile.Id,
                         Type = CheckRunTypeEnum.UnitTest
                     }).ConfigureAwait(false);
+                    AssertTrue(pendingEnteredRetry && File.Exists(retryStartedFile),
+                        "Both over-budget cases must enter the isolated retry; an initial-command timeout is not this proof.");
                     AssertTrue(retriedPending.Status == CheckRunStatusEnum.Failed && retriedNew.Status == CheckRunStatusEnum.Failed,
                         "Both execution paths must refuse a retry that exceeds the shared one-second budget; pending="
                         + retriedPending.Status + ", new=" + retriedNew.Status);
                     foreach (CheckRun retried in new[] { retriedPending, retriedNew })
                     {
                         AssertContains("timed out", retried.Output ?? String.Empty, "the retry names its exhausted remaining timeout");
+                        AssertContains(failingName, retried.Output ?? String.Empty, "The full command failed the named test before retry.");
                         AssertTrue((retried.DurationMs ?? 0) >= 900, "the final duration includes full and retry execution");
                     }
+
+                    profile.UnitTestCommand = profile.UnitTestCommand.Replace("sleep 0.65", "sleep 0.1", StringComparison.Ordinal);
+                    profile.IsolatedTestRerunCommand = profile.IsolatedTestRerunCommand.Replace("sleep 0.65", "sleep 0.1", StringComparison.Ordinal);
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    CheckRun fittingRetry = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.UnitTest
+                    }).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, fittingRetry.Status, "A retry that fits the remaining budget may pass.");
+                    AssertContains("The full run failed", fittingRetry.Summary ?? String.Empty,
+                        "The passing retry must retain the full run's failure.");
+                    AssertTrue((fittingRetry.DurationMs ?? 0) >= 150, "The passing result includes both executed commands.");
                 }
                 finally
                 {
