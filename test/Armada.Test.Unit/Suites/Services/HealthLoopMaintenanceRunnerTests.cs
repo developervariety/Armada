@@ -4,9 +4,17 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Net;
+    using System.Net.Sockets;
+    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core;
+    using Armada.Core.Database;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Server;
     using Armada.Test.Common;
 
@@ -151,7 +159,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("ArmadaServer isolates model endpoint health from the core heartbeat loop", () =>
+            await RunTest("ArmadaServer keeps independent sweeps running while its core health pass is blocked", async () =>
             {
                 string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
                 string contents = File.ReadAllText(path);
@@ -162,7 +170,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(coreLoop.Contains("CheckHealthAllAsync", StringComparison.Ordinal), "A blocked model provider must not block the core heartbeat loop");
                 AssertContains("_ModelEndpointService.CheckHealthAllAsync(sweepToken)", contents, "The endpoint health loop must retain the provider sweep");
                 AssertContains("_ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token)", contents, "The endpoint health loop must start independently");
-                return Task.CompletedTask;
+                await VerifyChecksDuringBlockedHealthAsync().ConfigureAwait(false);
             }).ConfigureAwait(false);
 
             await RunTest("The endpoint sweep runner reads the interval after every sweep so a reloaded heartbeat applies", async () =>
@@ -238,6 +246,105 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, activeSweeps, "Cancellation must release the active probe.");
                 }
             }).ConfigureAwait(false);
+        }
+
+        /// <summary>Exercise the running server while its real health callback is held.</summary>
+        private async Task VerifyChecksDuringBlockedHealthAsync()
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "armada_check_heartbeat_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string working = Path.Combine(directory, "working");
+            Directory.CreateDirectory(working);
+            DatabaseSettings database = new DatabaseSettings { Type = DatabaseTypeEnum.Sqlite, Filename = Path.Combine(directory, "armada.db") };
+            ArmadaSettings settings = new ArmadaSettings
+            {
+                DataDirectory = directory, DatabasePath = database.Filename, Database = database,
+                LogDirectory = Path.Combine(directory, "logs"), DocksDirectory = Path.Combine(directory, "docks"),
+                ReposDirectory = Path.Combine(directory, "repos"), AdmiralPort = FreePort(), McpPort = FreePort(),
+                ApiKey = "test-key-" + Guid.NewGuid().ToString("N"), HeartbeatIntervalSeconds = 5,
+                SettingsFilePath = Path.Combine(directory, "settings.json")
+            };
+            settings.Rest.Hostname = "127.0.0.1";
+            settings.AutonomousObjectiveScheduler.Enabled = false;
+            settings.InitializeDirectories();
+            SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+            logging.Settings.EnableConsole = false;
+            ArmadaServer server = new ArmadaServer(logging, settings, quiet: true);
+            server.HealthLoopInterval = TimeSpan.FromMilliseconds(50);
+            TaskCompletionSource<bool> entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            try
+            {
+                await server.StartAsync().ConfigureAwait(false);
+                AdmiralService admiral = ReadServerField<AdmiralService>(server, "_Admiral");
+                DatabaseDriver driver = ReadServerField<DatabaseDriver>(server, "_Database");
+                admiral.OnReconcileMergeEntries = async () =>
+                {
+                    entered.TrySetResult(true);
+                    await release.Task.ConfigureAwait(false);
+                    return 0;
+                };
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                Vessel vessel = await driver.Vessels.CreateAsync(new Vessel
+                {
+                    Name = "health-held-checks", RepoUrl = String.Empty, LocalPath = String.Empty,
+                    WorkingDirectory = working, DefaultBranch = "main"
+                }).ConfigureAwait(false);
+                Voyage voyage = await driver.Voyages.CreateAsync(new Voyage("health-held-checks")
+                {
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                // Both records appear AFTER the health pass is blocked. A one-off sweep before
+                // that pass cannot satisfy this contract; the independent heartbeat must keep ticking.
+                for (int index = 0; index < 2; index++)
+                {
+                    CheckRun check = await driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Type = CheckRunTypeEnum.Build,
+                        Source = CheckRunSourceEnum.Armada, Status = CheckRunStatusEnum.Pending,
+                        Command = "echo heartbeat-" + index + " >> heartbeat-count.txt",
+                        Label = "Build heartbeat " + index
+                    }).ConfigureAwait(false);
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                    CheckRun? observed;
+                    do
+                    {
+                        observed = await driver.CheckRuns.ReadAsync(check.Id).ConfigureAwait(false);
+                        if (observed?.Status == CheckRunStatusEnum.Passed) break;
+                        await Task.Delay(25).ConfigureAwait(false);
+                    }
+                    while (DateTime.UtcNow < deadline);
+                    AssertEqual(CheckRunStatusEnum.Passed, observed!.Status,
+                        "A Check armed during a held health pass must finish before that pass is released.");
+                    AssertFalse(release.Task.IsCompleted, "Check scheduling must not require releasing the health pass.");
+                }
+                AssertTrue(File.ReadAllLines(Path.Combine(working, "heartbeat-count.txt"))
+                    .SequenceEqual(new[] { "heartbeat-0", "heartbeat-1" }), "Repeated heartbeats must execute each Check exactly once.");
+            }
+            finally
+            {
+                release.TrySetResult(true);
+                server.Stop();
+                FieldInfo? heartbeatField = typeof(ArmadaServer).GetField("_AutomaticCheckHeartbeatTask", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (heartbeatField?.GetValue(server) is Task heartbeat)
+                    AssertTrue(heartbeat.IsCompleted, "Shutdown must cancel and join the independent Check heartbeat before disposing its database.");
+                try { Directory.Delete(directory, true); }
+                catch (IOException) { }
+            }
+        }
+
+        private static T ReadServerField<T>(ArmadaServer server, string name)
+        {
+            return (T)(typeof(ArmadaServer).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(server)!);
+        }
+
+        private static int FreePort()
+        {
+            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return port;
         }
 
         private static string FindRepositoryRoot()
