@@ -27,6 +27,12 @@ namespace Armada.Core.Models
         /// <summary>Stable form of the environment variables the command ran with; empty for none.</summary>
         public string EnvironmentFingerprint { get; set; } = String.Empty;
 
+        /// <summary>
+        /// Resolved shared execution budget that governed this pass, in ticks. Null means no declared
+        /// shared budget; that proof cannot satisfy a Check with a declared budget.
+        /// </summary>
+        public long? ExecutionBudgetTicks { get; set; } = null;
+
         /// <summary>When the command passed.</summary>
         public DateTime CompletedUtc { get; set; } = DateTime.UtcNow;
 

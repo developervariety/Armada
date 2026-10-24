@@ -12,6 +12,8 @@ upstream integrations and excludes changes already present at that baseline.
   vessel or consumer keeps separate build and test budgets; slot waits and
   Harbor transport do not spend command time. Exhausted or unmeasurable
   declared budgets cannot produce a passing result.
+  Reused full DoD proof must match the Check's resolved declared budget;
+  a changed limit requires fresh verification.
 - An explicit profile time budget covers a Build or UnitTest Check's full run
   and isolated retry together. Retry slot waits stay outside that budget.
   Completion now follows retry work, and the output separates active command

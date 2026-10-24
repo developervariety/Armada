@@ -554,6 +554,10 @@ process time and authenticated Harbor duration spend it; a remote remainder
 smaller than one second cannot start a new command. The retained output records
 cumulative command time and the declared budget. Without an explicit profile
 value, DoD keeps its existing global per-command timeout and recovery policy.
+A reused full DoD pass must have the same resolved declared execution budget
+as the Check. An undeclared pass cannot fund a declared budget, and a changed
+budget or caller timeout override requires fresh verification. Both undeclared
+policies retain their existing exact-source, command, and environment reuse.
 
 On every path that ends a started Check (exit, timeout, error, or the cancel at an
 Admiral restart), `DurationMs` is `CompletedUtc - StartedUtc`. Completion follows

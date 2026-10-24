@@ -44,6 +44,7 @@ namespace Armada.Core.Services
         public static void Record(DefinitionOfDoneCommandPass pass)
         {
             if (pass == null) throw new ArgumentNullException(nameof(pass));
+            if (pass.ExecutionBudgetTicks is <= 0) return;
             if (String.IsNullOrWhiteSpace(pass.VesselId) || String.IsNullOrWhiteSpace(pass.CommitHash) || String.IsNullOrWhiteSpace(pass.Command)) return;
 
             lock (_Lock)
@@ -55,15 +56,17 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Find the latest gate pass of the same command on the same commit of the same vessel, run with the
-        /// same environment variables.
+        /// same environment variables and resolved declared execution budget.
         /// </summary>
         /// <param name="vesselId">Vessel identifier.</param>
         /// <param name="commitHash">Full commit hash the check measures.</param>
         /// <param name="command">The configured command the check runs.</param>
         /// <param name="environment">Environment variables the check adds, or null for none.</param>
-        /// <returns>The pass, or null when no gate passed that command there.</returns>
-        public static DefinitionOfDoneCommandPass? Find(string? vesselId, string? commitHash, string? command, IReadOnlyDictionary<string, string>? environment)
+        /// <param name="executionBudgetTicks">Resolved shared execution budget, or null for the legacy undeclared policy.</param>
+        /// <returns>The pass, or null when no gate passed that command under that budget.</returns>
+        public static DefinitionOfDoneCommandPass? Find(string? vesselId, string? commitHash, string? command, IReadOnlyDictionary<string, string>? environment, long? executionBudgetTicks = null)
         {
+            if (executionBudgetTicks is <= 0) return null;
             if (String.IsNullOrWhiteSpace(vesselId) || String.IsNullOrWhiteSpace(commitHash) || String.IsNullOrWhiteSpace(command)) return null;
             string fingerprint = FingerprintEnvironment(environment);
             string wanted = command.Trim();
@@ -76,6 +79,7 @@ namespace Armada.Core.Services
                     if (!String.Equals(pass.CommitHash, commitHash.Trim(), StringComparison.OrdinalIgnoreCase)) continue;
                     if (!String.Equals(pass.Command.Trim(), wanted, StringComparison.Ordinal)) continue;
                     if (!String.Equals(pass.EnvironmentFingerprint, fingerprint, StringComparison.Ordinal)) continue;
+                    if (pass.ExecutionBudgetTicks != executionBudgetTicks) continue;
                     return pass;
                 }
             }

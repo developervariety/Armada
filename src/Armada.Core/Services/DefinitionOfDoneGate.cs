@@ -844,6 +844,7 @@ namespace Armada.Core.Services
                 Label = label,
                 Command = command,
                 EnvironmentFingerprint = DefinitionOfDoneCommandPasses.FingerprintEnvironment(profile?.EnvironmentVariables),
+                ExecutionBudgetTicks = ActiveExecutionBudget?.Limit.Ticks,
                 CompletedUtc = DateTime.UtcNow
             });
         }

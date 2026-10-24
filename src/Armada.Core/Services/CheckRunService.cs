@@ -1509,7 +1509,10 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(run.CommitHash)) return null;
 
             Dictionary<string, string> environment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
-            DefinitionOfDoneCommandPass? pass = DefinitionOfDoneCommandPasses.Find(run.VesselId, run.CommitHash, run.Command, environment);
+            CheckCommandBudget budget = CreateCommandBudget(profile, run.Type);
+            long? executionBudgetTicks = budget.Shared ? budget.Limit.Ticks : null;
+            DefinitionOfDoneCommandPass? pass = DefinitionOfDoneCommandPasses.Find(
+                run.VesselId, run.CommitHash, run.Command, environment, executionBudgetTicks);
             if (pass == null) return null;
 
             string text = "Satisfied by the definition-of-done gate of mission " + pass.MissionId + ": it passed the same "

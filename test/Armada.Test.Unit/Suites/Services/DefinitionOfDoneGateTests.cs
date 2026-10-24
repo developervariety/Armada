@@ -141,6 +141,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string passWorktree = CreateTempDir();
                 string failWorktree = CreateTempDir();
                 string dirtyWorktree = CreateTempDir();
+                string budgetWorktree = CreateTempDir();
                 string head = new string('a', 40);
                 try
                 {
@@ -190,12 +191,72 @@ namespace Armada.Test.Unit.Suites.Services
                         CreateWorkerMission("ten_dirty_rec", "vsl_dirty_rec"), new Dock { WorktreePath = dirtyWorktree }).ConfigureAwait(false);
                     AssertTrue(dirty.Passed, "the gate passes");
                     AssertNull(DefinitionOfDoneCommandPasses.Find("vsl_dirty_rec", head, test, null), "an uncommitted change means the HEAD does not describe what ran");
+
+                    // A real full gate at an explicit budget still saves the matching automatic
+                    // Check. The command fails on a second invocation, so fallback execution is red.
+                    const string budgetUser = "usr_gate_budget_rec";
+                    await testDb.Driver.Users.CreateAsync(new UserMaster
+                    {
+                        Id = budgetUser, TenantId = "ten_pass_rec", Email = "gate-budget-rec@armada.test",
+                        PasswordSha256 = UserMaster.ComputePasswordHash("test-password"), Active = true
+                    }).ConfigureAwait(false);
+                    Vessel budgetVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Budget proof vessel", String.Empty)
+                    {
+                        TenantId = "ten_pass_rec", UserId = budgetUser, WorkingDirectory = budgetWorktree,
+                        LocalPath = String.Empty, DefaultBranch = "main"
+                    }).ConfigureAwait(false);
+                    string budgetCommand = OperatingSystem.IsWindows()
+                        ? "if exist command-ran.txt (exit /b 17) else (echo once>command-ran.txt)"
+                        : "if [ -e command-ran.txt ]; then exit 17; fi; printf once > command-ran.txt";
+                    WorkflowProfile budgetProfile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        TenantId = "ten_pass_rec", UserId = budgetUser, Name = "Budget proof profile",
+                        Scope = WorkflowProfileScopeEnum.Vessel, VesselId = budgetVessel.Id,
+                        UnitTestCommand = budgetCommand, GateCommandTimeoutSeconds = 600, IsDefault = true, Active = true
+                    }).ConfigureAwait(false);
+                    Mission budgetMission = CreateWorkerMission("ten_pass_rec", budgetVessel.Id);
+                    budgetMission.UserId = budgetUser;
+                    budgetMission.Status = MissionStatusEnum.WorkProduced;
+                    await testDb.Driver.Missions.CreateAsync(budgetMission).ConfigureAwait(false);
+                    DefinitionOfDoneGate budgetGate = new DefinitionOfDoneGate(settings, testDb.Driver, logging, null,
+                        new StubGitService { HeadCommitHashResult = head, IsWorkingDirectoryCleanResult = true });
+                    DefinitionOfDoneResult budgetGateResult = await budgetGate.EvaluateAsync(budgetMission,
+                        new Dock { WorktreePath = budgetWorktree }).ConfigureAwait(false);
+                    AssertTrue(budgetGateResult.Passed, "The actual full command passes with its declared 600-second budget.");
+                    long budgetTicks = TimeSpan.FromSeconds(600).Ticks;
+                    DefinitionOfDoneCommandPass? budgetProof = DefinitionOfDoneCommandPasses.Find(
+                        budgetVessel.Id, head, budgetCommand, null, budgetTicks);
+                    AssertNotNull(budgetProof, "The actual gate publishes a pass tagged with its execution budget.");
+                    AssertEqual(budgetTicks, budgetProof!.ExecutionBudgetTicks ?? -1);
+                    AssertNull(DefinitionOfDoneCommandPasses.Find(budgetVessel.Id, head, budgetCommand, null),
+                        "A declared-budget pass does not impersonate the undeclared contract.");
+                    WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
+                    CheckRunService checks = new CheckRunService(testDb.Driver, profiles,
+                        new VesselReadinessService(testDb.Driver, profiles, logging), logging);
+                    CheckRun armedBudget = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = "ten_pass_rec", UserId = budgetUser, VesselId = budgetVessel.Id,
+                        MissionId = budgetMission.Id, WorkflowProfileId = budgetProfile.Id,
+                        Type = CheckRunTypeEnum.UnitTest, Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Pending, CommitHash = head, Command = budgetCommand,
+                        WorkingDirectory = budgetWorktree
+                    }).ConfigureAwait(false);
+                    CheckRun adoptedBudget = await checks.RunPendingAsync(
+                        AuthContext.Authenticated("ten_pass_rec", budgetUser, false, false, "UnitTest"), armedBudget.Id).ConfigureAwait(false);
+                    AssertEqual(CheckRunStatusEnum.Passed, adoptedBudget.Status, "The matching-budget automatic Check adopts the real gate proof.");
+                    AssertNotNull(adoptedBudget.SatisfiedBy, "Adoption names the actual gate rather than executing the command twice.");
+                    AssertEqual(budgetMission.Id, adoptedBudget.SatisfiedBy!.MissionId);
+                    AssertNull(adoptedBudget.StartedUtc, "An adopted Check has no command start.");
+                    AssertNull(adoptedBudget.DurationMs, "An adopted Check has no invented execution duration.");
+                    AssertEqual("once", File.ReadAllText(Path.Combine(budgetWorktree, "command-ran.txt")).Trim(),
+                        "The command ran once through the real gate.");
                 }
                 finally
                 {
                     TryDeleteDirectory(passWorktree);
                     TryDeleteDirectory(failWorktree);
                     TryDeleteDirectory(dirtyWorktree);
+                    TryDeleteDirectory(budgetWorktree);
                 }
             }).ConfigureAwait(false);
 
