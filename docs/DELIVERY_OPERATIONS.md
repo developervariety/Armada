@@ -490,7 +490,7 @@ Build and UnitTest Checks armed for its voyage. While a gate of one of the
 voyage's missions (or of the Check's own mission) runs on the Check's vessel, the
 heartbeat does not start such a Check: it waits, its `SlotWait.QueueReason` names
 the gate, and the wait is reported as `check.gate_overlap_*`. A gate that passes
-as a whole records each command it ran in full, on its first run, in a worktree
+as a whole records each command that passed after a full run, in a worktree
 with no uncommitted tracked change and the same HEAD before and after. A
 heartbeat Check of a voyage or mission whose commit, configured command and
 environment variables match such a record passes without running the command,
@@ -503,6 +503,18 @@ the host command slot; it passes only when that re-run passes, and its summary
 then reads `passed on isolated re-run` with the full run's failure. The records live in the admiral's memory, so after a
 restart the Check runs its command. An operator's `run_check` or
 `retry_check_run` always runs the command.
+
+A passing gate's mission evaluation keeps a redacted, digest-backed capture of
+its last successful full vessel unit-test command, or its build command when no
+unit-test command is configured. The capture header names the command, including
+a full post-test-step retry. Successful consumer verification preserves that
+vessel capture; a consumer failure keeps its own failure output. An isolated
+subset retry does not supply a full-suite pass capture. Read the referenced
+mission's evaluation and retrieve its capture through `armada_get_mission_log`
+instead of rerunning the suite to recover its footer. Capture availability means
+the file was written; the runner's truncation and incomplete-output flags still
+show whether the retained output is complete. Existing mission access, redaction,
+byte bounds and log retention apply. Passing records keep failure fields null.
 
 Cancelling a voyage stops its queued and running definition-of-done evaluations,
 including evaluations for missions already marked `WorkProduced`. Those mission

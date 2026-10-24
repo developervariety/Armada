@@ -12,6 +12,11 @@ upstream integrations and excludes changes already present at that baseline.
   remote writers block replacement and dock reclamation. Confirmed exits are
   delivered through the mission lifecycle before durable acknowledgment.
 
+- Successful DoD gates retain their full vessel command output through consumer
+  verification in the existing redacted capture store. A reused Check's mission
+  reference leads to that proof, so reviews can recover test footers without
+  another run. Failure output and incomplete-output flags remain explicit.
+
 - Check work selection follows dependency order before update timestamps.
   Completing earlier stages after landing no longer replaces final-tip passes
   with checks for an ancestor commit. Supersession also rechecks durable voyage

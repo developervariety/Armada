@@ -601,7 +601,7 @@ namespace Armada.Server.Mcp.Tools
 
                 register(
                     "armada_get_mission_log",
-                    "Get a mission log by line page, or read a failed definition-of-done capture by bounded UTF-8 byte pages.",
+                    "Get a mission log by line page, or read a definition-of-done output capture by bounded UTF-8 byte pages.",
                     new
                     {
                         type = "object",

@@ -289,6 +289,7 @@ namespace Armada.Test.Unit.Suites.Services
                         CreateWorkerMission("ten_rerun_once", "vsl_rerun_once"),
                         new Dock { WorktreePath = worktreePath }).ConfigureAwait(false);
                     AssertTrue(result.Passed, "a failing class that passes alone does not fail the gate");
+                    AssertNull(result.GateCommandOutput, "an isolated pass cannot supply a full-suite pass capture or leave the build as its substitute");
 
                     File.Delete(Path.Combine(worktreePath, "race.marker"));
                     DefinitionOfDoneGate off = new DefinitionOfDoneGate(
@@ -535,7 +536,7 @@ namespace Armada.Test.Unit.Suites.Services
                 try
                 {
                     await EnsureVesselWithProfileAsync(testDb, "ten_pass", "vsl_pass",
-                        worktreePath, SuccessCommand(), SuccessCommand()).ConfigureAwait(false);
+                        worktreePath, "echo BUILD-PROOF", "echo UNIT-FOOTER").ConfigureAwait(false);
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
                         new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
@@ -549,6 +550,22 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(result.Passed, "Gate should pass when both commands succeed");
                     AssertNull(result.CommandLabel, "No command should be labeled as failing");
+                    AssertNull(result.OutputTail, "passing output is not a failure tail");
+                    AssertContains("unit-test", result.GateCommandOutput ?? String.Empty);
+                    AssertContains("UNIT-FOOTER", result.GateCommandOutput ?? String.Empty);
+                    AssertFalse((result.GateCommandOutput ?? String.Empty).Contains("BUILD-PROOF", StringComparison.Ordinal),
+                        "the retained capture belongs to the last full vessel command");
+                    AssertFalse(result.RunnerOutputIncomplete);
+
+                    WorkflowProfile profile = (await testDb.Driver.WorkflowProfiles.EnumerateAllAsync(
+                        new WorkflowProfileQuery { TenantId = "ten_pass", PageSize = 10 }).ConfigureAwait(false)).Single();
+                    profile.UnitTestCommand = null;
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    DefinitionOfDoneResult buildOnly = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+                    AssertTrue(buildOnly.Passed);
+                    AssertContains("build", buildOnly.GateCommandOutput ?? String.Empty);
+                    AssertContains("BUILD-PROOF", buildOnly.GateCommandOutput ?? String.Empty);
+                    AssertNull(buildOnly.CommandLabel);
                 }
                 finally
                 {
@@ -1943,7 +1960,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     // Producer builds and tests clean; the consumer builds clean but its suite fails.
                     await EnsureVesselWithProfileAsync(testDb, "ten_ct", "vsl_ct_producer",
-                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
+                        producerWorktree, "echo PRIMARY-BUILD", "echo PRIMARY-UNIT", null, "ExampleProducer").ConfigureAwait(false);
                     await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_ct", "vsl_ct_consumer",
                         "ExampleConsumer", "vsl_ct_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
 
@@ -1989,7 +2006,7 @@ namespace Armada.Test.Unit.Suites.Services
                             + " && test \"$LITERAL_VALUE\" = 'kept literal'"
                             + " && test \"$PATH_LIST_VALUE\" = '" + profile.EnvironmentVariables["PATH_LIST_VALUE"] + "'";
                         profile.BuildCommand = verify + " && printf candidate > '" + consumerBuildProof + "'";
-                        profile.UnitTestCommand = verify + " && printf candidate > '" + consumerTestProof + "'; exit 1";
+                        profile.UnitTestCommand = verify + " && printf candidate > '" + consumerTestProof + "'; echo CONSUMER-FAIL; exit 1";
                         await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
                         git.BeforeWorktreeCreate = async () =>
                         {
@@ -2023,6 +2040,22 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("candidate", File.ReadAllText(consumerBuildProof!), "consumer build reads the provisioned producer and consumer paths");
                         AssertEqual("candidate", File.ReadAllText(consumerTestProof!), "consumer tests use the same provisioned paths and preserve unrelated environment");
                     }
+                    AssertFalse((result.GateCommandOutput ?? String.Empty).Contains("PRIMARY-UNIT", StringComparison.Ordinal),
+                        "a consumer failure retains its own output, never the earlier vessel pass");
+                    if (!OperatingSystem.IsWindows()) AssertContains("CONSUMER-FAIL", result.GateCommandOutput ?? String.Empty);
+
+                    WorkflowProfile consumerProfile = (await testDb.Driver.WorkflowProfiles.EnumerateAllAsync(
+                        new WorkflowProfileQuery { TenantId = "ten_ct", PageSize = 10 }).ConfigureAwait(false))
+                        .Single(profile => profile.VesselId == "vsl_ct_consumer");
+                    consumerProfile.BuildCommand = "echo CONSUMER-BUILD";
+                    consumerProfile.UnitTestCommand = "echo CONSUMER-PASS";
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(consumerProfile).ConfigureAwait(false);
+                    DefinitionOfDoneResult passed = await gate.EvaluateAsync(mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+                    AssertTrue(passed.Passed);
+                    AssertContains("PRIMARY-UNIT", passed.GateCommandOutput ?? String.Empty,
+                        "successful consumer verification must not discard the actual vessel test footer");
+                    AssertFalse((passed.GateCommandOutput ?? String.Empty).Contains("CONSUMER-PASS", StringComparison.Ordinal));
+                    AssertNull(passed.CommandLabel);
                 }
                 finally
                 {
