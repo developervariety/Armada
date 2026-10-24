@@ -470,6 +470,7 @@ namespace Armada.Test.Unit
                         new CheckRun { Id = "chk_lane_a_old", BranchName = FanOutVoyageFixture.LaneABranch, CommitHash = FanOutVoyageFixture.LaneAWorkerCommit },
                         new CheckRun { Id = "chk_lane_a_branch", BranchName = FanOutVoyageFixture.LaneABranch },
                         new CheckRun { Id = "chk_lane_b", BranchName = FanOutVoyageFixture.LaneBBranch, CommitHash = FanOutVoyageFixture.LaneBCommit },
+                        new CheckRun { Id = "chk_lane_a_bound", MissionId = fx.LaneATester!.Id, BranchName = FanOutVoyageFixture.PlanBranch, CommitHash = FanOutVoyageFixture.PlanCommit },
                         new CheckRun { Id = "chk_plan", BranchName = FanOutVoyageFixture.PlanBranch, CommitHash = FanOutVoyageFixture.PlanCommit },
                         new CheckRun { Id = "chk_unstamped" }
                     };
@@ -490,7 +491,7 @@ namespace Armada.Test.Unit
                         AssertEqual(work?.Id, final?.Id, run.Id + ": with every lane done, eligibility and stamping name the same work");
                         if (judgeA || judgeB) decided++;
                     }
-                    AssertEqual(4, decided, "the four lane records decide a lane; the planner and unstamped records decide none");
+                    AssertEqual(5, decided, "the four unique-source records and the mission-bound shared-source record decide a lane; the planner and unstamped records decide none");
 
                     List<Mission> chain = missions.Where(mission => mission.Id != fx.LaneBWorker.Id && mission.Id != fx.LaneBJudge.Id).ToList();
                     foreach (CheckRun run in records)

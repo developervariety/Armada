@@ -1034,26 +1034,84 @@ namespace Armada.Test.Unit
 
             await RunTest("JudgeGate_FanOut_LaneWithNoRecordsIsArmedAtItsOwnCommit", async () =>
             {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                foreach (bool sharedPredecessor in new[] { true, false })
                 {
-                    MissionService svc = CreateGateService(testDb);
-                    FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb).ConfigureAwait(false);
-                    CheckRun laneBBuild = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
-                    CheckRun laneBTests = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        MissionService svc = CreateGateService(testDb);
+                        FanOutVoyageFixture fx = await FanOutVoyageFixture.CreateAsync(testDb).ConfigureAwait(false);
+                        string reviewedCommit = sharedPredecessor ? FanOutVoyageFixture.PlanCommit : FanOutVoyageFixture.LaneACommit;
+                        if (sharedPredecessor)
+                        {
+                            fx.LaneAWorker.CommitHash = reviewedCommit;
+                            fx.LaneAJudge.CommitHash = reviewedCommit;
+                            await testDb.Driver.Missions.UpdateAsync(fx.LaneAWorker).ConfigureAwait(false);
+                            await testDb.Driver.Missions.UpdateAsync(fx.LaneAJudge).ConfigureAwait(false);
+                            await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed,
+                                FanOutVoyageFixture.PlanBranch, reviewedCommit).ConfigureAwait(false);
+                            await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed,
+                                FanOutVoyageFixture.PlanBranch, reviewedCommit).ConfigureAwait(false);
+                        }
+                        CheckRun laneBBuild = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
+                        CheckRun laneBTests = await fx.AddVoyageCheckAsync(testDb, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, FanOutVoyageFixture.LaneBBranch, FanOutVoyageFixture.LaneBCommit).ConfigureAwait(false);
 
-                    AssertEqual(
-                        MissionService.JudgeCheckGate.HasPending,
-                        await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
-                        "lane A has no verdict of its own yet, so its Judge waits");
+                        AssertEqual(
+                            MissionService.JudgeCheckGate.HasPending,
+                            await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
+                            "lane A has no verdict of its own yet, so its Judge waits");
 
-                    List<CheckRun> records = (await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery { VoyageId = fx.Voyage.Id, PageSize = 100 }).ConfigureAwait(false)).Objects;
-                    List<CheckRun> laneA = records.Where(r => r.Status == CheckRunStatusEnum.Pending
-                        && String.Equals(r.CommitHash, FanOutVoyageFixture.LaneACommit, StringComparison.Ordinal)
-                        && String.Equals(r.BranchName, FanOutVoyageFixture.LaneABranch, StringComparison.Ordinal)).ToList();
-                    AssertTrue(laneA.Any(r => r.Type == CheckRunTypeEnum.Build), "lane A gets a Build record stamped at its own commit");
-                    AssertTrue(laneA.Any(r => r.Type == CheckRunTypeEnum.UnitTest), "lane A gets a UnitTest record stamped at its own commit");
-                    AssertEqual(CheckRunStatusEnum.Passed, records.Single(r => r.Id == laneBBuild.Id).Status, "lane B's Build green stays");
-                    AssertEqual(CheckRunStatusEnum.Passed, records.Single(r => r.Id == laneBTests.Id).Status, "lane B's UnitTest green stays");
+                        List<CheckRun> records = (await testDb.Driver.CheckRuns.EnumerateAsync(new CheckRunQuery { VoyageId = fx.Voyage.Id, PageSize = 100 }).ConfigureAwait(false)).Objects;
+                        List<CheckRun> laneA = records.Where(r => r.Status == CheckRunStatusEnum.Pending
+                            && String.Equals(r.CommitHash, reviewedCommit, StringComparison.Ordinal)
+                            && String.Equals(r.BranchName, FanOutVoyageFixture.LaneABranch, StringComparison.Ordinal)).ToList();
+                        AssertTrue(laneA.Any(r => r.Type == CheckRunTypeEnum.Build), "lane A gets a Build record stamped at its own commit");
+                        AssertTrue(laneA.Any(r => r.Type == CheckRunTypeEnum.UnitTest), "lane A gets a UnitTest record stamped at its own commit");
+                        AssertTrue(laneA.All(r => r.MissionId == fx.LaneAWorker.Id), "new records name the lane's own work even when its commit belongs to both lanes");
+                        AssertEqual(CheckRunStatusEnum.Passed, records.Single(r => r.Id == laneBBuild.Id).Status, "lane B's Build green stays");
+                        AssertEqual(CheckRunStatusEnum.Passed, records.Single(r => r.Id == laneBTests.Id).Status, "lane B's UnitTest green stays");
+
+                        AssertEqual(MissionService.JudgeCheckGate.HasPending,
+                            await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
+                            "reevaluation waits on the same lane records");
+                        AssertEqual(records.Count, (await testDb.Driver.CheckRuns.EnumerateAsync(
+                            new CheckRunQuery { VoyageId = fx.Voyage.Id, PageSize = 100 }).ConfigureAwait(false)).Objects.Count,
+                            "reevaluation does not arm duplicate records");
+
+                        foreach (CheckRun run in laneA)
+                        {
+                            run.Status = CheckRunStatusEnum.Passed;
+                            run.ExitCode = 0;
+                            run.Output = "Passed!";
+                            await testDb.Driver.CheckRuns.UpdateAsync(run).ConfigureAwait(false);
+                        }
+                        AssertEqual(MissionService.JudgeCheckGate.GreenChecks,
+                            await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
+                            "the lane's own completed Checks release its Judge");
+                        CheckRun failed = laneA.Single(r => r.Type == CheckRunTypeEnum.UnitTest);
+                        failed.Status = CheckRunStatusEnum.Failed;
+                        failed.ExitCode = 1;
+                        failed.Output = "Failed!";
+                        await testDb.Driver.CheckRuns.UpdateAsync(failed).ConfigureAwait(false);
+                        AssertEqual(MissionService.JudgeCheckGate.HasFailed,
+                            await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
+                            "other lanes' greens cannot hide this lane's failed Check");
+
+                        if (sharedPredecessor)
+                        {
+                            fx.LaneAWorker.CommitHash = FanOutVoyageFixture.LaneACommit;
+                            fx.LaneAJudge.CommitHash = FanOutVoyageFixture.LaneACommit;
+                            await testDb.Driver.Missions.UpdateAsync(fx.LaneAWorker).ConfigureAwait(false);
+                            await testDb.Driver.Missions.UpdateAsync(fx.LaneAJudge).ConfigureAwait(false);
+                            AssertEqual(MissionService.JudgeCheckGate.HasPending,
+                                await svc.EvaluateJudgeCheckGateAsync(fx.LaneAJudge, CancellationToken.None).ConfigureAwait(false),
+                                "new work supersedes mission-bound old verdicts and waits for fresh Checks");
+                            List<CheckRun> moved = (await testDb.Driver.CheckRuns.EnumerateAsync(
+                                new CheckRunQuery { VoyageId = fx.Voyage.Id, PageSize = 100 }).ConfigureAwait(false)).Objects;
+                            AssertEqual(2, moved.Count(r => r.MissionId == fx.LaneAWorker.Id
+                                && r.Status == CheckRunStatusEnum.Pending && r.CommitHash == FanOutVoyageFixture.LaneACommit),
+                                "retained voyage templates still arm both types after mission-bound work moves");
+                        }
+                    }
                 }
             }).ConfigureAwait(false);
 
