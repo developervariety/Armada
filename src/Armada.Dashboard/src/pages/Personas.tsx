@@ -239,6 +239,9 @@ export default function Personas() {
         onClose={() => setViewRecord(null)}
         onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/personas/${encodeURIComponent((r as { name: string }).name)}`); }}
         editLabel={t('Open Details')}
+        secondaryAction={viewRecord && canEditScoped(viewer, viewRecord as unknown as Persona)
+          ? { label: t('Edit'), title: t('Change this persona\'s description, prompt template, visibility and captain priorities.'), onClick: () => { const r = viewRecord as unknown as Persona; setViewRecord(null); openEdit(r); } }
+          : undefined}
       />
 
       {/* Confirm Dialog */}

@@ -164,3 +164,17 @@ describe('batch A space fixes', () => {
     expect(within(bar).getByLabelText('Auto-refresh interval')).toBeInTheDocument();
   });
 });
+
+describe('persona view modal', () => {
+  it('offers Edit in the header beside Open Details and opens the edit form', async () => {
+    vi.mocked(listModelEndpoints).mockResolvedValue([] as never);
+    render(<MemoryRouter><Personas /></MemoryRouter>);
+    const cells = await screen.findAllByText('Worker');
+    fireEvent.click(cells[0].closest('tr') as HTMLElement);
+    const header = document.querySelector('.request-detail-header-actions') as HTMLElement;
+    expect(within(header).getByRole('button', { name: 'Open Details' })).toBeInTheDocument();
+    fireEvent.click(within(header).getByRole('button', { name: 'Edit' }));
+    expect(document.querySelector('.request-detail-header-actions')).toBeNull();
+    expect(await screen.findByText('Edit Persona')).toBeInTheDocument();
+  });
+});

@@ -10,6 +10,8 @@ interface RecordDetailModalProps {
   onClose: () => void;
   onEdit?: () => void;
   editLabel?: string;
+  // Optional action shown first and styled as primary, for example Edit beside Open Details.
+  secondaryAction?: { label: string; title: string; onClick: () => void };
   // Size class applied to the modal box (defaults to modal-large). Callers can pass a wider/taller variant.
   sizeClassName?: string;
 }
@@ -45,7 +47,7 @@ function formatValue(key: string, value: unknown): string {
  * optional Edit action. Used as the row-click affordance for tables whose entities do not have a
  * purpose-built edit modal.
  */
-export default function RecordDetailModal({ open, title, subtitle, record, onClose, onEdit, editLabel, sizeClassName }: RecordDetailModalProps) {
+export default function RecordDetailModal({ open, title, subtitle, record, onClose, onEdit, editLabel, secondaryAction, sizeClassName }: RecordDetailModalProps) {
   const { t } = useLocale();
   const [showJson, setShowJson] = useState(false);
 
@@ -68,7 +70,8 @@ export default function RecordDetailModal({ open, title, subtitle, record, onClo
             )}
           </div>
           <div className="request-detail-header-actions">
-            {onEdit && <button className="btn btn-sm btn-primary" onClick={onEdit} title={t('Open this record in its edit form.')}>{editLabel || t('Edit')}</button>}
+            {secondaryAction && <button className="btn btn-sm btn-primary" onClick={secondaryAction.onClick} title={secondaryAction.title}>{secondaryAction.label}</button>}
+            {onEdit && <button className={secondaryAction ? 'btn btn-sm' : 'btn btn-sm btn-primary'} onClick={onEdit} title={t('Open this record in its edit form.')}>{editLabel || t('Edit')}</button>}
             <button className="btn btn-sm" onClick={() => setShowJson((v) => !v)} title={showJson ? t('Go back to the readable list of fields.') : t('Show the raw record as the API returns it, including every field.')}>{showJson ? t('Hide JSON') : t('View JSON')}</button>
             <button className="btn btn-sm" onClick={onClose} title={t('Close this view. Nothing is changed.')}>{t('Close')}</button>
           </div>
