@@ -485,6 +485,41 @@ namespace Armada.Test.Unit.Suites.Services
                     long expected = Convert.ToInt64(Math.Round((completed.CompletedUtc!.Value - completed.StartedUtc!.Value).TotalMilliseconds));
                     AssertEqual(expected, completed.DurationMs, "the run time is the time from start to completion");
                     AssertTrue((completed.DurationMs ?? 0) >= 900, "the command ran for its one-second timeout: " + completed.DurationMs);
+
+                    // The declared execution budget belongs to the full run and its isolated retry
+                    // together. Each command below fits one second on its own; both do not.
+                    const string failingName = "Sample.Tests.BudgetFixture.Completes_within_bound";
+                    profile.GateCommandTimeoutSeconds = 30;
+                    profile.UnitTestCommand = "sleep 0.65; printf '  Failed " + failingName
+                        + " [5 ms]\\nFailed!  - Failed:     1, Passed:     0, Total:     1\\n'; exit 1";
+                    profile.IsolatedTestRerunCommand = "sleep 0.65; printf 'retry finished\\n'; exit 0";
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+
+                    CheckRun retryPending = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Status = CheckRunStatusEnum.Pending,
+                        Command = profile.UnitTestCommand
+                    }).ConfigureAwait(false);
+                    CheckRun retriedPending = await checkRuns.RunPendingAsync(auth, retryPending.Id).ConfigureAwait(false);
+                    CheckRun retriedNew = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.UnitTest
+                    }).ConfigureAwait(false);
+                    AssertTrue(retriedPending.Status == CheckRunStatusEnum.Failed && retriedNew.Status == CheckRunStatusEnum.Failed,
+                        "Both execution paths must refuse a retry that exceeds the shared one-second budget; pending="
+                        + retriedPending.Status + ", new=" + retriedNew.Status);
+                    foreach (CheckRun retried in new[] { retriedPending, retriedNew })
+                    {
+                        AssertContains("timed out", retried.Output ?? String.Empty, "the retry names its exhausted remaining timeout");
+                        AssertTrue((retried.DurationMs ?? 0) >= 900, "the final duration includes full and retry execution");
+                    }
                 }
                 finally
                 {

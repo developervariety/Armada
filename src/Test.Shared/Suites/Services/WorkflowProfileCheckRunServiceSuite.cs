@@ -928,7 +928,8 @@ namespace Test.Shared.Suites.Services
                 List<IsolatedRerunRow> rows = new List<IsolatedRerunRow>
                 {
                     new IsolatedRerunRow("re-run passes", "printf 'rerun-of:%s\\n' \"$" + IsolatedRerunPlan.NamesEnvironmentVariable + "\"; exit 0", CheckRunStatusEnum.Passed),
-                    new IsolatedRerunRow("re-run fails", "printf 'rerun-of:%s\\n' \"$" + IsolatedRerunPlan.NamesEnvironmentVariable + "\"; exit 1", CheckRunStatusEnum.Failed)
+                    new IsolatedRerunRow("re-run fails", "printf 'rerun-of:%s\\n' \"$" + IsolatedRerunPlan.NamesEnvironmentVariable + "\"; exit 1", CheckRunStatusEnum.Failed),
+                    new IsolatedRerunRow("re-run work stays inside the recorded duration", "sleep 0.25; printf 'rerun-of:%s\\n' \"$" + IsolatedRerunPlan.NamesEnvironmentVariable + "\"; exit 0", CheckRunStatusEnum.Passed, minimumDurationMs: 200)
                 };
 
                 foreach (IsolatedRerunRow row in rows)
@@ -979,6 +980,14 @@ namespace Test.Shared.Suites.Services
                         AssertContains("rerun-of:" + failingTest, run.Output ?? "", row.Name + ": the re-run ran with the failing name");
                         AssertContains("Isolated re-run of 1 failing test(s) (" + failingTest + ")", run.Summary ?? "", row.Name + ": the summary names the re-run tests");
                         AssertContains("TimingFixture file not in the change", run.Summary ?? "", row.Name + ": the summary says the failing test's file is outside the change");
+                        if (row.MinimumDurationMs > 0)
+                        {
+                            AssertTrue((run.DurationMs ?? 0) >= row.MinimumDurationMs,
+                                "The final run duration must include its isolated retry, not only the first failed command.");
+                            CheckRun? stored = await testDb.Driver.CheckRuns.ReadAsync(run.Id).ConfigureAwait(false);
+                            AssertEqual(run.CompletedUtc, stored?.CompletedUtc, "The stored completion is after the retry.");
+                            AssertEqual(run.DurationMs, stored?.DurationMs, "The stored duration includes the retry.");
+                        }
                         if (row.Expected == CheckRunStatusEnum.Passed)
                         {
                             AssertContains("Candidate passed on isolated re-run. The full run failed (exit 1", run.Summary ?? "", "a pass on re-run is recorded as one, with the full-run failure");
@@ -1062,11 +1071,12 @@ namespace Test.Shared.Suites.Services
 
         private sealed class IsolatedRerunRow
         {
-            public IsolatedRerunRow(string name, string rerunCommand, CheckRunStatusEnum expected)
+            public IsolatedRerunRow(string name, string rerunCommand, CheckRunStatusEnum expected, long minimumDurationMs = 0)
             {
                 Name = name;
                 RerunCommand = rerunCommand;
                 Expected = expected;
+                MinimumDurationMs = minimumDurationMs;
             }
 
             public string Name { get; }
@@ -1074,6 +1084,8 @@ namespace Test.Shared.Suites.Services
             public string RerunCommand { get; }
 
             public CheckRunStatusEnum Expected { get; }
+
+            public long MinimumDurationMs { get; }
         }
 
         private static async Task WaitForHostSlotWaiterAsync(string checkRunId)
