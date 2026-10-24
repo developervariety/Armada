@@ -6740,16 +6740,18 @@ namespace Armada.Test.Unit.Suites.Services
             string baseBrief = "title: port the widget decoder\n" + new string('b', 1500);
 
             string olderBlock =
-                "\n\n---\n" + MissionService.BuildHandoffMarker("msn_upstream_older") + "\n" +
+                "\n\n---\n" + MissionService.BuildHandoffMarker("msn_older") + "\n" +
                 "## Prior Stage Output\nThe previous pipeline stage (Worker) completed mission older.\n" +
                 "Branch: armada/example/older\n" +
-                "### Diff from prior stage\n```diff\n" + new string('o', 6000) + "\n```\n";
+                "### Diff from prior stage\n```diff\n" + new string('o', 6000) + "\n```\n" +
+                "<!-- ARMADA:HANDOFF-END:msn_older -->";
 
             string newestBlock =
-                "\n\n---\n" + MissionService.BuildHandoffMarker("msn_upstream_newest") + "\n" +
+                "\n\n---\n" + MissionService.BuildHandoffMarker("msn_newest") + "\n" +
                 "## Prior Stage Output\nThe previous pipeline stage (TestEngineer) completed mission newest.\n" +
                 "Branch: armada/example/newest\n" +
-                "NEWEST-STAGE-FACT the rescue must still see\n";
+                "NEWEST-STAGE-FACT the rescue must still see\n" +
+                "<!-- ARMADA:HANDOFF-END:msn_newest -->";
 
             Mission failed = new Mission
             {
@@ -6775,7 +6777,7 @@ namespace Armada.Test.Unit.Suites.Services
                 "The newest prior-stage block must survive into the rescue brief.");
             AssertFalse(brief.Contains(new string('o', 6000)),
                 "The older prior-stage diff must not be carried into the rescue brief.");
-            AssertTrue(brief.Contains("msn_upstream_older"),
+            AssertTrue(brief.Contains("msn_older"),
                 "The older stage must still be named, so the rescue can find its work if needed.");
             await Task.CompletedTask;
         }
