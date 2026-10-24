@@ -27,7 +27,6 @@ export function PersonaPrioritySheet({ persona, onClose, onSave }: Props) {
     return () => { active = false; };
   }, [t]);
   const targets = personaPriorityTargets(endpoints);
-  const [newTarget, setNewTarget] = useState('Codex');
   function choices(priority: PersonaCaptainPriority) {
     const selected = priorityTarget(priority);
     return selected && !targets.some(option => option.value === selected)
@@ -71,8 +70,10 @@ export function PersonaPrioritySheet({ persona, onClose, onSave }: Props) {
       <Button label={t('Move down')} onPress={() => move(index, 1)} disabled={index === routing.captainPriorities.length - 1} variant="secondary" />
       <Button label={t('Remove priority')} onPress={() => setRouting(r => ({ ...r, captainPriorities: r.captainPriorities.filter((_, i) => i !== index) }))} variant="danger" />
     </View>)}
-    <SelectField label={t('Runtime for new priority')} value={newTarget} closeLabel={t('Close')} options={targets} onChange={setNewTarget} />
-    <Button label={t('Add priority')} onPress={() => setRouting(r => ({ ...r, captainPriorities: [...r.captainPriorities, priorityTargetPatch(newTarget)] }))} variant="secondary" />
+    {/* Choosing a runtime adds the priority at once: a separate pick-then-press step let a choice that was never added
+        be saved as an empty list. */}
+    <SelectField label={t('Add priority')} value="" placeholder={t('Choose a runtime to add')} closeLabel={t('Close')} options={targets}
+      onChange={(target) => { if (target) setRouting(r => ({ ...r, captainPriorities: [...r.captainPriorities, priorityTargetPatch(target)] })); }} />
     <SelectField label={t('When a priority is unavailable')} closeLabel={t('Close')} value={routing.priorityAvailability} options={[{ value: 'FallThrough', label: t('Try lower priorities') }, { value: 'WaitForFirstPriority', label: t('Wait for the first priority') }]} onChange={priorityAvailability => setRouting(r => ({ ...r, priorityAvailability }))} />
     <SelectField label={t('When all priorities are unavailable')} closeLabel={t('Close')} value={routing.priorityExhaustion} disabled={routing.priorityAvailability === 'WaitForFirstPriority'} options={[{ value: 'Wait', label: t('Wait') }, { value: 'UseEligibleCaptain', label: t('Use any eligible captain') }]} onChange={priorityExhaustion => setRouting(r => ({ ...r, priorityExhaustion }))} />
     {error ? <AppText accessibilityRole="alert" color="danger">{error}</AppText> : null}

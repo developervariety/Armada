@@ -18,7 +18,7 @@ A nonempty hierarchy replaces the persona default captain; explicit dispatch/voy
 
 Open a persona and choose **Actions > Edit**. On desktop, persona settings and captain priorities appear side by side; the form stacks on smaller screens. Save and Cancel stay visible while the form scrolls.
 
-Choose a runtime beside **Add priority**, then refine its model, Mux endpoint, or minimum tier. Drag a card by its handle to reorder it, use the up/down arrows, or select its **Position** directly. Keyboard users can focus the handle and press Alt+Up or Alt+Down. The displayed order is the routing order. Configure unavailable-priority behavior below the cards, then save.
+Choose a runtime (or a specific API endpoint) in **Add priority**; it is added to the bottom of the list at once, so a choice is never left unsaved. Then refine its model, Mux endpoint, or minimum tier. Drag a card by its handle to reorder it, use the up/down arrows, or select its **Position** directly. Keyboard users can focus the handle and press Alt+Up or Alt+Down. The displayed order is the routing order. Configure unavailable-priority behavior below the cards, then save.
 
 ### Evidence and downstream execution
 

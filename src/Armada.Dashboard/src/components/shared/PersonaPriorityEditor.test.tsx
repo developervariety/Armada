@@ -27,8 +27,7 @@ describe('Persona priority editor', () => {
     await screen.findByRole('option', { name: 'API Endpoint: First API (XAI / same-model)' });
     expect(screen.queryByRole('option', { name: /Embeddings only/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'API Endpoint' })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Runtime for new priority'), { target: { value: 'endpoint:mep_one' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add priority' }));
+    fireEvent.change(screen.getByLabelText('Add priority'), { target: { value: 'endpoint:mep_one' } });
     expect(payload().captainPriorities[0]).toEqual({ runtime: 'ApiEndpoint', endpoint: 'mep_one' });
     fireEvent.change(screen.getByLabelText('Runtime'), { target: { value: 'endpoint:mep_two' } });
     expect(payload().captainPriorities[0].endpoint).toBe('mep_two');
@@ -46,8 +45,8 @@ describe('Persona priority editor', () => {
 
   it('adds, edits, reorders, and removes structured classes', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add priority' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add priority' }));
+    fireEvent.change(screen.getByLabelText('Add priority'), { target: { value: 'Codex' } });
+    fireEvent.change(screen.getByLabelText('Add priority'), { target: { value: 'Codex' } });
     const rows = screen.getAllByRole('group').slice(1);
     fireEvent.change(within(rows[1]).getByLabelText('Runtime'), { target: { value: 'Mux' } });
     fireEvent.change(within(rows[1]).getByLabelText('Model'), { target: { value: 'gpt-oss:120b' } });
@@ -63,10 +62,18 @@ describe('Persona priority editor', () => {
 
   it('adds the selected runtime', () => {
     render(<Harness />);
-    fireEvent.change(screen.getByLabelText('Runtime for new priority'), { target: { value: 'Mux' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add priority' }));
+    fireEvent.change(screen.getByLabelText('Add priority'), { target: { value: 'Mux' } });
     expect(payload().captainPriorities[0].runtime).toBe('Mux');
     expect(screen.getByLabelText('Endpoint')).not.toBeDisabled();
+  });
+
+  it('adds a runtime the moment it is chosen, so a choice is never left unsaved', () => {
+    render(<Harness />);
+    expect(screen.getByLabelText('Add priority')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('Add priority'), { target: { value: 'ClaudeCode' } });
+    expect(payload().captainPriorities).toEqual([{ runtime: 'ClaudeCode' }]);
+    expect(screen.getByLabelText('Add priority')).toHaveValue('');
+    expect(screen.queryByRole('button', { name: 'Add priority' })).toBeNull();
   });
 
   it('moves to a chosen position and supports keyboard reordering', () => {

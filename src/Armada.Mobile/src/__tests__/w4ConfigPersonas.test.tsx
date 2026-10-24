@@ -56,10 +56,9 @@ describe('Configuration > Personas', () => {
     await fireEvent.press(screen.getByTestId('persona-form-promptTemplateName-option-persona.worker'));
     await fireEvent.press(screen.getByTestId('persona-form-priorities'));
     const sheet = await screen.findByTestId('persona-priorities');
-    await fireEvent.press(within(sheet).getByRole('button', { name: 'Runtime for new priority' }));
-    await fireEvent.press(await screen.findByRole('radio', { name: 'API Endpoint: First API (XAI / same-model)' }));
+    await fireEvent.press(within(sheet).getByRole('button', { name: 'Add priority' }));
     expect(screen.queryByRole('radio', { name: /Embeddings only/ })).toBeNull();
-    await fireEvent.press(within(sheet).getByText('Add priority'));
+    await fireEvent.press(await screen.findByRole('radio', { name: 'API Endpoint: First API (XAI / same-model)' }));
     await act(async () => { await fireEvent.press(within(sheet).getByText('Save')); });
     await act(async () => { await fireEvent.press(screen.getByTestId('persona-form-submit')); });
     expect(api.createPersona).toHaveBeenCalledWith(expect.objectContaining({ captainPriorities: [{ runtime: 'ApiEndpoint', endpoint: 'mep_one' }] }));
@@ -133,7 +132,8 @@ describe('Configuration > Personas', () => {
     await waitFor(() => expect(screen.getByTestId('persona-title')).toBeTruthy());
     await fireEvent.press(screen.getByText('Captain priorities'));
     const sheet = await screen.findByTestId('persona-priorities');
-    await fireEvent.press(within(sheet).getByText('Add priority'));
+    await fireEvent.press(within(sheet).getByRole('button', { name: 'Add priority' }));
+    await fireEvent.press(await screen.findByRole('radio', { name: 'Codex' }));
     await act(async () => { await fireEvent.press(within(sheet).getByText('Save')); });
     expect(api.updatePersona).toHaveBeenCalledWith('Architect', {
       captainPriorities: [{ runtime: 'Codex' }], priorityAvailability: 'FallThrough', priorityExhaustion: 'Wait', defaultCaptainId: null,

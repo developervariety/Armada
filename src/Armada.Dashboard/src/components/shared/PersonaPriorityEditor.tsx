@@ -17,7 +17,6 @@ interface Props { value: PersonaRoutingForm; onChange: (value: PersonaRoutingFor
 
 export default function PersonaPriorityEditor({ value, onChange }: Props) {
   const { t } = useLocale();
-  const [newRuntime, setNewRuntime] = useState('Codex');
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
   const [endpointError, setEndpointError] = useState(false);
   useEffect(() => {
@@ -93,10 +92,16 @@ export default function PersonaPriorityEditor({ value, onChange }: Props) {
       </fieldset>)}
     </div>
     <div className="persona-priority-add">
-      <label title={t('Runtime the next added priority starts with. You can change it and add more fields after adding.')}>{t('Runtime for new priority')}<select title={t('Runtime the next added priority starts with. You can change it and add more fields after adding.')} value={newRuntime} onChange={e => setNewRuntime(e.target.value)}>
+      {/* Choosing a runtime adds the priority at once: a separate pick-then-click step let a choice that was never added be
+          saved as an empty list. */}
+      <label title={t('Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.')}>{t('Add priority')}<select aria-label={t('Add priority')} title={t('Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.')} value="" onChange={e => {
+        if (!e.target.value) return;
+        onChange({ ...value, captainPriorities: [...value.captainPriorities, priorityTargetPatch(e.target.value)] });
+        setAnnouncement(t('Priority {{number}}', { number: value.captainPriorities.length + 1 }));
+      }}>
+        <option value="">{t('Choose a runtime to add')}</option>
         {targets.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
       </select></label>
-      <button type="button" className="btn" title={t('Add a priority for the chosen runtime at the bottom of the list, so it is tried last.')} onClick={() => onChange({ ...value, captainPriorities: [...value.captainPriorities, priorityTargetPatch(newRuntime)] })}>{t('Add priority')}</button>
     </div>
     <div className="persona-priority-policies">
       <label title={t(AVAILABILITY_TIP)}>{t('When a priority is unavailable')}<select title={t(AVAILABILITY_TIP)} value={value.priorityAvailability} onChange={e => onChange({ ...value, priorityAvailability: e.target.value as PersonaRoutingForm['priorityAvailability'] })}>
