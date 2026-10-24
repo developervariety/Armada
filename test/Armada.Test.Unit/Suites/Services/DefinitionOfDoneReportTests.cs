@@ -193,63 +193,73 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Completion persists failed command output and the report resolves its redacted capture", async () =>
+            await RunTest("Completion persists command output and the report resolves its redacted capture", async () =>
             {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                foreach (bool passing in new[] { false, true })
                 {
-                    ArmadaSettings settings = CreateSettings();
-                    try
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
-                        LoggingModule logging = CreateLogging();
-                        MissionService missions = CreateMissionService(testDb.Driver, settings, logging,
-                            new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false });
-                        Captain captain = await CreateWorkingMissionAsync(testDb.Driver, "Worker").ConfigureAwait(false);
-                        Mission mission = (await testDb.Driver.Missions.ReadAsync(captain.CurrentMissionId!).ConfigureAwait(false))!;
-                        Dock dock = (await testDb.Driver.Docks.ReadAsync(mission.DockId!).ConfigureAwait(false))!;
-                        dock.WorktreePath = Path.Combine(settings.DocksDirectory, "capture-worktree");
-                        Directory.CreateDirectory(dock.WorktreePath);
-                        await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
-                        string failingCommand = OperatingSystem.IsWindows()
-                            ? "echo CITATION OFFENDER: ExampleComponent & echo " + "to" + "ken=private-example-value" + " & exit /b 1"
-                            : "printf 'CITATION OFFENDER: ExampleComponent\\n" + "to" + "ken=private-example-value\\n'; exit 1";
-                        await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        ArmadaSettings settings = CreateSettings();
+                        try
                         {
-                            Name = "Captured failure profile",
-                            Scope = WorkflowProfileScopeEnum.Vessel,
-                            VesselId = mission.VesselId,
-                            BuildCommand = failingCommand,
-                            UnitTestCommand = "echo ok",
-                            Active = true,
-                            IsDefault = true
-                        }).ConfigureAwait(false);
+                            LoggingModule logging = CreateLogging();
+                            MissionService missions = CreateMissionService(testDb.Driver, settings, logging,
+                                new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false });
+                            Captain captain = await CreateWorkingMissionAsync(testDb.Driver, "Worker").ConfigureAwait(false);
+                            Mission mission = (await testDb.Driver.Missions.ReadAsync(captain.CurrentMissionId!).ConfigureAwait(false))!;
+                            Dock dock = (await testDb.Driver.Docks.ReadAsync(mission.DockId!).ConfigureAwait(false))!;
+                            dock.WorktreePath = Path.Combine(settings.DocksDirectory, "capture-worktree");
+                            Directory.CreateDirectory(dock.WorktreePath);
+                            await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                            string command = OperatingSystem.IsWindows()
+                                ? "echo CITATION OFFENDER: ExampleComponent & echo " + "to" + "ken=private-example-value" + (passing ? " & exit /b 0" : " & exit /b 1")
+                                : "printf 'CITATION OFFENDER: ExampleComponent\\n" + "to" + "ken=private-example-value\\n'; exit " + (passing ? "0" : "1");
+                            await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                            {
+                                Name = "Captured output profile",
+                                Scope = WorkflowProfileScopeEnum.Vessel,
+                                VesselId = mission.VesselId,
+                                BuildCommand = passing ? "echo BUILD-PROOF" : command,
+                                UnitTestCommand = passing ? command : "echo ok",
+                                Active = true,
+                                IsDefault = true
+                            }).ConfigureAwait(false);
 
-                        await missions.HandleCompletionAsync(captain).ConfigureAwait(false);
+                            await missions.HandleCompletionAsync(captain).ConfigureAwait(false);
 
-                        Mission stored = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
-                        AssertEqual(MissionStatusEnum.Failed, stored.Status);
-                        DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, logging, () => missions.DefinitionOfDone);
-                        MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, stored).ConfigureAwait(false);
-                        AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState);
-                        DefinitionOfDoneEvaluationRecord evaluation = report.LatestEvaluation!;
-                        AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Failed, evaluation.Outcome);
-                        AssertTrue(evaluation.OutputCaptureAvailable, "Completion must persist the command output before recording its capture pointer");
-                        AssertNotNull(evaluation.OutputCaptureId);
-                        AssertNotNull(evaluation.OutputCaptureSha256);
-                        AssertTrue(evaluation.OutputCaptureTotalUtf8Bytes > 0);
-                        MissionLogCapturePage page = await MissionLogCaptureArtifact.ReadPageAsync(
-                            settings.LogDirectory, mission.Id, evaluation.OutputCaptureId!, 0, 16000,
-                            evaluation.OutputCaptureSha256).ConfigureAwait(false);
-                        AssertNull(page.Error);
-                        AssertFalse(page.HasMore);
-                        AssertTrue(page.Complete);
-                        AssertContains("CITATION OFFENDER: ExampleComponent", page.Content);
-                        AssertContains("token=[REDACTED]", page.Content);
-                        AssertFalse(page.Content.Contains("private-example-value", StringComparison.Ordinal));
-                        AssertEqual(evaluation.OutputCaptureTotalUtf8Bytes!.Value, page.TotalUtf8Bytes);
-                    }
-                    finally
-                    {
-                        DeleteDirectories(settings);
+                            Mission stored = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                            AssertEqual(passing ? MissionStatusEnum.WorkProduced : MissionStatusEnum.Failed, stored.Status);
+                            DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, logging, () => missions.DefinitionOfDone);
+                            MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, stored).ConfigureAwait(false);
+                            AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState);
+                            DefinitionOfDoneEvaluationRecord evaluation = report.LatestEvaluation!;
+                            AssertEqual(passing ? DefinitionOfDoneEvaluationOutcomeEnum.Passed : DefinitionOfDoneEvaluationOutcomeEnum.Failed, evaluation.Outcome);
+                            if (passing)
+                            {
+                                AssertNull(evaluation.CommandLabel);
+                                AssertNull(evaluation.ExitCode);
+                                AssertNull(evaluation.FailureClass);
+                                AssertNull(evaluation.OutputTail);
+                            }
+                            AssertTrue(evaluation.OutputCaptureAvailable, "Completion must persist the command output before recording its capture pointer");
+                            AssertNotNull(evaluation.OutputCaptureId);
+                            AssertNotNull(evaluation.OutputCaptureSha256);
+                            AssertTrue(evaluation.OutputCaptureTotalUtf8Bytes > 0);
+                            MissionLogCapturePage page = await MissionLogCaptureArtifact.ReadPageAsync(
+                                settings.LogDirectory, mission.Id, evaluation.OutputCaptureId!, 0, 16000,
+                                evaluation.OutputCaptureSha256).ConfigureAwait(false);
+                            AssertNull(page.Error);
+                            AssertFalse(page.HasMore);
+                            AssertTrue(page.Complete);
+                            AssertContains("CITATION OFFENDER: ExampleComponent", page.Content);
+                            AssertContains("token=[REDACTED]", page.Content);
+                            AssertFalse(page.Content.Contains("private-example-value", StringComparison.Ordinal));
+                            AssertEqual(evaluation.OutputCaptureTotalUtf8Bytes!.Value, page.TotalUtf8Bytes);
+                        }
+                        finally
+                        {
+                            DeleteDirectories(settings);
+                        }
                     }
                 }
             }).ConfigureAwait(false);
@@ -540,6 +550,18 @@ namespace Armada.Test.Unit.Suites.Services
 
                 DefinitionOfDoneEvaluationRecord skipped = DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Skipped("persona"), DateTime.UtcNow);
                 AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Skipped, skipped.Outcome, "Skip with Passed=true records Skipped");
+                DefinitionOfDoneResult passed = DefinitionOfDoneResult.Pass();
+                passed.GateCommandOutput = "retained prefix";
+                passed.RunnerOutputTruncated = true;
+                passed.RunnerOutputOmittedBytes = 123;
+                passed.RunnerOutputIncomplete = true;
+                DefinitionOfDoneEvaluationRecord passRecord = DefinitionOfDoneEvaluationRecord.FromResult(passed, DateTime.UtcNow);
+                AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Passed, passRecord.Outcome);
+                AssertTrue(passRecord.RunnerOutputTruncated);
+                AssertEqual(123L, passRecord.RunnerOutputOmittedBytes);
+                AssertTrue(passRecord.RunnerOutputIncomplete, "a passing exit cannot turn incomplete output into complete proof");
+                AssertNull(passRecord.CommandLabel);
+                AssertNull(passRecord.OutputTail);
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
@@ -580,6 +602,13 @@ namespace Armada.Test.Unit.Suites.Services
                     List<DefinitionOfDoneEvaluationRecord> writerShaped = new List<DefinitionOfDoneEvaluationRecord>
                     {
                         DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Pass(), started),
+                        new DefinitionOfDoneEvaluationRecord
+                        {
+                            Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Passed,
+                            OutputCaptureUnavailableReason = "capture_write_failed",
+                            RunnerOutputTruncated = true, RunnerOutputOmittedBytes = 123, RunnerOutputIncomplete = true,
+                            StartedUtc = started, CompletedUtc = started.AddSeconds(1)
+                        },
                         DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Skipped("persona"), started),
                         DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Fail("build", 2, "error", DefinitionOfDoneFailureClassEnum.Compile), started),
                         DefinitionOfDoneEvaluationRecord.NotVerifiable("the mission changed nothing"),
@@ -593,6 +622,9 @@ namespace Armada.Test.Unit.Suites.Services
                         MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
                         AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState, "A writer-shaped " + record.Outcome + " record is Recorded");
                         AssertEqual(2, report.LatestEvaluation!.RecoveryAttempts, "Recovery attempts are read for " + record.Outcome);
+                        AssertEqual(record.RunnerOutputIncomplete, report.LatestEvaluation.RunnerOutputIncomplete);
+                        AssertEqual(record.RunnerOutputOmittedBytes, report.LatestEvaluation.RunnerOutputOmittedBytes);
+                        AssertEqual(record.OutputCaptureUnavailableReason, report.LatestEvaluation.OutputCaptureUnavailableReason);
                     }
                 }
             }).ConfigureAwait(false);
