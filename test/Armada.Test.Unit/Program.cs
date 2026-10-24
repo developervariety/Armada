@@ -8,11 +8,15 @@ namespace Armada.Test.Unit
     using Armada.Test.Unit.Suites.Routes;
     using Armada.Test.Unit.Suites.Services;
     using Armada.Test.Unit.Suites.Settings;
+    using Armada.Test.Unit.TestHelpers;
 
     public class Program
     {
         public static async Task<int> Main(string[] args)
         {
+            if (args.Length > 0 && String.Equals(args[0], "--harbor-runner-child", StringComparison.Ordinal))
+                return await HarborRunnerChild.RunAsync(args.Skip(1).ToArray()).ConfigureAwait(false);
+
             // Must run before anything touches Armada.Core.Constants: settings built without an
             // explicit DataDirectory otherwise resolve under the live Armada home and write there.
             TestDataDirectory.Redirect();
@@ -449,6 +453,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new HarborRunnerSessionRegistryTests());
             runner.AddSuite(new HarborRunnerEnrollmentServiceTests());
             runner.AddSuite(new HarborProtocolTests());
+            runner.AddSuite(new HarborRunnerTests());
             runner.AddSuite(new HarborTransportTests());
             runner.AddSuite(new AutonomousObjectiveSchedulerSettingsTests());
             runner.AddSuite(new ArchitectSettingsTests());

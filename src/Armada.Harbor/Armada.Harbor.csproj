@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Headless Harbor runner for authenticated remote agent jobs</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Armada.Runtimes\Armada.Runtimes.csproj" />
+  </ItemGroup>
+</Project>

@@ -8,6 +8,9 @@ Harbor is disabled by default. When `Harbor.Enabled` is false the Admiral regist
 enrollment routes. Stored-job safety checks and the administrator stop-confirmation route remain available.
 See [Opt-in operation](#opt-in-operation).
 
+The [headless console runner](HARBOR_RUNNER.md) implements process-only routes,
+independent job supervision and durable output replay.
+
 ## Transport and framing
 
 The runner dials `Harbor.LinkPath` (default `/harbor/link`) on the Admiral's REST port. Because the runner is

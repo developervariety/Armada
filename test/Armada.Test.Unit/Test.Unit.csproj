@@ -34,6 +34,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Armada.Core\Armada.Core.csproj" />
+    <ProjectReference Include="..\..\src\Armada.Harbor\Armada.Harbor.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\src\Armada.Proxy\Armada.Proxy.csproj" />
     <ProjectReference Include="..\..\src\Armada.Server\Armada.Server.csproj" />
     <ProjectReference Include="..\..\src\Test.Automated\Test.Automated.csproj" ReferenceOutputAssembly="false" />

@@ -24,6 +24,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Runtimes;
+    using Armada.Runtimes.Harbor;
     using Armada.Server;
     using Armada.Server.Harbor;
     using Armada.Server.Mcp;
@@ -898,6 +899,117 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ShippingHarborConsole_RestartsWithoutLosingItsWriterOrOfflineOutput", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_shipping_harbor_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                    {
+                        await harness.EnrollBothAsync().ConfigureAwait(false);
+                        await using (ShippingHarborConsole console = new ShippingHarborConsole(root,
+                            "ws://127.0.0.1:" + harness.Primary.Port + "/harbor/link", harness.OwnerA.BearerToken))
+                        {
+                            AssertTrue(await WaitUntilAsync(() => harness.Registry.SessionCount == 1 || console.HasExited).ConfigureAwait(false), "shipping console connects");
+                            AssertFalse(console.HasExited, console.Diagnostics());
+                            string release = Path.Combine(root, "work", "release");
+                            string counter = Path.Combine(root, "work", "launches");
+                            HarborLaunchRequest request = ShippingRunnerPlan(root, "release", release, counter);
+                            HarborLaunchResult launched = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth,
+                                "hbr_a", "shipping-console-restart", request).ConfigureAwait(false);
+                            AssertTrue(launched.Accepted, launched.Reason);
+                            string jobId = launched.JobId!;
+                            AssertTrue(await WaitUntilAsync(() => harness.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? current)
+                                && current.ProcessId.HasValue && String.Concat(Data(current)).Contains("before offline")).ConfigureAwait(false),
+                                "real child process starts and reports its first output: " + ShippingRunnerDiagnostics(console, harness.Coordinator, jobId));
+                            HarborLocalJobRecord original = console.Journal.Read(jobId);
+                            AssertTrue(original.ProcessId.HasValue && original.ProcessStartedUtc.HasValue, "the runner retained exact child identity");
+                            AssertTrue(HarborJobJournal.IsExactProcessAlive(original.SupervisorProcessId, original.SupervisorStartedUtc,
+                                original.SupervisorLinuxStartTicks, original.SupervisorLinuxBootId), "the independent supervisor is alive: " + DescribeShippingProcess(original.SupervisorProcessId, original.SupervisorStartedUtc));
+                            await console.StopConsoleOnlyAsync().ConfigureAwait(false);
+                            AssertTrue(await WaitUntilAsync(() => harness.Registry.SessionCount == 0).ConfigureAwait(false), "only the link disconnects");
+                            AssertTrue(HarborJobJournal.IsExactProcessAlive(original.ProcessId!.Value, original.ProcessStartedUtc,
+                                original.ProcessLinuxStartTicks, original.ProcessLinuxBootId), "the same agent survives console death");
+                            AssertTrue(HarborJobJournal.IsExactProcessAlive(original.SupervisorProcessId, original.SupervisorStartedUtc,
+                                original.SupervisorLinuxStartTicks, original.SupervisorLinuxBootId), "the output supervisor survives console death");
+                            File.WriteAllText(release, "finish");
+                            AssertTrue(await WaitUntilAsync(() => console.Journal.Read(jobId).StopConfirmed).ConfigureAwait(false), "the supervisor records the offline exit");
+                            HarborLocalJobRecord stopped = console.Journal.Read(jobId);
+                            AssertEqual(0, stopped.ExitCode, "the real child records its known exit code");
+                            AdmiralInstance restarted = await harness.RestartAdmiralAsync(new NoMissionRecoveryHost(), _ => { }).ConfigureAwait(false);
+                            await using (ShippingHarborConsole reconnected = new ShippingHarborConsole(root,
+                                "ws://127.0.0.1:" + restarted.Port + "/harbor/link", harness.OwnerA.BearerToken))
+                            {
+                                AssertTrue(await WaitUntilAsync(() => restarted.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? current)
+                                    && current.State == HarborJobStateEnum.Exited && current.CompletionDelivered).ConfigureAwait(false),
+                                    "the real console resumes, replays the offline output and completes the durable job");
+                                AssertTrue(restarted.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? completed), "the restored job is present");
+                                AssertEqual(original.ProcessId, completed!.ProcessId, "recovery keeps the original process identity");
+                                string replayed = String.Concat(Data(completed));
+                                AssertContains("offline output", replayed, "output captured after console death reaches the restarted Admiral");
+                                AssertFalse(replayed.Contains("before offline"), "already accepted output is not replayed");
+                                AssertFalse(String.Concat(console.Journal.ReadOutput(jobId, 0).ConvertAll(item => item.Data)).Contains("link-secret-present=True"), "the link credential is absent from the child environment");
+                                AssertEqual(1, File.ReadAllLines(counter).Length, "console and Admiral restarts never start a second child");
+                                AssertEqual(1, (await harness.Driver.HarborJobs.EnumerateAsync(new HarborJobQuery { RunnerId = "hbr_a", Limit = 10 }).ConfigureAwait(false)).Count, "one durable job owns the attempt");
+                                string metadata = File.ReadAllText(Path.Combine(root, "state", jobId, "job.json"));
+                                AssertFalse(metadata.Contains(harness.OwnerA.BearerToken), "durable metadata contains no link credential");
+                                AssertFalse(metadata.Contains(request.Prompt!), "durable metadata contains no launch prompt");
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    DeleteShippingRunnerFixture(root);
+                }
+            });
+
+            await RunTest("ShippingHarborConsole_ExclusiveOwnerAndVerifiedStopUseTheActualProcess", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_shipping_harbor_stop_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                    {
+                        await harness.EnrollBothAsync().ConfigureAwait(false);
+                        await using (ShippingHarborConsole console = new ShippingHarborConsole(root,
+                            "ws://127.0.0.1:" + harness.Primary.Port + "/harbor/link", harness.OwnerA.BearerToken))
+                        {
+                            AssertTrue(await WaitUntilAsync(() => harness.Registry.SessionCount == 1 || console.HasExited).ConfigureAwait(false), "shipping console connects");
+                            AssertFalse(console.HasExited, console.Diagnostics());
+                            HarborLaunchResult launch = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth,
+                                "hbr_a", "shipping-stop", ShippingRunnerPlan(root, "hold")).ConfigureAwait(false);
+                            AssertTrue(launch.Accepted, launch.Reason);
+                            AssertTrue(await WaitUntilAsync(() => harness.Coordinator.TryGetJob(launch.JobId!, out HarborJobSnapshot? current)
+                                && current.ProcessId.HasValue && String.Concat(Data(current)).Contains("child-ready")).ConfigureAwait(false), "the actual fixture child starts before stop");
+                            await using (ShippingHarborConsole duplicate = new ShippingHarborConsole(root,
+                                "ws://127.0.0.1:" + harness.Primary.Port + "/harbor/link", harness.OwnerA.BearerToken, ownsJournalJobs: false))
+                            {
+                                AssertTrue(await WaitUntilAsync(() => duplicate.HasExited).ConfigureAwait(false), "a second console cannot take the same state directory");
+                                AssertTrue(duplicate.ExitCode != 0, "the duplicate console reports the ownership refusal");
+                                AssertContains("runner_already_running", duplicate.Diagnostics(), "the refusal has a stable name");
+                                AssertEqual(1, harness.Registry.SessionCount, "the first authenticated link remains the owner");
+                            }
+                            AssertTrue(harness.Coordinator.TryGetJob(launch.JobId!, out HarborJobSnapshot? stillRunning)
+                                && stillRunning.State == HarborJobStateEnum.Running, "disposing the rejected console leaves the owner job running");
+                            HarborCommandResult requested = await harness.Coordinator.StopAsync(harness.OwnerA.Auth, launch.JobId!, 0).ConfigureAwait(false);
+                            AssertTrue(requested.Accepted, requested.Reason);
+                            HarborJobSnapshot completed = await launch.Completion!.WaitAsync(Wait).ConfigureAwait(false);
+                            AssertEqual(HarborJobStateEnum.Exited, completed.State, "the real stop returns a confirmed terminal result");
+                            AssertTrue(completed.StopConfirmed && completed.CompletionDelivered && completed.ExitCode.HasValue, "the process exited and the server handled it");
+                            HarborLocalJobRecord local = console.Journal.Read(launch.JobId!);
+                            AssertFalse(HarborJobJournal.IsExactProcessAlive(local.ProcessId!.Value, local.ProcessStartedUtc,
+                                local.ProcessLinuxStartTicks, local.ProcessLinuxBootId), "the exact child is no longer running");
+                            AssertEqual(local.ExitCode, completed.ExitCode, "the Admiral receives the OS exit result");
+                        }
+                    }
+                }
+                finally
+                {
+                    DeleteShippingRunnerFixture(root);
+                }
+            });
+
             await RunTest("HarborRestart_AdoptsExactMissionAttemptAfterRunnerProof", async () =>
             {
                 await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
@@ -1596,6 +1708,70 @@ namespace Armada.Test.Unit.Suites.Services
                     Console.WriteLine("Harbor capacity fixture cleanup failed: " + exception.Message);
                 }
             }
+        }
+
+        private static HarborLaunchRequest ShippingRunnerPlan(string root, string mode, params string[] arguments)
+        {
+            List<string> resolved = new List<string> { typeof(global::Armada.Test.Unit.Program).Assembly.Location, "--harbor-runner-child", mode };
+            resolved.AddRange(arguments);
+            return new HarborLaunchRequest
+            {
+                Runtime = "fixture", WorkingDirectory = Path.Combine(root, "work"), Arguments = resolved,
+                Prompt = "private runner prompt " + Guid.NewGuid().ToString("N"), PromptViaStdin = true,
+                Environment = new Dictionary<string, string> { ["CLAUDE_CODE_DISABLE_NONINTERACTIVE_HINT"] = "1" }
+            };
+        }
+
+        private static string DescribeShippingProcess(int processId, DateTime? recorded)
+        {
+            try
+            {
+                using (System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(processId))
+                    return "pid=" + processId + " recorded=" + recorded?.ToString("O") + " actual=" + process.StartTime.ToUniversalTime().ToString("O") + " exited=" + process.HasExited;
+            }
+            catch (Exception exception) when (exception is ArgumentException || exception is InvalidOperationException || exception is System.ComponentModel.Win32Exception)
+            {
+                return "pid=" + processId + " identity unavailable=" + exception.GetType().Name;
+            }
+        }
+
+        private static string ShippingRunnerDiagnostics(ShippingHarborConsole console, HarborJobCoordinator coordinator, string jobId)
+        {
+            string server = coordinator.TryGetJob(jobId, out HarborJobSnapshot? current)
+                ? "server=" + current!.State + " reason=" + current.FailureReason
+                : "server job missing";
+            try
+            {
+                HarborLocalJobRecord record = console.Journal.Read(jobId);
+                string output = String.Concat(console.Journal.ReadOutput(jobId, 0).ConvertAll(item => item.Data));
+                return server + " local=" + JsonSerializer.Serialize(record) + " output=" + output + " console=" + console.Diagnostics();
+            }
+            catch (HarborJobJournalException exception)
+            {
+                return server + " journal=" + exception.ReasonCode + " console=" + console.Diagnostics();
+            }
+        }
+
+        private static void DeleteShippingRunnerFixture(string root)
+        {
+            try
+            {
+                if (Directory.Exists(root)) Directory.Delete(root, true);
+            }
+            catch (IOException exception)
+            {
+                Console.WriteLine("Shipping Harbor fixture cleanup failed: " + exception.Message);
+            }
+        }
+
+        private sealed class NoMissionRecoveryHost : IHarborJobRecoveryHost
+        {
+            public Task<HarborJobRecoveryResult> RestoreAsync(HarborJobSnapshot job, CancellationToken token = default)
+                => throw new InvalidOperationException("An operator job has no mission to restore.");
+            public Task<HarborJobRecoveryResult> TryAdoptAsync(HarborJobSnapshot job, HarborRunnerSession session, CancellationToken token = default)
+                => throw new InvalidOperationException("An operator job has no mission lifecycle to adopt.");
+            public Task<bool> DeliverCompletionAsync(HarborJobSnapshot job, CancellationToken token = default)
+                => throw new InvalidOperationException("The running operator job has no mission completion to restore.");
         }
 
         private static HarborLaunchRequest Plan()

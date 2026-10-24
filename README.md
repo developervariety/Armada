@@ -147,6 +147,12 @@ runner for the mission owner before it provisions a dock. A full runner leaves
 the mission pending with a named hold; assignment retries when a slot is free.
 The launch still checks capacity atomically and never falls back to a local run.
 
+The fork ships a [headless Harbor console runner](docs/HARBOR_RUNNER.md) for
+process-only routes. Independent job supervisors retain exact process identity
+and bounded output through console reconnects; the runner resumes from the
+Admiral's saved cursor without launching another agent. Checkout operations
+remain on the Admiral for these routes.
+
 Both versions support Harbor job recovery. The fork stores the exact mission,
 captain, dock and process attempt before launch. Restart adoption requires the
 same authenticated owner and enrollment, process start identity and complete

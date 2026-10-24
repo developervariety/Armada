@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- A headless Harbor console runs resolved agent commands through independent
+  job supervisors. Private bounded journals retain process start identity and
+  ordered output across console restart. Authenticated reconnect replays output
+  before exit and leaves incomplete proof fenced.
+
 - Harbor jobs retain their exact mission attempt across Admiral restart.
   Verified runners resume with process-start and output-replay checks. Uncertain
   remote writers block replacement and dock reclamation. Confirmed exits are
