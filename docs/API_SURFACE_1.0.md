@@ -24,7 +24,7 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 375 | 12 |
+| REST routes | 376 | 12 |
 | MCP tools | 175 | 6 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
@@ -43,6 +43,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/activity/synthetic` | AdminOnly | `SyntheticActivityRequest` | 200 `SyntheticActivityResult`, 400 |  |
 | GET | `/api/v1/ask/quick-actions` | Authenticated |  | 200 `List<AskQuickAction>` |  |
 | POST | `/api/v1/ask/threads` | Authenticated | `AskThreadCreateRequest` (optional) | 201 `AskThread`, 400 |  |
+| POST | `/api/v1/ask/threads/delete/multiple` | Authenticated | `DeleteMultipleRequest` | 200 `AskThreadDeleteMultipleResult`, 400 |  |
 | POST | `/api/v1/ask/threads/enumerate` | Authenticated | `AskThreadEnumerateRequest` (optional) | 200 `EnumerationResult<AskThread>` |  |
 | DELETE | `/api/v1/ask/threads/{id}` | Authenticated |  | 204, 404 |  |
 | GET | `/api/v1/ask/threads/{id}` | Authenticated |  | 200 `AskThreadDetail`, 404 |  |

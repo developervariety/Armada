@@ -2511,6 +2511,14 @@ export interface BatchDeleteResult {
   skipped: { id: string; reason: string }[];
 }
 
+/** Result of the Ask Armada bulk delete: deleted IDs plus skipped IDs and the reason each was skipped. */
+export interface AskThreadDeleteMultipleResult {
+  status?: string;
+  deleted: number;
+  deletedIds: string[];
+  skipped: { id: string; reason: string }[];
+}
+
 export interface StatusSnapshot {
   health?: string;
   captains?: number;

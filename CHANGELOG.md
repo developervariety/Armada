@@ -6,7 +6,11 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
-No changes yet.
+### Ask Armada: select several conversations and delete them at once
+
+- **Multi-select in the conversation list.** Every row in Ask Armada's recent-conversations list now carries a checkbox to its left, with a select-all checkbox for the visible rows and a clear-selection control. The header shows the selected count and a `Delete (N)` button once at least one conversation is ticked, and the selection is pruned when a search, filter, refresh, or delete removes a row.
+- **Bulk delete over REST.** `POST /api/v1/ask/threads/delete/multiple` takes the usual `DeleteMultipleRequest` (`Ids`) and returns `AskThreadDeleteMultipleResult`: the deleted IDs plus the skipped IDs with a reason. It is owner-scoped like the single delete, so another user's thread is skipped as not found, and a running turn is cancelled first. The dashboard confirms the count, warns when pinned conversations are included, refreshes the list afterwards, and leaves a deleted open conversation the same way the single delete does.
+- **The New conversation button is now `+ New`** (its accessible name is still "New conversation"), so the list header fits the bulk controls.
 
 ---
 

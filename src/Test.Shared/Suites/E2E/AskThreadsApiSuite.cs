@@ -71,6 +71,52 @@ namespace Test.Shared.Suites.E2E
                 AssertStatusCode(HttpStatusCode.NotFound, await a.GetAsync("/api/v1/ask/threads/" + thread.Id).ConfigureAwait(false));
             }));
 
+            cases.Add(CaseAsync("bulk_delete_owner_scoped", "POST /api/v1/ask/threads/delete/multiple deletes the caller's threads and skips another user's or an unknown ID with a reason", async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                E2ETenantUser alice = await E2ETenantUser.CreateAsync(fx.AuthClient, "bulkdel").ConfigureAwait(false);
+                E2ETenantUser bob = await E2ETenantUser.CreateAsync(fx.AuthClient, "bulkdelb", true, alice.TenantId).ConfigureAwait(false);
+                using HttpClient a = alice.CreateClient(fx.BaseUrl);
+                using HttpClient b = bob.CreateClient(fx.BaseUrl);
+
+                AskThread first = await JsonHelper.DeserializeAsync<AskThread>(await a.PostAsync("/api/v1/ask/threads", JsonHelper.ToJsonContent(new { Title = "bulk one" })).ConfigureAwait(false)).ConfigureAwait(false);
+                AskThread second = await JsonHelper.DeserializeAsync<AskThread>(await a.PostAsync("/api/v1/ask/threads", JsonHelper.ToJsonContent(new { Title = "bulk two" })).ConfigureAwait(false)).ConfigureAwait(false);
+                AskThread theirs = await JsonHelper.DeserializeAsync<AskThread>(await b.PostAsync("/api/v1/ask/threads", JsonHelper.ToJsonContent(new { Title = "bob private" })).ConfigureAwait(false)).ConfigureAwait(false);
+
+                AssertStatusCode(HttpStatusCode.BadRequest, await a.PostAsync("/api/v1/ask/threads/delete/multiple", JsonHelper.ToJsonContent(new { Ids = Array.Empty<string>() })).ConfigureAwait(false));
+                AskThreadDeleteMultipleResult empty = await JsonHelper.DeserializeAsync<AskThreadDeleteMultipleResult>(
+                    await a.PostAsync("/api/v1/ask/threads/delete/multiple", JsonHelper.ToJsonContent(new { Ids = new[] { "" } })).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(0, empty.Deleted, "an empty ID deletes nothing");
+                AssertTrue(empty.Skipped.Any(s => s.Id == "" && s.Reason == "Empty ID"), "an empty ID is skipped with its reason");
+                AssertTrue(empty.Status == DeleteMultipleStatusEnum.NoneDeleted, "nothing deleted status: " + empty.Status);
+
+                HttpResponseMessage response = await a.PostAsync(
+                    "/api/v1/ask/threads/delete/multiple",
+                    JsonHelper.ToJsonContent(new { Ids = new[] { first.Id, theirs.Id, "ath_missing" } })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.OK, response);
+                AskThreadDeleteMultipleResult result = await JsonHelper.DeserializeAsync<AskThreadDeleteMultipleResult>(response).ConfigureAwait(false);
+                AssertEqual(1, result.Deleted, "one of the caller's threads deleted");
+                AssertTrue(result.DeletedIds.SequenceEqual(new[] { first.Id }), "the response names the deleted ID: " + String.Join(",", result.DeletedIds));
+                AssertEqual(2, result.Skipped.Count, "the stranger's and the unknown ID are skipped");
+                AssertTrue(result.Skipped.Any(s => s.Id == theirs.Id && s.Reason == "Not found"), "another user's thread is skipped as not found");
+                AssertTrue(result.Skipped.Any(s => s.Id == "ath_missing" && s.Reason == "Not found"), "the unknown ID is skipped as not found");
+                AssertTrue(result.Status == DeleteMultipleStatusEnum.PartiallyDeleted, "partial delete status: " + result.Status);
+
+                AssertStatusCode(HttpStatusCode.NotFound, await a.GetAsync("/api/v1/ask/threads/" + first.Id).ConfigureAwait(false));
+                AssertStatusCode(HttpStatusCode.OK, await b.GetAsync("/api/v1/ask/threads/" + theirs.Id).ConfigureAwait(false));
+                AssertStatusCode(HttpStatusCode.OK, await a.GetAsync("/api/v1/ask/threads/" + second.Id).ConfigureAwait(false));
+
+                AskThreadDeleteMultipleResult all = await JsonHelper.DeserializeAsync<AskThreadDeleteMultipleResult>(
+                    await a.PostAsync("/api/v1/ask/threads/delete/multiple", JsonHelper.ToJsonContent(new { Ids = new[] { second.Id } })).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(1, all.Deleted, "the second thread deleted");
+                AssertEqual(0, all.Skipped.Count, "nothing skipped");
+                AssertTrue(all.Status == DeleteMultipleStatusEnum.Deleted, "clean delete status: " + all.Status);
+                AssertStatusCode(HttpStatusCode.NotFound, await a.GetAsync("/api/v1/ask/threads/" + second.Id).ConfigureAwait(false));
+
+                AssertStatusCode(HttpStatusCode.Unauthorized, await new HttpClient { BaseAddress = new Uri(fx.BaseUrl) }.PostAsync("/api/v1/ask/threads/delete/multiple", JsonHelper.ToJsonContent(new { Ids = new[] { theirs.Id } })).ConfigureAwait(false));
+                AssertStatusCode(HttpStatusCode.OK, await b.GetAsync("/api/v1/ask/threads/" + theirs.Id).ConfigureAwait(false));
+            }));
+
             cases.Add(CaseAsync("update_semantics", "PUT changes only sent fields; CaptainId null clears the captain", async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);

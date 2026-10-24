@@ -7,6 +7,7 @@ import {
   cancelAskTurn,
   createAskThread,
   deleteAskThread,
+  deleteAskThreads,
   enumerateAskMessages,
   enumerateAskThreads,
   getAskQuickActions,
@@ -131,6 +132,9 @@ export default function AskArmada() {
   // Dialogs and announcements.
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AskThread | null>(null);
+  // Bulk delete: the rows ticked in the list, and the confirmation dialog they open.
+  const [selectedThreadIds, setSelectedThreadIds] = useState<string[]>([]);
+  const [deleteManyOpen, setDeleteManyOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const [greeting] = useState(() => randomGreeting());
@@ -198,6 +202,14 @@ export default function AskArmada() {
   }, [t]);
 
   useEffect(() => { void loadThreads(1); }, [query, includeArchived, reconnectCount, loadThreads]);
+
+  // The selection is a view of the rows that are still listed: drop ids a search, filter, refresh, or delete removed.
+  useEffect(() => {
+    setSelectedThreadIds((prev) => {
+      const next = prev.filter((id) => threads.some((th) => th.id === id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [threads]);
 
   const markRead = useCallback((id: string) => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
@@ -537,6 +549,41 @@ export default function AskArmada() {
     }
   }
 
+  async function confirmDeleteMany() {
+    const ids = selectedThreadIds.slice();
+    setDeleteManyOpen(false);
+    if (ids.length === 0) return;
+    try {
+      const result = await deleteAskThreads(ids);
+      const skipped = result?.skipped ?? [];
+      const deleted = result?.deletedIds && result.deletedIds.length > 0
+        ? result.deletedIds
+        : ids.filter((id) => !skipped.some((entry) => entry.id === id));
+      setThreads((prev) => prev.filter((th) => !deleted.includes(th.id)));
+      setSelectedThreadIds([]);
+      if (skipped.length > 0) pushToast('warning', t('{{count}} conversations were not deleted.', { count: skipped.length }));
+      else pushToast('success', t('Conversations deleted.'));
+      if (convRef.current.threadId && deleted.includes(convRef.current.threadId)) navigate('/ask');
+      void loadThreads(1);
+    } catch (err: unknown) {
+      setSelectedThreadIds([]);
+      setError(errorText(err, t('The conversations could not be deleted.')));
+    }
+  }
+
+  function toggleSelected(target: AskThread, selected: boolean) {
+    setSelectedThreadIds((prev) => (selected
+      ? [...prev.filter((id) => id !== target.id), target.id]
+      : prev.filter((id) => id !== target.id)));
+  }
+
+  function selectAllThreads(list: AskThread[]) {
+    setSelectedThreadIds(list.map((th) => th.id));
+  }
+
+  const selectedThreads = threads.filter((th) => selectedThreadIds.includes(th.id));
+  const selectedPinnedCount = selectedThreads.filter((th) => th.pinned).length;
+
   function selectWork(work: AskTrackedWork) {
     if (messageListRef.current?.scrollToWork(work.id)) {
       setHighlightedWorkId(work.id);
@@ -610,6 +657,11 @@ export default function AskArmada() {
           onSummarize={(th) => void summarize(th)}
           onToggleArchive={(th) => void updateThread(th, { archived: !th.archived })}
           onDelete={(th) => setDeleteTarget(th)}
+          selectedIds={selectedThreadIds}
+          onToggleSelected={toggleSelected}
+          onSelectAll={selectAllThreads}
+          onClearSelection={() => setSelectedThreadIds([])}
+          onDeleteSelected={() => setDeleteManyOpen(true)}
           onClose={drawerOpen ? () => setDrawerOpen(false) : undefined}
         />
       </div>
@@ -731,6 +783,18 @@ export default function AskArmada() {
         danger
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteTarget(null)}
+      />
+      <ConfirmDialog
+        open={deleteManyOpen}
+        title={t('Delete conversations')}
+        message={selectedPinnedCount > 0
+          ? t('Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.', { count: selectedThreads.length }) + ' ' + t('{{count}} of them are pinned.', { count: selectedPinnedCount })
+          : t('Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.', { count: selectedThreads.length })}
+        confirmLabel={t('Delete')}
+        cancelLabel={t('Cancel')}
+        danger
+        onConfirm={() => void confirmDeleteMany()}
+        onCancel={() => setDeleteManyOpen(false)}
       />
       <ImportWizard open={importOpen} onClose={() => setImportOpen(false)} tenantId={user?.user?.tenantId ?? null} />
     </div>

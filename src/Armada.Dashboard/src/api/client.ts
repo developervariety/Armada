@@ -163,6 +163,7 @@ import type {
   VesselHealthStatus,
   VesselHealthSummary,
   AskThread,
+  AskThreadDeleteMultipleResult,
   AskThreadDetail,
   AskThreadEnumerateQuery,
   AskThreadUpdateRequest,
@@ -1219,6 +1220,10 @@ export const updateAskThread = (id: string, data: AskThreadUpdateRequest) => {
 };
 
 export const deleteAskThread = (id: string) => del<void>(askThreadPath(id));
+
+/** Bulk delete the caller's conversations; returns the deleted IDs and the skipped IDs with reasons. */
+export const deleteAskThreads = (ids: string[]) =>
+  post<AskThreadDeleteMultipleResult>('/api/v1/ask/threads/delete/multiple', { Ids: ids });
 
 /** One page of messages, newest page when `beforeSequence` is omitted. */
 export const enumerateAskMessages = (id: string, query?: { beforeSequence?: number | null; pageSize?: number }) =>

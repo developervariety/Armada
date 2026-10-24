@@ -39,6 +39,7 @@ namespace Armada.Core.Authorization
             Add("GET", "/api/v1/ask/threads/{id}", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/ask/threads/{id}", "AskThread", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("DELETE", "/api/v1/ask/threads/{id}", "AskThread", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/ask/threads/delete/multiple", "AskThread", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/messages/enumerate", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/messages", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/cancel", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);

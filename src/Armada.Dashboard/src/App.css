@@ -8442,6 +8442,11 @@ tr.row-muted td { opacity: 0.72; }
 .ask-new-btn { width: 100%; justify-content: center; }
 .ask-threads-search { padding: 0.4rem 0.6rem; font-size: 0.82rem; }
 .ask-threads-archived { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: var(--text-dim); cursor: pointer; }
+.ask-threads-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.76rem; }
+.ask-threads-select-all { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--text-dim); cursor: pointer; }
+.ask-threads-selected-count { color: var(--text-dim); }
+.ask-threads-delete-selected, .ask-threads-clear-selection { font-size: 0.76rem; }
+.ask-thread-select { display: inline-flex; align-items: center; justify-content: center; padding: 0 0.1rem 0 0.35rem; flex-shrink: 0; cursor: pointer; }
 .ask-threads-error { margin: 0.5rem; display: flex; gap: 0.5rem; align-items: center; justify-content: space-between; font-size: 0.8rem; }
 .ask-threads-empty, .ask-threads-loading { padding: 0.75rem; font-size: 0.8rem; }
 .ask-threads-more { margin: 0.5rem 0.75rem 0.75rem; }

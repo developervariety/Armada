@@ -209,6 +209,48 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Post<DeleteMultipleRequest>("/api/v1/ask/threads/delete/multiple", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                DeleteMultipleRequest request = Body<DeleteMultipleRequest>(req) ?? new DeleteMultipleRequest();
+                if (request.Ids == null || request.Ids.Count == 0)
+                    return Error(req, 400, ApiResultEnum.BadRequest, "Ids is required and must not be empty");
+
+                AskThreadDeleteMultipleResult result = new AskThreadDeleteMultipleResult();
+                foreach (string id in request.Ids)
+                {
+                    if (String.IsNullOrWhiteSpace(id))
+                    {
+                        result.Skipped.Add(new DeleteMultipleSkipped(id ?? "", "Empty ID"));
+                        continue;
+                    }
+
+                    if (turns.ActiveTurnId(id) != null) await turns.CancelAsync(ctx, id).ConfigureAwait(false);
+                    bool deleted = await threads.DeleteThreadAsync(ctx, id).ConfigureAwait(false);
+                    if (!deleted)
+                    {
+                        result.Skipped.Add(new DeleteMultipleSkipped(id, "Not found"));
+                        continue;
+                    }
+
+                    result.Deleted++;
+                    result.DeletedIds.Add(id);
+                }
+
+                result.ResolveStatus();
+                return result;
+            },
+            api => api
+                .WithTag("Ask")
+                .WithSummary("Delete multiple Ask Armada threads")
+                .WithDescription("Deletes several of the caller's threads in one call, cancelling any running turn first. Threads owned by another user, or unknown IDs, are skipped with a reason. Returns the deleted IDs and the skipped IDs with their reasons. The work a thread started is untouched.")
+                .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of thread IDs to delete"))
+                .WithResponse(200, OpenApiJson.For<AskThreadDeleteMultipleResult>("Delete result with deleted and skipped IDs"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithSecurity("ApiKey"));
+
             app.Post("/api/v1/ask/threads/{id}/messages/enumerate", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

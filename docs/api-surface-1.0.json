@@ -71,6 +71,23 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/ask/threads/delete/multiple",
+      "auth": "Authenticated",
+      "resource": "AskThread:Delete",
+      "requestType": "DeleteMultipleRequest",
+      "requestRequired": true,
+      "responses": {
+        "200": "AskThreadDeleteMultipleResult",
+        "400": ""
+      },
+      "tags": [
+        "Ask"
+      ],
+      "summary": "Delete multiple Ask Armada threads",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/ask/threads/enumerate",
       "auth": "Authenticated",
       "resource": "AskThread:Read",

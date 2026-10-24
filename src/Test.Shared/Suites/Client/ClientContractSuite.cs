@@ -172,7 +172,7 @@ namespace Test.Shared.Suites.Client
                 await c.DeletePlaybookAsync(created.Id);
             }));
 
-            cases.Add(Case("ask_threads", "Ask thread create, enumerate, update (pin, clear captain), messages, delete", async c =>
+            cases.Add(Case("ask_threads", "Ask thread create, enumerate, update (pin, clear captain), messages, delete, bulk delete", async c =>
             {
                 AskThread thread = (await c.CreateAskThreadAsync(new AskThreadCreateRequest { Title = "Client contract" }))!;
                 EnumerationResult<AskThread>? threads = await c.EnumerateAskThreadsAsync(new AskThreadEnumerateQuery { Search = "Client contract" });
@@ -185,6 +185,11 @@ namespace Test.Shared.Suites.Client
                 List<AskQuickAction> actions = await c.GetAskQuickActionsAsync();
                 AssertTrue(actions.Count > 0, "quick actions");
                 await c.DeleteAskThreadAsync(thread.Id);
+
+                AskThread bulk = (await c.CreateAskThreadAsync(new AskThreadCreateRequest { Title = "Client contract bulk" }))!;
+                AskThreadDeleteMultipleResult? deleted = await c.DeleteAskThreadsAsync(new List<string> { bulk.Id, "ath_missing" });
+                AssertTrue(deleted != null && deleted.DeletedIds.SequenceEqual(new[] { bulk.Id }), "bulk delete names the deleted thread");
+                AssertTrue(deleted!.Skipped.Any(s => s.Id == "ath_missing"), "bulk delete skips an unknown id");
             }));
 
             cases.Add(Case("activity_and_health", "History, request history (with our request id), token usage, vessel health, fleet actions, import", async c =>

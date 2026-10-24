@@ -1,1 +1,0 @@
-import{l as e,o as t}from"./LocaleContext-jFlY6pgH.js";import{Un as n}from"./client-BJTFvDZp.js";var r=e(t(),1);function i(){let[e,t]=(0,r.useState)(null);return(0,r.useEffect)(()=>{let e=!0;return n().then(n=>{e&&t(n)}).catch(()=>{e&&t(null)}),()=>{e=!1}},[]),e}export{i as t};

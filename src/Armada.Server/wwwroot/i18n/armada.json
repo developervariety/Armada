@@ -6004,7 +6004,16 @@
         "Approval timeout (seconds)": "Tiempo de espera de aprobación (segundos)",
         "Automatic approval requires an administrator.": "La aprobación automática requiere un administrador.",
         "this run": "esta ejecución",
-        "{{name}} Branches": "Ramas de {{name}}"
+        "{{name}} Branches": "Ramas de {{name}}",
+        "Delete ({{count}})": "Eliminar ({{count}})",
+        "Select {{title}}": "Seleccionar {{title}}",
+        "Delete the selected conversations.": "Eliminar las conversaciones seleccionadas.",
+        "Delete conversations": "Eliminar conversaciones",
+        "Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.": "¿Eliminar {{count}} conversaciones? Se eliminan sus mensajes y su historial de acciones. El trabajo que iniciaron sigue ejecutándose y sigue visible en las páginas normales.",
+        "{{count}} of them are pinned.": "{{count}} de ellas están fijadas.",
+        "Conversations deleted.": "Conversaciones eliminadas.",
+        "The conversations could not be deleted.": "No se pudieron eliminar las conversaciones.",
+        "{{count}} conversations were not deleted.": "No se eliminaron {{count}} conversaciones."
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -10945,7 +10954,16 @@
         "Approval timeout (seconds)": "批准超时（秒）",
         "Automatic approval requires an administrator.": "自动批准需要管理员权限。",
         "this run": "本次运行",
-        "{{name}} Branches": "{{name}} 分支"
+        "{{name}} Branches": "{{name}} 分支",
+        "Delete ({{count}})": "删除 ({{count}})",
+        "Select {{title}}": "选择 {{title}}",
+        "Delete the selected conversations.": "删除所选对话。",
+        "Delete conversations": "删除对话",
+        "Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.": "删除 {{count}} 个对话？其消息和操作历史将被移除。它们启动的工作会继续运行，并仍在普通页面上可见。",
+        "{{count}} of them are pinned.": "其中 {{count}} 个已置顶。",
+        "Conversations deleted.": "对话已删除。",
+        "The conversations could not be deleted.": "无法删除这些对话。",
+        "{{count}} conversations were not deleted.": "{{count}} 个对话未被删除。"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15849,7 +15867,16 @@
         "Approval timeout (seconds)": "核准逾時（秒）",
         "Automatic approval requires an administrator.": "自動核准需要管理員權限。",
         "this run": "本次執行",
-        "{{name}} Branches": "{{name}} 分支"
+        "{{name}} Branches": "{{name}} 分支",
+        "Delete ({{count}})": "刪除 ({{count}})",
+        "Select {{title}}": "選取 {{title}}",
+        "Delete the selected conversations.": "刪除所選對話。",
+        "Delete conversations": "刪除對話",
+        "Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.": "刪除 {{count}} 個對話？其訊息與操作記錄將被移除。它們啟動的工作會繼續執行，並仍在一般頁面上可見。",
+        "{{count}} of them are pinned.": "其中 {{count}} 個已置頂。",
+        "Conversations deleted.": "對話已刪除。",
+        "The conversations could not be deleted.": "無法刪除這些對話。",
+        "{{count}} conversations were not deleted.": "{{count}} 個對話未被刪除。"
       },
       "sections": {}
     },
@@ -20713,7 +20740,16 @@
         "Approval timeout (seconds)": "批准逾時（秒）",
         "Automatic approval requires an administrator.": "自動批准需要管理員權限。",
         "this run": "今次執行",
-        "{{name}} Branches": "{{name}} 分支"
+        "{{name}} Branches": "{{name}} 分支",
+        "Delete ({{count}})": "刪除 ({{count}})",
+        "Select {{title}}": "揀 {{title}}",
+        "Delete the selected conversations.": "刪除已揀嘅對話。",
+        "Delete conversations": "刪除對話",
+        "Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.": "刪除 {{count}} 個對話？佢地嘅訊息同操作記錄會被移除。佢地開始嘅工作會繼續執行，仍然喔一般頁面見到。",
+        "{{count}} of them are pinned.": "當中 {{count}} 個已置頂。",
+        "Conversations deleted.": "對話已刪除。",
+        "The conversations could not be deleted.": "無法刪除呢啲對話。",
+        "{{count}} conversations were not deleted.": "{{count}} 個對話無刪除到。"
       },
       "sections": {}
     },
@@ -25593,7 +25629,16 @@
         "Approval timeout (seconds)": "承認タイムアウト（秒）",
         "Automatic approval requires an administrator.": "自動承認には管理者権限が必要です。",
         "this run": "この実行",
-        "{{name}} Branches": "{{name}} のブランチ"
+        "{{name}} Branches": "{{name}} のブランチ",
+        "Delete ({{count}})": "削除 ({{count}})",
+        "Select {{title}}": "{{title}} を選択",
+        "Delete the selected conversations.": "選択した会話を削除します。",
+        "Delete conversations": "会話を削除",
+        "Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.": "{{count}} 件の会話を削除しますか？メッセージとアクション履歴は削除されます。これらの会話から開始した作業は実行を続け、通常のページに表示されたままです。",
+        "{{count}} of them are pinned.": "そのうち {{count}} 件はピン留めされています。",
+        "Conversations deleted.": "会話を削除しました。",
+        "The conversations could not be deleted.": "会話を削除できませんでした。",
+        "{{count}} conversations were not deleted.": "{{count}} 件の会話は削除されませんでした。"
       },
       "sections": {}
     },
@@ -30464,7 +30509,16 @@
         "Approval timeout (seconds)": "Genehmigungsfrist (Sekunden)",
         "Automatic approval requires an administrator.": "Automatische Genehmigungen erfordern Administratorrechte.",
         "this run": "diesem Lauf",
-        "{{name}} Branches": "Branches von {{name}}"
+        "{{name}} Branches": "Branches von {{name}}",
+        "Delete ({{count}})": "Löschen ({{count}})",
+        "Select {{title}}": "{{title}} auswählen",
+        "Delete the selected conversations.": "Die ausgewählten Unterhaltungen löschen.",
+        "Delete conversations": "Unterhaltungen löschen",
+        "Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.": "{{count}} Unterhaltungen löschen? Ihre Nachrichten und ihr Aktionsverlauf werden entfernt. Gestartete Arbeit läuft weiter und bleibt auf den normalen Seiten sichtbar.",
+        "{{count}} of them are pinned.": "{{count}} davon sind angepinnt.",
+        "Conversations deleted.": "Unterhaltungen gelöscht.",
+        "The conversations could not be deleted.": "Die Unterhaltungen konnten nicht gelöscht werden.",
+        "{{count}} conversations were not deleted.": "{{count}} Unterhaltungen wurden nicht gelöscht."
       },
       "sections": {}
     },
@@ -35335,7 +35389,16 @@
         "Approval timeout (seconds)": "Délai d’approbation (secondes)",
         "Automatic approval requires an administrator.": "L’approbation automatique nécessite un administrateur.",
         "this run": "cette exécution",
-        "{{name}} Branches": "Branches de {{name}}"
+        "{{name}} Branches": "Branches de {{name}}",
+        "Delete ({{count}})": "Supprimer ({{count}})",
+        "Select {{title}}": "Sélectionner {{title}}",
+        "Delete the selected conversations.": "Supprimer les conversations sélectionnées.",
+        "Delete conversations": "Supprimer des conversations",
+        "Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.": "Supprimer {{count}} conversations ? Leurs messages et leur historique d’actions sont supprimés. Le travail lancé continue et reste visible sur les pages habituelles.",
+        "{{count}} of them are pinned.": "{{count}} d’entre elles sont épinglées.",
+        "Conversations deleted.": "Conversations supprimées.",
+        "The conversations could not be deleted.": "Les conversations n’ont pas pu être supprimées.",
+        "{{count}} conversations were not deleted.": "{{count}} conversations n’ont pas été supprimées."
       },
       "sections": {}
     },
@@ -40206,7 +40269,16 @@
         "Approval timeout (seconds)": "Timeout approvazione (secondi)",
         "Automatic approval requires an administrator.": "L’approvazione automatica richiede un amministratore.",
         "this run": "questa esecuzione",
-        "{{name}} Branches": "Branch di {{name}}"
+        "{{name}} Branches": "Branch di {{name}}",
+        "Delete ({{count}})": "Elimina ({{count}})",
+        "Select {{title}}": "Seleziona {{title}}",
+        "Delete the selected conversations.": "Elimina le conversazioni selezionate.",
+        "Delete conversations": "Elimina conversazioni",
+        "Delete {{count}} conversations? Their messages and action history are removed. Work they started keeps running and stays visible on the normal pages.": "Eliminare {{count}} conversazioni? I loro messaggi e la cronologia delle azioni vengono rimossi. Il lavoro avviato continua e resta visibile nelle pagine normali.",
+        "{{count}} of them are pinned.": "{{count}} di esse sono fissate.",
+        "Conversations deleted.": "Conversazioni eliminate.",
+        "The conversations could not be deleted.": "Non è stato possibile eliminare le conversazioni.",
+        "{{count}} conversations were not deleted.": "{{count}} conversazioni non sono state eliminate."
       },
       "sections": {}
     }

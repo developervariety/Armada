@@ -1449,6 +1449,14 @@
     },
     {
       "kind": "api",
+      "key": "deleteAskThreads",
+      "status": "implemented",
+      "tui": "ArmadaClient.DeleteAskThreadsAsync",
+      "workstream": "W0.2",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
+    },
+    {
+      "kind": "api",
       "key": "deleteBacklogItem",
       "status": "implemented",
       "tui": "ArmadaClient.DeleteBacklogItemAsync",

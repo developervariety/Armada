@@ -109,6 +109,19 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>deleteAskThreads</c>: POST /api/v1/ask/threads/delete/multiple. Owner-scoped: another user's or an
+        /// unknown thread is skipped with a reason.
+        /// </summary>
+        /// <param name="ids">Thread ids.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The deleted ids and the skipped ids with reasons.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<AskThreadDeleteMultipleResult?> DeleteAskThreadsAsync(List<string> ids, CancellationToken token = default)
+        {
+            return PostAsync<AskThreadDeleteMultipleResult>("/api/v1/ask/threads/delete/multiple", new { Ids = ids }, null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>enumerateAskMessages</c>: POST /api/v1/ask/threads/{id}/messages/enumerate (newest page when no sequence is given).
         /// </summary>
         /// <param name="id">Thread id.</param>

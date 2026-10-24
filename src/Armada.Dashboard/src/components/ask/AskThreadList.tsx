@@ -24,6 +24,12 @@ export interface AskThreadListProps {
   onSummarize: (thread: AskThread) => void;
   onToggleArchive: (thread: AskThread) => void;
   onDelete: (thread: AskThread) => void;
+  /** IDs of the conversations ticked for a bulk delete (kept by the page). */
+  selectedIds: string[];
+  onToggleSelected: (thread: AskThread, selected: boolean) => void;
+  onSelectAll: (threads: AskThread[]) => void;
+  onClearSelection: () => void;
+  onDeleteSelected: () => void;
   /** Shown in the drawer on narrow screens. */
   onClose?: () => void;
 }
@@ -31,18 +37,28 @@ export interface AskThreadListProps {
 /**
  * The conversation list: search (server-side), New conversation, pinned threads first, unread badges, a live
  * "working" dot for threads whose tracked work is still running, and a per-row menu. Arrow keys move between
- * rows; Enter opens one.
+ * rows; Enter opens one. Each row also carries a selection checkbox, and selecting one or more reveals a bulk
+ * delete control.
  */
 export default function AskThreadList(props: AskThreadListProps) {
   const {
     threads, selectedId, activity, loading, error, search, onSearchChange, includeArchived, onIncludeArchivedChange,
     hasMore, onLoadMore, onRetry, onSelect, onNew, onRename, onTogglePin, onSummarize, onToggleArchive, onDelete, onClose,
+    selectedIds, onToggleSelected, onSelectAll, onClearSelection, onDeleteSelected,
   } = props;
   const { t, formatRelativeTime } = useLocale();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const listRef = useRef<HTMLUListElement>(null);
   const renameRef = useRef<HTMLInputElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
+
+  const selectedCount = threads.filter((th) => selectedIds.includes(th.id)).length;
+  const allSelected = threads.length > 0 && selectedCount === threads.length;
+
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = selectedCount > 0 && !allSelected;
+  }, [selectedCount, allSelected]);
 
   useEffect(() => {
     if (renamingId) renameRef.current?.select();
@@ -98,8 +114,8 @@ export default function AskThreadList(props: AskThreadListProps) {
             </button>
           )}
         </div>
-        <button type="button" className="btn btn-primary btn-sm ask-new-btn" onClick={onNew} title={t('Start an empty conversation. It is saved once you send the first message.')}>
-          + {t('New conversation')}
+        <button type="button" className="btn btn-primary btn-sm ask-new-btn" onClick={onNew} aria-label={t('New conversation')} title={t('Start an empty conversation. It is saved once you send the first message.')}>
+          + {t('New')}
         </button>
         <input
           type="search"
@@ -114,6 +130,37 @@ export default function AskThreadList(props: AskThreadListProps) {
           <input type="checkbox" title={t('Also list archived conversations. Archiving hides a conversation without deleting it; old inactive ones are archived automatically.')} checked={includeArchived} onChange={(e) => onIncludeArchivedChange(e.target.checked)} />
           {t('Show archived')}
         </label>
+        {threads.length > 0 && (
+          <div className="ask-threads-bulk">
+            <label className="ask-threads-select-all" title={t('Select all')}>
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                aria-label={t('Select all')}
+                checked={allSelected}
+                disabled={threads.length === 0}
+                onChange={(e) => { if (e.target.checked) onSelectAll(threads); else onClearSelection(); }}
+              />
+              {t('Select all')}
+            </label>
+            {selectedCount > 0 && (
+              <>
+                <span className="ask-threads-selected-count">{t('{{count}} selected', { count: selectedCount })}</span>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-danger ask-threads-delete-selected"
+                  onClick={onDeleteSelected}
+                  title={t('Delete the selected conversations.')}
+                >
+                  {t('Delete ({{count}})', { count: selectedCount })}
+                </button>
+                <button type="button" className="btn btn-sm ask-threads-clear-selection" onClick={onClearSelection} title={t('Clear selection')}>
+                  {t('Clear selection')}
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -138,6 +185,15 @@ export default function AskThreadList(props: AskThreadListProps) {
           const title = thread.title || t('New conversation');
           return (
             <li key={thread.id} className={`ask-thread-item${selected ? ' is-selected' : ''}${unread > 0 ? ' is-unread' : ''}`}>
+              <label className="ask-thread-select" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(thread.id)}
+                  aria-label={t('Select {{title}}', { title })}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => onToggleSelected(thread, e.target.checked)}
+                />
+              </label>
               {renamingId === thread.id ? (
                 <form className="ask-thread-rename" onSubmit={(e) => { e.preventDefault(); commitRename(thread); }}>
                   <input

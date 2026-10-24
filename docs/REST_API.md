@@ -4020,6 +4020,7 @@ WEBSOCKET_API.md). Retention: threads are kept until deleted; there is no automa
 | GET | `/api/v1/ask/threads/{id}` | | `200` `AskThreadDetail` |
 | PUT | `/api/v1/ask/threads/{id}` | `AskThreadUpdateRequest` | `200` `AskThread` |
 | DELETE | `/api/v1/ask/threads/{id}` | | `204` (stops a running turn; deletes messages, tool calls, proposals, tracked-work rows; the work itself is untouched) |
+| POST | `/api/v1/ask/threads/delete/multiple` | `DeleteMultipleRequest` | `200` `AskThreadDeleteMultipleResult` (`Status`, `Deleted`, `DeletedIds`, `Skipped` with `Id` and `Reason`); `400` when `Ids` is missing or empty. Another user's or an unknown ID is skipped, never deleted |
 | POST | `/api/v1/ask/threads/{id}/messages/enumerate` | `AskMessageEnumerateRequest` | `200` `AskMessagePage` |
 | POST | `/api/v1/ask/threads/{id}/messages` | `AskMessageSendRequest` | `202` `AskMessageSendResponse`; `409` while a turn runs |
 | POST | `/api/v1/ask/threads/{id}/cancel` | | `200` `{ "Cancelled": true }`; `409` when no turn runs |

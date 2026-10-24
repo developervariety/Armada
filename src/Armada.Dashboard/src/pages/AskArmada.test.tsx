@@ -499,12 +499,12 @@ describe('AskArmada commands', () => {
   it('New conversation clears the draft, and each conversation keeps its own', async () => {
     const input = await openThread();
     type(input, 'half-written question');
-    fireEvent.click(screen.getByRole('button', { name: '+ New conversation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'New conversation' })).toBeInTheDocument());
     const fresh = screen.getByRole('combobox', { name: 'Message' }) as HTMLTextAreaElement;
     expect(fresh.value).toBe('');
     type(fresh, 'draft for a new one');
-    fireEvent.click(screen.getByRole('button', { name: '+ New conversation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
     expect(fresh.value).toBe('');
     fireEvent.click(threadRows()[0]);
     await screen.findByText('Fix the billing retry bug');
