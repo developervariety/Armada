@@ -246,7 +246,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(CheckRunStatusEnum.Passed, adoptedBudget.Status, "The matching-budget automatic Check adopts the real gate proof.");
                     AssertNotNull(adoptedBudget.SatisfiedBy, "Adoption names the actual gate rather than executing the command twice.");
                     AssertEqual(budgetMission.Id, adoptedBudget.SatisfiedBy!.MissionId);
-                    AssertNull(adoptedBudget.StartedUtc, "An adopted Check has no command start.");
+                    AssertEqual(adoptedBudget.CompletedUtc, adoptedBudget.StartedUtc,
+                        "Adoption keeps the existing instantaneous lifecycle stamp without an execution duration.");
                     AssertNull(adoptedBudget.DurationMs, "An adopted Check has no invented execution duration.");
                     AssertEqual("once", File.ReadAllText(Path.Combine(budgetWorktree, "command-ran.txt")).Trim(),
                         "The command ran once through the real gate.");
