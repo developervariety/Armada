@@ -8860,10 +8860,19 @@ tr.row-muted td { opacity: 0.72; }
 
 /* Composer */
 .ask-composer { flex-shrink: 0; display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.5rem; }
-.ask-composer-form { display: flex; align-items: flex-end; gap: 0.5rem; }
+/* One-line controls share a single height (the prompt box's padded line box plus its borders) so the
+   prompt input and the Send/Stop button line up exactly instead of the box sitting taller. Multi-line
+   input still grows the textarea, and the button stays bottom-aligned with it. */
+.ask-composer-form { --ask-composer-control-height: calc(0.9rem * 1.4 + 0.6rem * 2 + 2px); display: flex; align-items: flex-end; gap: 0.5rem; }
+.ask-composer-form .btn {
+    height: var(--ask-composer-control-height);
+    padding-top: 0;
+    padding-bottom: 0;
+    flex-shrink: 0;
+}
 .ask-composer-input {
     flex: 1 1 auto;
-    min-height: 42px;
+    min-height: var(--ask-composer-control-height);
     max-height: 160px;
     resize: none;
     field-sizing: content;
