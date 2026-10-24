@@ -2667,10 +2667,26 @@ namespace Armada.Core.Services
 
                     if (!inUse)
                     {
-                        // Check if a Pending mission is preserving this dock for re-dispatch
+                        // Check if a Pending mission is preserving this dock for re-dispatch.
                         List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
-                        bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id);
-                        if (preservedForMission)
+
+                        // A restart-preserved root mission continues on its committed branch from a retained
+                        // active dock, and the assignment path authorizes that continuation by the dock's EXACT
+                        // identity -- tenant, vessel and branch -- read from the live dock records, not from the
+                        // mission's DockId pointer. Every assignment-failure cleanup can clear that pointer, so a
+                        // dock preserved only by DockId is reclaimed the moment a failed provision clears the
+                        // pointer, which later strands the mission on root_continuation_dock_missing. Preserve the
+                        // dock when a Pending root mission still claims its branch by that same identity; a dead
+                        // dock no root mission claims is still reclaimed.
+                        bool preservedByPointer = pendingMissions.Any(m => m.DockId == dock.Id);
+                        bool preservedByBranchIdentity = !String.IsNullOrEmpty(dock.BranchName)
+                            && pendingMissions.Any(m =>
+                                String.IsNullOrEmpty(m.DependsOnMissionId)
+                                && !String.IsNullOrEmpty(m.BranchName)
+                                && String.Equals(m.BranchName, dock.BranchName, StringComparison.Ordinal)
+                                && String.Equals(m.VesselId, dock.VesselId, StringComparison.Ordinal)
+                                && String.Equals(m.TenantId, dock.TenantId, StringComparison.Ordinal));
+                        if (preservedByPointer || preservedByBranchIdentity)
                         {
                             _Logging.Info(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending mission re-dispatch");
                             continue;

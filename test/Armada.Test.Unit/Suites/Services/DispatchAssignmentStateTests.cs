@@ -1096,6 +1096,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A transient provisioning fault -- a boot-window ssh/fork failure, exit 128 -- on a reassigned root
+            // mission must stay retryable and must NOT clear the dock-authority pointer. The retained active dock
+            // is the mission's continuation authority, and the orphan reaper preserves an active dock only while a
+            // pending mission still points at it. Clearing the pointer on a retryable provisioning failure lets
+            // the reaper reclaim the authority dock before the retry, which strands the mission on
+            // root_continuation_dock_missing. The failure stays Pending and keeps both the committed branch and
+            // its dock pointer.
+            await RunTest("TryAssign_ReassignedRootProvisioningFails_StaysRetryableAndKeepsTheDockAuthorityPointer", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    GitService git = new GitService(logging);
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+                    ThrowOnceThenSucceedDockService faultyDock = new ThrowOnceThenSucceedDockService(realDock);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, faultyDock);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, faultyDock, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string bareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                    string mainHead = RunGitProcess(bareRepo, "rev-parse", "main").Trim();
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("provision-fail-continuation-vessel", bareRepo)).ConfigureAwait(false);
+
+                    Mission root = new Mission("Root worker", "Implements the first slice.");
+                    root.VesselId = vessel.Id;
+                    root.Persona = "Worker";
+                    root.Status = MissionStatusEnum.Pending;
+                    root = await testDb.Driver.Missions.CreateAsync(root).ConfigureAwait(false);
+
+                    string savedBranch = "armada/captain-a/" + root.Id;
+                    string savedHead = CommitAheadOnBranch(bareRepo, savedBranch, "Captain A committed work");
+                    AssertTrue(!String.Equals(savedHead, mainHead, StringComparison.Ordinal), "precondition: the saved branch head is ahead of main");
+
+                    // The restart retained the committed branch and its active dock, and cleared the captain.
+                    Dock retained = new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId,
+                        BranchName = savedBranch,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_olddock_" + Guid.NewGuid().ToString("N")),
+                        Active = true,
+                    };
+                    retained = await testDb.Driver.Docks.CreateAsync(retained).ConfigureAwait(false);
+                    root.BranchName = savedBranch;
+                    root.DockId = retained.Id;
+                    await testDb.Driver.Missions.UpdateAsync(root).ConfigureAwait(false);
+
+                    Captain captainB = await testDb.Driver.Captains.CreateAsync(new Captain("captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    // The provision throws (the transient boot-window fault); the attempt does not assign.
+                    bool assigned = await missionService.TryAssignAsync(root, vessel).ConfigureAwait(false);
+
+                    Mission? afterFail = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false);
+                    AssertNotNull(afterFail, "The root mission must still exist after a failed provision");
+                    AssertFalse(assigned, "A transient provisioning failure does not assign");
+                    AssertEqual(MissionStatusEnum.Pending, afterFail!.Status, "A transient provisioning failure stays retryable (Pending)");
+                    AssertEqual(savedBranch, afterFail.BranchName ?? "(null)", "The committed branch is kept, never a fresh one");
+                    AssertEqual(retained.Id, afterFail.DockId ?? "(null)", "The retained dock-authority pointer is kept so the reaper does not reclaim it before the retry");
+                }
+            });
+
             // A voyage that waits on another voyage's Recorder waits forever when that voyage failed and
             // its Recorder was cancelled. A completed rescue of that voyage replaces the Recorder.
             await RunTest("TryAssign_DependencyCancelledInARescuedVoyage_WaitsOnTheRescueStageAndRecordsTheRewire", async () =>

@@ -302,6 +302,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A restart-preserved root mission continues on its committed branch from a retained active dock.
+            // A failed provision clears the mission's DockId pointer while keeping the committed branch, so the
+            // reaper must still preserve the dock by the branch identity the assignment path authorizes
+            // continuation with (tenant/vessel/branch); otherwise it reclaims the authority dock and the mission
+            // later strands on root_continuation_dock_missing. A dock whose branch no root mission claims is
+            // still reclaimed.
+            await RunTest("The orphan-dock reaper keeps a retained dock a pending root mission still claims by branch identity after its DockId pointer was cleared", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), new StubGitService());
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("reaper-identity-vessel", "https://github.com/test/reaper-identity.git")).ConfigureAwait(false);
+                    Captain idle = await testDb.Driver.Captains.CreateAsync(new Captain("reaper-identity-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+
+                    string committedBranch = "armada/captain-a/root-continuation";
+                    Dock retained = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId, CaptainId = idle.Id, Active = true,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_reaper_retained_" + Guid.NewGuid().ToString("N")),
+                        BranchName = committedBranch, CreatedUtc = DateTime.UtcNow.AddMinutes(-30)
+                    }).ConfigureAwait(false);
+
+                    // The failed provision cleared the DockId pointer but kept the committed branch.
+                    await testDb.Driver.Missions.CreateAsync(new Mission("Retained root")
+                    {
+                        VesselId = vessel.Id, TenantId = vessel.TenantId, BranchName = committedBranch,
+                        DockId = null, DependsOnMissionId = null, Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+
+                    // A genuine orphan: an active dock whose branch no pending root mission claims.
+                    Dock orphanDock = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId, CaptainId = idle.Id, Active = true,
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_reaper_identity_orphan_" + Guid.NewGuid().ToString("N")),
+                        BranchName = "armada/reaper/identity-orphan", CreatedUtc = DateTime.UtcNow.AddMinutes(-30)
+                    }).ConfigureAwait(false);
+
+                    await service.ReclaimOrphanedDocksAsync().ConfigureAwait(false);
+
+                    AssertTrue((await testDb.Driver.Docks.ReadAsync(retained.Id).ConfigureAwait(false))!.Active,
+                        "A retained dock a pending root mission still claims by branch identity is kept");
+                    AssertFalse((await testDb.Driver.Docks.ReadAsync(orphanDock.Id).ConfigureAwait(false))!.Active,
+                        "A dock no root mission claims is still reclaimed");
+                }
+            });
+
             // A restart kills a running or queued gate before the self-heal holds the mission for it, and the gate
             // re-run tests the mission's dock. The reaper keeps that dock until the gate records a result, and
             // reclaims the dock of a produced mission whose gate already passed.

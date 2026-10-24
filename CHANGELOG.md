@@ -12,6 +12,16 @@ upstream integrations and excludes changes already present at that baseline.
   with checks for an ancestor commit. Supersession also rechecks durable voyage
   status before changing records, including after waiting for a lane lock.
 
+- A transient dock-provisioning fault on a reassigned root mission no longer
+  strands it. A retryable provisioning failure keeps the mission's committed
+  branch and its retained dock-authority pointer, so the orphan reaper does not
+  reclaim the authority dock before the retry. The orphan reaper also preserves
+  an active dock a pending root mission still claims by exact identity
+  (tenant, vessel, branch), not only by the mission's dock pointer, so a row
+  whose pointer a failed provision cleared is not reaped. A dock no root mission
+  claims is still reclaimed, and a retry-exhausted mission still releases its
+  dock.
+
 - A direct landing recovers a stale integration worktree left at its
   deterministic per-mission path by an attempt that did not clean up, so the
   first landing after it recovers and lands instead of failing on an

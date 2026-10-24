@@ -2383,7 +2383,13 @@ namespace Armada.Core.Services
             mission.AssignmentState = MissionAssignmentStateEnum.Failed;
             mission.CaptainId = null;
             if (!preserveSavedBranch) mission.BranchName = null;
-            mission.DockId = null;
+            // Keep the dock-authority pointer for a continuation that still carries committed work and will
+            // retry. The retained active dock is this mission's continuation authority, and the orphan reaper
+            // preserves an active dock while a Pending mission still points at it. Clearing the pointer on a
+            // transient, retryable provisioning fault -- a boot-window ssh/fork failure, for one -- lets the
+            // reaper reclaim the authority dock before the retry, which then strands the mission on
+            // root_continuation_dock_missing. A mission with no committed branch to protect keeps the reset.
+            if (!preserveSavedBranch) mission.DockId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             mission.FailureReason = heldNow ? cause : (String.IsNullOrEmpty(cause) ? mission.FailureReason : cause);
 
@@ -2391,6 +2397,8 @@ namespace Armada.Core.Services
             {
                 mission.Status = MissionStatusEnum.Failed;
                 mission.CompletedUtc = DateTime.UtcNow;
+                // A retry-exhausted mission is terminal; release its dock pointer so the dock is reclaimed.
+                mission.DockId = null;
                 mission.FailureReason = cause + " (retry bound)";
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + mission.Id + " failed: dock worktree held after a retry; " + cause);
