@@ -5,6 +5,7 @@ namespace Armada.Core.Services
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Core.Services.Interfaces;
@@ -41,6 +42,12 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
+
+        /// <summary>
+        /// Advisory probe for a named runner that is full for the authenticated mission owner. Null keeps
+        /// existing assignment behavior. The Harbor coordinator still checks capacity atomically at launch.
+        /// </summary>
+        public Func<AuthContext, string, CancellationToken, Task<bool>>? HarborCapacityProbe { get; set; }
 
         /// <inheritdoc />
         public Func<Mission, Dock, Task>? OnMissionComplete { get; set; }
@@ -740,7 +747,9 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            if (!await ReleaseAssignmentHoldAsync(mission, token).ConfigureAwait(false)) return false;
+            // A runner-capacity hold is released only after its selected runner has been checked below.
+            if (!IsHarborCapacityHold(mission)
+                && !await ReleaseAssignmentHoldAsync(mission, token).ConfigureAwait(false)) return false;
 
             // Reserve the complete build-participating sibling lane while admission is checked and
             // the winning mission is made durable. Coordination leases make the read-to-write
@@ -937,6 +946,8 @@ namespace Armada.Core.Services
                     (!String.IsNullOrEmpty(mission.PreferredModel) ? " (preferredModel: " + mission.PreferredModel + ")" : ""));
                 if (mission.AssignmentState != MissionAssignmentStateEnum.WaitingForProviderUsage)
                     mission.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
+                if (IsHarborCapacityHold(mission)
+                    && !await ReleaseAssignmentHoldAsync(mission, token).ConfigureAwait(false)) return false;
                 await WriteAssignmentAsync(mission, MissionStatusEnum.Pending, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 if (!await TrackUnassignableByConstructionAsync(mission, token).ConfigureAwait(false))
@@ -946,6 +957,11 @@ namespace Armada.Core.Services
 
             _UnassignableTicks.TryRemove(mission.Id, out int _);
             _CaptainWaitReasons.TryRemove(mission.Id, out string? _);
+
+            HarborMissionRoute? harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
+            if (await TryHoldForHarborCapacityAsync(mission, harborRoute, token).ConfigureAwait(false)) return false;
+            if (IsHarborCapacityHold(mission)
+                && !await ReleaseAssignmentHoldAsync(mission, token).ConfigureAwait(false)) return false;
 
             // Downstream pipeline stages continue on the upstream branch prepared during handoff,
             // which copies the upstream mission's branch name onto the dependent. Standalone
@@ -1233,13 +1249,20 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
-                    _Logging.Warn(_Header + "failed to prepare or launch agent for captain " + captain.Id + " on mission " + mission.Id + ": " + ex.GetType().Name + ": " + ex.Message);
+                    bool capacityWait = ex is HarborLaunchException harborFailure
+                        && String.Equals(harborFailure.Reason, MissionAssignmentHold.HarborRunnerCapacity, StringComparison.Ordinal);
+                    if (capacityWait)
+                        _Logging.Info(_Header + "runner capacity filled before mission " + mission.Id + " could launch; waiting for a slot");
+                    else
+                        _Logging.Warn(_Header + "failed to prepare or launch agent for captain " + captain.Id + " on mission " + mission.Id + ": " + ex.GetType().Name + ": " + ex.Message);
 
                     // Rollback captain state - release back to idle so it can accept future work
                     await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 
-                    // Rollback mission state - revert to Pending for re-dispatch; mark Failed for operator visibility
-                    mission.AssignmentState = MissionAssignmentStateEnum.Failed;
+                    // Rollback mission state for re-dispatch; a full runner is a wait rather than a launch failure.
+                    mission.AssignmentState = capacityWait
+                        ? MissionAssignmentStateEnum.WaitingForDependency
+                        : MissionAssignmentStateEnum.Failed;
                     mission.Status = MissionStatusEnum.Pending;
                     mission.CaptainId = null;
                     // Keep a retained root-continuation (or inherited) branch so the retry continues it
@@ -1250,7 +1273,7 @@ namespace Armada.Core.Services
                     mission.ProcessId = null;
                     mission.StartedUtc = null;
                     mission.LastUpdateUtc = DateTime.UtcNow;
-                    await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, token).ConfigureAwait(false);
+                    bool assignmentRestored = await WriteAssignmentAsync(mission, MissionStatusEnum.Assigned, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
 
                     try
@@ -1261,6 +1284,15 @@ namespace Armada.Core.Services
                     {
                         _Logging.Warn(_Header + "failed to reclaim dock " + dock.Id +
                             " after launch failure for mission " + mission.Id + ": " + reclaimEx.Message);
+                    }
+
+                    if (capacityWait)
+                    {
+                        string? runnerId = ((HarborLaunchException)ex).RunnerId ?? harborRoute?.RunnerId;
+                        if (assignmentRestored)
+                            await HoldForAssignmentAsync(mission, MissionAssignmentHold.HarborRunnerCapacity, runnerId,
+                                "The configured Harbor runner has no free job slot.", token).ConfigureAwait(false);
+                        return false;
                     }
 
                     Signal errorSignal = new Signal(SignalTypeEnum.Error, "Failed to launch agent: " + ex.Message);

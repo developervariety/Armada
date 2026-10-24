@@ -12,6 +12,9 @@ namespace Armada.Core.Harbor
         /// <summary>Stable refusal reason.</summary>
         public string Reason { get; }
 
+        /// <summary>The runner that refused the launch, when the refusal came from a named runner.</summary>
+        public string? RunnerId { get; }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -19,10 +22,12 @@ namespace Armada.Core.Harbor
         /// <summary>Instantiate.</summary>
         /// <param name="reason">Stable refusal reason.</param>
         /// <param name="detail">Optional detail, for example the refused variable names. Never a secret value.</param>
-        public HarborLaunchException(string reason, string? detail = null)
+        /// <param name="runnerId">Runner that refused the launch, when known.</param>
+        public HarborLaunchException(string reason, string? detail = null, string? runnerId = null)
             : base(String.IsNullOrWhiteSpace(detail) ? reason : reason + ": " + detail)
         {
             Reason = String.IsNullOrWhiteSpace(reason) ? "harbor_launch_refused" : reason;
+            RunnerId = String.IsNullOrWhiteSpace(runnerId) ? null : runnerId;
         }
 
         #endregion

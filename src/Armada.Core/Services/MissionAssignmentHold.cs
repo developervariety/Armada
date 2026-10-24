@@ -68,6 +68,9 @@ namespace Armada.Core.Services
         /// </summary>
         public const string RootContinuationDockMissing = "root_continuation_dock_missing";
 
+        /// <summary>The configured Harbor runner has no free job slot.</summary>
+        public const string HarborRunnerCapacity = "harbor_runner_capacity_exhausted";
+
         #endregion
 
         #region Public-Methods

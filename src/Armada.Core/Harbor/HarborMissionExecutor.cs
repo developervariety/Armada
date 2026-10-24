@@ -74,7 +74,7 @@ namespace Armada.Core.Harbor
             if (!result.Accepted)
             {
                 ProcessSupervisor.UnregisterSyntheticProcess(processId);
-                throw new HarborLaunchException(result.Reason);
+                throw new HarborLaunchException(result.Reason, runnerId: launch.RunnerId);
             }
 
             observer.JobId = result.JobId;

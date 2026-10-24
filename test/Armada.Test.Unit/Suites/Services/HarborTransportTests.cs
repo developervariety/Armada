@@ -194,6 +194,14 @@ namespace Armada.Test.Unit.Suites.Services
                 await runnerA.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
                 HarborLaunchResult overCapacity = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a", "mission-third", Plan()).ConfigureAwait(false);
                 AssertEqual("harbor_runner_capacity_exhausted", overCapacity.Reason, "advertised capacity enforced");
+                AssertTrue(await harness.Coordinator.IsRunnerAtCapacityAsync(harness.OwnerA.Auth, "hbr_a").ConfigureAwait(false),
+                    "runner owner sees its full runner as at capacity");
+                AssertFalse(await harness.Coordinator.IsRunnerAtCapacityAsync(harness.OwnerB.Auth, "hbr_a").ConfigureAwait(false),
+                    "another owner cannot use the capacity probe as an admission signal");
+                AssertFalse(await harness.Coordinator.IsRunnerAtCapacityAsync(harness.Administrator.Auth, "hbr_a").ConfigureAwait(false),
+                    "administrator authority does not make the capacity probe report an owner's runner");
+                AssertFalse(await harness.Coordinator.IsRunnerAtCapacityAsync(harness.OwnerA.Auth, "hbr_missing").ConfigureAwait(false),
+                    "a missing runner is not reported as at capacity");
 
                 await runnerA.SendAsync(new HarborStarted { JobId = first.JobId!, ProcessId = 100 }).ConfigureAwait(false);
                 await runnerA.SendAsync(new HarborHeartbeat { LiveJobIds = new List<string> { first.JobId!, second.JobId! } }).ConfigureAwait(false);
@@ -218,6 +226,16 @@ namespace Armada.Test.Unit.Suites.Services
                 HarborLaunchResult relaunch = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a", "mission-dup", Plan()).ConfigureAwait(false);
                 AssertTrue(relaunch.Accepted, "launch key reusable after the job ended: " + relaunch.Reason);
                 AssertFalse(String.Equals(first.JobId, relaunch.JobId, StringComparison.Ordinal), "server job ids are never reused");
+            });
+
+            await RunTest("HarborCapacity_AssignmentHoldsWithoutProvisioningAndRetriesOnTheSameRunner", async () =>
+            {
+                await RunHarborCapacityAssignmentAsync(false).ConfigureAwait(false);
+            });
+
+            await RunTest("HarborCapacity_LateRunnerCapacityRaceRollsBackAndRetries", async () =>
+            {
+                await RunHarborCapacityAssignmentAsync(true).ConfigureAwait(false);
             });
 
             await RunTest("CommandAuthority_MatchesEnrollmentAuthority", async () =>
@@ -918,6 +936,220 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.Delay(25).ConfigureAwait(false);
             }
             throw new Exception("The mission log never contained \"" + expected + "\". Log: " + text);
+        }
+
+        private async Task RunHarborCapacityAssignmentAsync(bool fillAtLaunch)
+        {
+            string fixtureRoot = Path.Combine(Path.GetTempPath(), "armada_harbor_capacity_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.OK, await harness.EnrollAsync(harness.Administrator, "hbr_a", harness.OwnerA).ConfigureAwait(false), "runner enrolled");
+                    await using (FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false))
+                    {
+                        AssertTrue((await runner.HandshakeAsync("hbr_a", 1).ConfigureAwait(false)).Accepted, "single-slot runner connected");
+                        HarborLaunchResult? occupying = null;
+                        if (!fillAtLaunch)
+                        {
+                            occupying = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a", "capacity-occupier", Plan()).ConfigureAwait(false);
+                            AssertTrue(occupying.Accepted, "real coordinator admitted the occupying job: " + occupying.Reason);
+                            await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+                        }
+
+                        ArmadaSettings settings = new ArmadaSettings();
+                        settings.DocksDirectory = Path.Combine(fixtureRoot, "docks");
+                        settings.ReposDirectory = Path.Combine(fixtureRoot, "repos");
+                        settings.LogDirectory = Path.Combine(fixtureRoot, "logs");
+                        settings.Harbor.Enabled = true;
+                        StubGitService git = new StubGitService();
+                        git.CreateWorktreeDirectories = true;
+                        LoggingModule logging = new LoggingModule();
+                        logging.Settings.EnableConsole = false;
+                        DockService docks = new DockService(logging, harness.Driver, settings, git);
+                        CaptainService captains = new CaptainService(logging, harness.Driver, settings, git, docks);
+                        MissionService missions = new MissionService(logging, harness.Driver, settings, docks, captains,
+                            git: git,
+                            resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
+                        RecordingAdmiral admiral = RecordingAdmiral.Create();
+                        AgentLifecycleHandler lifecycle = new AgentLifecycleHandler(
+                            logging,
+                            harness.Driver,
+                            settings,
+                            new AgentRuntimeFactory(logging),
+                            admiral.Service,
+                            new MessageTemplateService(logging),
+                            null,
+                            null,
+                            (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+                        lifecycle.SetHarborHost(new HarborMissionExecutor(harness.Coordinator, logging));
+                        bool racingOccupierCreated = false;
+                        captains.OnLaunchAgent = async (assignedCaptain, assignedMission, assignedDock) =>
+                        {
+                            if (fillAtLaunch && !racingOccupierCreated)
+                            {
+                                HarborLaunchResult racedOccupier = await harness.Coordinator.LaunchAsync(
+                                    harness.OwnerA.Auth, "hbr_a", "capacity-race-occupier", Plan()).ConfigureAwait(false);
+                                AssertTrue(racedOccupier.Accepted, "real coordinator admits the racing slot occupant: " + racedOccupier.Reason);
+                                occupying = racedOccupier;
+                                racingOccupierCreated = true;
+                                await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+                            }
+                            return await lifecycle.HandleLaunchAgentAsync(assignedCaptain, assignedMission, assignedDock).ConfigureAwait(false);
+                        };
+
+                        Vessel vessel = new Vessel("harbor-capacity-vessel", "https://example.invalid/harbor-capacity.git")
+                        {
+                            TenantId = harness.OwnerA.TenantId,
+                            UserId = harness.OwnerA.UserId,
+                            DefaultBranch = "main",
+                            AllowConcurrentMissions = true
+                        };
+                        vessel = await harness.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                        Captain captain = new Captain("harbor-capacity-captain")
+                        {
+                            State = CaptainStateEnum.Idle,
+                            TenantId = harness.OwnerA.TenantId,
+                            UserId = harness.OwnerA.UserId,
+                            AllowedPersonas = "Worker"
+                        };
+                        captain = await harness.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        settings.Harbor.MissionRoutes.Add(new HarborMissionRoute { RunnerId = "hbr_a", CaptainId = captain.Id });
+                        Mission mission = new Mission("Wait for Harbor capacity", "Do not provision while the selected runner has no free job slot.")
+                        {
+                            TenantId = harness.OwnerA.TenantId,
+                            UserId = harness.OwnerA.UserId,
+                            VesselId = vessel.Id,
+                            Persona = "Worker",
+                            Status = MissionStatusEnum.Pending,
+                            AssignmentState = MissionAssignmentStateEnum.Pending
+                        };
+                        mission = await harness.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        List<string> probedRunners = new List<string>();
+                        List<bool> probeResults = new List<bool>();
+                        missions.HarborCapacityProbe = async (caller, runnerId, token) =>
+                        {
+                            probedRunners.Add(runnerId);
+                            bool full = await harness.Coordinator.IsRunnerAtCapacityAsync(caller, runnerId, token).ConfigureAwait(false);
+                            probeResults.Add(full);
+                            return full;
+                        };
+
+                        AssertFalse(await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false), "full Harbor defers assignment");
+                        Mission? held = await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(held, "held mission is durable");
+                        AssertEqual(MissionStatusEnum.Pending, held!.Status, "mission remains pending");
+                        AssertEqual(MissionAssignmentStateEnum.WaitingForDependency, held.AssignmentState, "capacity uses the existing pending wait state");
+                        AssertEqual(MissionAssignmentHold.HarborRunnerCapacity, held.AssignmentHoldReason, "hold names the capacity condition");
+                        AssertEqual("hbr_a", held.AssignmentHoldEntityId, "hold names the configured runner");
+                        AssertNull(held.CaptainId, "capacity wait does not claim a captain");
+                        AssertNull(held.DockId, "capacity wait does not create a dock");
+                        AssertEqual(CaptainStateEnum.Idle, (await harness.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!.State,
+                            "capacity wait leaves the captain idle");
+                        List<Dock> heldDocks = await harness.Driver.Docks.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                        if (fillAtLaunch)
+                        {
+                            AssertTrue(racingOccupierCreated, "launch callback filled the last runner slot after an available probe");
+                            AssertFalse(probeResults[0], "real capacity probe saw the runner as available before the race");
+                            AssertTrue(git.WorktreeCalls.Count > 0, "the late capacity race occurs after worktree provisioning");
+                            AssertNull(held.DockId, "late capacity rollback clears the mission dock pointer");
+                            AssertEqual(CaptainStateEnum.Idle, (await harness.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!.State,
+                                "late capacity rollback releases the captain");
+                            foreach (Dock heldDock in heldDocks)
+                                AssertFalse(heldDock.Active, "late capacity rollback reclaims its dock");
+                        }
+                        else
+                        {
+                            AssertEqual(0, heldDocks.Count, "capacity wait does not provision a dock");
+                            AssertEqual(0, git.WorktreeCalls.Count, "capacity wait does not create a worktree");
+                        }
+                        List<Signal> capacitySignals = await harness.Driver.Signals.EnumerateRecentAsync(50).ConfigureAwait(false);
+                        AssertFalse(capacitySignals.Exists(item => item.Type == SignalTypeEnum.Error && item.FromCaptainId == captain.Id),
+                            "capacity wait does not send a launch-error signal");
+                        int provisionedWorktreeCalls = git.WorktreeCalls.Count;
+
+                        List<ArmadaEvent> firstHeldEvents = await harness.Driver.Events
+                            .EnumerateByTypeAsync(MissionAssignmentHold.HeldEventType).ConfigureAwait(false);
+                        int firstMissionHoldCount = 0;
+                        foreach (ArmadaEvent item in firstHeldEvents)
+                            if (String.Equals(item.MissionId, mission.Id, StringComparison.Ordinal)) firstMissionHoldCount++;
+                        AssertEqual(1, firstMissionHoldCount, "first capacity wait records one hold event");
+
+                        AssertFalse(await missions.TryAssignAsync(held, vessel).ConfigureAwait(false), "repeated full-capacity pass still waits");
+                        Mission? heldAgain = await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(MissionAssignmentHold.HarborRunnerCapacity, heldAgain!.AssignmentHoldReason, "repeat preserves the same hold");
+                        List<ArmadaEvent> repeatedHeldEvents = await harness.Driver.Events
+                            .EnumerateByTypeAsync(MissionAssignmentHold.HeldEventType).ConfigureAwait(false);
+                        int repeatedMissionHoldCount = 0;
+                        foreach (ArmadaEvent item in repeatedHeldEvents)
+                            if (String.Equals(item.MissionId, mission.Id, StringComparison.Ordinal)) repeatedMissionHoldCount++;
+                        AssertEqual(firstMissionHoldCount, repeatedMissionHoldCount, "repeat does not churn hold events");
+                        AssertEqual(provisionedWorktreeCalls, git.WorktreeCalls.Count,
+                            "repeat does not provision another worktree while capacity is full");
+                        AssertEqual(0, (await harness.Driver.Events
+                            .EnumerateByTypeAsync(MissionAssignmentHold.ReleasedEventType).ConfigureAwait(false))
+                            .FindAll(item => String.Equals(item.MissionId, mission.Id, StringComparison.Ordinal)).Count,
+                            "repeat does not release the hold while the runner is full");
+                        AssertEqual("hbr_a", probedRunners[0], "assignment probes the captain's configured runner");
+                        AssertEqual("hbr_a", probedRunners[1], "repeated assignment probes the same runner");
+
+                        AssertNotNull(occupying, "a real job occupies the runner before retry");
+                        await runner.SendAsync(new HarborExited { JobId = occupying!.JobId!, ExitCode = 0 }).ConfigureAwait(false);
+                        await occupying.Completion!.WaitAsync(Wait).ConfigureAwait(false);
+                        AssertFalse(await harness.Coordinator.IsRunnerAtCapacityAsync(harness.OwnerA.Auth, "hbr_a").ConfigureAwait(false),
+                            "the real coordinator reports capacity after the occupied job exits");
+
+                        AssertTrue(await missions.TryAssignAsync(heldAgain, vessel).ConfigureAwait(false),
+                            "mission assignment resumes after the selected runner has a free slot");
+                        Mission? resumedMission = await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertNotNull(resumedMission, "resumed mission is durable");
+                        AssertEqual(MissionStatusEnum.InProgress, resumedMission!.Status, "the mission starts after capacity becomes available");
+                        AssertNull(resumedMission.AssignmentHoldReason, "successful assignment clears the capacity hold");
+                        AssertNull(resumedMission.AssignmentHoldEntityId, "successful assignment clears the runner identity from the hold");
+                        AssertEqual("hbr_a", probedRunners[2], "resumed assignment still probes the configured runner");
+                        HarborLaunchRequest missionLaunch = await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+                        AssertTrue(harness.Coordinator.TryGetJob(missionLaunch.JobId, out HarborJobSnapshot? missionJob),
+                            "resumed mission creates a coordinator job");
+                        AssertEqual(mission.Id, missionJob!.MissionId, "runner job is bound to the resumed mission");
+                        AssertEqual(captain.Id, missionJob.CaptainId, "runner job keeps the assigned captain");
+                        AssertEqual("hbr_a", missionJob.RunnerId, "resumed mission job is bound to the configured runner");
+                        AssertEqual(harness.OwnerA.TenantId, missionJob.OwnerTenantId, "mission job keeps its owner tenant");
+                        AssertEqual(harness.OwnerA.UserId, missionJob.OwnerUserId, "mission job keeps its owner user");
+                        AssertTrue(harness.Registry.TryGetCurrent("hbr_a", out HarborRunnerSession? currentSession),
+                            "configured runner still has a current session");
+                        AssertEqual(currentSession!.Generation, missionJob.SessionGeneration,
+                            "mission job is bound to the current runner generation");
+                        AssertEqual(currentSession.EnrollmentGeneration, missionJob.EnrollmentGeneration,
+                            "mission job keeps the enrollment generation for its current session");
+                        List<ArmadaEvent> releasedEvents = await harness.Driver.Events
+                            .EnumerateByTypeAsync(MissionAssignmentHold.ReleasedEventType).ConfigureAwait(false);
+                        int missionReleaseCount = 0;
+                        foreach (ArmadaEvent item in releasedEvents)
+                            if (String.Equals(item.MissionId, mission.Id, StringComparison.Ordinal)) missionReleaseCount++;
+                        AssertEqual(1, missionReleaseCount, "the capacity hold releases once when assignment resumes");
+
+                        await runner.SendAsync(new HarborExited { JobId = missionLaunch.JobId!, ExitCode = 0 }).ConfigureAwait(false);
+                        RecordedProcessExit missionExit = await admiral.NextExitAsync(Wait).ConfigureAwait(false);
+                        AssertEqual(mission.Id, missionExit.MissionId, "runner exit completes the assigned mission lifecycle");
+                    }
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(fixtureRoot)) Directory.Delete(fixtureRoot, true);
+                }
+                catch (IOException exception)
+                {
+                    Console.WriteLine("Harbor capacity fixture cleanup failed: " + exception.Message);
+                }
+                catch (UnauthorizedAccessException exception)
+                {
+                    Console.WriteLine("Harbor capacity fixture cleanup failed: " + exception.Message);
+                }
+            }
         }
 
         private static HarborLaunchRequest Plan()

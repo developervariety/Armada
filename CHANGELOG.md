@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Missions routed to a full Harbor wait before dock provisioning with a named
+  assignment hold. A capacity race at launch returns to the same wait. Explicit
+  runner routing, owner checks and the launch-time capacity limit remain in force.
+
 - Cancelling a voyage stops its queued and running DoD gates, including gates
   for produced work. A late gate checks durable cancellation before waiting or
   running a command. Produced mission outcomes and recall-failure rules stay

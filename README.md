@@ -142,6 +142,11 @@ What the fork adds on top of the shared model:
   a context index supplies scoped retrieval, with optional brief slimming disabled
   by default. See [Context Index](docs/CONTEXT_INDEX.md).
 
+Both versions wait for Harbor capacity. The fork checks the explicitly routed
+runner for the mission owner before it provisions a dock. A full runner leaves
+the mission pending with a named hold; assignment retries when a slot is free.
+The launch still checks capacity atomically and never falls back to a local run.
+
 Some upstream additions are unported by decision, not by omission: the cloud
 model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) and upstream's native
 installer and A/B-slot rebuild paths, because the fork ships Docker with supervised

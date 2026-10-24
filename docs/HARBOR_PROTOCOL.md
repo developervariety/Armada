@@ -184,6 +184,22 @@ jobs with `harbor_runner_disconnected`. A stop for a job whose runner is not con
 
 ## Mission execution
 
+Before it provisions a dock, mission assignment checks the selected captain's
+explicit runner route. The capacity probe revalidates the runner session and
+checks the mission owner's exact tenant and user. A confirmed full runner leaves
+the mission Pending with `AssignmentHoldReason=harbor_runner_capacity_exhausted`
+and the runner ID as `AssignmentHoldEntityId`. It reserves no job and creates no
+dock or launch-error signal. Repeated full-capacity checks retain the same hold.
+The normal assignment sweep retries the mission and releases the hold when the
+runner has a slot.
+
+Capacity can change after this advisory probe. The coordinator checks it again
+under its launch lock. A launch refused for capacity releases the captain and
+reclaims the just-provisioned dock, then records the same pending hold. Other
+launch refusals retain their normal failure handling. This wait never selects a
+different runner or starts the mission locally.
+
+
 A routed mission launch builds the runtime's command and arguments on the Admiral, exactly as for a local launch,
 and sends them in `launch` with the dock path as `workingDirectory`. The arguments register the same extra
 workspace roots as a local launch (provisioned sibling checkouts and `captainEvidenceRoots`), each mapped through the

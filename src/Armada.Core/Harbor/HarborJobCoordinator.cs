@@ -157,6 +157,44 @@ namespace Armada.Core.Harbor
         }
 
         /// <summary>
+        /// Check whether a mission owner has a current, authorized runner link that is at capacity. This is an
+        /// advisory check before dock provisioning; <see cref="LaunchAsync(AuthContext, string, string, HarborLaunchRequest, HarborJobBinding, CancellationToken)"/>
+        /// still performs the authoritative capacity check when it reserves the job.
+        /// </summary>
+        /// <param name="caller">Mission owner.</param>
+        /// <param name="runnerId">Runner to inspect.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True only when the current authorized session is still linked and has no free job slots.</returns>
+        public async Task<bool> IsRunnerAtCapacityAsync(AuthContext caller, string runnerId, CancellationToken token = default)
+        {
+            if (caller == null || !caller.IsAuthenticated || String.IsNullOrWhiteSpace(caller.TenantId)
+                || String.IsNullOrWhiteSpace(caller.UserId) || String.IsNullOrWhiteSpace(runnerId))
+                return false;
+            if (!_Registry.TryGetCurrent(runnerId.Trim(), out HarborRunnerSession? session) || session == null)
+                return false;
+
+            HarborRunnerCheck revalidated = await _Registry.RevalidateAsync(session, token).ConfigureAwait(false);
+            if (!revalidated.Accepted) return false;
+            if (!HarborRunnerAuthorization.IsOwner(caller, session.Identity.TenantId, session.Identity.UserId))
+                return false;
+
+            lock (_Gate)
+            {
+                if (!_Links.TryGetValue(session.Identity.RunnerId, out RunnerLink? link)
+                    || !Object.ReferenceEquals(link.Session, session))
+                    return false;
+
+                int liveOnRunner = 0;
+                foreach (JobRecord existing in _Jobs.Values)
+                {
+                    if (HarborJobRecord.IsTerminal(existing.State)) continue;
+                    if (String.Equals(existing.RunnerId, session.Identity.RunnerId, StringComparison.Ordinal)) liveOnRunner++;
+                }
+                return liveOnRunner >= link.MaxConcurrentJobs;
+            }
+        }
+
+        /// <summary>
         /// Send a stop for a job to the runner and connection that own it. The caller must be authorized for the
         /// job's owner. When the owning runner is not connected the Admiral releases the job instead: it becomes
         /// lost with <see cref="ReasonReleasedRunnerUnavailable"/>, and a later report for it is refused.
