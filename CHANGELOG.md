@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Declared DoD execution budgets survive post-test, isolated, flake and host-load
+  retries. Native isolated retries retain their source profile limit. Each
+  vessel or consumer keeps separate build and test budgets; slot waits and
+  Harbor transport do not spend command time. Exhausted or unmeasurable
+  declared budgets cannot produce a passing result.
 - An explicit profile time budget covers a Build or UnitTest Check's full run
   and isolated retry together. Retry slot waits stay outside that budget.
   Completion now follows retry work, and the output separates active command

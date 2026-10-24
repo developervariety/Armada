@@ -11,7 +11,7 @@ namespace Armada.Core.Services
         private DefinitionOfDoneResult BuildHarborCommandResult(
             string label, string command, string commandKey, string checkId, string expectedHead, Dock dock,
             TimeSpan timeout, Regex? failedTestLinePattern, HarborWorkspaceOperationResult completed,
-            HarborVerificationOutputText output, bool sharedHost, TimeSpan commandDuration)
+            HarborVerificationOutputText output, bool sharedHost, TimeSpan? commandDuration)
         {
             bool timedOut = completed.TimedOut || completed.Cancelled;
             bool incomplete = timedOut || completed.Truncated;
@@ -20,7 +20,10 @@ namespace Armada.Core.Services
             string metricOutcome = completed.Cancelled ? ArmadaMetrics.OutcomeCanceled
                 : timedOut ? ArmadaMetrics.OutcomeTimeout
                 : exitCode == 0 ? ArmadaMetrics.OutcomePassed : ArmadaMetrics.OutcomeFailed;
-            ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, commandDuration, metricOutcome);
+            if (ActiveExecutionBudget?.HasFailure == true)
+                metricOutcome = ActiveExecutionBudget.TimedOut ? ArmadaMetrics.OutcomeTimeout : ArmadaMetrics.OutcomeFailed;
+            if (commandDuration.HasValue)
+                ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, commandDuration.Value, metricOutcome);
             DefinitionOfDoneResult result;
             if (timedOut)
             {

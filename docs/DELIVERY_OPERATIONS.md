@@ -543,6 +543,18 @@ and retry host-slot waits spend no execution budget; a retry gets only the remai
 it acquires its slot. A positive service-constructor timeout override remains
 authoritative for callers that provide one.
 
+An explicit profile value also bounds a logical DoD build or unit-test family
+across its full command, post-test-step retry, flake retry, isolated retry, and
+host-load recovery attempt. One evaluation keeps the same ledger when it replaces
+its host slot. Each vessel or consumer has independent build and test budgets;
+passing one does not fund another. An exhausted declared budget fails without a
+fresh retry, even when host load or continued output would otherwise allow one.
+Admission and load waits do not replenish or spend the execution budget. Native
+process time and authenticated Harbor duration spend it; a remote remainder
+smaller than one second cannot start a new command. The retained output records
+cumulative command time and the declared budget. Without an explicit profile
+value, DoD keeps its existing global per-command timeout and recovery policy.
+
 On every path that ends a started Check (exit, timeout, error, or the cancel at an
 Admiral restart), `DurationMs` is `CompletedUtc - StartedUtc`. Completion follows
 isolated retry work and checkout cleanup, so this duration includes a retry's

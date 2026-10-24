@@ -1,7 +1,6 @@
 namespace Armada.Core.Services
 {
     using System;
-    using System.Diagnostics;
     using System.Text.RegularExpressions;
     using System.Collections.Generic;
     using System.Threading;
@@ -17,6 +16,8 @@ namespace Armada.Core.Services
             string label, WorkflowProfile? profile, IsolatedRerunPlan plan,
             DefinitionOfDoneResult source, string address, Regex? failurePattern, CancellationToken token)
         {
+            GateExecutionBudget? budget = ActiveExecutionBudget;
+            profile = budget?.Profile ?? profile;
             if (plan.Command == null || source.HarborOutputId == null || source.HarborCheckId == null
                 || source.HarborDockId == null || source.HarborExpectedHead == null
                 || source.HarborCommandKey == null || source.HarborCommandSha256 == null
@@ -41,6 +42,18 @@ namespace Armada.Core.Services
             string? rerunCommandHash = plan.FromProfile
                 ? HarborVerificationProtocol.CommandSha256(profile?.IsolatedTestRerunCommand ?? String.Empty)
                 : null;
+            TimeSpan timeout = budget?.Limit ?? ResolveCommandTimeout(ResolveCommandTimeoutSeconds(profile));
+            int timeoutSeconds;
+            try
+            {
+                timeoutSeconds = budget != null
+                    ? budget.GetRemoteTimeoutSeconds(timeout, 1800)
+                    : Math.Max(1, Math.Min(1800, (int)Math.Ceiling(timeout.TotalSeconds)));
+            }
+            catch (InvalidOperationException) when (budget != null)
+            {
+                return budget.Failure(label);
+            }
             HarborWorkspaceOperationRequest request = HarborCheckoutService.CreateRequest(dock, HarborWorkspaceOperationEnum.RunVerification);
             request.ExpectedHead = source.HarborExpectedHead;
             request.Verification = new HarborVerificationRequest
@@ -48,7 +61,7 @@ namespace Armada.Core.Services
                 CommandKey = source.HarborCommandKey,
                 ExpectedCommandSha256 = source.HarborCommandSha256,
                 CheckId = checkId,
-                TimeoutSeconds = Math.Max(1, Math.Min(WorkflowProfile.MaximumGateCommandTimeoutSeconds, ResolveCommandTimeoutSeconds(profile))),
+                TimeoutSeconds = timeoutSeconds,
                 OutputLimitBytes = _CommandOutputLimitBytes,
                 AcceptedExitCodes = new List<int> { 0 },
                 Rerun = new HarborVerificationRerunRequest
@@ -61,7 +74,6 @@ namespace Armada.Core.Services
                     RerunCommandSha256 = rerunCommandHash
                 }
             };
-            Stopwatch elapsed = Stopwatch.StartNew();
             HarborWorkspaceOperationResult completed;
             HarborVerificationOutputText output;
             try
@@ -69,29 +81,25 @@ namespace Armada.Core.Services
                 using (HarborCheckoutOperationScope scope = new HarborCheckoutOperationScope(checkId, source.HarborExpectedHead))
                 {
                     completed = await HarborCheckouts!.ExecuteAsync(dock, request, token).ConfigureAwait(false);
+                    budget?.RecordRemoteExecution(completed);
                     output = await HarborVerificationOutputReader.ReadAsync(HarborCheckouts, dock, completed, checkId,
                         source.HarborExpectedHead, token).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, elapsed.Elapsed, ArmadaMetrics.OutcomeCanceled);
                 throw;
             }
             catch (Exception exception)
             {
-                ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, elapsed.Elapsed, ArmadaMetrics.OutcomeError);
-                return DefinitionOfDoneResult.Fail(label, -1,
+                DefinitionOfDoneResult failure = DefinitionOfDoneResult.Fail(label, -1,
                     BuildDiagnosticText("Harbor isolated rerun did not complete: " + exception.Message), DefinitionOfDoneFailureClassEnum.Infra);
+                return budget != null ? budget.ApplyTo(failure, label) : failure;
             }
-            elapsed.Stop();
             string combined = CombineOutput(output.StandardOutput, output.StandardError);
             int exitCode = completed.TimedOut || completed.Cancelled ? -1 : completed.ExitCode ?? -1;
             bool passed = exitCode == 0 && !completed.TimedOut && !completed.Cancelled && !completed.Truncated;
-            string outcome = completed.Cancelled ? ArmadaMetrics.OutcomeCanceled
-                : completed.TimedOut ? ArmadaMetrics.OutcomeTimeout
-                : passed ? ArmadaMetrics.OutcomePassed : ArmadaMetrics.OutcomeFailed;
-            ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, elapsed.Elapsed, outcome);
+            TimeSpan? commandDuration = ReadHarborCommandDuration(completed);
             DefinitionOfDoneResult result = passed
                 ? DefinitionOfDoneResult.Pass()
                 : DefinitionOfDoneResult.Fail(label, exitCode, BuildDiagnosticText(combined, failurePattern),
@@ -106,6 +114,18 @@ namespace Armada.Core.Services
                 result.FailedTestNames = names.Names;
                 result.FailedTestNamesOverflow = names.Overflow || result.RunnerOutputIncomplete;
             }
+            if (!commandDuration.HasValue)
+            {
+                const string unknown = "Harbor command execution duration: unknown.";
+                result.GateCommandOutput += Environment.NewLine + unknown;
+                _Logging.Warn(_Header + label + " " + unknown);
+            }
+            if (budget != null) result = budget.ApplyTo(result, label);
+            string outcome = completed.Cancelled ? ArmadaMetrics.OutcomeCanceled
+                : completed.TimedOut || result.TimedOut ? ArmadaMetrics.OutcomeTimeout
+                : result.Passed ? ArmadaMetrics.OutcomePassed : ArmadaMetrics.OutcomeFailed;
+            if (commandDuration.HasValue)
+                ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, commandDuration.Value, outcome);
             return result;
         }
     }

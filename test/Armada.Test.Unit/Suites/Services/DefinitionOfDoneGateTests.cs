@@ -17,7 +17,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Unit tests for DefinitionOfDoneGate: in-dock build and unit-test gate for Worker missions.
     /// </summary>
-    public class DefinitionOfDoneGateTests : TestSuite
+    public partial class DefinitionOfDoneGateTests : TestSuite
     {
         /// <inheritdoc />
         public override string Name => "Definition Of Done Gate";
@@ -1720,6 +1720,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("harbor_owned_gate_binding_missing", result.OutputTail ?? String.Empty,
                         "the refusal gives the operator a stable reason");
                     AssertFalse(File.Exists(localMarker), "the local profile command never runs for an owned route");
+                    await AssertHarborExecutionBudgetAsync().ConfigureAwait(false);
                 }
                 finally
                 {
@@ -2221,6 +2222,50 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(tail.Contains("failing test names could not be read in full", StringComparison.Ordinal),
                         "there are no failing test names to read. Tail: " + tail);
                     AssertEqual(2, File.ReadAllLines(runLog).Length, "the command is retried exactly once");
+
+                    // A transient post-test failure can recover only inside this consumer's
+                    // original execution budget. The producer has no declared budget.
+                    List<WorkflowProfile> consumerProfiles = await testDb.Driver.WorkflowProfiles.EnumerateAllAsync(
+                        new WorkflowProfileQuery { TenantId = "ten_pts", VesselId = "vsl_pts_consumer" }).ConfigureAwait(false);
+                    AssertEqual(1, consumerProfiles.Count);
+                    WorkflowProfile consumerProfile = consumerProfiles[0];
+                    consumerProfile.GateCommandTimeoutSeconds = 30;
+                    Vessel? consumer = await testDb.Driver.Vessels.ReadAsync("vsl_pts_consumer").ConfigureAwait(false);
+                    AssertNotNull(consumer);
+                    string boundedPath = Path.Combine(runLogDir, "bounded-consumer");
+                    Directory.CreateDirectory(boundedPath);
+                    string boundedCommand = "if [ -f first-finished ]; then touch retry-started; sleep 0.1; touch retry-finished; exit 0; fi; "
+                        + "sleep 0.1; touch first-finished; printf '7 passed; 0 failed.\\n'; exit 125";
+                    consumerProfile.UnitTestCommand = boundedCommand;
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(consumerProfile).ConfigureAwait(false);
+                    DefinitionOfDoneSettings boundedSettings = new DefinitionOfDoneSettings
+                    {
+                        Enabled = true, RunRestoreBeforeBuild = false, CommandTimeoutSeconds = 900
+                    };
+                    FastTimeoutGate fittingGate = new FastTimeoutGate(boundedSettings, testDb.Driver, logging, TimeSpan.FromSeconds(1));
+                    DefinitionOfDoneResult fitting = await fittingGate.EvaluateConsumerTestsForTestAsync(
+                        mission, consumer!, consumerProfile, boundedPath, CancellationToken.None).ConfigureAwait(false);
+                    AssertTrue(fitting.Passed, "A consumer post-test retry that fits the remaining budget may recover.");
+                    AssertTrue(File.Exists(Path.Combine(boundedPath, "retry-finished")), "The fitting control actually finishes its retry.");
+                    foreach (string marker in new[] { "first-finished", "retry-started", "retry-finished" })
+                        File.Delete(Path.Combine(boundedPath, marker));
+                    consumerProfile.UnitTestCommand = boundedCommand.Replace("sleep 0.1", "sleep 0.65", StringComparison.Ordinal);
+                    await testDb.Driver.WorkflowProfiles.UpdateAsync(consumerProfile).ConfigureAwait(false);
+                    FastTimeoutGate lateGate = new FastTimeoutGate(boundedSettings, testDb.Driver, logging, TimeSpan.FromSeconds(1));
+                    DefinitionOfDoneResult late = await lateGate.EvaluateConsumerTestsForTestAsync(
+                        mission, consumer!, consumerProfile, boundedPath, CancellationToken.None).ConfigureAwait(false);
+                    AssertTrue(File.Exists(Path.Combine(boundedPath, "first-finished"))
+                        && File.Exists(Path.Combine(boundedPath, "retry-started")),
+                        "The full consumer command must finish and its post-test retry must start before the limit.");
+                    AssertFalse(late.Passed, "A consumer post-test retry cannot reset the explicit execution budget.");
+                    AssertTrue(late.TimedOut, "The second command reaches the remaining execution limit.");
+                    AssertFalse(File.Exists(Path.Combine(boundedPath, "retry-finished")), "The over-budget retry is stopped before its successful exit.");
+                    AssertTrue(fittingGate.ConfiguredSeconds.Count > 0 && lateGate.ConfiguredSeconds.Count > 0,
+                        "Both consumer evaluations resolve their native execution limits.");
+                    foreach (int configured in fittingGate.ConfiguredSeconds)
+                        AssertEqual(30, configured, "The fitting post-test retry uses the consumer's limit.");
+                    foreach (int configured in lateGate.ConfiguredSeconds)
+                        AssertEqual(30, configured, "The bounded post-test retry uses the consumer's limit.");
                 }
                 finally
                 {

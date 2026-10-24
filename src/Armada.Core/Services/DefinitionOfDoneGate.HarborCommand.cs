@@ -17,6 +17,8 @@ namespace Armada.Core.Services
             string label, string command, string address, CancellationToken token,
             Regex? failedTestLinePattern, IReadOnlyDictionary<string, string>? overrides, WorkflowProfile? profile)
         {
+            GateExecutionBudget? budget = ActiveExecutionBudget;
+            profile = budget?.Profile ?? profile;
             HarborCheckoutAddress? parsed;
             if (!HarborCheckoutAddress.TryParse(address, out parsed) || parsed == null || parsed.CheckoutId != null
                 || parsed.UseRepository || parsed.UseWorkingDirectory || parsed.RelativePath.Length != 0)
@@ -43,7 +45,6 @@ namespace Armada.Core.Services
             string? expectedHead = await _Git!.GetHeadCommitHashAsync(address, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(expectedHead))
                 return DefinitionOfDoneResult.Fail(label, -1, "harbor_owned_gate_head_unavailable", DefinitionOfDoneFailureClassEnum.Infra);
-            TimeSpan timeout = ResolveCommandTimeout(ResolveCommandTimeoutSeconds(profile));
             string checkId = slot.OperationId + ":" + commandKey + ":" + label;
             HarborWorkspaceOperationRequest request = HarborCheckoutService.CreateRequest(dock, HarborWorkspaceOperationEnum.RunVerification);
             request.ExpectedHead = expectedHead;
@@ -52,11 +53,10 @@ namespace Armada.Core.Services
                 CommandKey = commandKey,
                 ExpectedCommandSha256 = HarborVerificationProtocol.CommandSha256(command),
                 CheckId = checkId,
-                TimeoutSeconds = Math.Max(1, Math.Min(WorkflowProfile.MaximumGateCommandTimeoutSeconds, (int)Math.Ceiling(timeout.TotalSeconds))),
+                TimeoutSeconds = 1800,
                 OutputLimitBytes = _CommandOutputLimitBytes,
                 AcceptedExitCodes = new List<int> { 0 }
             };
-            Stopwatch elapsed = new Stopwatch();
             HarborWorkspaceOperationResult completed;
             HarborVerificationOutputText output;
             IDisposable? standaloneLease = null;
@@ -73,23 +73,39 @@ namespace Armada.Core.Services
             IDisposable? heldLease = slot.Lease ?? standaloneLease;
             long shareMark = HostWideCommandLock.ReadShareMark(heldLease);
             bool sharedHost = false;
-            elapsed.Start();
+            TimeSpan timeout;
+            try
+            {
+                timeout = budget?.Limit ?? ResolveCommandTimeout(ResolveCommandTimeoutSeconds(profile));
+                request.Verification.TimeoutSeconds = budget != null
+                    ? budget.GetRemoteTimeoutSeconds(timeout, 1800)
+                    : Math.Max(1, Math.Min(1800, (int)Math.Ceiling(timeout.TotalSeconds)));
+            }
+            catch (InvalidOperationException) when (budget != null)
+            {
+                standaloneLease?.Dispose();
+                return budget.Failure(label);
+            }
+            catch
+            {
+                standaloneLease?.Dispose();
+                throw;
+            }
             try
             {
                 using (HarborCheckoutOperationScope scope = new HarborCheckoutOperationScope(checkId, expectedHead))
                 {
                     completed = await HarborCheckouts.ExecuteAsync(dock, request, token).ConfigureAwait(false);
+                    budget?.RecordRemoteExecution(completed);
                     output = await HarborVerificationOutputReader.ReadAsync(HarborCheckouts, dock, completed, checkId, expectedHead, token).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, elapsed.Elapsed, ArmadaMetrics.OutcomeCanceled);
                 throw;
             }
             catch (Exception exception)
             {
-                ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, elapsed.Elapsed, ArmadaMetrics.OutcomeError);
                 return DefinitionOfDoneResult.Fail(label, -1,
                     BuildDiagnosticText("Harbor verification did not complete: " + exception.Message), DefinitionOfDoneFailureClassEnum.Infra);
             }
@@ -98,10 +114,24 @@ namespace Armada.Core.Services
                 sharedHost = HostWideCommandLock.SharedSince(heldLease, shareMark);
                 standaloneLease?.Dispose();
             }
-            elapsed.Stop();
-            TimeSpan commandDuration = TimeSpan.FromMilliseconds(completed.DurationMilliseconds ?? elapsed.ElapsedMilliseconds);
-            return BuildHarborCommandResult(label, command, commandKey, checkId, expectedHead, dock, timeout,
-                failedTestLinePattern, completed, output, sharedHost, commandDuration);
+            TimeSpan? commandDuration = ReadHarborCommandDuration(completed);
+            DefinitionOfDoneResult result = BuildHarborCommandResult(label, command, commandKey, checkId, expectedHead, dock,
+                TimeSpan.FromSeconds(request.Verification.TimeoutSeconds), failedTestLinePattern, completed, output, sharedHost, commandDuration);
+            if (!commandDuration.HasValue)
+            {
+                const string unknown = "Harbor command execution duration: unknown.";
+                result.GateCommandOutput = (result.GateCommandOutput ?? String.Empty) + Environment.NewLine + unknown;
+                _Logging.Warn(_Header + label + " " + unknown);
+            }
+            return result;
+        }
+
+        private static TimeSpan? ReadHarborCommandDuration(HarborWorkspaceOperationResult result)
+        {
+            return result.DurationMilliseconds is long milliseconds && milliseconds >= 0
+                && milliseconds <= TimeSpan.MaxValue.Ticks / TimeSpan.TicksPerMillisecond
+                ? TimeSpan.FromTicks(milliseconds * TimeSpan.TicksPerMillisecond)
+                : null;
         }
     }
 }

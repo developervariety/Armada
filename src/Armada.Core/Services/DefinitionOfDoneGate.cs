@@ -169,6 +169,7 @@ namespace Armada.Core.Services
 
             // The run is registered under the mission so a mission cancel can stop it: the gate observes the
             // run's token, which the cancel trips, and every wait and command below honors that token.
+            using IDisposable executionBudgetScope = EnterExecutionBudgetLedger();
             using (DefinitionOfDoneGateRun run = DefinitionOfDoneGateRuns.Start(mission.Id, token))
             {
                 DefinitionOfDoneResult result;
@@ -210,7 +211,8 @@ namespace Armada.Core.Services
                     // holds the host alone, so neither another command's load nor a lock both take can reach it.
                     if (!run.CancelledByMission
                         && !result.Passed
-                        && result.TimedOut)
+                        && result.TimedOut
+                        && !DeclaredExecutionBudgetFailed)
                     {
                         HostLoadReading atTimeout = _HostLoad.Read();
                         bool overloaded = _HostLoad.RanOverloaded(atTimeout);
@@ -722,6 +724,7 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrWhiteSpace(buildCommand))
             {
+                using IDisposable buildBudget = EnterCommandBudget(mission.VesselId ?? mission.Id, "build", profile);
                 string effectiveBuild = _Settings.RunRestoreBeforeBuild ? EnsureRestore(buildCommand) : buildCommand;
                 DefinitionOfDoneResult buildResult = await RunCommandAsync("build", effectiveBuild, worktreePath, token, limitProfile: profile).ConfigureAwait(false);
                 if (!buildResult.Passed)
@@ -732,6 +735,7 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrWhiteSpace(testCommand))
             {
+                using IDisposable testBudget = EnterCommandBudget(mission.VesselId ?? mission.Id, "unit-test", profile);
                 // A passing build cannot substitute for full test output if only an isolated retry passes.
                 vesselPass = null;
                 // Container pre-flight. Without a runtime, every container-backed fixture fails and the
@@ -1070,8 +1074,10 @@ namespace Armada.Core.Services
                 // provisioned inputs as the first build and test commands.
                 consumerProfile!.EnvironmentVariables = consumerEnvironment;
                 string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(consumerBuild!) : consumerBuild!;
-                DefinitionOfDoneResult buildResult = await RunCommandAsync(label, effective, consumerWorktree, token,
-                    environment: consumerEnvironment, limitProfile: consumerProfile).ConfigureAwait(false);
+                DefinitionOfDoneResult buildResult;
+                using (EnterCommandBudget(consumer.Id, "build", consumerProfile))
+                    buildResult = await RunCommandAsync(label, effective, consumerWorktree, token,
+                        environment: consumerEnvironment, limitProfile: consumerProfile).ConfigureAwait(false);
 
                 if (!buildResult.Passed)
                 {
@@ -1402,6 +1408,7 @@ namespace Armada.Core.Services
                     + "test suite cannot be run for a change that can break it.");
             }
 
+            using IDisposable consumerBudget = EnterCommandBudget(consumer.Id, "unit-test", consumerProfile);
             string selectedTest = testCommand!;
             string logLabel = "consumer-tests (" + consumer.Name + ")";
 
@@ -1975,7 +1982,7 @@ namespace Armada.Core.Services
             return environment;
         }
 
-        private async Task<DefinitionOfDoneResult> RunCommandAsync(
+        private async Task<DefinitionOfDoneResult> RunCommandCoreAsync(
             string label,
             string command,
             string workingDir,
@@ -2004,7 +2011,8 @@ namespace Armada.Core.Services
             // started. Each stream keeps 16 MiB: the failing-test extraction below reads the whole runner output,
             // and a truncated output marks the extracted set as incomplete.
             // The profile the command comes from may set its own limit; every other command uses the global one.
-            TimeSpan commandTimeout = ResolveCommandTimeout(ResolveCommandTimeoutSeconds(limitProfile));
+            GateExecutionBudget? budget = ActiveExecutionBudget;
+            TimeSpan commandTimeout = budget?.Limit ?? ResolveCommandTimeout(ResolveCommandTimeoutSeconds(limitProfile));
             BoundedProcessRequest request = new BoundedProcessRequest(startInfo, commandTimeout)
             {
                 OutputLimitBytes = _CommandOutputLimitBytes,
@@ -2047,12 +2055,18 @@ namespace Armada.Core.Services
             BoundedProcessResult result;
             using (commandLease)
             {
+                if (budget != null)
+                {
+                    if (!budget.TryGetRemaining(out commandTimeout)) return budget.Failure(label);
+                    request.Timeout = commandTimeout;
+                }
                 Stopwatch commandElapsed = Stopwatch.StartNew();
+                bool deadlineFired = false;
                 try
                 {
                     result = await BoundedProcessRunner.RunAsync(request, token).ConfigureAwait(false);
+                    deadlineFired = result.TimedOut;
                     sharedHost = HostWideCommandLock.SharedSince(heldLease, shareMark);
-                    ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, result);
                 }
                 catch (Exception ex)
                 {
@@ -2065,7 +2079,15 @@ namespace Armada.Core.Services
                         BuildDiagnosticText(message),
                         DefinitionOfDoneFailureClassEnum.Infra);
                 }
+                finally
+                {
+                    budget?.RecordNativeExecution(commandElapsed.Elapsed, deadlineFired);
+                }
             }
+            if (budget?.HasFailure == true && !result.Cancelled)
+                ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, result.Duration, ArmadaMetrics.OutcomeTimeout);
+            else
+                ArmadaMetrics.RecordValidation(ArmadaMetrics.ValidationDefinitionOfDone, result);
 
             if (result.KillError != null)
                 _Logging.Warn(_Header + "could not kill command process: " + result.KillError);
