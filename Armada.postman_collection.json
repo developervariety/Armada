@@ -12451,6 +12451,37 @@
 						},
 						"description": "Requires Harbor: served only when Harbor.Enabled and WebSocketEnabled are set. Stops a Harbor job on its runner, or releases it when the runner is disconnected. Requires a tenant administrator."
 					}
+				},
+				{
+					"name": "Confirm Harbor Job Stopped",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ExpectedRevision\": 1,\n  \"EnrollmentGeneration\": 1,\n  \"RunnerProcessId\": 12345,\n  \"RunnerProcessStartedUtc\": \"2026-10-23T12:00:00Z\",\n  \"Evidence\": \"operator-verified-process-exit\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/harbor-runners/jobs/{{harborJobId}}/confirm-stopped",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"harbor-runners",
+								"jobs",
+								"{{harborJobId}}",
+								"confirm-stopped"
+							]
+						},
+						"description": "Confirms that an orphaned Harbor runner process stopped after the operator verifies the exact job revision, enrollment generation, process ID and start time. Requires a global administrator. This recovery route is available when Harbor linking is disabled."
+					}
 				}
 			]
 		}

@@ -1008,8 +1008,8 @@ namespace Armada.Server
                     throw new InvalidOperationException("harbor_recovery_initialization_failed");
             }
 
-            // A job the previous process accepted and never finished is held as uncertain until an
-            // authenticated runner reconnects or an operator confirms its stop.
+            // Record unfinished background requests as Lost before accepting new requests, so an
+            // accepted background job remains discoverable after restart.
             int lostJobs = await _LongRunningJobs.RecoverInterruptedJobsAsync().ConfigureAwait(false);
             if (lostJobs > 0)
                 _Logging.Warn(_Header + lostJobs + " background job" + (lostJobs == 1 ? " was" : "s were")
@@ -1318,7 +1318,7 @@ namespace Armada.Server
                     _SettingsWatcher?.Dispose();
                     _SettingsWatcher = null;
                 });
-                _AgentLifecycle.SetPreserveHarborJobsOnShutdown(true);
+                _AgentLifecycle?.SetPreserveHarborJobsOnShutdown(true);
                 // Kill agent subprocesses so none survive as orphans after the Admiral exits.
                 // Harbor jobs are detached by the lifecycle handler and remain fenced for recovery.
                 // This runs before the token is cancelled and the database is disposed (it needs both).
@@ -1481,8 +1481,8 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Periodically lose the jobs of runners that stayed disconnected past the grace period, so their missions
-        /// read as a dead process and recover like one.
+        /// Mark jobs uncertain when their runners stay disconnected past the grace period. The job and mission
+        /// fences remain until the runner proves its state or an administrator confirms its stop.
         /// </summary>
         private void StartHarborJobExpiry(Armada.Core.Harbor.HarborJobCoordinator coordinator)
         {
@@ -1505,7 +1505,7 @@ namespace Armada.Server
                         TimeSpan grace = TimeSpan.FromSeconds(_Settings.Harbor.DisconnectedJobGraceSeconds);
                         int expired = await coordinator.ExpireDetachedRunnersAsync(grace, DateTime.UtcNow).ConfigureAwait(false);
                         if (expired > 0)
-                            _Logging.Warn(_Header + expired + " Harbor job(s) lost: runner disconnected longer than " + grace.TotalSeconds + "s");
+                            _Logging.Warn(_Header + expired + " Harbor job(s) uncertain: runner disconnected longer than " + grace.TotalSeconds + "s");
                     }
                     catch (Exception ex)
                     {

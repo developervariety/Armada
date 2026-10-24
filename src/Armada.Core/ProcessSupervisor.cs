@@ -48,7 +48,6 @@ namespace Armada.Core
         /// <param name="processId">Synthetic process identifier.</param>
         public static void RegisterSyntheticProcess(int processId)
         {
-            if (processId <= SyntheticProcessIdFloor) throw new ArgumentOutOfRangeException(nameof(processId));
             if (!_SyntheticProcesses.TryAdd(processId, new SyntheticProcess(null)))
                 throw new InvalidOperationException("synthetic_process_id_already_registered");
         }
@@ -62,7 +61,6 @@ namespace Armada.Core
         public static void RegisterSyntheticProcess(int processId, Func<CancellationToken, Task> stop)
         {
             if (stop == null) throw new ArgumentNullException(nameof(stop));
-            if (processId <= SyntheticProcessIdFloor) throw new ArgumentOutOfRangeException(nameof(processId));
             if (!_SyntheticProcesses.TryAdd(processId, new SyntheticProcess(stop)))
                 throw new InvalidOperationException("synthetic_process_id_already_registered");
         }
