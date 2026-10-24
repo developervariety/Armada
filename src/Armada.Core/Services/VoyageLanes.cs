@@ -228,6 +228,52 @@ namespace Armada.Core.Services
 
         #endregion
 
+        // Share parallel-step identity with lane resolution. Only strict ancestry can
+        // establish an older step; members of a cycle retain the timestamp fallback.
+        internal static HashSet<string> StrictAncestorsOf(List<Mission> missions, List<Mission> candidates)
+        {
+            Dictionary<string, Mission> byId = missions
+                .Where(mission => !String.IsNullOrWhiteSpace(mission.Id))
+                .GroupBy(mission => mission.Id, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            Dictionary<string, Mission> steps = byId.Values
+                .GroupBy(mission => StepKey(mission, byId), StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+            Dictionary<string, HashSet<string>> ancestorsOf = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            foreach (string step in steps.Keys)
+            {
+                HashSet<string> ancestors = new HashSet<string>(StringComparer.Ordinal);
+                string current = step;
+                while (true)
+                {
+                    string? parentId = ParentId(steps[current], byId);
+                    if (parentId == null) break;
+                    string parent = StepKey(byId[parentId], byId);
+                    if (String.Equals(parent, current, StringComparison.Ordinal) || !ancestors.Add(parent)) break;
+                    current = parent;
+                }
+                ancestorsOf[step] = ancestors;
+            }
+
+            HashSet<string> result = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Mission candidate in candidates)
+            {
+                string step = StepKey(candidate, byId);
+                if (!ancestorsOf.ContainsKey(step)) continue;
+                foreach (Mission descendant in candidates)
+                {
+                    string later = StepKey(descendant, byId);
+                    if (!ancestorsOf.TryGetValue(later, out HashSet<string>? ancestors)) continue;
+                    if (ancestors.Contains(step) && !ancestorsOf[step].Contains(later))
+                    {
+                        result.Add(candidate.Id);
+                        break;
+                    }
+                }
+            }
+            return result;
+        }
+
         #region Private-Methods
 
         private static string? ParentId(Mission mission, Dictionary<string, Mission> byId)

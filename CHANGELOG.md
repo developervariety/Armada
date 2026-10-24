@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Check work selection follows dependency order before update timestamps.
+  Completing earlier stages after landing no longer replaces final-tip passes
+  with checks for an ancestor commit. Supersession also rechecks durable voyage
+  status before changing records, including after waiting for a lane lock.
+
 - Missions routed to a full Harbor wait before dock provisioning with a named
   assignment hold. A capacity race at launch returns to the same wait. Explicit
   runner routing, owner checks and the launch-time capacity limit remain in force.
