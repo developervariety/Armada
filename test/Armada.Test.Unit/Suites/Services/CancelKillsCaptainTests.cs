@@ -204,7 +204,10 @@ namespace Armada.Test.Unit.Suites.Services
                     captain.CurrentMissionId = mission.Id;
                     await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
 
-                    RecordingRecallAdmiralDouble admiralDouble = new RecordingRecallAdmiralDouble(testDb.Driver);
+                    RecordingRecallAdmiralDouble admiralDouble = new RecordingRecallAdmiralDouble(testDb.Driver)
+                    {
+                        FailActiveMissionOnRecall = true
+                    };
 
                     Func<JsonElement?, Task<object>>? cancelHandler = null;
                     McpMissionTools.Register(
@@ -221,6 +224,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(admiralDouble.RecalledCaptainIds.Contains(captain.Id),
                         "The running mission's captain must be recalled, which stops its agent process");
+                    AssertTrue(admiralDouble.MissionsFailedDuringRecall.Contains(mission.Id),
+                        "Recall must have persisted its normal active-mission Failed state before cancellation finishes");
                     Mission? storedMission = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Cancelled, storedMission!.Status, "the mission is cancelled");
                 }
@@ -236,6 +241,8 @@ namespace Armada.Test.Unit.Suites.Services
         {
             private readonly DatabaseDriver _Database;
             public HashSet<string> RecalledCaptainIds { get; } = new HashSet<string>();
+            public bool FailActiveMissionOnRecall { get; set; }
+            public HashSet<string> MissionsFailedDuringRecall { get; } = new HashSet<string>();
 
             public RecordingRecallAdmiralDouble(DatabaseDriver database)
             {
@@ -257,6 +264,21 @@ namespace Armada.Test.Unit.Suites.Services
                 Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
                 if (captain != null)
                 {
+                    // CaptainService.RecallAsync records an interrupted Assigned/InProgress
+                    // mission as Failed before the supported operator cancellation returns.
+                    if (FailActiveMissionOnRecall && captain.CurrentMissionId != null)
+                    {
+                        Mission? active = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
+                        if (active != null && (active.Status == MissionStatusEnum.Assigned || active.Status == MissionStatusEnum.InProgress))
+                        {
+                            active.Status = MissionStatusEnum.Failed;
+                            active.ProcessId = null;
+                            active.CompletedUtc = DateTime.UtcNow;
+                            active.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.Missions.UpdateAsync(active, token).ConfigureAwait(false);
+                            MissionsFailedDuringRecall.Add(active.Id);
+                        }
+                    }
                     captain.State = CaptainStateEnum.Idle;
                     captain.CurrentMissionId = null;
                     captain.CurrentDockId = null;

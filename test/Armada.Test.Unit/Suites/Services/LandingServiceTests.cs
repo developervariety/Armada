@@ -1028,6 +1028,9 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
+                await AssertCancellationDuringValidationAsync("none").ConfigureAwait(false);
+                await AssertCancellationDuringValidationAsync("voyage").ConfigureAwait(false);
+                await AssertCancellationDuringValidationAsync("mission").ConfigureAwait(false);
             });
 
             // A Check that already passed at exactly the candidate commit with the same command decides the
@@ -1167,6 +1170,93 @@ namespace Armada.Test.Unit.Suites.Services
         private static string IntegrationWorktreePath(ArmadaSettings settings, Mission mission)
         {
             return Path.Combine(settings.DocksDirectory, "_integration", mission.Id);
+        }
+
+        private async Task AssertCancellationDuringValidationAsync(string cancellation)
+        {
+            string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_cancel_" + Guid.NewGuid().ToString("N"));
+            string releaseFile = Path.Combine(rootDir, "release-check");
+            Task<bool>? landing = null;
+            try
+            {
+                IntegrationFixture fixture = await CreateIntegrationFixtureAsync(rootDir).ConfigureAwait(false);
+                // The fixture's origin is a working repository. Permit a real push so cancellation
+                // cannot appear safe merely because that origin rejects updating its checked-out branch.
+                await RunGitAsync(fixture.SourceDir, "config", "receive.denyCurrentBranch", "ignore").ConfigureAwait(false);
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                    settings.MaxLandingRetries = 2;
+                    LandingService service = CreateValidatedService(testDb.Driver, settings);
+                    Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
+                    vessel.LandingMode = null;
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    await CreateCheckProfileAsync(testDb.Driver, vessel, fixture).ConfigureAwait(false);
+                    Voyage voyage = new Voyage("Cancellation during integration validation") { Status = VoyageStatusEnum.InProgress };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    Mission mission = CreateMission("msn_cancel_" + Guid.NewGuid().ToString("N"));
+                    mission.VesselId = vessel.Id;
+                    mission.VoyageId = cancellation == "mission" ? null : voyage.Id;
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.Persona = "Worker";
+                    mission.BranchName = fixture.LeftBranch;
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    string before = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    string remoteBefore = (await RunGitAsync(fixture.SourceDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    string sourceTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.LeftBranch).ConfigureAwait(false)).Trim();
+                    await File.WriteAllTextAsync(fixture.HookFile, "while [ ! -f " + releaseFile + " ]; do sleep 0.02; done\n").ConfigureAwait(false);
+                    landing = service.MergeInDedicatedWorktreeAsync(vessel, mission, "main", fixture.LeftBranch, "Merge armada mission");
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+                    while (CountCheckRuns(fixture) == 0 && !landing.IsCompleted && DateTime.UtcNow < deadline)
+                        await Task.Delay(10).ConfigureAwait(false);
+                    AssertEqual(1, CountCheckRuns(fixture), "the actual integration command entered its held check");
+                    AssertFalse(landing.IsCompleted, "validation is still held before cancellation");
+                    if (cancellation == "voyage")
+                    {
+                        await VoyageCancellation.CancelVoyageAsync(testDb.Driver, voyage, "operator cancel during validation")
+                            .WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                        AssertEqual(VoyageStatusEnum.Cancelled, (await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!.Status,
+                            "supported cancellation completes durably while the integration command remains held");
+                    }
+                    else if (cancellation == "mission")
+                    {
+                        Mission stored = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        await MissionCancellation.CancelAsync(testDb.Driver, stored, MissionCancellation.OperatorCancelReason, null)
+                            .WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Cancelled, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.Status,
+                            "standalone mission cancellation completes before check release");
+                    }
+                    await File.WriteAllTextAsync(releaseFile, "release").ConfigureAwait(false);
+                    bool landed = await landing.WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+                    List<IntegrationValidationResult> evidence = await ReadMissionEvidenceAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                    AssertEqual(1, evidence.Count, "the held integration candidate has one recorded verdict");
+                    AssertEqual(IntegrationValidationOutcomeEnum.Passed, evidence[0].Outcome,
+                        "the command really passed after cancellation; refusal must come from publication admission");
+                    AssertEqual(1, evidence[0].CheckRunIds.Count, "one real Check decided the candidate");
+                    CheckRun? check = await testDb.Driver.CheckRuns.ReadAsync(evidence[0].CheckRunIds[0]).ConfigureAwait(false);
+                    AssertNotNull(check, "the integration Check is persisted");
+                    AssertEqual(CheckRunStatusEnum.Passed, check!.Status, "the actual held Check completed green");
+                    string targetAfter = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    string remoteAfter = (await RunGitAsync(fixture.SourceDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    AssertEqual(cancellation == "none", landed, "only the uncancelled candidate may publish after a green integration check");
+                    AssertEqual(cancellation == "none" ? sourceTip : before, targetAfter, "cancelled work cannot advance the bare target");
+                    AssertEqual(cancellation == "none" ? sourceTip : remoteBefore, remoteAfter, "cancelled work cannot advance the remote target");
+                    AssertEqual(sourceTip, (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.LeftBranch).ConfigureAwait(false)).Trim(),
+                        "the source branch remains available for recovery");
+                    AssertEqual(1, CountCheckRuns(fixture), "cancellation must not retry the completed integration suite");
+                    AssertEqual(0, mission.LandingRetryCount, "cancellation is not a landing failure retry");
+                    Mission after = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(cancellation == "mission" ? MissionStatusEnum.Cancelled : MissionStatusEnum.WorkProduced, after.Status,
+                        "voyage cancellation preserves produced work and standalone cancellation remains terminal");
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(rootDir)) await File.WriteAllTextAsync(releaseFile, "release").ConfigureAwait(false);
+                if (landing != null) { try { await landing.WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false); } catch { } }
+                try { Directory.Delete(rootDir, true); } catch { }
+            }
         }
 
         private static LandingService CreateValidatedService(SqliteDatabaseDriver database, ArmadaSettings settings)
