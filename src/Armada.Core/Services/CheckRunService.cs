@@ -10,6 +10,7 @@ namespace Armada.Core.Services
     using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using SyslogLogging;
