@@ -2718,6 +2718,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 captain.CurrentMissionId = mission.Id;
                 captain = await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                using DefinitionOfDoneGateRun liveGate = DefinitionOfDoneGateRuns.Start(mission.Id, CancellationToken.None);
                 bool recalledWhileActive = false;
 
                 await VoyageCancellation.CancelVoyageAsync(
@@ -2736,6 +2737,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(recalledWhileActive,
                     "Cleanup must invoke the process-stop seam before it marks the mission terminal or captain idle.");
+                AssertTrue(liveGate.Token.IsCancellationRequested, "A successful voyage cancel also stops its active gate");
                 Mission storedMission = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
                 Captain storedCaptain = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
                 AssertEqual(MissionStatusEnum.Cancelled, storedMission.Status);
@@ -2813,6 +2815,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = MissionStatusEnum.InProgress
                 }).ConfigureAwait(false);
 
+                using DefinitionOfDoneGateRun liveGate = DefinitionOfDoneGateRuns.Start(mission.Id, CancellationToken.None);
                 Exception? failure = null;
                 try
                 {
@@ -2829,6 +2832,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
 
                 AssertNotNull(failure, "A failed process recall must escape cleanup.");
+                AssertFalse(liveGate.Token.IsCancellationRequested, "Recall failure must not stop the still-active voyage gate");
                 AssertContains("stop failed", failure!.Message);
                 Voyage storedVoyage = (await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!;
                 Mission storedMission = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;

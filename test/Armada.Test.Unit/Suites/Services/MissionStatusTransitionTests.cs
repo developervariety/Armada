@@ -298,6 +298,60 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(1, evaluations.Objects.Count, "One evaluation is recorded for the cancelled gate");
                         AssertContains("\"Outcome\":\"Cancelled\"", evaluations.Objects[0].Payload ?? "",
                             "The recorded evaluation names the cancel");
+
+                        // A voyage can end after its captain exits, while the produced mission's gate
+                        // waits behind another suite. Keep that outcome, but never run obsolete work.
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Queued gate voyage")
+                        {
+                            Status = VoyageStatusEnum.InProgress
+                        });
+                        produced.Status = MissionStatusEnum.WorkProduced;
+                        produced.VoyageId = voyage.Id;
+                        await testDb.Driver.Missions.UpdateAsync(produced);
+                        WorkflowProfile profile = (await testDb.Driver.WorkflowProfiles.EnumerateAsync())
+                            .Single(item => item.VesselId == mission.VesselId);
+                        profile.BuildCommand = "echo ran > voyage-gate-started.txt";
+                        await testDb.Driver.WorkflowProfiles.UpdateAsync(profile);
+                        string commandMarker = Path.Combine(worktreePath, "voyage-gate-started.txt");
+                        using DefinitionOfDoneGateRun unrelated = DefinitionOfDoneGateRuns.Start(
+                            "unrelated-" + Guid.NewGuid().ToString("N"), CancellationToken.None);
+                        using CancellationTokenSource heldWait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                        using IDisposable held = await HostWideCommandLock.AcquireAsync(
+                            "voyage-cancel-fixture", "Hold the vessel suite before cancellation", mission.VesselId, heldWait.Token);
+                        Task<DefinitionOfDoneResult>? queued = null;
+                        try
+                        {
+                            queued = missionService.DefinitionOfDone.EvaluateAsync(produced, entities.Dock);
+                            AssertTrue(DefinitionOfDoneGateRuns.IsRunning(produced.Id), "The queued evaluation is registered");
+                            await VoyageCancellation.CancelVoyageAsync(testDb.Driver, voyage, "operator cancel");
+                            AssertFalse(unrelated.Token.IsCancellationRequested, "Another mission's gate keeps running");
+                            AssertEqual(MissionStatusEnum.WorkProduced,
+                                (await testDb.Driver.Missions.ReadAsync(produced.Id))!.Status,
+                                "Voyage cancellation preserves produced work for recovery");
+
+                            foreach (bool lateRegistration in new[] { false, true })
+                            {
+                                if (lateRegistration)
+                                    queued = missionService.DefinitionOfDone.EvaluateAsync(produced, entities.Dock);
+                                Task ended = await Task.WhenAny(queued, Task.Delay(TimeSpan.FromSeconds(3)));
+                                AssertTrue(ended == queued, lateRegistration
+                                    ? "A gate registered after voyage cancellation must stop before waiting"
+                                    : "Voyage cancellation must remove the queued gate before the held slot is released");
+                                bool cancelled = false;
+                                try { await queued; }
+                                catch (DefinitionOfDoneGateCancelledException) { cancelled = true; }
+                                AssertTrue(cancelled, "Obsolete work has a cancellation outcome, never pass or fail");
+                                AssertFalse(File.Exists(commandMarker), "The queued command must never start");
+                                AssertFalse(DefinitionOfDoneGateRuns.IsRunning(produced.Id), "The cancelled evaluation leaves the registry");
+                            }
+                        }
+                        finally
+                        {
+                            DefinitionOfDoneGateRuns.Cancel(produced.Id);
+                            if (queued != null)
+                                await Task.WhenAny(queued, Task.Delay(TimeSpan.FromSeconds(5)));
+                        }
+
                     }
                     finally
                     {
