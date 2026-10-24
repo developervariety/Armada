@@ -36,12 +36,14 @@ namespace Armada.Server.RuntimeTools
         /// Run the Codex CLI with the given arguments and capture its output.
         /// </summary>
         /// <param name="arguments">Arguments (for example "mcp", "list", "--json").</param>
+        /// <param name="executor">Executor that targets the host where codex runs (a Harbor in split mode), or null to run
+        /// it on this host.</param>
         /// <param name="workingDirectory">Working directory, or null.</param>
         /// <param name="timeout">Time allowed before the process is killed.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Exit code and output.</returns>
         /// <exception cref="TimeoutException">Thrown when the process does not exit within the timeout.</exception>
-        Task<RuntimeCommandResult> RunCodexAsync(List<string> arguments, string? workingDirectory, TimeSpan timeout, CancellationToken token = default);
+        Task<RuntimeCommandResult> RunCodexAsync(List<string> arguments, IHostCommandExecutor? executor, string? workingDirectory, TimeSpan timeout, CancellationToken token = default);
 
         /// <summary>
         /// Read the best-effort, display-only built-in tool inventory for a runtime.

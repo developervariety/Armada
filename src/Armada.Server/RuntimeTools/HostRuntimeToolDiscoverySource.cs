@@ -60,9 +60,33 @@ namespace Armada.Server.RuntimeTools
         }
 
         /// <inheritdoc />
-        public async Task<RuntimeCommandResult> RunCodexAsync(List<string> arguments, string? workingDirectory, TimeSpan timeout, CancellationToken token = default)
+        public async Task<RuntimeCommandResult> RunCodexAsync(List<string> arguments, IHostCommandExecutor? executor, string? workingDirectory, TimeSpan timeout, CancellationToken token = default)
         {
             if (arguments == null) throw new ArgumentNullException(nameof(arguments));
+
+            if (executor != null)
+            {
+                HostCommandResult remote = await executor.RunAsync(new HostCommandRequest
+                {
+                    Executable = "codex",
+                    WorkingDirectory = workingDirectory ?? String.Empty,
+                    Arguments = new List<string>(arguments),
+                    TimeoutMs = (int)timeout.TotalMilliseconds,
+                    Label = "codex " + String.Join(" ", arguments)
+                }, token).ConfigureAwait(false);
+
+                if (remote.TimedOut)
+                {
+                    throw new TimeoutException("codex timed out after " + timeout.TotalSeconds.ToString("0") + " seconds.");
+                }
+
+                return new RuntimeCommandResult
+                {
+                    ExitCode = remote.ExitCode,
+                    Stdout = (remote.StandardOutput ?? String.Empty).Trim(),
+                    Stderr = (remote.StandardError ?? String.Empty).Trim()
+                };
+            }
 
             string command = ResolveCodexCommand();
             ProcessStartInfo startInfo = new ProcessStartInfo

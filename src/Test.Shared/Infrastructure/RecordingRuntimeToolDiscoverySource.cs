@@ -99,7 +99,7 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <inheritdoc />
-        public Task<RuntimeCommandResult> RunCodexAsync(List<string> arguments, string? workingDirectory, TimeSpan timeout, CancellationToken token = default)
+        public Task<RuntimeCommandResult> RunCodexAsync(List<string> arguments, IHostCommandExecutor? executor, string? workingDirectory, TimeSpan timeout, CancellationToken token = default)
         {
             Interlocked.Increment(ref _CodexRuns);
             return Task.FromResult(new RuntimeCommandResult { ExitCode = 0, Stdout = "[]" });

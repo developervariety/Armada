@@ -78,7 +78,7 @@ namespace Armada.Server
             switch (captain.Runtime)
             {
                 case AgentRuntimeEnum.Codex:
-                    return await DescribeCodexAsync(contextDirectory, token).ConfigureAwait(false);
+                    return await DescribeCodexAsync(captain, database, contextDirectory, token).ConfigureAwait(false);
                 case AgentRuntimeEnum.ClaudeCode:
                     return await DescribeConfiguredRuntimeAsync(
                         "Claude Code",
@@ -144,28 +144,42 @@ namespace Armada.Server
 
         #region Private-Methods
 
-        private async Task<RuntimeToolCatalogSnapshot> DescribeCodexAsync(string? contextDirectory, CancellationToken token)
+        private async Task<RuntimeToolCatalogSnapshot> DescribeCodexAsync(Captain captain, DatabaseDriver database, string? contextDirectory, CancellationToken token)
         {
             RuntimeToolCatalogSnapshot snapshot = new RuntimeToolCatalogSnapshot
             {
                 AvailabilitySource = "codex-mcp-probe"
             };
 
+            // In split mode codex and its config live on the Harbor that runs the captain, not on the Admiral (which, in a
+            // container, has neither), so 'codex mcp list' runs there over the link.
+            RuntimeHostContext host = await ResolveHostContextAsync(captain, database, token).ConfigureAwait(false);
+            if (host.IsRemote)
+            {
+                snapshot.AvailabilitySource = "codex-harbor-probe";
+            }
+
             try
             {
-                List<RuntimeMcpServerDefinition> servers = await GetCodexServersAsync(contextDirectory, token).ConfigureAwait(false);
+                List<RuntimeMcpServerDefinition> servers = await GetCodexServersAsync(
+                    host.IsRemote ? host.WorkingDirectory : contextDirectory,
+                    host.IsRemote ? host.Executor : null,
+                    token).ConfigureAwait(false);
                 return await ProbeConfiguredSourcesAsync(
                     "Codex",
                     servers,
                     null,
                     "Codex built-in tools are not currently enumerated by Armada.",
                     snapshot,
-                    token).ConfigureAwait(false);
+                    token,
+                    host.IsRemote ? host.HarborId : null).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 snapshot.AvailabilityVerified = false;
-                snapshot.Summary = "Armada could not inspect Codex MCP servers for this captain: " + ex.Message;
+                snapshot.Summary = host.IsRemote
+                    ? "Armada could not inspect Codex MCP servers on Harbor " + host.HarborId + " for this captain: " + ex.Message
+                    : "Armada could not inspect Codex MCP servers for this captain: " + ex.Message;
                 return snapshot;
             }
         }
@@ -214,7 +228,7 @@ namespace Armada.Server
             // run 'mux probe' on that Harbor over its link (via the remote executor) so the probe reflects the
             // host where mux, its config directory, and its provider auth live -- not the Admiral, which in
             // split mode may have neither mux installed nor the captain's config.
-            RuntimeHostContext host = await ResolveHostContextAsync(captain, database).ConfigureAwait(false);
+            RuntimeHostContext host = await ResolveHostContextAsync(captain, database, token).ConfigureAwait(false);
 
             // The model-endpoint probe ('mux probe --require-tools') performs a live LLM inference round-trip
             // and can be slow or fail for reasons entirely unrelated to MCP connectivity: a cold model, network
@@ -317,10 +331,11 @@ namespace Armada.Server
         /// <summary>
         /// Resolve where a captain's runtime CLI should be executed for probing. When the captain's current
         /// dock is owned by a Harbor that is currently linked, return a remote executor targeting that Harbor
-        /// (so the probe runs on the Harbor host) plus the dock's worktree path. Otherwise return a local
-        /// executor. The local path preserves the standalone behavior exactly.
+        /// (so the probe runs on the Harbor host) plus the dock's worktree path. An idle captain probes on the
+        /// Harbor its launches would route to: one the captain's owner runs, else any eligible one with its
+        /// runtime. With no Harbor connected, return a local executor, preserving the standalone behavior.
         /// </summary>
-        private async Task<RuntimeHostContext> ResolveHostContextAsync(Captain captain, DatabaseDriver database)
+        private async Task<RuntimeHostContext> ResolveHostContextAsync(Captain captain, DatabaseDriver database, CancellationToken token)
         {
             if (_HarborConnections != null && !String.IsNullOrWhiteSpace(captain.CurrentDockId))
             {
@@ -336,6 +351,37 @@ namespace Armada.Server
                         IsRemote = true,
                         HarborId = dock.HarborId
                     };
+                }
+            }
+
+            if (_HarborConnections != null && _HarborConnections.HasConnectedHarbor())
+            {
+                List<HarborRoutingRequest> requests = new List<HarborRoutingRequest>();
+                if (!String.IsNullOrWhiteSpace(captain.UserId))
+                {
+                    requests.Add(new HarborRoutingRequest
+                    {
+                        RequestedRuntime = captain.Runtime.ToString(),
+                        RestrictToOwner = true,
+                        OwnerUserId = captain.UserId
+                    });
+                }
+
+                requests.Add(new HarborRoutingRequest { RequestedRuntime = captain.Runtime.ToString() });
+
+                foreach (HarborRoutingRequest request in requests)
+                {
+                    HarborRoutingDecision decision = await _HarborConnections.SelectHarborAsync(captain.TenantId, request, token).ConfigureAwait(false);
+                    if (decision.Success && !String.IsNullOrWhiteSpace(decision.HarborId))
+                    {
+                        return new RuntimeHostContext
+                        {
+                            Executor = new RemoteHostCommandExecutor(_HarborConnections, decision.HarborId!),
+                            WorkingDirectory = null,
+                            IsRemote = true,
+                            HarborId = decision.HarborId
+                        };
+                    }
                 }
             }
 
@@ -408,7 +454,8 @@ namespace Armada.Server
         private async Task ProbeServersConcurrentlyAsync(
             List<RuntimeMcpServerDefinition> servers,
             RuntimeToolCatalogSnapshot snapshot,
-            CancellationToken token)
+            CancellationToken token,
+            string? harborId = null)
         {
             List<Task<List<CaptainToolSummary>>> tasks = new List<Task<List<CaptainToolSummary>>>();
 
@@ -423,7 +470,16 @@ namespace Armada.Server
                 }
 
                 RuntimeMcpServerDefinition capturedServer = server;
-                if (_McpPort > 0 && ArmadaMcpConfigBuilder.IsArmadaMcpUrl(server.Url, _McpPort, _McpHost))
+                bool isArmada = _McpPort > 0 && ArmadaMcpConfigBuilder.IsArmadaMcpUrl(server.Url, _McpPort, _McpHost);
+                if (harborId != null && !isArmada && IsHostLocalServer(server))
+                {
+                    // A stdio or loopback server read from a Harbor's config runs on that Harbor's host; launching or
+                    // connecting to it from the Admiral would reach the wrong machine.
+                    serverSummary.Status = "Runs on Harbor " + harborId + "; not enumerated over the Harbor link";
+                    continue;
+                }
+
+                if (isArmada)
                 {
                     // localhost, 127.0.0.1 and ::1 on the MCP port are the same Armada server. The listener only answers
                     // the host it is bound with, so probe the entry at that host; an entry written with localhost is
@@ -469,12 +525,13 @@ namespace Armada.Server
             RuntimeBuiltInToolInventory? builtInInventory,
             string builtInFallbackNote,
             RuntimeToolCatalogSnapshot snapshot,
-            CancellationToken token)
+            CancellationToken token,
+            string? harborId = null)
         {
             snapshot.AvailabilityVerified = true;
             ApplyRuntimeBuiltInInventory(snapshot, builtInInventory);
 
-            await ProbeServersConcurrentlyAsync(servers, snapshot, token).ConfigureAwait(false);
+            await ProbeServersConcurrentlyAsync(servers, snapshot, token, harborId).ConfigureAwait(false);
 
             snapshot.ConfiguredServerCount = snapshot.Servers.Count;
             snapshot.ReachableServerCount = snapshot.Servers.Count(s => s.Reachable);
@@ -505,6 +562,15 @@ namespace Armada.Server
                     snapshot.ReachableServerCount + " responded and exposed " + snapshot.Tools.Count + " tool(s). " + builtInNote;
             }
 
+            if (harborId != null)
+            {
+                int harborLocal = snapshot.Servers.Count(s => s.Status.StartsWith("Runs on Harbor", StringComparison.Ordinal));
+                snapshot.Summary = runtimeName + " runs on Harbor " + harborId + ". " + snapshot.Summary +
+                    (harborLocal > 0
+                        ? " " + harborLocal + " stdio or loopback MCP server(s) run on the Harbor host and are not enumerated over the Harbor link yet."
+                        : String.Empty);
+            }
+
             return snapshot;
         }
 
@@ -526,10 +592,11 @@ namespace Armada.Server
                     .OrderBy(tool => tool.Name, StringComparer.OrdinalIgnoreCase));
         }
 
-        private async Task<List<RuntimeMcpServerDefinition>> GetCodexServersAsync(string? contextDirectory, CancellationToken token)
+        private async Task<List<RuntimeMcpServerDefinition>> GetCodexServersAsync(string? contextDirectory, IHostCommandExecutor? executor, CancellationToken token)
         {
             RuntimeCommandResult listResult = await _Discovery.RunCodexAsync(
                 new List<string> { "mcp", "list", "--json" },
+                executor,
                 contextDirectory,
                 TimeSpan.FromSeconds(15),
                 token).ConfigureAwait(false);
@@ -550,6 +617,7 @@ namespace Armada.Server
             {
                 RuntimeCommandResult getResult = await _Discovery.RunCodexAsync(
                     new List<string> { "mcp", "get", listedServer.Name, "--json" },
+                    executor,
                     contextDirectory,
                     TimeSpan.FromSeconds(15),
                     token).ConfigureAwait(false);
@@ -829,6 +897,13 @@ namespace Armada.Server
             }
 
             return String.Empty;
+        }
+
+        private static bool IsHostLocalServer(RuntimeMcpServerDefinition server)
+        {
+            if (String.IsNullOrWhiteSpace(server.Url)) return true;
+            if (!Uri.TryCreate(server.Url, UriKind.Absolute, out Uri? uri)) return true;
+            return ArmadaMcpConfigBuilder.IsLoopbackHost(uri.Host);
         }
 
         private static CaptainToolServerSummary CreateConfiguredServerSummary(RuntimeMcpServerDefinition server)
