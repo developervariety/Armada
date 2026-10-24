@@ -95,8 +95,12 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("[Session A] hold off regen slice", block);
                 AssertContains("[armada]", block);
 
-                string description = "base brief\n\nmore context\n\n" + block;
-                string cleaned = MissionService.RemoveVoyageBoardNotesSection(description);
+                string id = "msn_board_notes";
+                string outside = "\nplain appended operator requirement  \n";
+                string description = "base brief\n\nmore context\n\n---\n" + MissionService.BuildHandoffMarker(id)
+                    + "\n" + block + "\n<!-- ARMADA:HANDOFF-END:" + id + " -->" + outside;
+                string cleaned = MissionService.StripHandoffBlock(description, id);
+                AssertTrue(cleaned.EndsWith(outside, StringComparison.Ordinal), "refreshing owned board notes must not remove the operator tail");
                 AssertTrue(!cleaned.Contains("Board notes on this voyage"), "prior section must be stripped");
                 AssertContains("base brief", cleaned);
                 AssertContains("more context", cleaned);

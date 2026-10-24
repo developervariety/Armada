@@ -630,6 +630,17 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/worker-idem").ConfigureAwait(false);
                     Mission testEngineer = await CreateDependentAsync(
                         testDb.Driver, vessel, "TestEngineer", worker.Id, "Original brief.").ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("operator-note-reprepare")
+                    {
+                        Status = VoyageStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+                    worker.VoyageId = voyage.Id;
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    testEngineer.VoyageId = voyage.Id;
+                    testEngineer = await testDb.Driver.Missions.UpdateAsync(testEngineer).ConfigureAwait(false);
+                    Armada.Server.CoordinationService board = new Armada.Server.CoordinationService(CreateLogging(), testDb.Driver);
+                    await board.PostMessageAsync(Armada.Server.CoordinationService.DefaultRoomKey,
+                        CoordinationAuthorTypeEnum.Operator, "operator", "Operator", "OWNED-BOARD-NOTE", voyageId: voyage.Id).ConfigureAwait(false);
                     // No captain exists, so assignment cannot complete after the self-heal.
 
                     bool firstAssigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
@@ -651,6 +662,45 @@ namespace Armada.Test.Unit.Suites.Services
                         "A second assignment pass must not re-run the handoff or double-inject context.");
                     AssertEqual(1, CountOccurrences(afterSecond.Description ?? "", "## Prior Stage Output"),
                         "Prior-stage context must not be duplicated on a re-attempt.");
+
+                    string requirement = "\nopaque operator requirement: retain both deadline assertions  \n";
+                    afterSecond.Description += requirement;
+                    afterSecond.BranchName = null; // Simulate a missed handoff, not an already prepared retry.
+                    afterSecond = await testDb.Driver.Missions.UpdateAsync(afterSecond).ConfigureAwait(false);
+                    await missions.TryAssignAsync(afterSecond, vessel).ConfigureAwait(false);
+                    Mission preparedAgain = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", requirement), "real handoff preparation preserves the operator append exactly once");
+                    AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", MissionService.BuildHandoffMarker(worker.Id)), "new closed handoff replacement remains idempotent");
+                    string close = "<!-- ARMADA:HANDOFF-END:" + worker.Id + " -->";
+                    AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", "OWNED-BOARD-NOTE"), "owned board notes refresh once with their handoff");
+                    AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", close), "production emits one closing boundary");
+                    AssertTrue(preparedAgain.Description!.IndexOf("OWNED-BOARD-NOTE", StringComparison.Ordinal)
+                        < preparedAgain.Description.IndexOf(close, StringComparison.Ordinal), "board notes stay inside the generated boundary");
+                    string dock = Path.Combine(Path.GetTempPath(), "armada_operator_note_dock_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(dock);
+                    try
+                    {
+                        await missions.GenerateClaudeMdAsync(dock, preparedAgain, vessel).ConfigureAwait(false);
+                        AssertContains(requirement.Trim(), await File.ReadAllTextAsync(Path.Combine(dock, "CLAUDE.md")).ConfigureAwait(false),
+                            "the actual generated captain brief receives the operator requirement");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(dock, true); } catch (IOException) { }
+                    }
+
+                    foreach (string priorId in new[] { worker.Id, "msn_older_legacy" })
+                    {
+                        string legacy = "Original brief.\n\n---\n" + MissionService.BuildHandoffMarker(priorId)
+                            + "\nlegacy generated context\n### Board notes on this voyage\nlegacy board context\n" + requirement;
+                        preparedAgain.Description = legacy;
+                        preparedAgain.BranchName = null;
+                        preparedAgain = await testDb.Driver.Missions.UpdateAsync(preparedAgain).ConfigureAwait(false);
+                        await missions.TryAssignAsync(preparedAgain, vessel).ConfigureAwait(false);
+                        preparedAgain = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                        AssertContains(legacy, preparedAgain.Description ?? "", "real preparation preserves a legacy block and its opaque tail verbatim");
+                        AssertEqual(1, CountOccurrences(preparedAgain.Description ?? "", requirement), "legacy operator requirements remain unique");
+                    }
                 }
             });
 

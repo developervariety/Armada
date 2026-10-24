@@ -37,7 +37,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             string stripped = MissionService.CompactOlderHandoffBlocks(
                 MissionService.StripHandoffBlock(description, upstreamId));
-            string block = "\n\n---\n" + MissionService.BuildHandoffMarker(upstreamId) + "\n" + blockBody;
+            string block = "\n\n---\n" + MissionService.BuildHandoffMarker(upstreamId) + "\n" + blockBody + EndMarker(upstreamId);
 
             return MissionService.ContainsPersonaPreamble(stripped, _Preamble)
                 ? stripped + block
@@ -49,6 +49,8 @@ namespace Armada.Test.Unit.Suites.Services
         /// diff and runs to thousands of characters. A toy body is smaller than the compact reference
         /// that would replace it, so compaction correctly leaves it alone and the test proves nothing.
         /// </summary>
+        private static string EndMarker(string id) => "<!-- ARMADA:HANDOFF-END:" + id + " -->";
+
         private string LargeBody(string tag)
         {
             return "## Prior Stage Output\n" + tag + "\n" +
@@ -127,6 +129,10 @@ namespace Armada.Test.Unit.Suites.Services
                 failedMission.ReviewComment = "## Correctness\n- Fallback review text requires another source check.";
             }
 
+            failedMission.Description += "\n\n---\n" + MissionService.BuildHandoffMarker("msn_older") + "\n" + LargeBody("older")
+                + EndMarker("msn_older") + "\nOPAQUE-OPERATOR-BETWEEN-BLOCKS\n"
+                + "\n\n---\n" + MissionService.BuildHandoffMarker("msn_newer") + "\n" + LargeBody("newer")
+                + EndMarker("msn_newer") + "\nOPAQUE-OPERATOR-AFTER-BLOCKS\n";
             Incident incident = new Incident
             {
                 Id = "inc_test",
@@ -154,7 +160,9 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Repeated handoff for the same upstream produces one prior-stage block", async () =>
             {
                 string first = ApplyHandoff("Base brief.", _UpstreamId, "## Prior Stage Output\nrun one\n");
-                string second = ApplyHandoff(first, _UpstreamId, "## Prior Stage Output\nrun two\n");
+                string outside = "\n\nRetain this opaque operator requirement exactly.\n  ";
+                string second = ApplyHandoff(first + outside, _UpstreamId, "## Prior Stage Output\nrun two\n");
+                AssertEqual(1, CountOccurrences(second, outside), "replacing a closed block must preserve the exact operator tail");
 
                 AssertEqual(1, CountOccurrences(second, MissionService.BuildHandoffMarker(_UpstreamId)), "handoff marker must appear once");
                 AssertEqual(1, CountOccurrences(second, "## Prior Stage Output"), "prior-stage heading must appear once");
@@ -169,7 +177,9 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Handoff from a second upstream compacts the older block and keeps the newest in full", async () =>
             {
                 string first = ApplyHandoff("Base brief.", _UpstreamId, LargeBody("from one"));
-                string both = ApplyHandoff(first, _OtherUpstreamId, LargeBody("from two"));
+                string outside = "\n\nOperator text between generated blocks.\n  ";
+                string both = ApplyHandoff(first + outside, _OtherUpstreamId, LargeBody("from two"));
+                AssertEqual(1, CountOccurrences(both, outside), "compaction must preserve unowned text between blocks");
 
                 AssertEqual(1, CountOccurrences(both, MissionService.BuildHandoffMarker(_UpstreamId)), "first upstream must still be referenced");
                 AssertEqual(1, CountOccurrences(both, MissionService.BuildHandoffMarker(_OtherUpstreamId)), "second upstream block must be added");
@@ -197,7 +207,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "\n\n---\n" + MissionService.BuildHandoffMarker(_UpstreamId) + "\n" +
                     "## Prior Stage Output\nThe previous pipeline stage (Worker) completed mission x.\n" +
                     "Branch: armada/example/msn_upstream_one\n" +
-                    "### Diff from prior stage\n```diff\n" + new string('+', 4000) + "\n```\n";
+                    "### Diff from prior stage\n```diff\n" + new string('+', 4000) + "\n```\n" + EndMarker(_UpstreamId);
 
                 string once = MissionService.CompactOlderHandoffBlocks(withBlock);
                 string twice = MissionService.CompactOlderHandoffBlocks(once);
@@ -211,7 +221,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // A stage that produced almost nothing leaves a block shorter than the reference would be.
                 // Replacing it would add bytes to save bytes, so the original is kept.
                 string tinyBlock = "Base brief." +
-                    "\n\n---\n" + MissionService.BuildHandoffMarker(_UpstreamId) + "\nok\n";
+                    "\n\n---\n" + MissionService.BuildHandoffMarker(_UpstreamId) + "\nok\n" + EndMarker(_UpstreamId);
 
                 AssertEqual(tinyBlock, MissionService.CompactOlderHandoffBlocks(tinyBlock),
                     "a block already smaller than its reference must be left alone");
@@ -220,7 +230,9 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Replacing the first of two blocks leaves the later block intact", async () =>
             {
                 string first = ApplyHandoff("Base brief.", _UpstreamId, LargeBody("from one"));
-                string both = ApplyHandoff(first, _OtherUpstreamId, LargeBody("from two"));
+                string outside = "\n\nOperator text between generated blocks.\n  ";
+                string both = ApplyHandoff(first + outside, _OtherUpstreamId, LargeBody("from two"));
+                AssertEqual(1, CountOccurrences(both, outside), "compaction must preserve unowned text between blocks");
                 string replaced = ApplyHandoff(both, _UpstreamId, LargeBody("from one again"));
 
                 AssertEqual(1, CountOccurrences(replaced, MissionService.BuildHandoffMarker(_UpstreamId)), "replaced marker must appear once");
@@ -243,6 +255,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("", MissionService.StripHandoffBlock("", _UpstreamId), "empty description must stay empty");
                 AssertEqual("", MissionService.StripHandoffBlock(null, _UpstreamId), "null description must become empty");
                 AssertEqual(description, MissionService.StripHandoffBlock(description, ""), "an empty upstream id must strip nothing");
+                string legacy = "Base\n\n---\n" + MissionService.BuildHandoffMarker(_UpstreamId) + "\nold unbounded body\nopaque operator requirement  \n";
+                AssertEqual(legacy, MissionService.StripHandoffBlock(legacy, _UpstreamId), "an ambiguous legacy block cannot own the operator tail");
+                AssertEqual(legacy, MissionService.CompactOlderHandoffBlocks(legacy), "legacy compaction must preserve unknown text verbatim");
+                string bounded = "\n\n---\n" + MissionService.BuildHandoffMarker(_UpstreamId) + "\nnew body\n" + EndMarker(_UpstreamId);
+                string tail = "\nplain operator tail  \n";
+                AssertEqual(legacy + tail, MissionService.StripHandoffBlock(legacy + bounded + tail, _UpstreamId),
+                    "a legacy opener must not pair with the later same-id block's closer");
+                string malformed = "Base\n<!-- ARMADA:HANDOFF:unterminated\n";
+                AssertEqual(malformed + tail, MissionService.StripHandoffBlock(malformed + bounded + tail, _UpstreamId),
+                    "a malformed earlier opener does not consume a later complete block");
+                AssertEqual(malformed + bounded + tail, MissionService.CompactOlderHandoffBlocks(malformed + bounded + tail),
+                    "malformed legacy text and a tiny complete block remain exact");
 
                 await Task.CompletedTask;
             });
@@ -486,6 +510,9 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     string missionId = "msn_rsc" + kind;
                     string rescueDescription = BuildRescueDescription(kind, missionId, out Mission failedMission);
+                    AssertContains("OPAQUE-OPERATOR-BETWEEN-BLOCKS", rescueDescription, "rescue compaction preserves text outside older blocks");
+                    AssertContains("OPAQUE-OPERATOR-AFTER-BLOCKS", rescueDescription, "rescue compaction preserves the newest block's tail");
+                    AssertContains("newer", rescueDescription, "the newest complete block stays in full");
                     string referencePair = RescueReferencePair(rescueDescription, missionId);
                     MissionOutputArtifactPage artifact = MissionOutputArtifact.Build(failedMission);
                     string largeCriteria = "## Acceptance Criteria\n" + String.Join("\n", Enumerable.Range(0, 10)
