@@ -1011,7 +1011,7 @@ namespace Armada.Test.Unit.Suites.Services
                             State = CaptainStateEnum.Idle,
                             TenantId = harness.OwnerA.TenantId,
                             UserId = harness.OwnerA.UserId,
-                            AllowedPersonas = "Worker"
+                            AllowedPersonas = "[\"Worker\"]"
                         };
                         captain = await harness.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
                         settings.Harbor.MissionRoutes.Add(new HarborMissionRoute { RunnerId = "hbr_a", CaptainId = captain.Id });
