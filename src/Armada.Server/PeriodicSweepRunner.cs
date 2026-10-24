@@ -4,11 +4,11 @@ namespace Armada.Server
     using System.Threading;
     using System.Threading.Tasks;
 
-    /// <summary>Runs model endpoint health sweeps without overlapping probes.</summary>
-    internal static class ModelEndpointHealthSweepRunner
+    /// <summary>Runs independent periodic sweeps without overlapping calls.</summary>
+    internal static class PeriodicSweepRunner
     {
-        /// <summary>Run one bounded, serial health sweep until cancellation.</summary>
-        /// <param name="sweep">The endpoint sweep.</param>
+        /// <summary>Run serial sweeps until cancellation.</summary>
+        /// <param name="sweep">The sweep.</param>
         /// <param name="interval">The delay between completed sweeps, read after every sweep so a
         /// hot-reloaded heartbeat interval applies without a restart.</param>
         /// <param name="onFailure">The failure observer.</param>

@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Automatic Check discovery has an independent heartbeat after startup repair.
+  A health pass waiting for completion or landing work no longer stops new
+  Check sweeps. Eligibility, command locks and gate requirements are unchanged;
+  shutdown cancels and joins the heartbeat before database disposal.
+
 - Standalone stdio lists server-dependent MCP tools with the same schemas. Calls
   return named `Unavailable` errors when the required service is absent. Local
   record-backed tools and authorization rules remain in effect.

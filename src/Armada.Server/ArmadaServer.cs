@@ -212,6 +212,7 @@ namespace Armada.Server
 
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private Task _HealthCheckTask = null!;
+        private Task? _AutomaticCheckHeartbeatTask = null;
         private Task _ModelEndpointHealthTask = null!;
         private Task? _HarborJobExpiryTask = null;
         private Task? _MemoryWatchTask = null;
@@ -1318,6 +1319,7 @@ namespace Armada.Server
                 RunStopStep("background cancellation", () => _TokenSource.Cancel());
                 // The loops read and write the database; wait for them before it is disposed.
                 WaitForBackgroundLoop("health check loop", _HealthCheckTask);
+                WaitForBackgroundLoop("automatic Check heartbeat", _AutomaticCheckHeartbeatTask);
                 WaitForBackgroundLoop("model endpoint health loop", _ModelEndpointHealthTask);
                 WaitForBackgroundLoop("Harbor job expiry loop", _HarborJobExpiryTask);
                 WaitForBackgroundLoop("memory watch loop", _MemoryWatchTask);
@@ -2398,10 +2400,13 @@ namespace Armada.Server
         _Logging.Warn(_Header + "startup disk lifecycle reconciliation error: " + ex.Message);
     }
 
+            // Startup repair must finish before Checks run. After that, their heartbeat is
+            // independent: a health pass can await completion or a long landing validation.
+            _AutomaticCheckHeartbeatTask = AutomaticCheckHeartbeatLoopAsync(token);
+
             // Run an immediate health check on startup to dispatch any pending missions.
             List<HealthLoopMaintenanceStep> cycleSteps = BuildHealthCycleSteps(
                 _Admiral.HealthCheckAsync,
-                _AutomaticCheckRuns.TriggerBackgroundSweep,
                 _AutonomousRecovery.TriggerBackgroundSweep,
                 _IncidentLifecycle.TriggerBackgroundSweep,
                 _ObjectiveScheduler.TriggerBackgroundSweep);
@@ -2456,25 +2461,22 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// The steps every health cycle runs, in order: the admiral health check, then each background
-        /// sweep trigger. Each is its own step, so a health check that throws still lets every sweep
-        /// run in the same cycle.
+        /// The steps every health cycle runs, in order: the admiral health check, then the recovery,
+        /// incident and objective sweep triggers. Automatic Checks use an independent heartbeat so
+        /// a long health pass cannot starve them. Each remaining step is isolated from exceptions.
         /// </summary>
         /// <param name="admiralHealthCheck">The admiral health check.</param>
-        /// <param name="checkRunSweep">Automatic check-run sweep trigger.</param>
         /// <param name="recoverySweep">Autonomous recovery sweep trigger.</param>
         /// <param name="incidentSweep">Incident lifecycle sweep trigger.</param>
         /// <param name="schedulerSweep">Objective scheduler sweep trigger.</param>
         /// <returns>The steps, each due on every cycle.</returns>
         internal static List<HealthLoopMaintenanceStep> BuildHealthCycleSteps(
             Func<CancellationToken, Task> admiralHealthCheck,
-            Action<CancellationToken> checkRunSweep,
             Action<CancellationToken> recoverySweep,
             Action<CancellationToken> incidentSweep,
             Action<CancellationToken> schedulerSweep)
         {
             if (admiralHealthCheck == null) throw new ArgumentNullException(nameof(admiralHealthCheck));
-            if (checkRunSweep == null) throw new ArgumentNullException(nameof(checkRunSweep));
             if (recoverySweep == null) throw new ArgumentNullException(nameof(recoverySweep));
             if (incidentSweep == null) throw new ArgumentNullException(nameof(incidentSweep));
             if (schedulerSweep == null) throw new ArgumentNullException(nameof(schedulerSweep));
@@ -2482,7 +2484,6 @@ namespace Armada.Server
             return new List<HealthLoopMaintenanceStep>
             {
                 HealthLoopMaintenanceStep.EveryCycles("health check", () => 1, admiralHealthCheck),
-                HealthLoopMaintenanceStep.EveryCycles("check run sweep trigger", () => 1, stepToken => { checkRunSweep(stepToken); return Task.CompletedTask; }),
                 HealthLoopMaintenanceStep.EveryCycles("autonomous recovery sweep trigger", () => 1, stepToken => { recoverySweep(stepToken); return Task.CompletedTask; }),
                 HealthLoopMaintenanceStep.EveryCycles("incident lifecycle sweep trigger", () => 1, stepToken => { incidentSweep(stepToken); return Task.CompletedTask; }),
                 HealthLoopMaintenanceStep.EveryCycles("objective scheduler sweep trigger", () => 1, stepToken => { schedulerSweep(stepToken); return Task.CompletedTask; })
@@ -2632,9 +2633,24 @@ namespace Armada.Server
             };
         }
 
+        /// <summary>Keep automatic Check discovery moving while an Admiral health pass awaits work.</summary>
+        /// <param name="token">Server lifetime cancellation token.</param>
+        private async Task AutomaticCheckHeartbeatLoopAsync(CancellationToken token)
+        {
+            await PeriodicSweepRunner.RunAsync(
+                sweepToken =>
+                {
+                    _AutomaticCheckRuns.TriggerBackgroundSweep(sweepToken);
+                    return Task.CompletedTask;
+                },
+                () => _HealthLoopInterval ?? TimeSpan.FromSeconds(_Settings.HeartbeatIntervalSeconds),
+                ex => _Logging.Warn(_Header + "automatic Check heartbeat error: " + ex.Message),
+                token).ConfigureAwait(false);
+        }
+
         private async Task ModelEndpointHealthLoopAsync(CancellationToken token)
         {
-            await ModelEndpointHealthSweepRunner.RunAsync(
+            await PeriodicSweepRunner.RunAsync(
                 async sweepToken => await _ModelEndpointService.CheckHealthAllAsync(sweepToken).ConfigureAwait(false),
                 () => TimeSpan.FromMilliseconds(Math.Max(1, _Settings.HeartbeatIntervalSeconds) * 1000),
                 ex => _Logging.Warn(_Header + "model endpoint health sweep error: " + ex.Message),

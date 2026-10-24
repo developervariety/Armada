@@ -62,7 +62,6 @@ namespace Armada.Test.Unit.Suites.Services
                 List<string> failed = new List<string>();
                 List<HealthLoopMaintenanceStep> cycleSteps = ArmadaServer.BuildHealthCycleSteps(
                     t => throw new InvalidOperationException("poison mission row"),
-                    t => triggered.Add("check runs"),
                     t => triggered.Add("recovery"),
                     t => triggered.Add("incidents"),
                     t => triggered.Add("scheduler"));
@@ -76,7 +75,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(3, failures, "the health check failure must be counted on each cycle");
                 AssertTrue(failed.All(n => n == "health check"), "only the failing health check may be reported, by name");
-                foreach (string sweep in new[] { "check runs", "recovery", "incidents", "scheduler" })
+                foreach (string sweep in new[] { "recovery", "incidents", "scheduler" })
                     AssertEqual(3, triggered.Count(t => t == sweep), "the " + sweep + " sweep must be triggered on every cycle");
             }).ConfigureAwait(false);
 
@@ -173,30 +172,36 @@ namespace Armada.Test.Unit.Suites.Services
                 await VerifyChecksDuringBlockedHealthAsync().ConfigureAwait(false);
             }).ConfigureAwait(false);
 
-            await RunTest("The endpoint sweep runner reads the interval after every sweep so a reloaded heartbeat applies", async () =>
+            await RunTest("The periodic sweep runner reloads its interval and continues after a failed sweep", async () =>
             {
                 TimeSpan interval = TimeSpan.FromHours(1);
                 int sweeps = 0;
+                int sweepFailures = 0;
                 TaskCompletionSource<bool> reloadedThird = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 using (CancellationTokenSource cancellation = new CancellationTokenSource())
                 {
-                    Task loop = ModelEndpointHealthSweepRunner.RunAsync(
+                    Task loop = PeriodicSweepRunner.RunAsync(
                         token =>
                         {
                             int count = Interlocked.Increment(ref sweeps);
                             // The reload lands during the first sweep, before the first wait is read.
-                            if (count == 1) interval = TimeSpan.FromMilliseconds(10);
+                            if (count == 1)
+                            {
+                                interval = TimeSpan.FromMilliseconds(10);
+                                throw new InvalidOperationException("first sweep failed");
+                            }
                             if (count == 3) reloadedThird.TrySetResult(true);
                             return Task.CompletedTask;
                         },
                         () => interval,
-                        _ => { },
+                        _ => Interlocked.Increment(ref sweepFailures),
                         cancellation.Token);
 
                     bool reloaded = await Task.WhenAny(reloadedThird.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false) == reloadedThird.Task;
                     cancellation.Cancel();
                     await loop.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
                     AssertTrue(reloaded, "a heartbeat interval shortened by a reload must shorten the next wait without a restart");
+                    AssertEqual(1, sweepFailures, "A failed sweep must be observed once without stopping later heartbeats.");
                 }
             }).ConfigureAwait(false);
 
@@ -209,7 +214,7 @@ namespace Armada.Test.Unit.Suites.Services
                     int maximumActiveSweeps = 0;
                     int sweepCount = 0;
 
-                    Task sweep = ModelEndpointHealthSweepRunner.RunAsync(
+                    Task sweep = PeriodicSweepRunner.RunAsync(
                         async token =>
                         {
                             Interlocked.Increment(ref sweepCount);
@@ -273,6 +278,7 @@ namespace Armada.Test.Unit.Suites.Services
             server.HealthLoopInterval = TimeSpan.FromMilliseconds(50);
             TaskCompletionSource<bool> entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task? heartbeat = null;
             try
             {
                 await server.StartAsync().ConfigureAwait(false);
@@ -320,13 +326,14 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 AssertTrue(File.ReadAllLines(Path.Combine(working, "heartbeat-count.txt"))
                     .SequenceEqual(new[] { "heartbeat-0", "heartbeat-1" }), "Repeated heartbeats must execute each Check exactly once.");
+                heartbeat = ReadServerField<Task>(server, "_AutomaticCheckHeartbeatTask");
+                AssertFalse(heartbeat.IsCompleted, "The server must track its live independent Check heartbeat.");
             }
             finally
             {
                 release.TrySetResult(true);
                 server.Stop();
-                FieldInfo? heartbeatField = typeof(ArmadaServer).GetField("_AutomaticCheckHeartbeatTask", BindingFlags.Instance | BindingFlags.NonPublic);
-                if (heartbeatField?.GetValue(server) is Task heartbeat)
+                if (heartbeat != null)
                     AssertTrue(heartbeat.IsCompleted, "Shutdown must cancel and join the independent Check heartbeat before disposing its database.");
                 try { Directory.Delete(directory, true); }
                 catch (IOException) { }
