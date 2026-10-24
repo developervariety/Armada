@@ -391,6 +391,12 @@ namespace Armada.Core.Services
             string normalizedRepoPath = Path.GetFullPath(repoPath);
             SemaphoreSlim repoLock = _RepoLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
             await ArmadaMetrics.WaitForLockAsync(repoLock, ArmadaMetrics.LockGitWorktree, token).ConfigureAwait(false);
+
+            // A path that already holds something before this add is not this call's to remove: the add
+            // will refuse it, and force-removing it on that refusal would destroy a worktree or directory
+            // this call did not create and may still be in use. Only a path this add itself populates is
+            // cleaned up on failure; a pre-existing one is left for its owner to recover.
+            bool worktreePreExisted = Directory.Exists(worktreePath);
             try
             {
                 await RunGitAsync(repoPath, token, "worktree", "add", "--detach", worktreePath, commitSha).ConfigureAwait(false);
@@ -400,7 +406,7 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    if (Directory.Exists(worktreePath))
+                    if (!worktreePreExisted && Directory.Exists(worktreePath))
                         await RunGitAsync(repoPath, "worktree", "remove", "--force", worktreePath).ConfigureAwait(false);
                 }
                 catch
