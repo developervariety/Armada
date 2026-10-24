@@ -33,17 +33,19 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for entity enumeration.</param>
         /// <param name="mergeQueue">Optional merge queue service for merge queue enumeration.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IMergeQueueService? mergeQueue = null)
+        /// <param name="inbox">Optional inbox service, for entityType inbox.</param>
+        /// <param name="cliPermissions">Optional CLI permission service, for entityType cli_permission_rules.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IMergeQueueService? mergeQueue = null, InboxService? inbox = null, CliPermissionService? cliPermissions = null)
         {
             register(
                 "enumerate",
-                "Find and browse entities with paginated, filtered, sorted access to: objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+                "Find and browse entities with paginated, filtered, sorted access to: inbox (the needs-you items, most urgent first), cli_permission_rules, objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        entityType = new { type = "string", description = "Entity type to enumerate: objectives, jobs, model_endpoints, harbors, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target (requires runId), vessel_health (status filters overall status, fleetId and search narrow by fleet and vessel name)" },
+                        entityType = new { type = "string", description = "Entity type to enumerate: inbox (needs-you items, most urgent first), cli_permission_rules (vesselId and captainId filter), objectives, jobs, model_endpoints, harbors, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target (requires runId), vessel_health (status filters overall status, fleetId and search narrow by fleet and vessel name)" },
                         pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
                         pageSize = new { type = "integer", description = "Results per page (default 10, max 1000)" },
                         order = new { type = "string", description = "Sort order: CreatedAscending, CreatedDescending (default)" },
@@ -128,6 +130,18 @@ namespace Armada.Server.Mcp.Tools
                                 .Take(mepPageSize)
                                 .ToList();
                             return (object)new { Success = true, PageNumber = mepPageNumber, PageSize = mepPageSize, TotalRecords = allEndpoints.Count, Objects = mepPage };
+                        case "inbox":
+                            if (inbox == null) return (object)McpToolError.Unavailable("The inbox is not available on this server.");
+                            return (object)EnumerationResult<InboxItem>.Page(query, await inbox.GetInboxAsync(callerCtx).ConfigureAwait(false));
+                        case "cli_permission_rules":
+                        case "cli-permission-rules":
+                            if (cliPermissions == null) return (object)McpToolError.Unavailable("CLI permissions are not available on this server.");
+                            CliPermissionRuleQuery ruleQuery = new CliPermissionRuleQuery
+                            {
+                                VesselId = String.IsNullOrWhiteSpace(query.VesselId) ? null : query.VesselId,
+                                CaptainId = String.IsNullOrWhiteSpace(query.CaptainId) ? null : query.CaptainId
+                            };
+                            return (object)EnumerationResult<CliPermissionRule>.Page(query, await cliPermissions.ListRulesAsync(callerCtx, ruleQuery).ConfigureAwait(false));
                         case "harbors":
                         case "harbor":
                             System.Collections.Generic.List<Harbor> allHarbors = await new HarborService(database, new SyslogLogging.LoggingModule()).EnumerateAsync(callerCtx).ConfigureAwait(false);
@@ -580,7 +594,7 @@ namespace Armada.Server.Mcp.Tools
                                 TotalMs = targets.TotalMs
                             };
                         default:
-                            return (object)McpToolError.InvalidArgument("Unknown entity type: " + entityType + ". Valid types: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health");
+                            return (object)McpToolError.InvalidArgument("Unknown entity type: " + entityType + ". Valid types: inbox, cli_permission_rules, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health");
                     }
                 });
         }

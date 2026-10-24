@@ -111,7 +111,7 @@ namespace Test.Shared.Suites.Tui
                 "{\"StartUtc\":\"2026-10-04T08:00:00Z\",\"CompleteCount\":3,\"FailedCount\":0,\"OtherCount\":0}," +
                 "{\"StartUtc\":\"2026-10-04T09:00:00Z\",\"CompleteCount\":2,\"FailedCount\":1,\"OtherCount\":1}]}");
             stub.Json("GET", "/api/v1/fleets", "{\"Success\":true,\"Objects\":[{\"Id\":\"flt_1\",\"Name\":\"Default\"}],\"TotalRecords\":1}");
-            stub.Json("GET", "/api/v1/inbox", "[" +
+            stub.Page("/api/v1/inbox/enumerate", "[" +
                 "{\"Kind\":\"review\",\"Severity\":\"Warning\",\"Title\":\"Review: Add retry to webhook sender\",\"Detail\":\"Waiting 12m\",\"EntityType\":\"mission\",\"EntityId\":\"msn_r\",\"Href\":\"/missions/msn_r\"}," +
                 "{\"Kind\":\"landing_failed\",\"Severity\":\"Critical\",\"Title\":\"Landing failed: Broken\",\"Detail\":\"Merge conflict in src/app.cs\",\"EntityType\":\"mission\",\"EntityId\":\"msn_x\",\"Href\":\"/missions/msn_x\"}," +
                 "{\"Kind\":\"stalled_captain\",\"Severity\":\"Warning\",\"Title\":\"Stalled captain: codex-2\",\"Detail\":\"No heartbeat for 6m\",\"EntityType\":\"captain\",\"EntityId\":\"cpt_s\",\"Href\":\"/captains/cpt_s\"}," +

@@ -175,6 +175,20 @@ namespace Armada.Client
             return SendJsonAsync<T>(HttpMethod.Post, path, body, true, options, token);
         }
 
+        /// <summary>
+        /// Every row of a paged <c>POST .../enumerate</c> route, read 1000 at a time. Each request returns one page.
+        /// </summary>
+        internal async Task<List<T>?> EnumerateAllAsync<T>(string path, Dictionary<string, object?>? filters, CancellationToken token)
+        {
+            return await ArmadaPaging.ReadAllAsync<T>((pageNumber, pageToken) =>
+            {
+                Dictionary<string, object?> body = filters != null ? new Dictionary<string, object?>(filters) : new Dictionary<string, object?>();
+                body["PageNumber"] = pageNumber;
+                body["PageSize"] = 1000;
+                return PostAsync<Armada.Core.Models.EnumerationResult<T>>(path, body, null, pageToken);
+            }, ArmadaPaging.DefaultMaxPages, token).ConfigureAwait(false);
+        }
+
         internal Task<T?> PutAsync<T>(string path, object? body, ArmadaRequestOptions? options, CancellationToken token)
         {
             return SendJsonAsync<T>(HttpMethod.Put, path, body, true, options, token);

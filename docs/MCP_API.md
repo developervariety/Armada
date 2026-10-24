@@ -541,6 +541,8 @@ No parameters required.
 
 ### inbox
 
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns every item in one result. Use `enumerate` with `entityType` `inbox` (one page with `TotalRecords`). It keeps working unchanged until then, and stays on the Ask Armada read-only allowlist.
+
 Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Call this to answer a user asking *"Is there anything waiting on me?"*, *"Is there anything that needs my attention?"*, or *"Do I have any action items from Armada work?"*.
 
 **What qualifies.** Two kinds of item appear:
@@ -752,7 +754,7 @@ No parameters required.
 
 ### enumerate
 
-Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: objectives (aliases `backlog`, `backlog_item`, `backlog_items`), fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health.
+Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: inbox (the needs-you items, most urgent first; replaces the deprecated `inbox` tool), cli_permission_rules (replaces the deprecated `list_cli_permission_rules`), objectives (aliases `backlog`, `backlog_item`, `backlog_items`), fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health.
 
 **Input Schema:**
 
@@ -760,7 +762,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 {
   "type": "object",
   "properties": {
-    "entityType": { "type": "string", "description": "Entity type to enumerate (objectives [aliases backlog, backlog_item, backlog_items], fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health)" },
+    "entityType": { "type": "string", "description": "Entity type to enumerate (inbox [the needs-you items, most urgent first], cli_permission_rules [vesselId and captainId filter], objectives [aliases backlog, backlog_item, backlog_items], fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health)" },
     "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
     "pageSize": { "type": "integer", "description": "Results per page (default 10, max 1000)" },
     "order": { "type": "string", "description": "Sort order: CreatedAscending, CreatedDescending" },
@@ -1075,6 +1077,8 @@ Allow once, allow and remember, or deny a pending request; the waiting captain c
 **Response:** the decided CliPermissionRequest. `Conflict` when it is no longer pending.
 
 ### list_cli_permission_rules
+
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns every rule in one result. Use `enumerate` with `entityType` `cli_permission_rules` (`vesselId` and `captainId` filter). It keeps working unchanged until then.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|

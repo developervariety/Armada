@@ -184,16 +184,16 @@ namespace Test.Shared.Suites.Tui
                 await poller.PollDueAsync();
                 AssertEqual(1, stub.CountFor("GET", "/api/v1/status/health"), "first pass polls health");
                 AssertEqual(1, stub.CountFor("GET", "/api/v1/jobs"), "first pass polls jobs");
-                AssertEqual(1, stub.CountFor("GET", "/api/v1/inbox"), "first pass polls the inbox");
+                AssertEqual(1, stub.CountFor("POST", "/api/v1/inbox/enumerate"), "first pass polls the inbox");
 
                 await poller.PollDueAsync();
                 AssertEqual(1, stub.CountFor("GET", "/api/v1/status/health"), "nothing is due again right away despite the wall-clock jump");
                 AssertEqual(1, stub.CountFor("GET", "/api/v1/jobs"), "jobs not due");
-                AssertEqual(1, stub.CountFor("GET", "/api/v1/inbox"), "inbox not due");
+                AssertEqual(1, stub.CountFor("POST", "/api/v1/inbox/enumerate"), "inbox not due");
 
                 time.Advance(TimeSpan.FromSeconds(21));
                 await poller.PollDueAsync();
-                AssertEqual(2, stub.CountFor("GET", "/api/v1/inbox"), "the inbox is due after 20 s of monotonic time");
+                AssertEqual(2, stub.CountFor("POST", "/api/v1/inbox/enumerate"), "the inbox is due after 20 s of monotonic time");
                 AssertEqual(1, stub.CountFor("GET", "/api/v1/status/health"), "health waits for 30 s");
 
                 time.Advance(TimeSpan.FromSeconds(10));

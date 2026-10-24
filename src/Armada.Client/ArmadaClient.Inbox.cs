@@ -25,7 +25,7 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<List<InboxItem>?> GetInboxAsync(CancellationToken token = default)
         {
-            return GetAsync<List<InboxItem>>("/api/v1/inbox", null, token);
+            return EnumerateAllAsync<InboxItem>("/api/v1/inbox/enumerate", null, token);
         }
 
         #endregion

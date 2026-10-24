@@ -206,7 +206,7 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<List<ObjectiveRefinementSession>?> ListObjectiveRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
         {
-            return GetAsync<List<ObjectiveRefinementSession>>($"/api/v1/objectives/{E(objectiveId)}/refinement-sessions", null, token);
+            return EnumerateAllAsync<ObjectiveRefinementSession>($"/api/v1/objectives/{E(objectiveId)}/refinement-sessions/enumerate", null, token);
         }
 
         /// <summary>
@@ -218,7 +218,7 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<List<ObjectiveRefinementSession>?> ListBacklogRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
         {
-            return GetAsync<List<ObjectiveRefinementSession>>($"/api/v1/backlog/{E(objectiveId)}/refinement-sessions", null, token);
+            return EnumerateAllAsync<ObjectiveRefinementSession>($"/api/v1/backlog/{E(objectiveId)}/refinement-sessions/enumerate", null, token);
         }
 
         /// <summary>

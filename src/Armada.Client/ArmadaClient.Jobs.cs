@@ -25,7 +25,8 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<EnumerationResult<Job>?> ListJobsAsync(CancellationToken token = default)
         {
-            return GetAsync<EnumerationResult<Job>>("/api/v1/jobs", null, token);
+            // One page: without paging parameters the route returns every job (deprecated).
+            return GetAsync<EnumerationResult<Job>>("/api/v1/jobs?pageNumber=1&pageSize=100", null, token);
         }
 
         /// <summary>

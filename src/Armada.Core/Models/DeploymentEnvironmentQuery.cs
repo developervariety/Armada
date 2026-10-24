@@ -7,6 +7,12 @@ namespace Armada.Core.Models
     /// </summary>
     public class DeploymentEnvironmentQuery
     {
+        #region Private-Members
+
+        private int _PageSize = 25;
+
+        #endregion
+
         /// <summary>
         /// Tenant scope or filter.
         /// </summary>
@@ -48,9 +54,14 @@ namespace Armada.Core.Models
         public int PageNumber { get; set; } = 1;
 
         /// <summary>
-        /// Page size.
+        /// Results per page (1 to 1000, default 25). Values outside the range are clamped, so a request can never ask for
+        /// an unbounded page.
         /// </summary>
-        public int PageSize { get; set; } = 25;
+        public int PageSize
+        {
+            get => _PageSize;
+            set => _PageSize = value < 1 ? 1 : (value > 1000 ? 1000 : value);
+        }
 
         /// <summary>
         /// Zero-based offset.

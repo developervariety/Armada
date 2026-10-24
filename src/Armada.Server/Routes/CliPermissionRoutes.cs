@@ -150,6 +150,36 @@ namespace Armada.Server.Routes
                 .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("No longer pending"))
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/cli-permissions/rules/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    EnumerationQuery page = EnumerationRequestReader.Read(req, _JsonOptions);
+                    CliPermissionRuleQuery query = new CliPermissionRuleQuery { VesselId = Blank(page.VesselId), CaptainId = Blank(page.CaptainId) };
+                    string? scope = Blank(req.Query.GetValueOrDefault("scope"));
+                    if (scope != null)
+                    {
+                        if (!EnumNames.TryParse(scope, true, out CliPermissionRuleScopeEnum parsed)) throw new ArgumentException("Invalid scope: " + scope);
+                        query.Scope = parsed;
+                    }
+                    return EnumerationResult<CliPermissionRule>.Page(page, await _Service.ListRulesAsync(ctx, query).ConfigureAwait(false));
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("CliPermissions")
+                .WithSummary("Enumerate CLI permission rules")
+                .WithDescription("One page of the rules visible to the caller (the caller's tenant plus rules for every tenant; global admins see all). Filters: vesselId and captainId (body or querystring) and scope (querystring: Global, Vessel, or Captain). Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<CliPermissionRule>>("One page"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/cli-permissions/rules", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

@@ -127,7 +127,7 @@ namespace Armada.Server.Routes
                 }
                 string countStr = req.Query.GetValueOrDefault("count");
                 int count = 50;
-                if (!String.IsNullOrEmpty(countStr) && int.TryParse(countStr, out int parsedCount)) count = parsedCount;
+                if (!String.IsNullOrEmpty(countStr) && int.TryParse(countStr, out int parsedCount)) count = Math.Clamp(parsedCount, 1, Constants.MaxRecentSignals);
                 List<Signal> signals = ctx.IsAdmin
                     ? await _database.Signals.EnumerateRecentAsync(count).ConfigureAwait(false)
                     : await _database.Signals.EnumerateRecentAsync(ctx.TenantId!, count).ConfigureAwait(false);
@@ -139,7 +139,7 @@ namespace Armada.Server.Routes
                 .WithTag("Signals")
                 .WithSummary("Get recent signals")
                 .WithDescription("Returns the most recent signals, ordered by creation time descending.")
-                .WithParameter(OpenApiParameterMetadata.Query("count", "Maximum number of signals to return (default: 50)", false, OpenApiSchemaMetadata.Integer()))
+                .WithParameter(OpenApiParameterMetadata.Query("count", "Maximum number of signals to return (default 50, at most 1000)", false, OpenApiSchemaMetadata.Integer()))
                 .WithResponse(200, OpenApiJson.For<List<Signal>>("Signal list"))
                 .WithSecurity("ApiKey"));
 

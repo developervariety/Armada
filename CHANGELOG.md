@@ -6,6 +6,21 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Paged APIs replace whole-list APIs
+
+- **Every list that returned a whole collection in one response now has a paged replacement**, and Armada's own clients (dashboard, mobile, TUI, CLI, both .NET clients) use the replacements. Each returns one page (`pageNumber`, `pageSize` 1 to 1000) with `TotalRecords`. See [DEPRECATION.md](DEPRECATION.md), the managed list of deprecations: tests keep it in step with the code and fail if a first-party client calls a deprecated route.
+- **New:** `POST /api/v1/harbors/enumerate`, `/model-endpoints/enumerate`, `/planning-sessions/enumerate`, `/objectives/{id}/refinement-sessions/enumerate`, `/backlog/{id}/refinement-sessions/enumerate`, `/inbox/enumerate`, `/cli-permissions/rules/enumerate`, `/push/devices/enumerate`, `/releases/{id}/github/pull-requests/enumerate`, and `/vessels/{id}/branches/enumerate`; the MCP `enumerate` tool gains `inbox` and `cli_permission_rules`.
+- **Bounded:** a body `PageSize` on the check-run, deployment, release, environment, skill, workflow-profile, project-profile, and history enumerate routes is clamped to 1 to 1000 (it was passed to the database as sent); log reads return at most 5000 lines per request (REST, MCP, WebSocket); `GET /api/v1/signals/recent` returns at most 1000.
+
+#### Deprecated
+
+Each keeps working unchanged and is removed in 2.0 (OpenAPI marks the routes `deprecated: true`; MCP descriptions start with `[Deprecated]`):
+
+- `GET /api/v1/harbors`, `GET /api/v1/model-endpoints`, `GET /api/v1/planning-sessions`, `GET /api/v1/objectives/{id}/refinement-sessions`, `GET /api/v1/backlog/{id}/refinement-sessions`, `GET /api/v1/inbox`, `GET /api/v1/cli-permissions/rules`, `GET /api/v1/push/devices`, `GET /api/v1/releases/{id}/github/pull-requests`, and `GET /api/v1/vessels/{id}/branches`: use the `POST .../enumerate` route beside each.
+- `GET /api/v1/signals/recipient/{captainId}`: use `POST /api/v1/signals/enumerate` with `toCaptainId` (and `unreadOnly`).
+- MCP `inbox` and `list_cli_permission_rules`: use `enumerate` with `entityType` `inbox` or `cli_permission_rules`.
+- `GET /api/v1/jobs` without paging or filter parameters (it returns every job): send `pageNumber` and `pageSize`. In 2.0 the parameterless form returns the first page.
+
 ### Cancelling a mission stops its agent
 
 - **Cancel stops the agent before the mission is marked cancelled.** Cancelling a mission or a voyage on any surface (REST `DELETE /api/v1/missions/{id}` and `DELETE /api/v1/voyages/{id}`, MCP `cancel_mission` and `cancel_voyage`, WebSocket `cancel_mission` and `cancel_voyage`), and deleting a vessel with active missions, now goes through one shared cancel: the captain's process is stopped through the lifecycle that owns it (on its Harbor when it runs there) and the exit confirmed, then the captain is released, then the mission is set to `Cancelled`. Before, every path only changed the status and forgot the process, so an agent could keep running, and committing, on a Harbor after its mission was cancelled. REST mission cancel also never released the captain. When the stop is not confirmed, the cancel is refused (REST `409`, MCP and WebSocket `Conflict`) and nothing changes; voyage cancel lists such missions in `NotCancelled`.

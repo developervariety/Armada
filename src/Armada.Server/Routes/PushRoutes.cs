@@ -82,6 +82,30 @@ namespace Armada.Server.Routes
                 .WithResponse(403, OpenApiJson.For<ApiErrorResponse>("Captain sessions cannot register devices"))
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/push/devices/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    EnumerationQuery query = EnumerationRequestReader.Read(req, _JsonOptions);
+                    return EnumerationResult<PushDevice>.Page(query, await _Devices.ListAsync(ctx, Blank(query.UserId), Blank(query.TenantId)).ConfigureAwait(false));
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("Push")
+                .WithSummary("Enumerate push devices")
+                .WithDescription("One page of the caller's devices (oldest first). A tenant admin may filter by userId within their tenant; a global admin may filter by userId and tenantId. Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithResponse(403, OpenApiJson.For<ApiErrorResponse>("Not allowed to list another user's devices"))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<PushDevice>>("One page"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/push/devices", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

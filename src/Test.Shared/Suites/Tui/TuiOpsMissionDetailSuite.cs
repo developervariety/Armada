@@ -145,7 +145,7 @@ namespace Test.Shared.Suites.Tui
                 StubHttpHandler stub = Stub();
                 stub.Json("GET", "/api/v1/missions/msn_m", "{\"Id\":\"msn_m\",\"Title\":\"Manual work\",\"Status\":\"WorkProduced\",\"VesselId\":\"vsl_demo\",\"BranchName\":\"armada/manual\",\"Priority\":100,\"CreatedUtc\":\"2026-10-04T08:00:00Z\",\"LastUpdateUtc\":\"2026-10-04T08:00:00Z\"}");
                 stub.Json("GET", "/api/v1/missions/msn_m/landing-preview", "{\"VesselId\":\"vsl_demo\",\"SourceBranch\":\"armada/manual\",\"TargetBranch\":\"main\",\"BranchCategory\":\"Feature\",\"LandingMode\":\"None\",\"EffectiveLandingMode\":\"None\",\"ManualLandingOnly\":true,\"MissionStatus\":\"WorkProduced\",\"IsReadyToLand\":false,\"Issues\":[]}");
-                stub.Json("GET", "/api/v1/vessels/vsl_demo/branches", "{\"VesselId\":\"vsl_demo\",\"DefaultBranch\":\"main\",\"BranchCount\":2,\"Branches\":[{\"Name\":\"main\",\"IsDefault\":true},{\"Name\":\"armada/manual\",\"Ahead\":1}]}");
+                stub.Json("POST", "/api/v1/vessels/vsl_demo/branches/enumerate", "{\"VesselId\":\"vsl_demo\",\"DefaultBranch\":\"main\",\"PageNumber\":1,\"PageSize\":1000,\"TotalPages\":1,\"TotalRecords\":2,\"Objects\":[{\"Name\":\"main\",\"IsDefault\":true},{\"Name\":\"armada/manual\",\"Ahead\":1}]}");
                 stub.Json("POST", "/api/v1/vessels/vsl_demo/branches/merge", "{\"VesselId\":\"vsl_demo\",\"Merged\":true,\"Pushed\":true}");
                 using (TuiTestHost host = TuiCase.SignedIn(150, 50, "/missions/msn_m", stub))
                 {

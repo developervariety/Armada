@@ -465,7 +465,7 @@
       "tags": [
         "Objectives"
       ],
-      "summary": "List backlog refinement sessions",
+      "summary": "[Deprecated] List backlog refinement sessions Use POST /api/v1/backlog/{id}/refinement-sessions/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -485,6 +485,23 @@
         "Objectives"
       ],
       "summary": "Create a backlog refinement session",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/backlog/{id}/refinement-sessions/enumerate",
+      "auth": "Authenticated",
+      "resource": "ObjectiveRefinementSession:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<ObjectiveRefinementSession>",
+        "404": ""
+      },
+      "tags": [
+        "Backlog"
+      ],
+      "summary": "Enumerate refinement sessions for a backlog item",
       "experimental": false
     },
     {
@@ -940,7 +957,7 @@
       "tags": [
         "CliPermissions"
       ],
-      "summary": "List CLI permission rules",
+      "summary": "[Deprecated] List CLI permission rules Use POST /api/v1/cli-permissions/rules/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -958,6 +975,22 @@
         "CliPermissions"
       ],
       "summary": "Create a CLI permission rule",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/cli-permissions/rules/enumerate",
+      "auth": "Authenticated",
+      "resource": "CliPermission:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<CliPermissionRule>"
+      },
+      "tags": [
+        "CliPermissions"
+      ],
+      "summary": "Enumerate CLI permission rules",
       "experimental": false
     },
     {
@@ -1919,7 +1952,7 @@
         "Experimental",
         "Harbors"
       ],
-      "summary": "[Experimental] List Harbors",
+      "summary": "[Experimental] [Deprecated] List Harbors Use POST /api/v1/harbors/enumerate instead; removed in 2.0.",
       "experimental": true
     },
     {
@@ -1938,6 +1971,23 @@
         "Harbors"
       ],
       "summary": "[Experimental] Register a Harbor",
+      "experimental": true
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/harbors/enumerate",
+      "auth": "Authenticated",
+      "resource": "Harbor:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<Harbor>"
+      },
+      "tags": [
+        "Experimental",
+        "Harbors"
+      ],
+      "summary": "[Experimental] Enumerate Harbors",
       "experimental": true
     },
     {
@@ -2152,7 +2202,23 @@
       "tags": [
         "Inbox"
       ],
-      "summary": "Get the needs-you inbox",
+      "summary": "[Deprecated] Get the needs-you inbox Use POST /api/v1/inbox/enumerate instead; removed in 2.0.",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/inbox/enumerate",
+      "auth": "Authenticated",
+      "resource": "Inbox:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<InboxItem>"
+      },
+      "tags": [
+        "Inbox"
+      ],
+      "summary": "Enumerate the needs-you inbox",
       "experimental": false
     },
     {
@@ -2926,7 +2992,7 @@
       "tags": [
         "Model Endpoints"
       ],
-      "summary": "List model endpoints",
+      "summary": "[Deprecated] List model endpoints Use POST /api/v1/model-endpoints/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -2944,6 +3010,22 @@
         "Model Endpoints"
       ],
       "summary": "Create a model endpoint",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/model-endpoints/enumerate",
+      "auth": "Authenticated",
+      "resource": "ModelEndpoint:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<ModelEndpoint>"
+      },
+      "tags": [
+        "Model Endpoints"
+      ],
+      "summary": "Enumerate model endpoints",
       "experimental": false
     },
     {
@@ -3306,7 +3388,7 @@
       "tags": [
         "Objectives"
       ],
-      "summary": "List objective refinement sessions",
+      "summary": "[Deprecated] List objective refinement sessions Use POST /api/v1/objectives/{id}/refinement-sessions/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -3326,6 +3408,23 @@
         "Objectives"
       ],
       "summary": "Create an objective refinement session",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/objectives/{id}/refinement-sessions/enumerate",
+      "auth": "Authenticated",
+      "resource": "ObjectiveRefinementSession:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<ObjectiveRefinementSession>",
+        "404": ""
+      },
+      "tags": [
+        "Objectives"
+      ],
+      "summary": "Enumerate refinement sessions for a objective",
       "experimental": false
     },
     {
@@ -3560,7 +3659,7 @@
       "tags": [
         "Planning"
       ],
-      "summary": "List planning sessions",
+      "summary": "[Deprecated] List planning sessions Use POST /api/v1/planning-sessions/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -3580,6 +3679,22 @@
         "Planning"
       ],
       "summary": "Create a planning session",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/planning-sessions/enumerate",
+      "auth": "Authenticated",
+      "resource": "PlanningSession:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<PlanningSession>"
+      },
+      "tags": [
+        "Planning Sessions"
+      ],
+      "summary": "Enumerate planning sessions",
       "experimental": false
     },
     {
@@ -4072,7 +4187,7 @@
       "tags": [
         "Push"
       ],
-      "summary": "List push devices",
+      "summary": "[Deprecated] List push devices Use POST /api/v1/push/devices/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -4092,6 +4207,23 @@
         "Push"
       ],
       "summary": "Register or refresh a push device",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/push/devices/enumerate",
+      "auth": "Authenticated",
+      "resource": "PushDevice:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<PushDevice>",
+        "403": "ApiErrorResponse"
+      },
+      "tags": [
+        "Push"
+      ],
+      "summary": "Enumerate push devices",
       "experimental": false
     },
     {
@@ -4259,7 +4391,24 @@
       "tags": [
         "Releases"
       ],
-      "summary": "Get GitHub pull-request evidence for a release",
+      "summary": "[Deprecated] Get GitHub pull-request evidence for a release Use POST /api/v1/releases/{id}/github/pull-requests/enumerate instead; removed in 2.0.",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/releases/{id}/github/pull-requests/enumerate",
+      "auth": "Authenticated",
+      "resource": "Release:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<GitHubPullRequestDetail>",
+        "404": ""
+      },
+      "tags": [
+        "Releases"
+      ],
+      "summary": "Enumerate a release's GitHub pull requests",
       "experimental": false
     },
     {
@@ -4842,7 +4991,7 @@
       "tags": [
         "Signals"
       ],
-      "summary": "Enumerate signals by recipient",
+      "summary": "[Deprecated] Enumerate signals by recipient Use POST /api/v1/signals/enumerate (toCaptainId, unreadOnly) instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -5648,7 +5797,24 @@
       "tags": [
         "Vessels"
       ],
-      "summary": "List vessel branches",
+      "summary": "[Deprecated] List vessel branches Use POST /api/v1/vessels/{id}/branches/enumerate instead; removed in 2.0.",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/vessels/{id}/branches/enumerate",
+      "auth": "Authenticated",
+      "resource": "Vessel:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "BranchEnumerationResult",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "Enumerate vessel branches",
       "experimental": false
     },
     {
@@ -8614,7 +8780,7 @@
           "required": false
         }
       ],
-      "description": "Find and browse entities with paginated, filtered, sorted access to: objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+      "description": "Find and browse entities with paginated, filtered, sorted access to: inbox (the needs-you items, most urgent first), cli_permission_rules, objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
       "experimental": false
     },
     {
@@ -9182,7 +9348,7 @@
       "auth": "Authenticated",
       "resource": "Inbox:Read",
       "arguments": [],
-      "description": "Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Use this to answer questions like \"Is there anything waiting on me?\", \"Is there anything that needs my attention?\", or \"Do I have any action items from Armada work?\". It surfaces two kinds of item: (a) work awaiting your decision (human-in-the-loop) -- missions in Review to approve or reject, deployments pending approval, and Ask Armada action proposals waiting for the caller's approval; and (b) autonomous work that failed and needs intervention (human-out-of-the-loop) -- failed missions, missions whose work could not land (landing failed), failed merges, failed or verification-failed deployments, and stalled captains. Purely informational events such as completions or normal progress are deliberately excluded. Each item has: kind, severity (Critical, Warning, or Info), title, detail, the related entity (entityType and entityId), and a dashboard href. Deployment items also carry environmentName and deploymentTitle, and a deployment approval is titled with the environment first and the deployment title second (\"Deploy to production: Release 2.3 hotfix\"). An empty items list means nothing currently needs the operator's attention.",
+      "description": "[Deprecated] Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Use this to answer questions like \"Is there anything waiting on me?\", \"Is there anything that needs my attention?\", or \"Do I have any action items from Armada work?\". It surfaces two kinds of item: (a) work awaiting your decision (human-in-the-loop) -- missions in Review to approve or reject, deployments pending approval, and Ask Armada action proposals waiting for the caller's approval; and (b) autonomous work that failed and needs intervention (human-out-of-the-loop) -- failed missions, missions whose work could not land (landing failed), failed merges, failed or verification-failed deployments, and stalled captains. Purely informational events such as completions or normal progress are deliberately excluded. Each item has: kind, severity (Critical, Warning, or Info), title, detail, the related entity (entityType and entityId), and a dashboard href. Deployment items also carry environmentName and deploymentTitle, and a deployment approval is titled with the environment first and the deployment title second (\"Deploy to production: Release 2.3 hotfix\"). An empty items list means nothing currently needs the operator's attention. Use enumerate with entityType inbox instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -9409,7 +9575,7 @@
           "required": false
         }
       ],
-      "description": "List CLI permission rules visible to the caller (the caller's tenant plus rules for every tenant). Rules use Claude Code permission rule syntax, for example Bash(git status:*), WebFetch(domain:example.com), or Edit(//repo/src/**); deny rules win over allow rules.",
+      "description": "[Deprecated] List CLI permission rules visible to the caller (the caller's tenant plus rules for every tenant). Rules use Claude Code permission rule syntax, for example Bash(git status:*), WebFetch(domain:example.com), or Edit(//repo/src/**); deny rules win over allow rules. Use enumerate with entityType cli_permission_rules instead; removed in 2.0.",
       "experimental": false
     },
     {

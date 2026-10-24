@@ -282,7 +282,7 @@ namespace Test.Shared.Suites.Tui
             stub.Json("GET", "/api/v1/backlog/obj_a", item);
             stub.Json("PUT", "/api/v1/backlog/obj_a", item);
             string session = "{\"Id\":\"ors_1\",\"ObjectiveId\":\"obj_a\",\"CaptainId\":\"cpt_1\",\"VesselId\":\"vsl_demo\",\"Title\":\"Refine login\",\"Status\":\"Active\",\"CreatedUtc\":\"2026-10-04T09:00:00Z\",\"LastUpdateUtc\":\"2026-10-04T09:30:00Z\"}";
-            stub.Json("GET", "/api/v1/backlog/obj_a/refinement-sessions", "[" + session + "]");
+            stub.Page("/api/v1/backlog/obj_a/refinement-sessions/enumerate", "[" + session + "]");
             string messages = "[{\"Id\":\"orm_1\",\"ObjectiveRefinementSessionId\":\"ors_1\",\"ObjectiveId\":\"obj_a\",\"Role\":\"User\",\"Sequence\":1,\"Content\":\"Sharpen this\",\"CreatedUtc\":\"2026-10-04T09:00:00Z\",\"LastUpdateUtc\":\"2026-10-04T09:00:00Z\"},"
                 + "{\"Id\":\"orm_2\",\"ObjectiveRefinementSessionId\":\"ors_1\",\"ObjectiveId\":\"obj_a\",\"Role\":\"Assistant\",\"Sequence\":2,\"Content\":\"Here is a sharper scope.\",\"CreatedUtc\":\"2026-10-04T09:01:00Z\",\"LastUpdateUtc\":\"2026-10-04T09:01:00Z\"}]";
             string detail = "{\"Session\":" + session + ",\"Messages\":" + messages + ",\"Captain\":{\"Id\":\"cpt_1\",\"Name\":\"claude-1\",\"Runtime\":\"ClaudeCode\",\"State\":\"Idle\"},\"Vessel\":{\"Id\":\"vsl_demo\",\"Name\":\"DemoRepo\"}}";
@@ -295,7 +295,7 @@ namespace Test.Shared.Suites.Tui
             stub.Json("POST", "/api/v1/backlog/obj_a/refinement-sessions", detail.Replace("ors_1", "ors_2"));
             stub.Json("GET", "/api/v1/objective-refinement-sessions/ors_2", detail.Replace("ors_1", "ors_2"));
             stub.Json("GET", "/api/v1/backlog/obj_new", TuiOpsBacklogSuite.Objective("obj_new", "Brand new item", 4, "Draft", "Inbox", ""));
-            stub.Json("GET", "/api/v1/backlog/obj_new/refinement-sessions", "[]");
+            stub.Page("/api/v1/backlog/obj_new/refinement-sessions/enumerate", "[]");
             return stub;
         }
     }

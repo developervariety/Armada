@@ -439,7 +439,7 @@ namespace Test.Shared.Suites.Tui.ActivitySystem
             stub.Json("GET", "/api/v1/settings", settings);
             stub.On("PUT", "/api/v1/settings", body => StubHttpHandler.Response(HttpStatusCode.OK, settings));
             stub.Json("GET", "/api/v1/vessels", "{\"Objects\":[{\"Id\":\"vsl_self\",\"Name\":\"armada\"},{\"Id\":\"vsl_2\",\"Name\":\"other\"}],\"TotalRecords\":2}");
-            stub.Json("GET", "/api/v1/vessels/vsl_self/branches", "{\"VesselId\":\"vsl_self\",\"DefaultBranch\":\"main\",\"Branches\":[{\"Name\":\"main\",\"IsDefault\":true},{\"Name\":\"dev\"}],\"BranchCount\":2}");
+            stub.Json("POST", "/api/v1/vessels/vsl_self/branches/enumerate", "{\"VesselId\":\"vsl_self\",\"DefaultBranch\":\"main\",\"PageNumber\":1,\"PageSize\":1000,\"TotalPages\":1,\"TotalRecords\":2,\"Objects\":[{\"Name\":\"main\",\"IsDefault\":true},{\"Name\":\"dev\"}]}");
             return stub;
         }
     }

@@ -322,11 +322,11 @@ namespace Test.Shared.Suites.Tui.Build
             StubHttpHandler stub = BuildStubs.Server();
             stub.Json("GET", "/api/v1/vessels/vsl_demo/git-status", "{\"VesselId\":\"vsl_demo\",\"CommitsAhead\":2,\"CommitsBehind\":0}");
             stub.Json("GET", "/api/v1/vessels/vsl_api/git-status", "{\"VesselId\":\"vsl_api\",\"CommitsAhead\":0,\"CommitsBehind\":0}");
-            stub.Json("GET", "/api/v1/vessels/vsl_demo/branches", "{\"VesselId\":\"vsl_demo\",\"DefaultBranch\":\"main\",\"BranchCount\":3,\"Branches\":[" +
+            stub.Json("POST", "/api/v1/vessels/vsl_demo/branches/enumerate", "{\"VesselId\":\"vsl_demo\",\"DefaultBranch\":\"main\",\"PageNumber\":1,\"PageSize\":1000,\"TotalPages\":1,\"TotalRecords\":3,\"Objects\":[" +
                 "{\"Name\":\"main\",\"IsDefault\":true,\"IsCurrent\":true,\"CommitHash\":\"abc1234\",\"CommitSubject\":\"Initial\"}," +
                 "{\"Name\":\"feature/x\",\"Ahead\":2,\"Behind\":1,\"CommitHash\":\"def5678\",\"CommitSubject\":\"Fix parser\"}," +
                 "{\"Name\":\"armada/msn_1\",\"Ahead\":1}]}");
-            stub.Json("GET", "/api/v1/vessels/vsl_api/branches", "{\"VesselId\":\"vsl_api\",\"DefaultBranch\":\"main\",\"BranchCount\":1,\"Branches\":[{\"Name\":\"main\",\"IsDefault\":true}]}");
+            stub.Json("POST", "/api/v1/vessels/vsl_api/branches/enumerate", "{\"VesselId\":\"vsl_api\",\"DefaultBranch\":\"main\",\"PageNumber\":1,\"PageSize\":1000,\"TotalPages\":1,\"TotalRecords\":1,\"Objects\":[{\"Name\":\"main\",\"IsDefault\":true}]}");
             stub.On("DELETE", "/api/v1/vessels/vsl_demo", b => BuildStubs.NoContent());
             stub.On("DELETE", "/api/v1/vessels/vsl_api", b => BuildStubs.NoContent());
             stub.Json("GET", "/api/v1/missions/summaries", "{\"Success\":true,\"Objects\":[{\"Id\":\"msn_9\",\"Title\":\"Fix parser task\",\"Status\":\"Complete\",\"CaptainId\":\"cpt_1\",\"BranchName\":\"armada/fix\",\"CreatedUtc\":\"2026-10-01T10:00:00Z\"}],\"TotalRecords\":1}");

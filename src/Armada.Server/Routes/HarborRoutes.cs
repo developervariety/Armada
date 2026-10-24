@@ -57,6 +57,21 @@ namespace Armada.Server.Routes
             Func<HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
+            app.Post("/api/v1/harbors/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                EnumerationQuery query = EnumerationRequestReader.Read(req, _BodyJsonOptions);
+                return EnumerationResult<Harbor>.Page(query, await _Harbors.EnumerateAsync(ctx).ConfigureAwait(false));
+            },
+            api => api
+                .WithTag("Harbors")
+                .WithSummary("Enumerate Harbors")
+                .WithDescription("One page of the registered Harbors visible to the caller, newest first. Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Harbor>>("One page"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/harbors", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

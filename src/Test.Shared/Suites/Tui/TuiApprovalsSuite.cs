@@ -325,7 +325,7 @@ namespace Test.Shared.Suites.Tui
                 fx.AddThread(AskFixtures.Thread("ath_2", "Greeting rollout"));
                 AskActionProposal p = AskFixtures.Proposal("aap_7", "ath_2", "dispatch", AskProposalStatusEnum.Pending);
                 fx.Decisions(p);
-                fx.Stub.Json("GET", "/api/v1/inbox", "[{\"Kind\":\"deployment_approval\",\"Severity\":\"Warning\",\"Title\":\"Deploy to Staging: Release 2.3 hotfix\",\"EntityName\":\"Staging\",\"EnvironmentName\":\"Staging\",\"DeploymentTitle\":\"Release 2.3 hotfix\",\"Detail\":\"v1.2\",\"EntityType\":\"deployment\",\"EntityId\":\"dpl_1\",\"Href\":\"/deployments/dpl_1\"}]");
+                fx.Stub.Page("/api/v1/inbox/enumerate", "[{\"Kind\":\"deployment_approval\",\"Severity\":\"Warning\",\"Title\":\"Deploy to Staging: Release 2.3 hotfix\",\"EntityName\":\"Staging\",\"EnvironmentName\":\"Staging\",\"DeploymentTitle\":\"Release 2.3 hotfix\",\"Detail\":\"v1.2\",\"EntityType\":\"deployment\",\"EntityId\":\"dpl_1\",\"Href\":\"/deployments/dpl_1\"}]");
                 fx.Stub.Json("POST", "/api/v1/deployments/dpl_1/deny", "{\"Id\":\"dpl_1\",\"Title\":\"Release 2.3 hotfix\",\"EnvironmentName\":\"Staging\"}");
                 using (TuiTestHost host = TuiCase.SignedIn(140, 45, "/approvals", fx.Stub))
                 {
@@ -443,7 +443,7 @@ namespace Test.Shared.Suites.Tui
         private static TuiTestHost Host(out StubHttpHandler stub)
         {
             stub = TuiFixtures.SignedInServer();
-            stub.Json("GET", "/api/v1/inbox", "[" +
+            stub.Page("/api/v1/inbox/enumerate", "[" +
                 "{\"Kind\":\"review\",\"Severity\":\"Warning\",\"Title\":\"Review: Fix tables\",\"EntityName\":\"Fix tables\",\"Detail\":\"Waiting 5m\",\"EntityType\":\"mission\",\"EntityId\":\"msn_r\",\"Href\":\"/missions/msn_r\"}," +
                 "{\"Kind\":\"landing_failed\",\"Severity\":\"Critical\",\"Title\":\"Landing failed: Ship it\",\"EntityName\":\"Ship it\",\"Detail\":\"Conflict\",\"EntityType\":\"mission\",\"EntityId\":\"msn_l\",\"Href\":\"/missions/msn_l\"}," +
                 "{\"Kind\":\"stalled_captain\",\"Severity\":\"Warning\",\"Title\":\"Stalled captain: slow\",\"EntityName\":\"slow\",\"Detail\":\"No heartbeat\",\"EntityType\":\"captain\",\"EntityId\":\"cpt_s\",\"Href\":\"/captains/cpt_s\"}," +

@@ -39,7 +39,7 @@ namespace Test.Shared.Suites.Tui
             {
                 StubHttpHandler stub = TuiEntityFixtures.Server();
                 List<string> many = Enumerable.Range(1, 30).Select(i => Harbor("hbr_" + i.ToString("00"), "h-" + i.ToString("00"), i % 3 == 0 ? "Connected" : "Disconnected", true)).ToList();
-                stub.Json("GET", "/api/v1/harbors", "[" + String.Join(",", many) + "]");
+                stub.Page("/api/v1/harbors/enumerate", "[" + String.Join(",", many) + "]");
                 using (TuiTestHost host = TuiEntityFixtures.Open(stub, "/configuration?tab=harbors"))
                 {
                     HarborsScreen screen = TuiEntityFixtures.Screen<HarborsScreen>(host);
@@ -118,7 +118,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "read_only_user", "Non-admins get the hint and no manage actions", () =>
             {
                 StubHttpHandler stub = TuiEntityFixtures.RegularUserServer();
-                stub.Json("GET", "/api/v1/harbors", "[" + Harbor("hbr_1", "build-box", "Connected", true) + "]");
+                stub.Page("/api/v1/harbors/enumerate", "[" + Harbor("hbr_1", "build-box", "Connected", true) + "]");
                 using (TuiTestHost host = TuiEntityFixtures.Open(stub, "/configuration?tab=harbors"))
                 {
                     HarborsScreen screen = TuiEntityFixtures.Screen<HarborsScreen>(host);
@@ -137,7 +137,7 @@ namespace Test.Shared.Suites.Tui
         internal static StubHttpHandler Server()
         {
             StubHttpHandler stub = TuiEntityFixtures.Server();
-            stub.Json("GET", "/api/v1/harbors", "[" + Harbor("hbr_1", "build-box", "Connected", true) + "," + Harbor("hbr_2", "old-box", "Disconnected", false) + "]");
+            stub.Page("/api/v1/harbors/enumerate", "[" + Harbor("hbr_1", "build-box", "Connected", true) + "," + Harbor("hbr_2", "old-box", "Disconnected", false) + "]");
             stub.Json("GET", "/api/v1/harbors/hbr_1/metrics", HarborMetricsFixture.Json("hbr_1"));
             stub.Json("GET", "/api/v1/harbors/hbr_2/metrics", HarborMetricsFixture.Json("hbr_2"));
             return stub;

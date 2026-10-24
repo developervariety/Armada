@@ -24,7 +24,7 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 378 | 14 |
+| REST routes | 388 | 15 |
 | MCP tools | 177 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
@@ -68,6 +68,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/backlog/{id}` | TenantAdmin | `ObjectiveUpsertRequest` | 200 `Objective`, 404 |  |
 | GET | `/api/v1/backlog/{id}/refinement-sessions` | Authenticated |  | 200 `List<ObjectiveRefinementSession>`, 404 |  |
 | POST | `/api/v1/backlog/{id}/refinement-sessions` | TenantAdmin | `ObjectiveRefinementSessionCreateRequest` | 201 `ObjectiveRefinementSessionDetail`, 400, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/backlog/{id}/refinement-sessions/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<ObjectiveRefinementSession>`, 404 |  |
 | GET | `/api/v1/backup` | AdminOnly |  | 200, 400 |  |
 | GET | `/api/v1/captains` | Authenticated |  | 200 `EnumerationResult<Captain>` |  |
 | POST | `/api/v1/captains` | TenantAdmin | `Captain` | 201 `Captain`, 400, 409 `ApiErrorResponse` |  |
@@ -96,6 +97,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/cli-permissions/requests/{id}/decide` | Authenticated | `CliPermissionDecisionRequest` | 200 `CliPermissionRequest`, 400, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/cli-permissions/rules` | Authenticated |  | 200 `List<CliPermissionRule>` |  |
 | POST | `/api/v1/cli-permissions/rules` | TenantAdmin | `CliPermissionRule` | 201 `CliPermissionRule`, 400 |  |
+| POST | `/api/v1/cli-permissions/rules/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<CliPermissionRule>` |  |
 | DELETE | `/api/v1/cli-permissions/rules/{id}` | TenantAdmin |  | 204, 404 |  |
 | GET | `/api/v1/cli-permissions/rules/{id}` | Authenticated |  | 200 `CliPermissionRule`, 404 |  |
 | PUT | `/api/v1/cli-permissions/rules/{id}` | TenantAdmin | `CliPermissionRule` | 200 `CliPermissionRule`, 400, 404 |  |
@@ -155,6 +157,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/fleets/{id}` | TenantAdmin | `Fleet` | 200 `Fleet`, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/harbors` | Authenticated |  | 200 `List<Harbor>` | experimental |
 | POST | `/api/v1/harbors` | Authenticated | `Harbor` | 201 `Harbor`, 400 | experimental |
+| POST | `/api/v1/harbors/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<Harbor>` | experimental |
 | DELETE | `/api/v1/harbors/{id}` | Authenticated |  | 204, 404 | experimental |
 | GET | `/api/v1/harbors/{id}` | Authenticated |  | 200 `Harbor`, 404 | experimental |
 | PUT | `/api/v1/harbors/{id}` | Authenticated | `Harbor` | 200 `Harbor`, 400, 404 | experimental |
@@ -167,6 +170,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/history` | Authenticated |  | 200 `EnumerationResult<HistoricalTimelineEntry>` |  |
 | POST | `/api/v1/history/enumerate` | Authenticated | `HistoricalTimelineQuery` (optional) | 200 `EnumerationResult<HistoricalTimelineEntry>` |  |
 | GET | `/api/v1/inbox` | Authenticated |  | 200 `List<InboxItem>` |  |
+| POST | `/api/v1/inbox/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<InboxItem>` |  |
 | GET | `/api/v1/incidents` | Authenticated |  | 200 `EnumerationResult<Incident>` |  |
 | POST | `/api/v1/incidents` | TenantAdmin | `IncidentUpsertRequest` | 201 `Incident` |  |
 | POST | `/api/v1/incidents/enumerate` | Authenticated | `IncidentQuery` (optional) | 200 `EnumerationResult<Incident>` |  |
@@ -214,6 +218,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/missions/{id}/status` | TenantAdmin | `StatusTransitionRequest` | 200 `Mission`, 400, 404 |  |
 | GET | `/api/v1/model-endpoints` | Authenticated |  | 200 `List<ModelEndpoint>` |  |
 | POST | `/api/v1/model-endpoints` | Authenticated | `ModelEndpoint` | 201 `ModelEndpoint`, 400 |  |
+| POST | `/api/v1/model-endpoints/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<ModelEndpoint>` |  |
 | POST | `/api/v1/model-endpoints/health-check` | Authenticated |  | 200 `ModelEndpointHealthSweepResponse` |  |
 | DELETE | `/api/v1/model-endpoints/{id}` | Authenticated |  | 204, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/model-endpoints/{id}` | Authenticated |  | 200 `ModelEndpoint`, 404 |  |
@@ -236,6 +241,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/objectives/{id}` | TenantAdmin | `ObjectiveUpsertRequest` | 200 `Objective`, 404 |  |
 | GET | `/api/v1/objectives/{id}/refinement-sessions` | Authenticated |  | 200 `List<ObjectiveRefinementSession>`, 404 |  |
 | POST | `/api/v1/objectives/{id}/refinement-sessions` | TenantAdmin | `ObjectiveRefinementSessionCreateRequest` | 201 `ObjectiveRefinementSessionDetail`, 400, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/objectives/{id}/refinement-sessions/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<ObjectiveRefinementSession>`, 404 |  |
 | POST | `/api/v1/onboarding` | NoAuthRequired |  | 200, 400, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/personas` | Authenticated |  | 200 `EnumerationResult<Persona>` |  |
 | POST | `/api/v1/personas` | Authenticated | `Persona` | 201 `Persona`, 400, 409 `ApiErrorResponse` |  |
@@ -251,6 +257,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/pipelines/{name}` | Authenticated | `Pipeline` | 200 `Pipeline`, 404 |  |
 | GET | `/api/v1/planning-sessions` | Authenticated |  | 200 `List<PlanningSession>`, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/planning-sessions` | TenantAdmin | `PlanningSessionCreateRequest` | 201 `Object`, 400, 404, 501 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/planning-sessions/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<PlanningSession>` |  |
 | DELETE | `/api/v1/planning-sessions/{id}` | TenantAdmin |  | 204, 404, 501 `ApiStatusErrorResponse` |  |
 | GET | `/api/v1/planning-sessions/{id}` | Authenticated |  | 200, 404, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/planning-sessions/{id}/dispatch` | TenantAdmin | `PlanningSessionDispatchRequest` (optional) | 200, 404, 501 `ApiStatusErrorResponse` |  |
@@ -281,6 +288,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/prompt-templates/{name}/reset` | Authenticated |  | 200 `PromptTemplate`, 404 |  |
 | GET | `/api/v1/push/devices` | Authenticated |  | 200 `List<PushDevice>`, 403 `ApiErrorResponse` |  |
 | POST | `/api/v1/push/devices` | Authenticated | `PushDeviceRegisterRequest` | 200 `PushDevice`, 201 `PushDevice`, 400, 403 `ApiErrorResponse` |  |
+| POST | `/api/v1/push/devices/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<PushDevice>`, 403 `ApiErrorResponse` |  |
 | DELETE | `/api/v1/push/devices/{id}` | Authenticated |  | 204, 404 |  |
 | PUT | `/api/v1/push/devices/{id}` | Authenticated | `PushDeviceUpdateRequest` | 200 `PushDevice`, 400, 404 |  |
 | POST | `/api/v1/push/devices/{id}/test` | Authenticated |  | 200 `PushTestResult`, 404 |  |
@@ -291,6 +299,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/releases/{id}` | Authenticated |  | 200 `Release`, 404 |  |
 | PUT | `/api/v1/releases/{id}` | TenantAdmin | `ReleaseUpsertRequest` | 200 `Release`, 404 |  |
 | GET | `/api/v1/releases/{id}/github/pull-requests` | Authenticated |  | 200 `List<GitHubPullRequestDetail>`, 404 |  |
+| POST | `/api/v1/releases/{id}/github/pull-requests/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<GitHubPullRequestDetail>`, 404 |  |
 | POST | `/api/v1/releases/{id}/refresh` | TenantAdmin |  | 200 `Release`, 404 |  |
 | GET | `/api/v1/request-history` | Authenticated |  | 200 `EnumerationResult<RequestHistoryEntry>` |  |
 | POST | `/api/v1/request-history/delete/by-filter` | TenantAdmin | `RequestHistoryQuery` (optional) | 200 `DeleteMultipleResult` |  |
@@ -374,6 +383,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/vessels/{id}` | Authenticated |  | 200 `Vessel`, 404 |  |
 | PUT | `/api/v1/vessels/{id}` | TenantAdmin | `Vessel` | 200 `Vessel`, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/vessels/{id}/branches` | Authenticated |  | 200, 404, 503 `ApiStatusErrorResponse` |  |
+| POST | `/api/v1/vessels/{id}/branches/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `BranchEnumerationResult`, 404 |  |
 | POST | `/api/v1/vessels/{id}/branches/merge` | TenantAdmin |  | 200, 400, 404, 422 `ApiStatusErrorResponse`, 503 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/vessels/{id}/branches/push` | TenantAdmin |  | 200, 400, 404, 422 `ApiStatusErrorResponse`, 503 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/vessels/{id}/build-context` | TenantAdmin | `VesselBuildContextRequest` | 200 `Vessel`, 400, 404, 501 `ApiStatusErrorResponse`, 504 `ApiStatusErrorResponse` |  |

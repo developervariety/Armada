@@ -213,7 +213,7 @@ namespace Test.Shared.Suites.Tui
                 Release("rel_1", "Release 1.0", "Shipped"),
                 Release("rel_2", "Release 1.1", "Candidate")));
             stub.Json("GET", "/api/v1/releases/rel_1", Release("rel_1", "Release 1.0", "Shipped"));
-            stub.Json("GET", "/api/v1/releases/rel_1/github/pull-requests", "[{\"Repository\":\"acme/web\",\"Number\":7,\"Url\":\"https://github.com/acme/web/pull/7\",\"Title\":\"Add login\",\"State\":\"open\",\"ReviewStatus\":\"Approved\",\"RequestedReviewers\":[\"bob\"],\"Checks\":[],\"Reviews\":[]}]");
+            stub.Page("/api/v1/releases/rel_1/github/pull-requests/enumerate", "[{\"Repository\":\"acme/web\",\"Number\":7,\"Url\":\"https://github.com/acme/web/pull/7\",\"Title\":\"Add login\",\"State\":\"open\",\"ReviewStatus\":\"Approved\",\"RequestedReviewers\":[\"bob\"],\"Checks\":[],\"Reviews\":[]}]");
             stub.Json("GET", "/api/v1/deployments", TuiEntityFixtures.Page("{\"Id\":\"dpl_1\",\"Title\":\"Deploy rel\",\"ReleaseId\":\"rel_1\",\"Status\":\"Succeeded\",\"VerificationStatus\":\"Passed\",\"CheckRunIds\":[],\"CreatedUtc\":\"2026-10-01T00:00:00Z\",\"LastUpdateUtc\":\"2026-10-01T00:00:00Z\"}"));
             stub.Json("GET", "/api/v1/vessels", TuiEntityFixtures.Page("{\"Id\":\"vsl_1\",\"Name\":\"web-app\"}"));
             return stub;

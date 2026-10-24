@@ -220,7 +220,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "live_events", "cli_permission.requested adds the item at once; cli_permission.resolved removes it", () =>
             {
                 StubHttpHandler stub = TuiFixtures.SignedInServer();
-                stub.Json("GET", "/api/v1/inbox", "[]");
+                stub.Page("/api/v1/inbox/enumerate", "[]");
                 using (TuiTestHost host = TuiCase.SignedIn(140, 45, "/approvals", stub))
                 {
                     int arrived = 0;
@@ -446,7 +446,7 @@ namespace Test.Shared.Suites.Tui
                 CliPermission = request,
                 ExpiresUtc = request.ExpiresUtc
             };
-            stub.Json("GET", "/api/v1/inbox", ArmadaJson.Serialize(new List<InboxItem> { item }));
+            stub.Page("/api/v1/inbox/enumerate", ArmadaJson.Serialize(new List<InboxItem> { item }));
             CliPermissionRequest decided = ArmadaJson.Deserialize<CliPermissionRequest>(ArmadaJson.Serialize(request))!;
             decided.Status = CliPermissionRequestStatusEnum.Allowed;
             stub.Json("POST", DecidePath, ArmadaJson.Serialize(decided));

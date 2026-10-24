@@ -114,9 +114,9 @@ namespace Test.Shared.Suites.Tui
             jobs.OpenKey = "j";
             specs.Add(jobs);
 
-            TuiFlowSpec inbox = TuiFlowSpec.Create("needs_you", "/inbox", "/api/v1/inbox", "x", "Review: Alpha", "/missions/msn_alpha",
+            TuiFlowSpec inbox = TuiFlowSpec.Create("needs_you", "/inbox", "/api/v1/inbox/enumerate", "x", "Review: Alpha", "/missions/msn_alpha",
                 "{\"Kind\":\"review\",\"Severity\":\"Warning\",\"Title\":\"Review: Alpha\",\"Detail\":\"Waiting 5m\",\"EntityType\":\"mission\",\"EntityId\":\"msn_alpha\",\"Href\":\"/missions/msn_alpha\"}");
-            inbox.BareArray = true;
+            inbox.ListMethod = "POST";
             inbox.DetailPath = "/api/v1/missions/msn_alpha";
             inbox.DetailJson = "{\"Id\":\"msn_alpha\",\"Title\":\"Alpha review mission\",\"Status\":\"Review\",\"VesselId\":\"vsl_1\"," + Stamp + "}";
             inbox.DetailText = "Alpha review mission";

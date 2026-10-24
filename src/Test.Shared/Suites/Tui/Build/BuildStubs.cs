@@ -30,7 +30,7 @@ namespace Test.Shared.Suites.Tui.Build
                 "{\"Id\":\"dck_1\",\"VesselId\":\"vsl_demo\",\"CaptainId\":\"cpt_1\",\"BranchName\":\"armada/msn_1\",\"WorktreePath\":\"/tmp/docks/one\",\"Active\":true,\"CreatedUtc\":\"2026-10-04T09:00:00Z\",\"LastUpdateUtc\":\"2026-10-04T09:00:00Z\"}," +
                 "{\"Id\":\"dck_2\",\"VesselId\":\"vsl_api\",\"BranchName\":\"armada/msn_2\",\"WorktreePath\":\"/tmp/docks/two\",\"Active\":false,\"CreatedUtc\":\"2026-10-03T09:00:00Z\",\"LastUpdateUtc\":\"2026-10-03T09:00:00Z\"}]}");
             stub.Json("GET", "/api/v1/users", "{\"Success\":true,\"Objects\":[],\"TotalRecords\":0}");
-            stub.Json("GET", "/api/v1/model-endpoints", "[]");
+            stub.Page("/api/v1/model-endpoints/enumerate", "[]");
             return stub;
         }
 

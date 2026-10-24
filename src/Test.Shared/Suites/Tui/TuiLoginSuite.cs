@@ -197,7 +197,7 @@ namespace Test.Shared.Suites.Tui
                     host.Start();
                     AssertTrue(host.PumpUntil(() => host.Tui.Context.Session.IsSignedIn), "resumed");
                     AssertEqual("tok_saved", host.Tui.Context.Session.Token, "stored token used");
-                    stub.Json("GET", "/api/v1/inbox", "{\"Message\":\"Authentication required\"}", HttpStatusCode.Unauthorized);
+                    stub.Json("POST", "/api/v1/inbox/enumerate", "{\"Message\":\"Authentication required\"}", HttpStatusCode.Unauthorized);
                     host.Tui.Context.Status.PollAllAsync().GetAwaiter().GetResult();
                     AssertTrue(host.PumpUntil(() => !host.Tui.Context.Session.IsSignedIn), "expired");
                     AssertTrue(host.WaitForText("Your session expired. Sign in again."), "notice");

@@ -27,11 +27,6 @@ namespace Test.Shared.Infrastructure
         public string ListPath { get; set; } = "";
 
         /// <summary>
-        /// True when the list API returns a bare JSON array instead of an enumeration page.
-        /// </summary>
-        public bool BareArray { get; set; } = false;
-
-        /// <summary>
         /// One row as JSON.
         /// </summary>
         public string RowJson { get; set; } = "";

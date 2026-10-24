@@ -300,9 +300,11 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/backlog/reorder` | POST | TenantAdmin | Apply explicit ranked backlog updates using backlog terminology |
 | `/api/v1/backlog/{id}` | GET | Authenticated | Read one backlog item in scope |
 | `/api/v1/backlog/{id}` | PUT/DELETE | TenantAdmin | Update or delete one backlog item in scope |
-| `/api/v1/objectives/{id}/refinement-sessions` | GET | Authenticated | List refinement sessions linked to one objective |
+| `/api/v1/objectives/{id}/refinement-sessions/enumerate` | POST | Authenticated | One page of the refinement sessions linked to one objective (`EnumerationResult<ObjectiveRefinementSession>`) |
+| `/api/v1/objectives/{id}/refinement-sessions` | GET | Authenticated | **Deprecated** (removed in 2.0; use `.../refinement-sessions/enumerate`): list refinement sessions linked to one objective |
 | `/api/v1/objectives/{id}/refinement-sessions` | POST | TenantAdmin | Create one refinement session for one objective |
-| `/api/v1/backlog/{id}/refinement-sessions` | GET | Authenticated | List refinement sessions linked to one backlog item |
+| `/api/v1/backlog/{id}/refinement-sessions/enumerate` | POST | Authenticated | One page of the refinement sessions linked to one backlog item (`EnumerationResult<ObjectiveRefinementSession>`) |
+| `/api/v1/backlog/{id}/refinement-sessions` | GET | Authenticated | **Deprecated** (removed in 2.0; use `.../refinement-sessions/enumerate`): list refinement sessions linked to one backlog item |
 | `/api/v1/backlog/{id}/refinement-sessions` | POST | TenantAdmin | Create one refinement session for one backlog item |
 | `/api/v1/objective-refinement-sessions/{id}` | GET | Authenticated | Read one refinement session with transcript detail |
 | `/api/v1/objective-refinement-sessions/{id}/messages` | POST | TenantAdmin | Append one refinement transcript message |
@@ -483,12 +485,14 @@ Query string parameters **override** body values on POST enumerate endpoints, al
 }
 ```
 
-A few list routes are not paged and return a plain array or a purpose-built wrapper; they are frozen as they are for
-1.0 (changing them would break clients) and are listed here so clients do not expect `EnumerationResult<T>`:
+A few list routes are not paged and return a plain array or a purpose-built wrapper. Those that return a whole
+collection are deprecated, each with a paged `POST .../enumerate` replacement (see [DEPRECATION.md](../DEPRECATION.md));
+the rest are bounded. They are listed here so clients do not expect `EnumerationResult<T>`:
 
 | Route | Shape |
 |---|---|
-| `GET /api/v1/harbors` (experimental), `GET /api/v1/model-endpoints`, `GET /api/v1/inbox`, `GET /api/v1/signals/recent`, `GET /api/v1/signals/recipient/{captainId}`, `GET /api/v1/planning-sessions`, `GET /api/v1/objectives/{id}/refinement-sessions`, `GET /api/v1/backlog/{id}/refinement-sessions`, `GET /api/v1/ask/quick-actions`, `GET /api/v1/releases/{id}/github/pull-requests`, `GET /api/v1/doctor` | JSON array |
+| Deprecated (paged replacement beside each): `GET /api/v1/harbors` (experimental), `GET /api/v1/model-endpoints`, `GET /api/v1/inbox`, `GET /api/v1/signals/recipient/{captainId}`, `GET /api/v1/planning-sessions`, `GET /api/v1/objectives/{id}/refinement-sessions`, `GET /api/v1/backlog/{id}/refinement-sessions`, `GET /api/v1/releases/{id}/github/pull-requests`, `GET /api/v1/cli-permissions/rules`, `GET /api/v1/push/devices` | JSON array |
+| Bounded: `GET /api/v1/signals/recent` (`count` at most 1000), `GET /api/v1/ask/quick-actions` (fixed catalog), `GET /api/v1/doctor` | JSON array |
 | `GET /api/v1/jobs` | `{ Success, Objects, TotalRecords }` |
 | `POST /api/v1/ask/threads/{id}/messages/enumerate` | `AskMessagePage { Messages, HasMore }` (cursor style) |
 | `GET /api/v1/workspace/vessels/{id}/search` | `WorkspaceSearchResult { Query, TotalMatches, Truncated, Matches }` |
@@ -1817,7 +1821,20 @@ When no working directory is configured or a git error occurs, `CommitsAhead` an
 
 ---
 
+#### POST /api/v1/vessels/{id}/branches/enumerate
+
+One page of a vessel's branches as a `BranchEnumerationResult`: the page plus `VesselId`, `DefaultBranch`, and `Error` (set, with an empty page, when git could not list them; `404` for a vessel that is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+
+**Permission:** Authenticated (scoped exactly like the deprecated `GET /api/v1/vessels/{id}/branches`)
+
+**Response:** `200 OK` - `EnumerationResult<T>` (`PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `Objects`)
+
+---
+
 #### GET /api/v1/vessels/{id}/branches
+
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns the whole collection in one response. Use `POST /api/v1/vessels/{id}/branches/enumerate` instead. It keeps working unchanged until then.
+
 
 List the branches in the vessel repository, each with a current flag and ahead/behind counts relative to the default branch.
 
@@ -4199,7 +4216,8 @@ turns).
 | GET | `/api/v1/cli-permissions/requests` | | `200` `CliPermissionRequest[]`, newest first. Query: `status` (`Pending`, `Allowed`, `Denied`, `Expired`, `Cancelled`), `missionId`, `threadId`, `captainId`, `vesselId`, `limit` (1-1000, default 100); `400` for an invalid status or limit |
 | GET | `/api/v1/cli-permissions/requests/{id}` | | `200` `CliPermissionRequest`; `404` when missing or not visible |
 | POST | `/api/v1/cli-permissions/requests/{id}/decide` | `CliPermissionDecisionRequest` | `200` the decided `CliPermissionRequest`; `400` invalid rule pattern or scope; `403` the caller may not decide (or remember); `404`; `409` no longer pending |
-| GET | `/api/v1/cli-permissions/rules` | | `200` `CliPermissionRule[]`. Query: `scope` (`Global`, `Vessel`, `Captain`), `vesselId`, `captainId` |
+| POST | `/api/v1/cli-permissions/rules/enumerate` | `EnumerationQuery` (optional) | `200` `EnumerationResult<CliPermissionRule>`, one page. Filters: `VesselId`, `CaptainId` (body or querystring) and `scope` (querystring) |
+| GET | `/api/v1/cli-permissions/rules` | | **Deprecated** (removed in 2.0; use `POST .../rules/enumerate`): `200` `CliPermissionRule[]`. Query: `scope` (`Global`, `Vessel`, `Captain`), `vesselId`, `captainId` |
 | POST | `/api/v1/cli-permissions/rules` | `CliPermissionRule` | `201` `CliPermissionRule`; `400` invalid pattern, or a `Vessel`/`Captain` rule without its id; `403` not an admin; `404` vessel or captain not visible |
 | GET | `/api/v1/cli-permissions/rules/{id}` | | `200` `CliPermissionRule`; `404` |
 | PUT | `/api/v1/cli-permissions/rules/{id}` | `CliPermissionRule` (`Pattern`, `Action`, `Description`) | `200` `CliPermissionRule`; `400`; `403` not an admin of the rule's tenant; `404`. Scope and target are fixed (delete and recreate to change them) |
@@ -4276,7 +4294,8 @@ holding an Expo push token can send to it unless the Expo project uses enhanced 
 | Method | Path | Body | Response |
 |---|---|---|---|
 | POST | `/api/v1/push/devices` | `PushDeviceRegisterRequest` | `201` [PushDevice](#pushdevice) for a token new to the caller, `200` when the caller had registered it (refreshed and reactivated); `400` invalid token, missing platform, or a field too long; `403` captain session |
-| GET | `/api/v1/push/devices` | | `200` `PushDevice[]`, oldest first: the caller's devices. Query `userId` (tenant admins: a user of their tenant; global admins: any user) and `tenantId` (global admins); `403` otherwise |
+| POST | `/api/v1/push/devices/enumerate` | `EnumerationQuery` (optional) | `200` `EnumerationResult<PushDevice>`, one page, oldest first; `UserId` and `TenantId` filter as on the deprecated GET |
+| GET | `/api/v1/push/devices` | | **Deprecated** (removed in 2.0; use `POST /api/v1/push/devices/enumerate`): `200` `PushDevice[]`, oldest first: the caller's devices. Query `userId` (tenant admins: a user of their tenant; global admins: any user) and `tenantId` (global admins); `403` otherwise |
 | PUT | `/api/v1/push/devices/{id}` | `PushDeviceUpdateRequest` | `200` `PushDevice`; `400`; `404` when missing or not manageable by the caller |
 | DELETE | `/api/v1/push/devices/{id}` | | `204`; `404` |
 | POST | `/api/v1/push/devices/{id}/test` | | `200` [PushTestResult](#pushtestresult); `404` |
@@ -4415,6 +4434,9 @@ Mark a signal as read.
 ---
 
 #### GET /api/v1/signals/recipient/{captainId}
+
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns the whole collection in one response. Use `POST /api/v1/signals/enumerate` instead. It keeps working unchanged until then. with `ToCaptainId` (and `UnreadOnly`).
+
 
 Return signals addressed to a specific captain. Defaults to unread only.
 
@@ -4959,7 +4981,20 @@ Skipped entries include the entry ID and the reason (e.g., "Not found" or "Not i
 
 Harbor records register host-side runners that let the Admiral run detached (in Docker or on another host) while agent CLIs, git, and worktrees execute on a developer machine over an authenticated client-to-server link. These routes manage the Harbor registrations only -- creating, reading, updating, enabling, disabling, and deleting them. Runtime state such as `ConnectionStatus`, `LastSeenUtc`, `ProtocolVersion`, `OsPlatform`, and `Architecture` is reported by the link and is not operator-editable; the operator-editable fields are `Name`, `MaxConcurrentJobs`, and `Enabled`. **Experimental:** the Harbor routes are excluded from the 1.0 compatibility promise (their OpenAPI summaries start with `[Experimental]`), because Harbor split mode and its link transport are experimental (see [docs/HARBOR.md](HARBOR.md), [docs/HARBOR_PROTOCOL.md](HARBOR_PROTOCOL.md), and [COMPATIBILITY.md](COMPATIBILITY.md)).
 
+#### POST /api/v1/harbors/enumerate
+
+One page of the Harbors visible to the caller. Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+
+**Permission:** Authenticated (scoped exactly like the deprecated `GET /api/v1/harbors`)
+
+**Response:** `200 OK` - `EnumerationResult<T>` (`PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `Objects`)
+
+---
+
 #### GET /api/v1/harbors
+
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns the whole collection in one response. Use `POST /api/v1/harbors/enumerate` instead. It keeps working unchanged until then.
+
 
 List Harbors in the caller scope. Returns a plain array, not a paged envelope.
 
@@ -5153,6 +5188,9 @@ Jobs are background tasks tracked for status polling.
 `Kind` is one of `Generic`, `Cleanup`, `Sync`, `Report` (vessel health evaluation), `VesselDiscovery` (background import discovery), `VesselImport` (background vessel import), and `FleetCategorization` (a captain recommending fleets for an import). Import-related job names include the batch ID (`vib_...`). Cancelling a `VesselDiscovery` or `FleetCategorization` job stops the scan or the captain's process within a few seconds.
 
 #### GET /api/v1/jobs
+
+> **Deprecated behavior** (see [DEPRECATION.md](../DEPRECATION.md), D-014): called with no paging or filter parameters, this returns every job in scope. Always send `pageNumber` and `pageSize`; in 2.0 the parameterless form returns the first page.
+
 
 List background jobs, newest first, scoped to the caller.
 
@@ -5454,7 +5492,20 @@ thread owner can approve them), and proposals older than `Ask.ProposalExpiryMinu
 requests are visible to global admins, the tenant's tenant admins, and the owner of the thread or mission; the owner can
 decide only when `Permissions.AllowOwnerApproval` is on, otherwise `Detail` ends with "An admin must decide it."
 
+#### POST /api/v1/inbox/enumerate
+
+One page of the needs-you inbox items, most urgent first (`TotalRecords` is the whole count). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+
+**Permission:** Authenticated (scoped exactly like the deprecated `GET /api/v1/inbox`)
+
+**Response:** `200 OK` - `EnumerationResult<T>` (`PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `Objects`)
+
+---
+
 #### GET /api/v1/inbox
+
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns the whole collection in one response. Use `POST /api/v1/inbox/enumerate` instead. It keeps working unchanged until then.
+
 
 Return the operator "needs you" inbox.
 
@@ -6259,7 +6310,20 @@ Deployment copies open the create form with immediate execution off. Release cop
 
 Duplication is deliberately absent from observed or historical tables: voyages (execution graphs), docks/worktrees, checks, jobs, signals/events, request/activity/history logs, merge queue entries, execution results, storage inventory, discovered runtime tools, git branch inventory, health/metrics and import results. Reuse their underlying definition, retry/run controls, or the individual mission duplication action instead. Tenant, user, credential and CLI permission-rule tables also do not clone identities, grants or credentials.
 
+#### POST /api/v1/model-endpoints/enumerate
+
+One page of the model endpoints visible to the caller (API keys are never returned). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+
+**Permission:** Authenticated (scoped exactly like the deprecated `GET /api/v1/model-endpoints`)
+
+**Response:** `200 OK` - `EnumerationResult<T>` (`PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `Objects`)
+
+---
+
 #### GET /api/v1/model-endpoints
+
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns the whole collection in one response. Use `POST /api/v1/model-endpoints/enumerate` instead. It keeps working unchanged until then.
+
 
 List all model endpoints in the caller scope. This route returns a plain array, **not** a paginated `EnumerationResult` envelope.
 
@@ -6757,7 +6821,20 @@ Return high-level workspace health, git state, and active-mission overlap contex
 
 Planning sessions back the dashboard's captain chat flow and transcript-to-dispatch handoff. These routes are implemented for SQLite first; other database backends return `501 Not Supported`.
 
+#### POST /api/v1/planning-sessions/enumerate
+
+One page of the planning sessions visible to the caller, most recently updated first. Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+
+**Permission:** Authenticated (scoped exactly like the deprecated `GET /api/v1/planning-sessions`)
+
+**Response:** `200 OK` - `EnumerationResult<T>` (`PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `Objects`)
+
+---
+
 #### GET /api/v1/planning-sessions
+
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns the whole collection in one response. Use `POST /api/v1/planning-sessions/enumerate` instead. It keeps working unchanged until then.
+
 
 List planning sessions visible to the authenticated caller.
 
@@ -7593,7 +7670,20 @@ Read one release.
 - Response: `200 OK` - `Release`
 - Errors: `404 Not Found`
 
+#### POST /api/v1/releases/{id}/github/pull-requests/enumerate
+
+One page of the GitHub pull requests linked to one release's missions (`404` when the release is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+
+**Permission:** Authenticated (scoped exactly like the deprecated `GET /api/v1/releases/{id}/github/pull-requests`)
+
+**Response:** `200 OK` - `EnumerationResult<T>` (`PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `Objects`)
+
+---
+
 #### GET /api/v1/releases/{id}/github/pull-requests
+
+> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns the whole collection in one response. Use `POST /api/v1/releases/{id}/github/pull-requests/enumerate` instead. It keeps working unchanged until then.
+
 
 Read normalized GitHub pull-request evidence derived from the `PrUrl` values on missions linked to one release.
 

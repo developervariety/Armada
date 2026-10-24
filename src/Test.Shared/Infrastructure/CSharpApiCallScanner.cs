@@ -44,10 +44,11 @@ namespace Test.Shared.Infrastructure
                     if (api < 0) continue;
                     path = path.Substring(api);
                     int query = path.IndexOf('?');
-                    if (query >= 0) path = path.Substring(0, query);
+                    bool hasQuery = query >= 0;
+                    if (hasQuery) path = path.Substring(0, query);
                     string verb = (m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value).ToUpperInvariant();
                     int line = src.Take(m.Index).Count(c => c == '\n') + 1;
-                    calls.Add(new DashboardApiCall { Export = Path.GetFileName(file) + ":" + line, Method = verb, Path = path });
+                    calls.Add(new DashboardApiCall { Export = Path.GetFileName(file) + ":" + line, Method = verb, Path = path, HasQuery = hasQuery });
                 }
             }
 

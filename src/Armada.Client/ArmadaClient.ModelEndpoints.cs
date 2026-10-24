@@ -25,7 +25,7 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<List<ModelEndpoint>?> ListModelEndpointsAsync(CancellationToken token = default)
         {
-            return GetAsync<List<ModelEndpoint>>("/api/v1/model-endpoints", null, token);
+            return EnumerateAllAsync<ModelEndpoint>("/api/v1/model-endpoints/enumerate", null, token);
         }
 
         /// <summary>

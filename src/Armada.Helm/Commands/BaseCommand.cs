@@ -511,6 +511,27 @@ namespace Armada.Helm.Commands
         }
 
         /// <summary>
+        /// Every row of a paged <c>POST .../enumerate</c> route, read 1000 at a time (each request returns one page).
+        /// </summary>
+        /// <typeparam name="T">Row type.</typeparam>
+        /// <param name="path">Route path.</param>
+        /// <returns>All rows, or null when the first page could not be read.</returns>
+        protected async Task<List<T>?> EnumerateAllAsync<T>(string path)
+        {
+            List<T> all = new List<T>();
+            for (int pageNumber = 1; pageNumber <= 100; pageNumber++)
+            {
+                EnumerationResult<T>? page = await PostAsync<EnumerationResult<T>>(path, new { PageNumber = pageNumber, PageSize = 1000 }).ConfigureAwait(false);
+                if (page == null) return pageNumber == 1 ? null : all;
+                if (page.Objects.Count == 0) break;
+                all.AddRange(page.Objects);
+                if (all.Count >= page.TotalRecords) break;
+            }
+
+            return all;
+        }
+
+        /// <summary>
         /// Send a POST request with a body and deserialize the response.
         /// </summary>
         protected async Task<T?> PostAsync<T>(string path, object body) where T : class

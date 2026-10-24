@@ -69,7 +69,7 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<List<CliPermissionRule>?> ListCliPermissionRulesAsync(CliPermissionRuleQuery? query = null, CancellationToken token = default)
         {
-            return GetAsync<List<CliPermissionRule>>($"/api/v1/cli-permissions/rules{ArmadaQueryString.FromObject(query)}", null, token);
+            return EnumerateAllAsync<CliPermissionRule>($"/api/v1/cli-permissions/rules/enumerate{ArmadaQueryString.FromObject(query)}", null, token);
         }
 
         /// <summary>

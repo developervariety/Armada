@@ -7,6 +7,7 @@ namespace Test.Shared.Infrastructure
     using System.Net;
     using System.Net.Http;
     using System.Text;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -72,6 +73,38 @@ namespace Test.Shared.Infrastructure
         {
             _Routes[method.ToUpperInvariant() + " " + path] = body => Response(status, json);
             return this;
+        }
+
+        /// <summary>
+        /// Map <c>POST path</c> (a paged <c>.../enumerate</c> route) to a single <c>EnumerationResult</c> page holding the
+        /// given objects, the shape the clients read with <c>ArmadaPaging.ReadAllAsync</c>.
+        /// </summary>
+        /// <param name="path">Enumerate path, for example "/api/v1/harbors/enumerate".</param>
+        /// <param name="objectsJsonArray">The page's objects as a JSON array, for example "[]" or "[{...},{...}]".</param>
+        /// <param name="status">Status code.</param>
+        /// <returns>This handler.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="path"/> or <paramref name="objectsJsonArray"/> is null.</exception>
+        public StubHttpHandler Page(string path, string objectsJsonArray, HttpStatusCode status = HttpStatusCode.OK)
+        {
+            if (path == null) throw new ArgumentNullException(nameof(path));
+            string json = PageJson(objectsJsonArray);
+            return Json("POST", path, json, status);
+        }
+
+        /// <summary>
+        /// Wrap a JSON array as a one-page <c>EnumerationResult</c> (PageNumber 1, PageSize and TotalRecords equal to the
+        /// array length, TotalPages 1).
+        /// </summary>
+        /// <param name="objectsJsonArray">The objects as a JSON array.</param>
+        /// <returns>The page JSON.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="objectsJsonArray"/> is null.</exception>
+        public static string PageJson(string objectsJsonArray)
+        {
+            if (objectsJsonArray == null) throw new ArgumentNullException(nameof(objectsJsonArray));
+            List<object>? items = JsonSerializer.Deserialize<List<object>>(objectsJsonArray);
+            int count = items != null ? items.Count : 0;
+            return "{\"Success\":true,\"PageNumber\":1,\"PageSize\":" + Math.Max(1, count) + ",\"TotalPages\":1,\"TotalRecords\":" + count
+                + ",\"Objects\":" + objectsJsonArray + "}";
         }
 
         /// <summary>

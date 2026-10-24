@@ -742,7 +742,7 @@ namespace Armada.Server.WebSocket
                             string[] mlAllLines = await ReadLinesSharedAsync(mlLogPath).ConfigureAwait(false);
                             int mlTotalLines = mlAllLines.Length;
                             int mlOffset = command.Offset ?? 0;
-                            int mlLineCount = command.Lines ?? 100;
+                            int mlLineCount = Math.Clamp(command.Lines ?? 100, 1, Armada.Core.Constants.MaxLogLinesPerRequest);
                             string[] mlSlice = mlAllLines.Skip(mlOffset).Take(mlLineCount).ToArray();
                             string mlLog = String.Join("\n", mlSlice);
                             return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlId, Log = mlLog, Lines = mlSlice.Length, TotalLines = mlTotalLines } };
@@ -868,7 +868,7 @@ namespace Armada.Server.WebSocket
                             string[] clAllLines = await ReadLinesSharedAsync(clLogPath).ConfigureAwait(false);
                             int clTotalLines = clAllLines.Length;
                             int clOffset = command.Offset ?? 0;
-                            int clLineCount = command.Lines ?? 100;
+                            int clLineCount = Math.Clamp(command.Lines ?? 100, 1, Armada.Core.Constants.MaxLogLinesPerRequest);
                             string[] clSlice = clAllLines.Skip(clOffset).Take(clLineCount).ToArray();
                             string clLog = String.Join("\n", clSlice);
                             return new { type = "command.result", action = "get_captain_log", data = (object)new { CaptainId = clId, Log = clLog, Lines = clSlice.Length, TotalLines = clTotalLines } };

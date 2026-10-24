@@ -38,11 +38,10 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<List<PushDevice>?> ListPushDevicesAsync(string? userId = null, string? tenantId = null, CancellationToken token = default)
         {
-            List<string> query = new List<string>();
-            if (!String.IsNullOrEmpty(userId)) query.Add("userId=" + E(userId));
-            if (!String.IsNullOrEmpty(tenantId)) query.Add("tenantId=" + E(tenantId));
-            string path = "/api/v1/push/devices" + (query.Count > 0 ? "?" + String.Join("&", query) : String.Empty);
-            return GetAsync<List<PushDevice>>(path, null, token);
+            Dictionary<string, object?> filters = new Dictionary<string, object?>();
+            if (!String.IsNullOrEmpty(userId)) filters["UserId"] = userId;
+            if (!String.IsNullOrEmpty(tenantId)) filters["TenantId"] = tenantId;
+            return EnumerateAllAsync<PushDevice>("/api/v1/push/devices/enumerate", filters, token);
         }
 
         /// <summary>

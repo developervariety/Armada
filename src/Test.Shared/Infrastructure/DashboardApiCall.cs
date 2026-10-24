@@ -22,6 +22,11 @@ namespace Test.Shared.Infrastructure
         /// </summary>
         public string Path { get; set; } = "";
 
+        /// <summary>
+        /// Whether the request carries a query string (paging or filters), which <see cref="Path"/> leaves out.
+        /// </summary>
+        public bool HasQuery { get; set; } = false;
+
         #endregion
     }
 }

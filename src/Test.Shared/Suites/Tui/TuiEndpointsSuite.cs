@@ -40,7 +40,7 @@ namespace Test.Shared.Suites.Tui
             {
                 StubHttpHandler stub = TuiEntityFixtures.Server();
                 List<string> many = Enumerable.Range(1, 30).Select(i => Endpoint("mep_" + i.ToString("00"), "ep-" + i.ToString("00"), i % 2 == 0 ? "Embedding" : "Inference", "Healthy", true)).ToList();
-                stub.Json("GET", "/api/v1/model-endpoints", "[" + String.Join(",", many) + "]");
+                stub.Page("/api/v1/model-endpoints/enumerate", "[" + String.Join(",", many) + "]");
                 using (TuiTestHost host = TuiEntityFixtures.Open(stub, "/configuration?tab=endpoints"))
                 {
                     EndpointsScreen screen = TuiEntityFixtures.Screen<EndpointsScreen>(host);
@@ -177,7 +177,7 @@ namespace Test.Shared.Suites.Tui
         internal static StubHttpHandler Server()
         {
             StubHttpHandler stub = TuiEntityFixtures.Server();
-            stub.Json("GET", "/api/v1/model-endpoints", "[" + Endpoint("mep_1", "openai-chat", "Inference", "Healthy", true) + "," + Endpoint("mep_2", "embedder", "Embedding", "Unhealthy", false) + "]");
+            stub.Page("/api/v1/model-endpoints/enumerate", "[" + Endpoint("mep_1", "openai-chat", "Inference", "Healthy", true) + "," + Endpoint("mep_2", "embedder", "Embedding", "Unhealthy", false) + "]");
             return stub;
         }
 

@@ -79,7 +79,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "inbox", "Needs You lists items with KPIs, opens items, and marks alerts read", () =>
             {
                 StubHttpHandler stub = Stub();
-                stub.Json("GET", "/api/v1/inbox", "[" +
+                stub.Page("/api/v1/inbox/enumerate", "[" +
                     "{\"Kind\":\"landing_failed\",\"Severity\":\"Critical\",\"Title\":\"Landing failed: Ship it\",\"Detail\":\"Conflict\",\"EntityType\":\"mission\",\"EntityId\":\"msn_l\",\"Href\":\"/missions/msn_l\"}," +
                     "{\"Kind\":\"review\",\"Severity\":\"Warning\",\"Title\":\"Review: Fix tables\",\"Detail\":\"Waiting 5m\",\"EntityType\":\"mission\",\"EntityId\":\"msn_f\",\"Href\":\"/missions/msn_f\"}]");
                 using (TuiTestHost host = TuiCase.SignedIn(140, 40, "/inbox", stub))
@@ -102,7 +102,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "inbox_empty", "Needs You shows the caught-up state", () =>
             {
                 StubHttpHandler stub = Stub();
-                stub.Json("GET", "/api/v1/inbox", "[]");
+                stub.Page("/api/v1/inbox/enumerate", "[]");
                 using (TuiTestHost host = TuiCase.SignedIn(140, 40, "/inbox", stub))
                 {
                     AssertTrue(host.WaitForText("You are all caught up."), "empty\n" + host.Screen());

@@ -37,8 +37,8 @@ namespace Test.Shared.Infrastructure
         {
             StubHttpHandler stub = TuiFixtures.SignedInServer();
             foreach (string path in EmptyLists) stub.Json("GET", path, Page());
-            stub.Json("GET", "/api/v1/model-endpoints", "[]");
-            stub.Json("GET", "/api/v1/harbors", "[]");
+            stub.Page("/api/v1/model-endpoints/enumerate", "[]");
+            stub.Page("/api/v1/harbors/enumerate", "[]");
             return stub;
         }
 

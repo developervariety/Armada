@@ -1933,7 +1933,7 @@
                     }
                 },
                 {
-                    "name": "List Vessel Branches",
+                    "name": "[Deprecated] List Vessel Branches",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -1950,7 +1950,38 @@
                                 "branches"
                             ]
                         },
-                        "description": "Returns the list of local and remote branches for the vessel repository."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/vessels/{id}/branches/enumerate. Returns the list of local and remote branches for the vessel repository."
+                    }
+                },
+                {
+                    "name": "Enumerate Vessel Branches",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/branches/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "branches",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of a vessel's branches with its default branch and any git error. Paging: PageNumber, PageSize (1 to 1000)."
                     }
                 },
                 {
@@ -4854,7 +4885,7 @@
                     }
                 },
                 {
-                    "name": "List Push Devices",
+                    "name": "[Deprecated] List Push Devices",
                     "request": {
                         "method": "GET",
                         "header": [
@@ -4875,7 +4906,37 @@
                                 "devices"
                             ]
                         },
-                        "description": "Lists the caller's devices. Admins may add ?userId= (and global admins ?tenantId=)."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/push/devices/enumerate. Lists the caller's devices. Admins may add ?userId= (and global admins ?tenantId=)."
+                    }
+                },
+                {
+                    "name": "Enumerate Push Devices",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/push/devices/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "push",
+                                "devices",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the caller's push devices. Paging: PageNumber, PageSize (1 to 1000)."
                     }
                 },
                 {
@@ -5212,7 +5273,7 @@
                     }
                 },
                 {
-                    "name": "List Signals By Recipient",
+                    "name": "[Deprecated] List Signals By Recipient",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -5229,7 +5290,7 @@
                                 "{{captainId}}"
                             ]
                         },
-                        "description": "Returns signals addressed to a specific captain recipient."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/signals/enumerate with ToCaptainId. Returns signals addressed to a specific captain recipient."
                     }
                 },
                 {
@@ -5983,7 +6044,7 @@
             "name": "Harbors",
             "item": [
                 {
-                    "name": "List Harbors",
+                    "name": "[Deprecated] List Harbors",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -5998,7 +6059,7 @@
                                 "harbors"
                             ]
                         },
-                        "description": "Returns all registered Harbors visible to the caller as a plain array (not a paged envelope)."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/harbors/enumerate. Returns all registered Harbors visible to the caller as a plain array (not a paged envelope)."
                     },
                     "response": [
                         {
@@ -6008,6 +6069,35 @@
                             "body": "[\n  {\n    \"id\": \"hbr_abc123\",\n    \"name\": \"workstation-01\",\n    \"connectionStatus\": \"Connected\",\n    \"maxConcurrentJobs\": 4,\n    \"enabled\": true\n  }\n]"
                         }
                     ]
+                },
+                {
+                    "name": "Enumerate Harbors",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/harbors/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "harbors",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the Harbors visible to the caller. Paging: PageNumber, PageSize (1 to 1000)."
+                    }
                 },
                 {
                     "name": "Register Harbor",
@@ -6290,7 +6380,7 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/api/v1/jobs",
+                            "raw": "{{baseUrl}}/api/v1/jobs?pageNumber=1&pageSize=100",
                             "host": [
                                 "{{baseUrl}}"
                             ],
@@ -6747,7 +6837,7 @@
             "name": "Inbox",
             "item": [
                 {
-                    "name": "Get Inbox",
+                    "name": "[Deprecated] Get Inbox",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -6762,7 +6852,36 @@
                                 "inbox"
                             ]
                         },
-                        "description": "Returns a consolidated, most-urgent-first list of items awaiting operator attention (reviews, failed landings, failed missions, stalled captains)."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/inbox/enumerate. Returns a consolidated, most-urgent-first list of items awaiting operator attention (reviews, failed landings, failed missions, stalled captains)."
+                    }
+                },
+                {
+                    "name": "Enumerate Inbox",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/inbox/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "inbox",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the needs-you inbox, most urgent first. Paging: PageNumber, PageSize (1 to 1000)."
                     }
                 }
             ]
@@ -7901,7 +8020,7 @@
             "name": "Model Endpoints",
             "item": [
                 {
-                    "name": "List Model Endpoints",
+                    "name": "[Deprecated] List Model Endpoints",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -7916,7 +8035,36 @@
                                 "model-endpoints"
                             ]
                         },
-                        "description": "List all model endpoints in scope. Returns a plain array, not a paginated envelope. The stored API key is never returned; reads expose HasApiKey."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/model-endpoints/enumerate. List all model endpoints in scope. Returns a plain array, not a paginated envelope. The stored API key is never returned; reads expose HasApiKey."
+                    }
+                },
+                {
+                    "name": "Enumerate Model Endpoints",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/model-endpoints/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "model-endpoints",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the model endpoints visible to the caller. Paging: PageNumber, PageSize (1 to 1000)."
                     }
                 },
                 {
@@ -8620,7 +8768,7 @@
             "name": "Planning Sessions",
             "item": [
                 {
-                    "name": "List Planning Sessions",
+                    "name": "[Deprecated] List Planning Sessions",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -8635,9 +8783,38 @@
                                 "planning-sessions"
                             ]
                         },
-                        "description": "List planning sessions visible to the authenticated caller."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/planning-sessions/enumerate. List planning sessions visible to the authenticated caller."
                     },
                     "response": []
+                },
+                {
+                    "name": "Enumerate Planning Sessions",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/planning-sessions/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "planning-sessions",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of planning sessions, most recently updated first. Paging: PageNumber, PageSize (1 to 1000)."
+                    }
                 },
                 {
                     "name": "Create Planning Session",
@@ -9210,7 +9387,7 @@
                     }
                 },
                 {
-                    "name": "List Backlog Refinement Sessions",
+                    "name": "[Deprecated] List Backlog Refinement Sessions",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -9227,7 +9404,38 @@
                                 "refinement-sessions"
                             ]
                         },
-                        "description": "List refinement sessions linked to one backlog item."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/backlog/{id}/refinement-sessions/enumerate. List refinement sessions linked to one backlog item."
+                    }
+                },
+                {
+                    "name": "Enumerate Backlog Refinement Sessions",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/backlog/{{objectiveId}}/refinement-sessions/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "backlog",
+                                "{{objectiveId}}",
+                                "refinement-sessions",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of a backlog item's refinement sessions. Paging: PageNumber, PageSize (1 to 1000)."
                     }
                 },
                 {
@@ -9583,7 +9791,7 @@
                     }
                 },
                 {
-                    "name": "List Objective Refinement Sessions",
+                    "name": "[Deprecated] List Objective Refinement Sessions",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -9600,9 +9808,40 @@
                                 "refinement-sessions"
                             ]
                         },
-                        "description": "List refinement sessions linked to one objective (same as the backlog alias)."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/objectives/{id}/refinement-sessions/enumerate. List refinement sessions linked to one objective (same as the backlog alias)."
                     },
                     "response": []
+                },
+                {
+                    "name": "Enumerate Objective Refinement Sessions",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/objectives/{{objectiveId}}/refinement-sessions/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "objectives",
+                                "{{objectiveId}}",
+                                "refinement-sessions",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of an objective's refinement sessions. Paging: PageNumber, PageSize (1 to 1000)."
+                    }
                 },
                 {
                     "name": "Create Objective Refinement Session",
@@ -10846,7 +11085,7 @@
                     }
                 },
                 {
-                    "name": "Get Release GitHub Pull Requests",
+                    "name": "[Deprecated] Get Release GitHub Pull Requests",
                     "request": {
                         "method": "GET",
                         "header": [],
@@ -10864,7 +11103,39 @@
                                 "pull-requests"
                             ]
                         },
-                        "description": "Read GitHub pull-request evidence derived from the mission PR URLs linked to this release."
+                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/releases/{id}/github/pull-requests/enumerate. Read GitHub pull-request evidence derived from the mission PR URLs linked to this release."
+                    }
+                },
+                {
+                    "name": "Enumerate Release GitHub Pull Requests",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/releases/{{releaseId}}/github/pull-requests/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "releases",
+                                "{{releaseId}}",
+                                "github",
+                                "pull-requests",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the GitHub pull requests linked to a release. Paging: PageNumber, PageSize (1 to 1000)."
                     }
                 },
                 {

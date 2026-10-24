@@ -19,7 +19,7 @@ namespace Test.Shared.Infrastructure
         public static void Run(TuiFlowSpec spec)
         {
             StubHttpHandler stub = spec.ServerFactory != null ? spec.ServerFactory() : TuiEntityFixtures.Server();
-            stub.Json(spec.ListMethod, spec.ListPath, spec.BareArray ? "[" + spec.RowJson + "]" : TuiEntityFixtures.Page(spec.RowJson));
+            stub.Json(spec.ListMethod, spec.ListPath, TuiEntityFixtures.Page(spec.RowJson));
             if (spec.DetailPath != null) stub.Json("GET", spec.DetailPath, spec.DetailJson ?? spec.RowJson);
             foreach (string[] route in spec.ExtraRoutes) stub.Json(route[0], route[1], route[2]);
 

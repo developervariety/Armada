@@ -145,7 +145,8 @@ namespace Test.Shared.Suites.Client
 
                 foreach (string route in routes.OrderBy(r => r, StringComparer.Ordinal))
                 {
-                    bool listed = _RoutesWithoutClientMethod.ContainsKey(route);
+                    // A deprecated route keeps working for other callers, but first-party clients use its replacement.
+                    bool listed = _RoutesWithoutClientMethod.ContainsKey(route) || Armada.Core.ApiSurface.DeprecatedSurface.RouteReplacement(route.Split(' ')[0], route.Split(' ')[1]) != null;
                     if (!called.Contains(route) && !listed) problems.Append("route without a client method: ").Append(route).Append('\n');
                     if (called.Contains(route) && listed) problems.Append("stale entry (a client method calls it now): ").Append(route).Append('\n');
                 }
@@ -232,9 +233,45 @@ namespace Test.Shared.Suites.Client
                 if (problems.Length > 0) throw new AssertionException("CLI and route surface differ:\n" + problems.ToString());
             }));
 
+            cases.Add(TuiCase.Async(Suite, "no_first_party_client_calls_a_deprecated_route", "No first-party client (dashboard and mobile client.ts, Armada.Client, the Helm CLI, Armada.Core's ArmadaApiClient) calls a deprecated route or the unpaged jobs list", async () =>
+            {
+                ApiSurfaceDocument surface = ApiSurfaceFiles.LoadBaseline();
+                List<string> routes = surface.Rest.Select(r => r.Method.ToUpperInvariant() + " " + r.Route).Distinct().ToList();
+                HashSet<string> deprecated = new HashSet<string>(Armada.Core.ApiSurface.DeprecatedSurface.Routes(), StringComparer.OrdinalIgnoreCase);
+                AssertTrue(deprecated.Count > 0, "deprecated routes listed");
+                StringBuilder problems = new StringBuilder();
+
+                void Check(string who, string request, bool hasQuery)
+                {
+                    string? route = ClientRouteMap.Match(request, routes);
+                    if (route != null && deprecated.Contains(route)) problems.Append(who).Append(" calls deprecated ").Append(route).Append('\n');
+                    // GET /api/v1/jobs without paging returns every job (a deprecated behavior, DEPRECATION.md).
+                    if (!hasQuery && String.Equals(request, "GET /api/v1/jobs", StringComparison.Ordinal)) problems.Append(who).Append(" lists jobs without paging\n");
+                }
+
+                foreach (DashboardApiCall call in DashboardSource.ApiCalls()) Check("client.ts " + call.Export, call.Method + " " + call.Path, call.HasQuery);
+                foreach (MethodInfo method in ClientRouteMap.ApiMethods())
+                    foreach (string request in await ClientRouteMap.RequestsOfAsync(method, true)) Check("Armada.Client " + method.Name, StripQuery(request), request.Contains('?'));
+                string root = DashboardSource.RepoRoot();
+                List<string> files = System.IO.Directory.GetFiles(System.IO.Path.Combine(root, "src", "Armada.Helm"), "*.cs", System.IO.SearchOption.AllDirectories)
+                    .Where(f => !f.Contains(System.IO.Path.DirectorySeparatorChar + "bin" + System.IO.Path.DirectorySeparatorChar)
+                             && !f.Contains(System.IO.Path.DirectorySeparatorChar + "obj" + System.IO.Path.DirectorySeparatorChar))
+                    .Append(System.IO.Path.Combine(root, "src", "Armada.Core", "Client", "ArmadaApiClient.cs"))
+                    .ToList();
+                foreach (DashboardApiCall call in CSharpApiCallScanner.Scan(files)) Check(call.Export, call.Method + " " + call.Path, call.HasQuery);
+
+                if (problems.Length > 0) throw new AssertionException("first-party clients still use deprecated APIs (migrate them; see DEPRECATION.md):\n" + problems.ToString());
+            }));
+
             return new TestSuiteDescriptor(suiteId: Suite, displayName: "Armada.Client vs. the REST route surface", cases: cases);
         }
 
         #endregion
+    
+        private static string StripQuery(string request)
+        {
+            int query = request.IndexOf('?');
+            return query < 0 ? request : request.Substring(0, query);
+        }
     }
 }

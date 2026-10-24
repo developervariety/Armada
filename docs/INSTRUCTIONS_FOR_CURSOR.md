@@ -147,7 +147,7 @@ status()
 To see everything that needs a human's attention or action right now -- missions in Review, deployments pending approval, Ask Armada action proposals awaiting approval, failed missions/landings/merges/deployments, and stalled captains -- most-urgent first:
 
 ```
-inbox()
+enumerate({ entityType: "inbox", pageSize: 25 })
 ```
 
 ### 5. Adapt
@@ -178,7 +178,7 @@ When missions fail:
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `status` | -- | Aggregate status: captain counts, mission counts by status, active voyages |
-| `inbox` | -- | The operator's inbox: everything that needs a human's attention or action right now -- missions in Review to approve or reject, deployments pending approval, Ask Armada action proposals awaiting approval, failed missions, landing failures, failed merges, failed deployments, and stalled captains -- most-urgent first. Use this to answer "is anything waiting on me?" |
+| `enumerate` with `entityType` `inbox` | `pageSize`, `pageNumber` | The operator's inbox, one page at a time (the `inbox` tool is deprecated): everything that needs a human's attention or action right now -- missions in Review to approve or reject, deployments pending approval, Ask Armada action proposals awaiting approval, failed missions, landing failures, failed merges, failed deployments, and stalled captains -- most-urgent first. Use this to answer "is anything waiting on me?" |
 | `stop_server` | -- | Graceful shutdown of the Admiral server |
 
 ### Enumeration

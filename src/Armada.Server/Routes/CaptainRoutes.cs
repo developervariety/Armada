@@ -500,7 +500,7 @@ namespace Armada.Server.Routes
 
                     string? linesParam = req.Query.GetValueOrDefault("lines");
                     if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines))
-                        lineCount = Math.Max(1, parsedLines);
+                        lineCount = Math.Clamp(parsedLines, 1, Constants.MaxLogLinesPerRequest);
 
                     string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
 

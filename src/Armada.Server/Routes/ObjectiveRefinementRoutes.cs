@@ -43,6 +43,39 @@ namespace Armada.Server.Routes
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
+            app.Post("/api/v1/objectives/{id}/refinement-sessions/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse
+                    {
+                        Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized,
+                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
+                    };
+                }
+                Objective? objective = await _objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                if (objective == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
+                }
+
+                EnumerationQuery query = EnumerationRequestReader.Read(req, _jsonOptions);
+                List<ObjectiveRefinementSession> sessions = await EnumerateSessionsByObjectiveAsync(ctx, objective.Id).ConfigureAwait(false);
+                return EnumerationResult<ObjectiveRefinementSession>.Page(query, sessions.OrderByDescending(s => s.LastUpdateUtc).ToList());
+            },
+            api => api
+                .WithTag("Objectives")
+                .WithSummary("Enumerate refinement sessions for a objective")
+                .WithDescription("One page of the refinement sessions of one objective, most recently updated first. Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Objective ID (obj_ prefix)"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<ObjectiveRefinementSession>>("One page"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/objectives/{id}/refinement-sessions", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -154,6 +187,39 @@ namespace Armada.Server.Routes
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("Not supported for the captain's runtime (Error NotImplemented)"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/backlog/{id}/refinement-sessions/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse
+                    {
+                        Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized,
+                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
+                    };
+                }
+                Objective? objective = await _objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                if (objective == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
+                }
+
+                EnumerationQuery query = EnumerationRequestReader.Read(req, _jsonOptions);
+                List<ObjectiveRefinementSession> sessions = await EnumerateSessionsByObjectiveAsync(ctx, objective.Id).ConfigureAwait(false);
+                return EnumerationResult<ObjectiveRefinementSession>.Page(query, sessions.OrderByDescending(s => s.LastUpdateUtc).ToList());
+            },
+            api => api
+                .WithTag("Backlog")
+                .WithSummary("Enumerate refinement sessions for a backlog item")
+                .WithDescription("One page of the refinement sessions of one backlog item, most recently updated first. Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Objective ID (obj_ prefix)"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<ObjectiveRefinementSession>>("One page"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/backlog/{id}/refinement-sessions", async (ApiRequest req) =>

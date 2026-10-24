@@ -169,7 +169,7 @@ namespace Test.Shared.Suites.Tui
             stub.Json("GET", "/api/v1/personas", "{\"Success\":true,\"Objects\":[{\"Id\":\"prs_w\",\"Name\":\"Worker\",\"PromptTemplateName\":\"w\",\"DefaultCaptainId\":\"cpt_1\"}],\"TotalRecords\":1}");
             stub.Json("GET", "/api/v1/playbooks", "{\"Success\":true,\"Objects\":[{\"Id\":\"pbk_1\",\"FileName\":\"style.md\",\"Content\":\"x\",\"Active\":true}],\"TotalRecords\":1}");
             stub.Json("GET", "/api/v1/vessels/vsl_demo/readiness", "{\"VesselId\":\"vsl_demo\",\"HasWorkingDirectory\":true,\"HasRepositoryContext\":true,\"AvailableCheckTypes\":[\"Build\"],\"Issues\":[],\"ErrorCount\":0,\"WarningCount\":0}");
-            stub.Json("GET", "/api/v1/planning-sessions", "[" + Session("ps_1", "Active") + "]");
+            stub.Page("/api/v1/planning-sessions/enumerate", "[" + Session("ps_1", "Active") + "]");
             string detail = "{\"Session\":" + Session("ps_1", "Active") + ",\"Captain\":{\"Id\":\"cpt_1\",\"Name\":\"claude-1\",\"Runtime\":\"ClaudeCode\",\"State\":\"Planning\"},\"Vessel\":{\"Id\":\"vsl_demo\",\"Name\":\"DemoRepo\"},\"Messages\":[" +
                 "{\"Id\":\"pm_1\",\"PlanningSessionId\":\"ps_1\",\"Role\":\"User\",\"Sequence\":1,\"Content\":\"Plan the work\",\"CreatedUtc\":\"2026-10-04T09:10:00Z\"}," +
                 "{\"Id\":\"pm_2\",\"PlanningSessionId\":\"ps_1\",\"Role\":\"Assistant\",\"Sequence\":2,\"Content\":\"Here is the plan\",\"CreatedUtc\":\"2026-10-04T09:11:00Z\",\"Metrics\":{\"TimeToFirstTokenMs\":800,\"TotalMs\":2500,\"CompletionTokens\":40,\"TokensPerSecond\":16.5}}]}";

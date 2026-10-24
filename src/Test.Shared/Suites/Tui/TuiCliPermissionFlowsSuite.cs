@@ -40,6 +40,7 @@ namespace Test.Shared.Suites.Tui
     {
         private const string Suite = "Tui.CliPermissionFlows";
         private const string RulesPath = "/api/v1/cli-permissions/rules";
+        private const string RulesListPath = "/api/v1/cli-permissions/rules/enumerate";
         private const string DecidePath = "/api/v1/cli-permissions/requests/cpr_1/decide";
         private const string ThreadPolicyPath = "/api/v1/ask/threads/ath_1/cli-permission-policy";
 
@@ -64,7 +65,7 @@ namespace Test.Shared.Suites.Tui
                     TuiCase.Contains(frame, "no pushes", "description");
                     TuiCase.Contains(frame, "[ + Rule n ]", "create button for admins");
                     screen.ScopeFilter.Choose(screen.ScopeFilter.Options.First(o => o.Value == "Vessel"));
-                    AssertTrue(host.PumpUntil(() => stub.Saw("GET", RulesPath, r => r.QueryValue("scope") == "Vessel")), "scope sent: " + String.Join("\n", stub.Requests));
+                    AssertTrue(host.PumpUntil(() => stub.Saw("POST", RulesListPath, r => r.QueryValue("scope") == "Vessel")), "scope sent: " + String.Join("\n", stub.Requests));
                 }
             }));
 
@@ -104,7 +105,7 @@ namespace Test.Shared.Suites.Tui
                     AssertNull(body.CaptainId, "no captain");
                     AssertEqual("tests only", body.Description, "description");
                     AssertTrue(TuiToasts.WaitForSuccess(host, "Rule created."), "toast");
-                    AssertTrue(host.PumpUntil(() => stub.CountFor("GET", RulesPath) >= 2), "reloaded");
+                    AssertTrue(host.PumpUntil(() => stub.CountFor("POST", RulesListPath) >= 2), "reloaded");
                 }
             }));
 
@@ -174,10 +175,10 @@ namespace Test.Shared.Suites.Tui
                 string rulesJson = ArmadaJson.Serialize(Rules());
                 using (ManualResetEventSlim releaseRules = new ManualResetEventSlim(false))
                 {
-                    stub.On("GET", RulesPath, body =>
+                    stub.On("POST", RulesListPath, body =>
                     {
                         releaseRules.Wait(TimeSpan.FromSeconds(30));
-                        return StubHttpHandler.Response(HttpStatusCode.OK, rulesJson);
+                        return StubHttpHandler.Response(HttpStatusCode.OK, StubHttpHandler.PageJson(rulesJson));
                     });
 
                     using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/cli-permissions?tab=rules", stub))
@@ -185,7 +186,7 @@ namespace Test.Shared.Suites.Tui
                         try
                         {
                             CliPermissionRulesScreen screen = Content<CliPermissionRulesScreen>(host);
-                            AssertTrue(host.PumpUntil(() => stub.CountFor("GET", RulesPath) == 1), "list call held");
+                            AssertTrue(host.PumpUntil(() => stub.CountFor("POST", RulesListPath) == 1), "list call held");
                             AssertTrue(host.WaitForText("Bash(git status:*)"), "the header example is on screen while the list is held\n" + host.Screen());
                             AssertFalse(RulesShown(screen), "not loaded while held");
                             AssertEqual(0, screen.Items.Count, "no rules yet");
@@ -696,7 +697,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "toast_for_new_requests", "A new CLI permission request toasts with Open and rings; one in the conversation being watched does not", () =>
             {
                 StubHttpHandler stub = TuiFixtures.SignedInServer();
-                stub.Json("GET", "/api/v1/inbox", "[]");
+                stub.Page("/api/v1/inbox/enumerate", "[]");
                 using (TuiTestHost host = TuiCase.SignedIn(140, 45, "/missions", stub))
                 {
                     int arrived = 0;
@@ -890,7 +891,7 @@ namespace Test.Shared.Suites.Tui
         {
             StubHttpHandler stub = TuiFixtures.SignedInServer();
             List<CliPermissionRule> rules = Rules();
-            stub.Json("GET", RulesPath, ArmadaJson.Serialize(rules));
+            stub.Page(RulesListPath, ArmadaJson.Serialize(rules));
             stub.Json("POST", RulesPath, ArmadaJson.Serialize(rules[0]));
             stub.Json("PUT", RulesPath + "/cpl_1", ArmadaJson.Serialize(rules[0]));
             stub.On("DELETE", RulesPath + "/cpl_1", body => StubHttpHandler.Response(HttpStatusCode.NoContent, ""));
@@ -947,7 +948,7 @@ namespace Test.Shared.Suites.Tui
             stub.Json("PUT", "/api/v1/captains/cpt_1", captain);
             stub.Json("PUT", "/api/v1/captains/cpt_1/cli-permission-policy", "{\"Id\":\"cpt_1\",\"Name\":\"claude-1\",\"Runtime\":\"ClaudeCode\",\"State\":\"Idle\",\"CliPermissionPolicy\":\"Bypass\"}");
             stub.Json("GET", "/api/v1/missions/summaries", "{\"Success\":true,\"Objects\":[],\"TotalRecords\":0}");
-            stub.Json("GET", "/api/v1/model-endpoints", "[]");
+            stub.Page("/api/v1/model-endpoints/enumerate", "[]");
             return stub;
         }
 

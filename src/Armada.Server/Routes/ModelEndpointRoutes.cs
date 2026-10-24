@@ -45,6 +45,21 @@ namespace Armada.Server.Routes
             Func<HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
+            app.Post("/api/v1/model-endpoints/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                EnumerationQuery query = EnumerationRequestReader.Read(req, _BodyJsonOptions);
+                return EnumerationResult<ModelEndpoint>.Page(query, await _Endpoints.EnumerateAsync(ctx).ConfigureAwait(false));
+            },
+            api => api
+                .WithTag("Model Endpoints")
+                .WithSummary("Enumerate model endpoints")
+                .WithDescription("One page of the managed embedding and inference endpoints visible to the caller. API keys are never returned. Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<ModelEndpoint>>("One page"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/model-endpoints", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

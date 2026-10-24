@@ -208,7 +208,7 @@ namespace Test.Shared.Suites.Tui
                 }
 
                 StubHttpHandler none = TuiEntityFixtures.Server();
-                none.Json("GET", "/api/v1/harbors", "[]");
+                none.Page("/api/v1/harbors/enumerate", "[]");
                 using (TuiTestHost host = TuiCase.SignedIn(120, 40, Route, none))
                 {
                     HarborsScreen screen = TuiEntityFixtures.Screen<HarborsScreen>(host);

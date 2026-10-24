@@ -19,7 +19,7 @@ namespace Armada.Helm.Commands
         /// <inheritdoc />
         public override async Task<int> ExecuteAsync(CommandContext context, InboxSettings settings, CancellationToken cancellationToken)
         {
-            List<InboxItem>? items = await GetAsync<List<InboxItem>>("/api/v1/inbox").ConfigureAwait(false);
+            List<InboxItem>? items = await EnumerateAllAsync<InboxItem>("/api/v1/inbox/enumerate").ConfigureAwait(false);
 
             if (IsJsonMode(settings))
             {

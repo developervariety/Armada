@@ -117,7 +117,7 @@ namespace Armada.Server.Mcp
             register = MapToolExceptions(MarkExperimental(register));
             McpStatusTools.Register(register, admiral, onStop, stopServerUnavailableMessage);
             if (logging != null) McpInboxTools.Register(register, database, logging, settings);
-            McpEnumerateTools.Register(register, database, mergeQueue);
+            McpEnumerateTools.Register(register, database, mergeQueue, logging != null ? new InboxService(database, logging, settings) : null, cliPermissionService);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService, vesselService, settings, admiral);
             if (vesselImportService != null) McpVesselImportTools.Register(register, vesselImportService, fleetCategorizationService);
@@ -203,7 +203,7 @@ namespace Armada.Server.Mcp
 
             RegisterCatalogGroup("Armada MCP / Status", register => McpStatusTools.Register(register, admiral, onStop));
             if (logging != null) RegisterCatalogGroup("Armada MCP / Inbox", register => McpInboxTools.Register(register, database, logging, settings));
-            RegisterCatalogGroup("Armada MCP / Enumeration", register => McpEnumerateTools.Register(register, database, mergeQueue));
+            RegisterCatalogGroup("Armada MCP / Enumeration", register => McpEnumerateTools.Register(register, database, mergeQueue, logging != null ? new InboxService(database, logging, settings) : null, cliPermissionService));
             RegisterCatalogGroup("Armada MCP / Fleets", register => McpFleetTools.Register(register, database));
             RegisterCatalogGroup("Armada MCP / Vessels", register => McpVesselTools.Register(register, database, dockService, vesselService, settings, admiral));
             if (vesselImportService != null) RegisterCatalogGroup("Armada MCP / Vessel Import", register => McpVesselImportTools.Register(register, vesselImportService, fleetCategorizationService));
@@ -310,6 +310,8 @@ namespace Armada.Server.Mcp
                 string effective = Armada.Core.ApiSurface.ExperimentalSurface.IsExperimentalTool(name)
                     ? Armada.Core.ApiSurface.ExperimentalSurface.Mark(description)
                     : description;
+                string? replacement = Armada.Core.ApiSurface.DeprecatedSurface.ToolReplacement(name);
+                if (replacement != null) effective = Armada.Core.ApiSurface.DeprecatedSurface.Mark(effective, replacement);
                 register(name, effective, inputSchema, handler);
             };
         }

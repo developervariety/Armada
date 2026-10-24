@@ -969,6 +969,13 @@ namespace Armada.Server
         private static void MarkExperimentalRoute(string method, string template, OpenApiRouteMetadata? metadata)
         {
             if (metadata == null) return;
+            string? replacement = Armada.Core.ApiSurface.DeprecatedSurface.RouteReplacement(method, template);
+            if (replacement != null)
+            {
+                metadata.Deprecated = true;
+                metadata.Summary = Armada.Core.ApiSurface.DeprecatedSurface.Mark(metadata.Summary, replacement);
+            }
+
             if (!Armada.Core.ApiSurface.ExperimentalSurface.IsExperimentalRoute(method, template)) return;
             metadata.Summary = Armada.Core.ApiSurface.ExperimentalSurface.Mark(metadata.Summary);
             if (metadata.Tags == null) metadata.Tags = new List<string>();

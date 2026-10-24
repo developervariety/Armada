@@ -25,7 +25,7 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<List<PlanningSession>?> ListPlanningSessionsAsync(CancellationToken token = default)
         {
-            return GetAsync<List<PlanningSession>>("/api/v1/planning-sessions", null, token);
+            return EnumerateAllAsync<PlanningSession>("/api/v1/planning-sessions/enumerate", null, token);
         }
 
         /// <summary>

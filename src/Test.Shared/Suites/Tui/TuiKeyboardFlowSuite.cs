@@ -75,13 +75,13 @@ namespace Test.Shared.Suites.Tui
             TuiFlowSpec memory = Spec("memory", "/configuration?tab=memory", "/api/v1/memories", "mem_1", "alphatopic", null,
                 "{\"Id\":\"mem_1\",\"TenantId\":\"ten_default\",\"Scope\":\"TenantWide\",\"Type\":\"Semantic\",\"Topic\":\"alphatopic\",\"Summary\":\"Alpha summary\",\"Content\":\"Alpha content\",\"Salience\":0.5,\"Tags\":[]," + Stamp + "}");
             specs.Add(memory);
-            TuiFlowSpec endpoints = Spec("endpoints", "/configuration?tab=endpoints", "/api/v1/model-endpoints", "mep_1", "alpha-endpoint", null,
+            TuiFlowSpec endpoints = Spec("endpoints", "/configuration?tab=endpoints", "/api/v1/model-endpoints/enumerate", "mep_1", "alpha-endpoint", null,
                 "{\"Id\":\"mep_1\",\"TenantId\":\"ten_default\",\"Name\":\"alpha-endpoint\",\"Kind\":\"Inference\",\"Provider\":\"OpenAI\",\"BaseUrl\":\"https://api.example.com\",\"Model\":\"m\",\"Scope\":\"TenantWide\",\"Enabled\":true,\"HealthStatus\":\"Healthy\",\"HealthHistory\":[]," + Stamp + "}");
-            endpoints.BareArray = true;
+            endpoints.ListMethod = "POST";
             specs.Add(endpoints);
-            TuiFlowSpec harbors = Spec("harbors", "/configuration?tab=harbors", "/api/v1/harbors", "hbr_1", "alpha-harbor", null,
+            TuiFlowSpec harbors = Spec("harbors", "/configuration?tab=harbors", "/api/v1/harbors/enumerate", "hbr_1", "alpha-harbor", null,
                 "{\"Id\":\"hbr_1\",\"Name\":\"alpha-harbor\",\"ConnectionStatus\":\"Connected\",\"Enabled\":true,\"MaxConcurrentJobs\":4,\"Capabilities\":[]," + Stamp + "}");
-            harbors.BareArray = true;
+            harbors.ListMethod = "POST";
             specs.Add(harbors);
             return specs;
         }

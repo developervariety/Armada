@@ -131,7 +131,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "specific_api_endpoint_picker", "Persona priority picker selects a specific API endpoint", () =>
             {
                 StubHttpHandler stub = Server();
-                stub.Json("GET", "/api/v1/model-endpoints", "[{\"Id\":\"mep_one\",\"Name\":\"First API\",\"Kind\":\"Inference\",\"Provider\":\"XAI\"},{\"Id\":\"mep_embed\",\"Name\":\"Embedding only\",\"Kind\":\"Embedding\"}]");
+                stub.Page("/api/v1/model-endpoints/enumerate", "[{\"Id\":\"mep_one\",\"Name\":\"First API\",\"Kind\":\"Inference\",\"Provider\":\"XAI\"},{\"Id\":\"mep_embed\",\"Name\":\"Embedding only\",\"Kind\":\"Embedding\"}]");
                 using TuiTestHost host = TuiEntityFixtures.Open(stub, "/configuration?tab=personas");
                 PersonasScreen screen = TuiEntityFixtures.Screen<PersonasScreen>(host);
                 TuiEntityFixtures.WaitFor(host, () => screen.Grid.Rows.Count == 2, "rows");

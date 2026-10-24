@@ -135,9 +135,25 @@ namespace Armada.Client
         /// <param name="token">Cancellation token.</param>
         /// <returns>The response.</returns>
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
-        public Task<VesselBranchesResult?> GetVesselBranchesAsync(string id, CancellationToken token = default)
+        public async Task<VesselBranchesResult?> GetVesselBranchesAsync(string id, CancellationToken token = default)
         {
-            return GetAsync<VesselBranchesResult>($"/api/v1/vessels/{E(id)}/branches", null, token);
+            VesselBranchesResult result = new VesselBranchesResult { VesselId = id };
+            bool first = true;
+            List<Armada.Core.Models.BranchInfo> all = await ArmadaPaging.ReadAllAsync<Armada.Core.Models.BranchInfo>(async (pageNumber, pageToken) =>
+            {
+                BranchEnumerationResult? page = await PostAsync<BranchEnumerationResult>($"/api/v1/vessels/{E(id)}/branches/enumerate",
+                    new { PageNumber = pageNumber, PageSize = 1000 }, null, pageToken).ConfigureAwait(false);
+                if (first && page != null)
+                {
+                    first = false;
+                    result.DefaultBranch = page.DefaultBranch;
+                    result.Error = page.Error;
+                }
+                return page;
+            }, ArmadaPaging.DefaultMaxPages, token).ConfigureAwait(false);
+            result.Branches = all;
+            result.BranchCount = all.Count;
+            return result;
         }
 
         /// <summary>

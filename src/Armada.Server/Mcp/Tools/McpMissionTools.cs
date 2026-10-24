@@ -625,7 +625,7 @@ namespace Armada.Server.Mcp.Tools
                         int totalLines = allLines.Length;
 
                         int offset = Math.Max(0, request.Offset ?? 0);
-                        int lineCount = Math.Max(1, request.Lines ?? 100);
+                        int lineCount = Math.Clamp(request.Lines ?? 100, 1, Armada.Core.Constants.MaxLogLinesPerRequest);
 
                         string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
 

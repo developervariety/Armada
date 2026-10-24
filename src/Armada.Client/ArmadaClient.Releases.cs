@@ -110,7 +110,7 @@ namespace Armada.Client
         /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
         public Task<List<GitHubPullRequestDetail>?> GetReleaseGitHubPullRequestsAsync(string id, CancellationToken token = default)
         {
-            return GetAsync<List<GitHubPullRequestDetail>>($"/api/v1/releases/{E(id)}/github/pull-requests", null, token);
+            return EnumerateAllAsync<GitHubPullRequestDetail>($"/api/v1/releases/{E(id)}/github/pull-requests/enumerate", null, token);
         }
 
         #endregion

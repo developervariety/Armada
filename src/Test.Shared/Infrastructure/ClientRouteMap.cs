@@ -34,11 +34,13 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
-        /// Invoke one method with synthesized arguments and return the requests it sent ("METHOD /path", no query).
+        /// Invoke one method with synthesized arguments and return the requests it sent ("METHOD /path", no query unless
+        /// <paramref name="keepQuery"/>).
         /// </summary>
         /// <param name="method">Client method.</param>
+        /// <param name="keepQuery">Keep each request's query string.</param>
         /// <returns>Requests, in order.</returns>
-        public static async Task<List<string>> RequestsOfAsync(MethodInfo method)
+        public static async Task<List<string>> RequestsOfAsync(MethodInfo method, bool keepQuery = false)
         {
             if (method == null) throw new ArgumentNullException(nameof(method));
             StubHttpHandler stub = new StubHttpHandler();
@@ -60,7 +62,7 @@ namespace Test.Shared.Infrastructure
             foreach (string request in stub.Requests)
             {
                 int q = request.IndexOf('?');
-                requests.Add(q >= 0 ? request.Substring(0, q) : request);
+                requests.Add(q >= 0 && !keepQuery ? request.Substring(0, q) : request);
             }
 
             return requests;

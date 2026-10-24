@@ -139,6 +139,37 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/releases/{id}/github/pull-requests/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                Release? release = await _Releases.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                if (release == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Release not found" };
+                }
+
+                try
+                {
+                    EnumerationQuery query = EnumerationRequestReader.Read(req, _BodyJsonOptions);
+                    return EnumerationResult<GitHubPullRequestDetail>.Page(query, await _GitHub.GetReleasePullRequestsAsync(ctx, release).ConfigureAwait(false));
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex, 400);
+                }
+            },
+            api => api
+                .WithTag("Releases")
+                .WithSummary("Enumerate a release's GitHub pull requests")
+                .WithDescription("One page of the GitHub pull requests linked to a release's missions. Paging and filters come from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Release ID (rel_ prefix)"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<GitHubPullRequestDetail>>("One page"))
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/releases/{id}/github/pull-requests", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

@@ -96,6 +96,16 @@ namespace Armada.Core
         public static readonly int DefaultStageCheckTimeoutMinutes = 15;
 
         /// <summary>
+        /// Most log lines one log read returns (REST, MCP, and WebSocket); larger requests are clamped. Page with the offset.
+        /// </summary>
+        public static readonly int MaxLogLinesPerRequest = 5000;
+
+        /// <summary>
+        /// Most signals one recent-signals read returns; a larger count is clamped.
+        /// </summary>
+        public static readonly int MaxRecentSignals = 1000;
+
+        /// <summary>
         /// Default maximum number of auto-recovery attempts per captain.
         /// </summary>
         public static readonly int DefaultMaxRecoveryAttempts = 3;

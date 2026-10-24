@@ -1162,7 +1162,7 @@ namespace Armada.Core.Client
         /// </summary>
         public async Task<List<InboxItem>?> GetInboxAsync(CancellationToken token = default)
         {
-            return await GetAsync<List<InboxItem>>("/api/v1/inbox", token).ConfigureAwait(false);
+            return await EnumerateAllAsync<InboxItem>("/api/v1/inbox/enumerate", token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1218,7 +1218,7 @@ namespace Armada.Core.Client
         /// </summary>
         public async Task<List<GitHubPullRequestDetail>?> GetReleaseGitHubPullRequestsAsync(string id, CancellationToken token = default)
         {
-            return await GetAsync<List<GitHubPullRequestDetail>>("/api/v1/releases/" + id + "/github/pull-requests", token).ConfigureAwait(false);
+            return await EnumerateAllAsync<GitHubPullRequestDetail>("/api/v1/releases/" + id + "/github/pull-requests/enumerate", token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1434,7 +1434,7 @@ namespace Armada.Core.Client
         /// </summary>
         public async Task<List<ObjectiveRefinementSession>?> ListObjectiveRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
         {
-            return await GetAsync<List<ObjectiveRefinementSession>>("/api/v1/objectives/" + objectiveId + "/refinement-sessions", token).ConfigureAwait(false);
+            return await EnumerateAllAsync<ObjectiveRefinementSession>("/api/v1/objectives/" + objectiveId + "/refinement-sessions/enumerate", token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1442,7 +1442,7 @@ namespace Armada.Core.Client
         /// </summary>
         public async Task<List<ObjectiveRefinementSession>?> ListBacklogRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
         {
-            return await GetAsync<List<ObjectiveRefinementSession>>("/api/v1/backlog/" + objectiveId + "/refinement-sessions", token).ConfigureAwait(false);
+            return await EnumerateAllAsync<ObjectiveRefinementSession>("/api/v1/backlog/" + objectiveId + "/refinement-sessions/enumerate", token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1553,7 +1553,8 @@ namespace Armada.Core.Client
         /// <returns>The jobs enumeration result, or null on failure.</returns>
         public async Task<EnumerationResult<Job>?> ListJobsAsync(CancellationToken token = default)
         {
-            return await GetAsync<EnumerationResult<Job>>("/api/v1/jobs", token).ConfigureAwait(false);
+            // One page: without paging parameters the route returns every job (deprecated).
+            return await GetAsync<EnumerationResult<Job>>("/api/v1/jobs?pageNumber=1&pageSize=100", token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -1596,6 +1597,21 @@ namespace Armada.Core.Client
         #endregion
 
         #region Private-Methods
+
+        private async Task<List<T>> EnumerateAllAsync<T>(string path, CancellationToken token)
+        {
+            // Each request returns one page; read pages until the total is reached (a safety stop of 100 pages).
+            List<T> all = new List<T>();
+            for (int pageNumber = 1; pageNumber <= 100; pageNumber++)
+            {
+                EnumerationResult<T>? page = await PostAsync<EnumerationResult<T>>(path, new { PageNumber = pageNumber, PageSize = 1000 }, token).ConfigureAwait(false);
+                if (page == null || page.Objects.Count == 0) break;
+                all.AddRange(page.Objects);
+                if (all.Count >= page.TotalRecords) break;
+            }
+
+            return all;
+        }
 
         private async Task<T?> GetAsync<T>(string path, CancellationToken token) where T : class
         {
