@@ -2,6 +2,7 @@ namespace Armada.Core.Database.Interfaces
 {
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Harbor;
 
     /// <summary>
     /// Database operations for captains.
@@ -167,5 +168,12 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate captains with pagination and filtering (user-scoped).
         /// </summary>
         Task<EnumerationResult<Captain>> EnumerateAsync(string tenantId, string userId, EnumerationQuery query, CancellationToken token = default);
+        /// <summary>Release only the exact stopped Harbor attempt on a pending mission.</summary>
+        /// <param name="job">Confirmed stopped job and original attempt identity.</param>
+        /// <param name="captain">Loaded captain with desired idle, stalled or quarantined state and quarantine fields. Its update time is the expected write stamp.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True if the exact attempt and captain write stamp still match.</returns>
+        Task<bool> TryReleaseHarborAttemptAsync(HarborJobSnapshot job, Captain captain, CancellationToken token = default);
+
     }
 }

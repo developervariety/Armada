@@ -2,6 +2,8 @@ namespace Armada.Core.Harbor
 {
     using System;
     using System.Collections.Generic;
+    using System.Threading;
+    using System.Threading.Tasks;
 
     /// <summary>A mission launch bound for a Harbor runner.</summary>
     public sealed class HarborProcessLaunch
@@ -19,6 +21,9 @@ namespace Armada.Core.Harbor
 
         /// <summary>Captain the job runs for.</summary>
         public string? CaptainId { get; set; } = null;
+
+        /// <summary>Dock that owns the mission attempt.</summary>
+        public string? DockId { get; set; } = null;
 
         /// <summary>Mission owner tenant. It must be the runner's enrolled tenant.</summary>
         public string OwnerTenantId { get; set; } = String.Empty;
@@ -42,6 +47,9 @@ namespace Armada.Core.Harbor
 
         /// <summary>Launch plan the runtime built. Set by the runtime before the host is called.</summary>
         public HarborLaunchRequest? Request { get; set; } = null;
+
+        /// <summary>Durably bind the created Harbor job to the exact mission attempt before the runner receives it.</summary>
+        public Func<HarborJobSnapshot, CancellationToken, Task<bool>>? OnRecorded { get; set; } = null;
 
         #endregion
 

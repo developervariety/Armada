@@ -14,7 +14,7 @@ namespace Armada.Core.Services
     /// Top-level orchestration service for coordinating missions and captains.
     /// Delegates domain logic to CaptainService, MissionService, VoyageService, and DockService.
     /// </summary>
-    public class AdmiralService : IAdmiralService
+    public partial class AdmiralService : IAdmiralService, Armada.Core.Harbor.IHarborCompletionRecovery
     {
         #region Public-Members
 
@@ -3922,6 +3922,14 @@ namespace Armada.Core.Services
             string reason = "Agent process was interrupted (exit code " + exitCode + "); mission re-dispatched, interrupted attempt "
                 + attempt + " of " + budget + ".";
 
+            if (!String.IsNullOrWhiteSpace(mission.HarborJobId))
+            {
+                if (!await BeginInterruptedHarborCompletionAsync(captain, mission, reason, token).ConfigureAwait(false))
+                    throw new InvalidOperationException("The confirmed Harbor interruption could not complete its durable re-dispatch intent.");
+                _Logging.Warn(_Header + "mission " + missionId + " " + reason);
+                return true;
+            }
+
             mission.Status = MissionStatusEnum.Pending;
             mission.AssignmentState = MissionAssignmentStateEnum.Pending;
             mission.FailureReason = reason;
@@ -3970,6 +3978,14 @@ namespace Armada.Core.Services
             CancellationToken token,
             string reasonCode = "transient_captain_failure")
         {
+            if (!String.IsNullOrWhiteSpace(mission.HarborJobId))
+            {
+                if (!await BeginTransientHarborCompletionAsync(captain, mission, failureReason, reasonCode, token).ConfigureAwait(false))
+                    throw new InvalidOperationException("The confirmed Harbor failure could not complete its durable requeue intent.");
+                _Logging.Warn(_Header + "mission " + missionId + " requeued after transient captain failure: " + failureReason);
+                return;
+            }
+
             string? vesselId = mission.VesselId;
             string? voyageId = mission.VoyageId;
 
@@ -4276,6 +4292,17 @@ namespace Armada.Core.Services
             }
 
             // Requeue the mission for re-routing to a compatible peer.
+            if (!String.IsNullOrWhiteSpace(mission.HarborJobId))
+            {
+                int plannedRecoveryAttempts = mission.RecoveryAttempts + 1;
+                if (!await BeginReroutedHarborCompletionAsync(captain, mission, failureReason, label, benchReason,
+                    benchUntilUtc, rerouteEventKind, plannedRecoveryAttempts, token).ConfigureAwait(false))
+                    throw new InvalidOperationException("The confirmed Harbor failure could not complete its durable reroute intent.");
+                _Logging.Warn(_Header + "mission " + missionId + " re-routing after " + label + " (attempt "
+                    + plannedRecoveryAttempts + "/" + _RerouteMaxAttempts + ")");
+                return;
+            }
+
             mission.Status = MissionStatusEnum.Pending;
             mission.AssignmentState = MissionAssignmentStateEnum.Pending;
             mission.FailureReason = failureReason;

@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Harbor jobs retain their exact mission attempt across Admiral restart.
+  Verified runners resume with process-start and output-replay checks. Uncertain
+  remote writers block replacement and dock reclamation. Confirmed exits are
+  delivered through the mission lifecycle before durable acknowledgment.
+
 - Missions routed to a full Harbor wait before dock provisioning with a named
   assignment hold. A capacity race at launch returns to the same wait. Explicit
   runner routing, owner checks and the launch-time capacity limit remain in force.

@@ -71,6 +71,9 @@ namespace Armada.Core.Services
         /// <summary>The configured Harbor runner has no free job slot.</summary>
         public const string HarborRunnerCapacity = "harbor_runner_capacity_exhausted";
 
+        /// <summary>A Harbor job for this mission may still be running, so it cannot be assigned again.</summary>
+        public const string HarborJobUnconfirmed = "harbor_job_stop_unconfirmed";
+
         #endregion
 
         #region Public-Methods

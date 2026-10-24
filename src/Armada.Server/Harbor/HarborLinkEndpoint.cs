@@ -184,6 +184,21 @@ namespace Armada.Server.Harbor
                 return true;
             }
 
+            if (parsed is HarborResumeRequest resumeRequest)
+            {
+                try
+                {
+                    HarborResumeResponse response = await _Coordinator.HandleResumeRequestAsync(current, resumeRequest, token).ConfigureAwait(false);
+                    await send(response, token).ConfigureAwait(false);
+                }
+                catch (UnauthorizedAccessException exception)
+                {
+                    await RejectAsync(session, send, resumeRequest.CorrelationId, exception.Message, true).ConfigureAwait(false);
+                    return false;
+                }
+                return true;
+            }
+
             if (parsed is HarborHeartbeat heartbeat)
             {
                 HarborRunnerCheck heartbeatCheck = await connection.AcceptHeartbeatAsync(heartbeat, token).ConfigureAwait(false);

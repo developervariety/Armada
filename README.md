@@ -147,6 +147,12 @@ runner for the mission owner before it provisions a dock. A full runner leaves
 the mission pending with a named hold; assignment retries when a slot is free.
 The launch still checks capacity atomically and never falls back to a local run.
 
+Both versions support Harbor job recovery. The fork stores the exact mission,
+captain, dock and process attempt before launch. Restart adoption requires the
+same authenticated owner and enrollment, process start identity and complete
+output replay. Uncertain writers retain their assignment and dock; a confirmed
+terminal result is acknowledged after the mission exit handler completes.
+
 Some upstream additions are unported by decision, not by omission: the cloud
 model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) and upstream's native
 installer and A/B-slot rebuild paths, because the fork ships Docker with supervised

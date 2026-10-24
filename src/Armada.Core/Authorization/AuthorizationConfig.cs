@@ -1,5 +1,6 @@
 namespace Armada.Core.Authorization
 {
+    using System;
     using System.Collections.Generic;
 
     /// <summary>
@@ -96,6 +97,20 @@ namespace Armada.Core.Authorization
             // Coordination rooms are found by key alone, so every tenant shares every room and its
             // messages, claims and participants. Only a global administrator may use the board.
             if (path == "/api/v1/coordination" || path.StartsWith("/api/v1/coordination/")) return PermissionLevel.AdminOnly;
+
+            // Confirming a stopped Harbor orphan releases its durable mission and dock fence, so only a global
+            // administrator may assert this external process identity.
+            const string harborConfirmPrefix = "/api/v1/harbor-runners/jobs/";
+            const string harborConfirmSuffix = "/confirm-stopped";
+            if (method == "POST"
+                && path.StartsWith(harborConfirmPrefix, StringComparison.Ordinal)
+                && path.EndsWith(harborConfirmSuffix, StringComparison.Ordinal))
+            {
+                int jobIdLength = path.Length - harborConfirmPrefix.Length - harborConfirmSuffix.Length;
+                if (jobIdLength > 0
+                    && path.IndexOf('/', harborConfirmPrefix.Length, jobIdLength) < 0)
+                    return PermissionLevel.AdminOnly;
+            }
 
             // Stopping every captain and processing the whole merge queue act on every tenant at once, so
             // only a global administrator may run them. Processing one merge entry stays tenant-scoped.

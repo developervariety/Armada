@@ -15,7 +15,7 @@ namespace Armada.Core.Harbor
     /// only from that connection, and every claim and result is revalidated against durable enrollment first.
     /// Durable reads and writes run outside this coordinator's lock; the lock guards in-memory state only.
     /// </summary>
-    public sealed class HarborJobCoordinator
+    public sealed partial class HarborJobCoordinator
     {
         #region Public-Members
 
@@ -25,7 +25,7 @@ namespace Armada.Core.Harbor
         /// <summary>Reason recorded for a job whose runner stayed disconnected past the grace period.</summary>
         public const string ReasonRunnerDisconnected = "harbor_runner_disconnected";
 
-        /// <summary>Reason recorded when a stop releases a job whose runner is not connected.</summary>
+        /// <summary>Reason retained when the owning runner is unavailable for a stop.</summary>
         public const string ReasonReleasedRunnerUnavailable = "harbor_job_released_runner_unavailable";
 
         /// <summary>Refusal for mission work on a runner enrolled to another tenant or user.</summary>
@@ -33,6 +33,9 @@ namespace Armada.Core.Harbor
 
         /// <summary>Refusal for a launch whose durable record could not be written.</summary>
         public const string ReasonJobStoreUnavailable = "harbor_job_store_unavailable";
+
+        /// <summary>Reason recorded while a restarted or disconnected job awaits verified recovery.</summary>
+        public const string ReasonResumeUnconfirmed = "harbor_job_resume_unconfirmed";
 
         /// <summary>Durable writes that failed. Each failure is logged with the job it concerns.</summary>
         public int PersistFailureCount => Volatile.Read(ref _PersistFailures);
@@ -50,11 +53,14 @@ namespace Armada.Core.Harbor
         private readonly IHarborRunnerAuthority _Authority;
         private readonly IHarborJobMethods? _Store;
         private readonly LoggingModule? _Logging;
+        private readonly TimeSpan? _StopConfirmationTimeout;
         private readonly Dictionary<string, RunnerLink> _Links = new Dictionary<string, RunnerLink>(StringComparer.Ordinal);
         private readonly Dictionary<string, DateTime> _DetachedUtc = new Dictionary<string, DateTime>(StringComparer.Ordinal);
         private readonly Dictionary<string, JobRecord> _Jobs = new Dictionary<string, JobRecord>(StringComparer.Ordinal);
         private int _PersistFailures;
         private int _ObserverFailures;
+        private IHarborJobRecoveryHost? _RecoveryHost;
+        private bool _RecoveryInitialized;
 
         #endregion
 
@@ -65,32 +71,20 @@ namespace Armada.Core.Harbor
         /// <param name="authority">Shared runner authority rule, the same one enrollment uses.</param>
         /// <param name="store">Durable job records. Without a store jobs live only in memory, which only isolated tests use.</param>
         /// <param name="logging">Logging module for durable write and observer failures.</param>
-        public HarborJobCoordinator(HarborRunnerSessionRegistry registry, IHarborRunnerAuthority authority, IHarborJobMethods? store = null, LoggingModule? logging = null)
+        public HarborJobCoordinator(HarborRunnerSessionRegistry registry, IHarborRunnerAuthority authority, IHarborJobMethods? store = null, LoggingModule? logging = null, TimeSpan? stopConfirmationTimeout = null)
         {
             _Registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _Authority = authority ?? throw new ArgumentNullException(nameof(authority));
             _Store = store;
             _Logging = logging;
+            if (stopConfirmationTimeout.HasValue && stopConfirmationTimeout.Value <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(stopConfirmationTimeout), "Must be greater than zero.");
+            _StopConfirmationTimeout = stopConfirmationTimeout;
         }
 
         #endregion
 
         #region Public-Methods
-
-        /// <summary>
-        /// Fail every durable job an earlier Admiral process left unfinished. Jobs live in one Admiral process; after a
-        /// restart none of them has a link or a mission process left to report for it, so each becomes lost with
-        /// <see cref="ReasonAdmiralRestarted"/> instead of being forgotten. A runner that later reports one is refused.
-        /// </summary>
-        /// <param name="store">Durable job records.</param>
-        /// <param name="nowUtc">Time of the change.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>Number of jobs failed.</returns>
-        public static Task<int> ReconcileAfterRestartAsync(IHarborJobMethods store, DateTime nowUtc, CancellationToken token = default)
-        {
-            if (store == null) throw new ArgumentNullException(nameof(store));
-            return store.FailActiveAsync(ReasonAdmiralRestarted, nowUtc, token);
-        }
 
         /// <summary>Attach the send channel of a newly accepted session. A replacement link supersedes the old one.</summary>
         /// <param name="session">Accepted session.</param>
@@ -196,8 +190,8 @@ namespace Armada.Core.Harbor
 
         /// <summary>
         /// Send a stop for a job to the runner and connection that own it. The caller must be authorized for the
-        /// job's owner. When the owning runner is not connected the Admiral releases the job instead: it becomes
-        /// lost with <see cref="ReasonReleasedRunnerUnavailable"/>, and a later report for it is refused.
+        /// job's owner. An unavailable runner leaves the stop unconfirmed with
+        /// <see cref="ReasonReleasedRunnerUnavailable"/>; the durable job continues to fence replacement.
         /// </summary>
         /// <param name="caller">Verified caller.</param>
         /// <param name="jobId">Server-issued job identifier.</param>
@@ -221,6 +215,20 @@ namespace Armada.Core.Harbor
             if (!await HarborRunnerAuthorization.IsOwnerOrHasAuthorityAsync(_Authority, caller, ownerTenantId, ownerUserId, token).ConfigureAwait(false))
                 return HarborCommandResult.Reject("harbor_command_unauthorized");
 
+            List<HarborJobRecord> stopRequestWrite = new List<HarborJobRecord>();
+            lock (_Gate)
+            {
+                if (!_Jobs.TryGetValue(jobId, out JobRecord? job) || HarborJobRecord.IsTerminal(job.State))
+                    return HarborCommandResult.Reject("harbor_job_not_running");
+                job.StopRequested = true;
+                Touch(job, stopRequestWrite);
+            }
+            if (stopRequestWrite.Count > 0)
+            {
+                HashSet<string> persistedStopRequest = await PersistAsync(stopRequestWrite).ConfigureAwait(false);
+                if (!persistedStopRequest.Contains(jobId)) return HarborCommandResult.Reject("harbor_stop_request_persist_failed");
+            }
+
             if (!_Registry.TryGetCurrent(runnerId, out HarborRunnerSession? session) || session == null)
                 return await ReleaseAsync(jobId, ReasonReleasedRunnerUnavailable).ConfigureAwait(false);
             HarborRunnerCheck revalidated = await _Registry.RevalidateAsync(session, token).ConfigureAwait(false);
@@ -242,6 +250,7 @@ namespace Armada.Core.Harbor
                 if (!_Links.TryGetValue(runnerId, out link) || !Object.ReferenceEquals(link.Session, session))
                     return HarborCommandResult.Reject("harbor_runner_unavailable");
                 job.State = HarborJobStateEnum.Stopping;
+                job.StopRequested = true;
                 Touch(job, persist);
             }
             await PersistAsync(persist).ConfigureAwait(false);
@@ -251,8 +260,58 @@ namespace Armada.Core.Harbor
             }
             catch (Exception exception)
             {
+                persist.Clear();
+                lock (_Gate) MarkUncertain(_Jobs[jobId], "harbor_stop_unconfirmed", persist);
+                await PersistAsync(persist).ConfigureAwait(false);
                 return HarborCommandResult.Reject("harbor_stop_send_failed: " + exception.Message);
             }
+            return HarborCommandResult.Accept();
+        }
+
+        /// <summary>Send a stop and wait until the exact job has a confirmed, delivered terminal result.</summary>
+        /// <param name="caller">Verified owner.</param>
+        /// <param name="jobId">Server-issued job identifier.</param>
+        /// <param name="gracefulTimeoutMs">Runner grace period before it kills the process tree.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Accepted only after runner exit and lifecycle completion are confirmed.</returns>
+        internal async Task<HarborCommandResult> StopAndWaitForCompletionAsync(AuthContext caller, string jobId, int gracefulTimeoutMs, CancellationToken token)
+        {
+            HarborCommandResult requested = await StopAsync(caller, jobId, gracefulTimeoutMs, token).ConfigureAwait(false);
+            if (!requested.Accepted)
+            {
+                if (!String.Equals(requested.Reason, "harbor_job_not_running", StringComparison.Ordinal)) return requested;
+                lock (_Gate)
+                {
+                    if (!_Jobs.TryGetValue(jobId, out JobRecord? finished)
+                        || !HarborJobRecord.IsTerminal(finished.State)
+                        || !finished.StopConfirmed || !finished.CompletionDelivered)
+                        return requested;
+                }
+                return HarborCommandResult.Accept();
+            }
+
+            JobRecord job;
+            lock (_Gate)
+            {
+                if (!_Jobs.TryGetValue(jobId, out JobRecord? found))
+                    return HarborCommandResult.Reject("harbor_stop_confirmation_unavailable");
+                job = found;
+            }
+
+            TimeSpan confirmationTimeout = _StopConfirmationTimeout
+                ?? TimeSpan.FromMilliseconds(Math.Max(1000L, Math.Max(0, (long)gracefulTimeoutMs) + 15000L));
+            Task timeout = Task.Delay(confirmationTimeout, token);
+            Task completed = await Task.WhenAny(job.Completion.Task, timeout).ConfigureAwait(false);
+            if (completed != job.Completion.Task)
+            {
+                await MarkUncertainAndPersistAsync(job, "harbor_stop_confirmation_unconfirmed").ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                return HarborCommandResult.Reject("harbor_stop_confirmation_unconfirmed");
+            }
+
+            HarborJobSnapshot result = await job.Completion.Task.ConfigureAwait(false);
+            if (!HarborJobRecord.IsTerminal(result.State) || !result.StopConfirmed || !result.CompletionDelivered)
+                return HarborCommandResult.Reject("harbor_stop_confirmation_unconfirmed");
             return HarborCommandResult.Accept();
         }
 
@@ -280,23 +339,40 @@ namespace Armada.Core.Harbor
 
             List<HarborJobRecord> persist = new List<HarborJobRecord>();
             List<JobRecord> finished = new List<JobRecord>();
+            List<JobNotification> notifications = new List<JobNotification>();
             HarborCommandResult result;
             lock (_Gate)
             {
                 if (!_Registry.IsCurrent(session)) return HarborCommandResult.EndSession("harbor_session_stale");
-                result = ApplyEvent(session, message, persist, finished);
+                result = ApplyEvent(session, message, persist, finished, notifications);
             }
-            await PersistAsync(persist).ConfigureAwait(false);
-            DeliverFinished(finished);
+            HashSet<string> persisted = await PersistAsync(persist).ConfigureAwait(false);
+            if (_Store == null)
+                foreach (JobRecord job in finished) persisted.Add(job.JobId);
+            bool persistFailed = false;
+            foreach (HarborJobRecord record in persist)
+                if (!persisted.Contains(record.JobId)) persistFailed = true;
+            if (persistFailed)
+            {
+                foreach (HarborJobRecord failed in persist)
+                {
+                    if (persisted.Contains(failed.JobId)) continue;
+                    JobRecord? failedJob;
+                    lock (_Gate) _Jobs.TryGetValue(failed.JobId, out failedJob);
+                    if (failedJob != null)
+                        await MarkUncertainAndPersistAsync(failedJob, ReasonResumeUnconfirmed).ConfigureAwait(false);
+                }
+                return HarborCommandResult.Reject(ReasonJobStoreUnavailable);
+            }
+            DispatchNotifications(notifications, persisted);
+            await DeliverFinishedAsync(finished, persisted).ConfigureAwait(false);
             return result;
         }
 
         /// <summary>
         /// Apply a revalidated heartbeat. Reported jobs from the same runner and enrollment generation are rebound
-        /// to the reporting connection. Jobs from an earlier enrollment generation are never rebound and become
-        /// lost, as do jobs a reconnected runner no longer reports. A reported job this Admiral process does not
-        /// hold but the durable store knows is refused as not rebindable. The accepted output sequence of every live
-        /// job is persisted.
+        /// to the reporting connection when they belong to this Admiral process. Older enrollment jobs and missing jobs
+        /// stay uncertain. Restored jobs require typed resume proof. The accepted output sequence is persisted.
         /// </summary>
         /// <param name="session">Session that sent the heartbeat and passed revalidation.</param>
         /// <param name="liveJobIds">Jobs the runner reports alive.</param>
@@ -331,16 +407,17 @@ namespace Armada.Core.Harbor
                     }
                     if (job.EnrollmentGeneration != session.EnrollmentGeneration || HarborJobRecord.IsTerminal(job.State))
                     {
-                        if (!HarborJobRecord.IsTerminal(job.State)) Finish(job, HarborJobStateEnum.Lost, null, "harbor_enrollment_changed", persist, finished);
+                        if (!HarborJobRecord.IsTerminal(job.State)) MarkUncertain(job, "harbor_enrollment_changed", persist);
                         rejected.Add(new KeyValuePair<string, string>(jobId, "harbor_job_not_rebindable"));
                         continue;
                     }
                     if (job.SessionGeneration != session.Generation)
                     {
-                        job.SessionGeneration = session.Generation;
-                        rebound++;
-                        Touch(job, persist);
+                        MarkUncertain(job, "harbor_resume_required", persist);
+                        rejected.Add(new KeyValuePair<string, string>(jobId, "harbor_resume_required"));
+                        continue;
                     }
+                    rebound++;
                 }
                 foreach (JobRecord job in _Jobs.Values)
                 {
@@ -350,25 +427,21 @@ namespace Armada.Core.Harbor
                         if (job.NextOutputSequence != job.PersistedOutputSequence && !persist.Exists(r => r.JobId == job.JobId)) Touch(job, persist);
                         continue;
                     }
-                    if (job.EnrollmentGeneration != session.EnrollmentGeneration)
-                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_enrollment_changed", persist, finished);
-                    else if (job.SessionGeneration != session.Generation)
-                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_job_not_reported_after_reconnect", persist, finished);
-                    else if (job.State != HarborJobStateEnum.Pending)
-                        Finish(job, HarborJobStateEnum.Lost, null, "harbor_job_not_reported", persist, finished);
+                    MarkUncertain(job, job.EnrollmentGeneration != session.EnrollmentGeneration
+                        ? "harbor_enrollment_changed" : "harbor_job_not_reported", persist);
                 }
             }
 
             foreach (string jobId in unknown)
                 rejected.Add(new KeyValuePair<string, string>(jobId, await ClassifyUnknownJobAsync(session, jobId).ConfigureAwait(false)));
-            await PersistAsync(persist).ConfigureAwait(false);
-            DeliverFinished(finished);
+            HashSet<string> persisted = await PersistAsync(persist).ConfigureAwait(false);
+            await DeliverFinishedAsync(finished, persisted).ConfigureAwait(false);
             return new HarborHeartbeatResult(rebound, rejected);
         }
 
         /// <summary>
-        /// Record that a session ended because it failed revalidation. Its link is detached; its jobs become lost
-        /// unless a current session with the same enrollment generation can still rebind them.
+        /// Record that a session ended because it failed revalidation. Its link is detached and unconfirmed jobs
+        /// remain uncertain until authenticated process proof or verified operator stop accounting.
         /// </summary>
         /// <param name="session">Session that ended.</param>
         /// <param name="reason">Stable reason.</param>
@@ -384,31 +457,25 @@ namespace Armada.Core.Harbor
                     _Links.Remove(session.Identity.RunnerId);
                     _DetachedUtc[session.Identity.RunnerId] = DateTime.UtcNow;
                 }
-                bool replacementCanRebind = _Registry.TryGetCurrent(session.Identity.RunnerId, out HarborRunnerSession? current)
-                    && current != null
-                    && current.EnrollmentGeneration == session.EnrollmentGeneration;
-                if (!replacementCanRebind)
+                foreach (JobRecord job in _Jobs.Values)
                 {
-                    foreach (JobRecord job in _Jobs.Values)
-                    {
-                        if (HarborJobRecord.IsTerminal(job.State)) continue;
-                        if (!String.Equals(job.RunnerId, session.Identity.RunnerId, StringComparison.Ordinal)) continue;
-                        if (job.EnrollmentGeneration != session.EnrollmentGeneration) continue;
-                        Finish(job, HarborJobStateEnum.Lost, null, String.IsNullOrWhiteSpace(reason) ? "harbor_session_ended" : reason, persist, finished);
-                    }
+                    if (HarborJobRecord.IsTerminal(job.State)) continue;
+                    if (!String.Equals(job.RunnerId, session.Identity.RunnerId, StringComparison.Ordinal)
+                        || job.SessionGeneration != session.Generation) continue;
+                    MarkUncertain(job, String.IsNullOrWhiteSpace(reason) ? "harbor_session_ended" : reason, persist);
                 }
             }
-            await PersistAsync(persist).ConfigureAwait(false);
-            DeliverFinished(finished);
+            HashSet<string> persisted = await PersistAsync(persist).ConfigureAwait(false);
+            await DeliverFinishedAsync(finished, persisted).ConfigureAwait(false);
         }
 
         /// <summary>
-        /// Lose every live job whose runner has had no link for longer than the grace period. A process on a runner
-        /// that never reconnects is then treated like a local process that died.
+        /// Keep a named uncertainty hold on live jobs whose runner has exceeded the disconnect grace period.
+        /// A missing link does not prove that the remote process stopped.
         /// </summary>
         /// <param name="grace">How long a runner may stay disconnected.</param>
         /// <param name="nowUtc">Current time.</param>
-        /// <returns>Number of jobs marked lost.</returns>
+        /// <returns>Number of jobs with an expired link recorded as uncertain.</returns>
         public async Task<int> ExpireDetachedRunnersAsync(TimeSpan grace, DateTime nowUtc)
         {
             List<HarborJobRecord> persist = new List<HarborJobRecord>();
@@ -421,12 +488,13 @@ namespace Armada.Core.Harbor
                     if (HarborJobRecord.IsTerminal(job.State) || _Links.ContainsKey(job.RunnerId)) continue;
                     DateTime since = _DetachedUtc.TryGetValue(job.RunnerId, out DateTime detached) ? detached : job.CreatedUtc;
                     if (nowUtc - since < grace) continue;
-                    Finish(job, HarborJobStateEnum.Lost, null, ReasonRunnerDisconnected, persist, finished);
-                    expired++;
+                    bool wasUncertain = job.State == HarborJobStateEnum.Uncertain && !job.StopConfirmed;
+                    MarkUncertain(job, ReasonRunnerDisconnected, persist);
+                    if (!wasUncertain) expired++;
                 }
             }
-            await PersistAsync(persist).ConfigureAwait(false);
-            DeliverFinished(finished);
+            HashSet<string> persisted = await PersistAsync(persist).ConfigureAwait(false);
+            await DeliverFinishedAsync(finished, persisted).ConfigureAwait(false);
             return expired;
         }
 
@@ -473,6 +541,11 @@ namespace Armada.Core.Harbor
                 return HarborLaunchResult.Reject("harbor_launch_invalid");
             if (caller == null || !caller.IsAuthenticated || String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId))
                 return HarborLaunchResult.Reject("harbor_command_unauthorized");
+            if (binding != null && (String.IsNullOrWhiteSpace(binding.MissionId) || String.IsNullOrWhiteSpace(binding.CaptainId)
+                || String.IsNullOrWhiteSpace(binding.DockId) || !binding.AdmiralProcessId.HasValue
+                || binding.AdmiralProcessId.Value <= 0 || !binding.AdmiralProcessStartedUtc.HasValue
+                || binding.AdmiralProcessStartedUtc.Value.Kind != DateTimeKind.Utc || binding.Observer == null || binding.OnRecorded == null))
+                return HarborLaunchResult.Reject("harbor_mission_binding_invalid");
             if (!_Registry.TryGetCurrent(runnerId.Trim(), out HarborRunnerSession? session) || session == null)
                 return HarborLaunchResult.Reject("harbor_runner_unavailable");
             HarborRunnerCheck revalidated = await _Registry.RevalidateAsync(session, token).ConfigureAwait(false);
@@ -553,6 +626,41 @@ namespace Armada.Core.Harbor
             }
             await PersistAsync(persist).ConfigureAwait(false);
 
+            if (binding?.OnRecorded != null)
+            {
+                bool recorded = false;
+                bool callbackThrew = false;
+                try
+                {
+                    recorded = await binding.OnRecorded(record.Snapshot(), token).ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    callbackThrew = true;
+                    _Logging?.Warn(_Header + "mission binding failed for job " + record.JobId + ": " + exception.Message);
+                }
+                if (!recorded)
+                {
+                    persist.Clear();
+                    lock (_Gate)
+                    {
+                        if (callbackThrew)
+                        {
+                            MarkUncertain(record, ReasonResumeUnconfirmed, persist);
+                        }
+                        else
+                        {
+                            // No mission binding was accepted and no runner launch was sent, so no exit callback is owed.
+                            record.StopConfirmed = true;
+                            record.CompletionDelivered = true;
+                            Finish(record, HarborJobStateEnum.Failed, null, "harbor_mission_binding_failed", persist, finished);
+                        }
+                    }
+                    await PersistAsync(persist).ConfigureAwait(false);
+                    return HarborLaunchResult.Reject("harbor_mission_binding_failed");
+                }
+            }
+
             HarborLaunchRequest outbound = new HarborLaunchRequest
             {
                 CorrelationId = request.CorrelationId,
@@ -573,35 +681,39 @@ namespace Armada.Core.Harbor
             catch (Exception exception)
             {
                 persist.Clear();
-                lock (_Gate)
-                {
-                    record.Observer = null;
-                    Finish(record, HarborJobStateEnum.Failed, null, "harbor_launch_send_failed: " + exception.Message, persist, finished);
-                }
+                lock (_Gate) MarkUncertain(record, "harbor_launch_send_unconfirmed", persist);
                 await PersistAsync(persist).ConfigureAwait(false);
-                DeliverFinished(finished);
+                persist.Clear();
+                _Logging?.Warn(_Header + "launch send result is uncertain for job " + record.JobId + ": " + exception.Message);
                 return HarborLaunchResult.Reject("harbor_launch_send_failed");
             }
             return HarborLaunchResult.Accept(record.JobId, record.Completion.Task);
         }
 
-        private HarborCommandResult ApplyEvent(HarborRunnerSession session, HarborMessage message, List<HarborJobRecord> persist, List<JobRecord> finished)
+        private HarborCommandResult ApplyEvent(HarborRunnerSession session, HarborMessage message, List<HarborJobRecord> persist, List<JobRecord> finished, List<JobNotification> notifications)
         {
             string reason;
             JobRecord? job;
             switch (message)
             {
                 case HarborStarted started:
+                {
                     job = OwnedJob(session, started.JobId, out reason);
                     if (job == null) return HarborCommandResult.Reject(reason);
-                    if (job.State != HarborJobStateEnum.Pending) return HarborCommandResult.Reject("harbor_job_started_duplicate");
+                    bool stopAlreadyRequested = job.State == HarborJobStateEnum.Stopping && job.StopRequested;
+                    if ((job.State != HarborJobStateEnum.Pending && !stopAlreadyRequested) || job.ProcessId.HasValue)
+                        return HarborCommandResult.Reject("harbor_job_started_duplicate");
                     if (started.ProcessId <= 0) return HarborCommandResult.Reject("harbor_process_id_invalid");
+                    if (started.ProcessStartedUtc.HasValue && started.ProcessStartedUtc.Value.Kind != DateTimeKind.Utc)
+                        return HarborCommandResult.Reject("harbor_process_start_time_invalid");
                     job.ProcessId = started.ProcessId;
-                    job.State = HarborJobStateEnum.Running;
+                    job.RunnerProcessStartedUtc = started.ProcessStartedUtc;
+                    job.State = stopAlreadyRequested ? HarborJobStateEnum.Stopping : HarborJobStateEnum.Running;
                     Touch(job, persist);
                     HarborJobSnapshot startedView = job.Snapshot();
-                    Notify(job, observer => observer.OnStarted(startedView));
+                    notifications.Add(new JobNotification(job, observer => observer.OnStarted(startedView)));
                     return HarborCommandResult.Accept();
+                }
 
                 case HarborOutput output:
                     job = OwnedJob(session, output.JobId, out reason);
@@ -610,17 +722,25 @@ namespace Armada.Core.Harbor
                         return HarborCommandResult.Reject("harbor_job_not_running");
                     if (output.Sequence < job.NextOutputSequence) return HarborCommandResult.Reject("harbor_output_replayed");
                     if (output.Sequence > job.NextOutputSequence) return HarborCommandResult.Reject("harbor_output_gap");
+                    if (output.Sequence == Int64.MaxValue) return HarborCommandResult.Reject("harbor_output_sequence_invalid");
                     HarborOutput accepted = new HarborOutput { JobId = job.JobId, Sequence = output.Sequence, Stream = output.Stream, Data = output.Data ?? String.Empty };
                     if (job.Observer == null) job.Output.Add(accepted);
                     job.NextOutputSequence++;
+                    Touch(job, persist);
                     string outputJobId = job.JobId;
-                    Notify(job, observer => observer.OnOutput(outputJobId, accepted));
+                    notifications.Add(new JobNotification(job, observer => observer.OnOutput(outputJobId, accepted)));
                     return HarborCommandResult.Accept();
 
                 case HarborExited exited:
                     job = OwnedJob(session, exited.JobId, out reason);
                     if (job == null) return HarborCommandResult.Reject(reason);
                     if (HarborJobRecord.IsTerminal(job.State)) return HarborCommandResult.Reject("harbor_job_exit_duplicate");
+                    if (job.ResumeReplayTarget.HasValue && job.NextOutputSequence < job.ResumeReplayTarget.Value)
+                        return HarborCommandResult.Reject("harbor_resume_output_replay_incomplete");
+                    if (job.ResumeTerminalPending && job.ResumeReplayTarget != job.NextOutputSequence)
+                        return HarborCommandResult.Reject("harbor_resume_output_replay_mismatch");
+                    if (job.ResumeTerminalPending && job.ResumeExitCode != exited.ExitCode)
+                        return HarborCommandResult.Reject("harbor_resume_exit_mismatch");
                     Finish(job, HarborJobStateEnum.Exited, exited.ExitCode, null, persist, finished);
                     return HarborCommandResult.Accept();
 
@@ -629,7 +749,7 @@ namespace Armada.Core.Harbor
                     job = OwnedJob(session, error.JobId, out reason);
                     if (job == null) return HarborCommandResult.Reject(reason);
                     if (HarborJobRecord.IsTerminal(job.State)) return HarborCommandResult.Reject("harbor_job_exit_duplicate");
-                    Finish(job, HarborJobStateEnum.Failed, null, "harbor_runner_error: " + (error.Message ?? String.Empty), persist, finished);
+                    MarkUncertain(job, "harbor_runner_error: " + (error.Message ?? String.Empty), persist);
                     return HarborCommandResult.Accept();
 
                 default:
@@ -645,11 +765,11 @@ namespace Armada.Core.Harbor
             {
                 if (!_Jobs.TryGetValue(jobId, out JobRecord? job)) return HarborCommandResult.Reject("harbor_job_unknown");
                 if (HarborJobRecord.IsTerminal(job.State)) return HarborCommandResult.Reject("harbor_job_not_running");
-                Finish(job, HarborJobStateEnum.Lost, null, reason, persist, finished);
+                MarkUncertain(job, reason, persist);
             }
-            await PersistAsync(persist).ConfigureAwait(false);
-            DeliverFinished(finished);
-            return HarborCommandResult.AcceptReleased(reason);
+            HashSet<string> persisted = await PersistAsync(persist).ConfigureAwait(false);
+            await DeliverFinishedAsync(finished, persisted).ConfigureAwait(false);
+            return HarborCommandResult.Reject("harbor_stop_unconfirmed");
         }
 
         private async Task<string> ClassifyUnknownJobAsync(HarborRunnerSession session, string jobId)
@@ -715,25 +835,66 @@ namespace Armada.Core.Harbor
             job.ExitCode = exitCode;
             job.FailureReason = reason;
             job.CompletedUtc = DateTime.UtcNow;
+            job.StopConfirmed = true;
+            job.ResumeReplayTarget = null;
+            job.ResumeTerminalPending = false;
+            job.ResumeExitCode = null;
             Touch(job, persist);
-            HarborJobSnapshot finished = job.Snapshot();
-            job.Completion.TrySetResult(finished);
             if (notifyAfterPersist != null)
                 notifyAfterPersist.Add(job);
             else
-                Notify(job, observer => observer.OnFinished(finished));
+                notifyAfterPersist = new List<JobRecord> { job };
+        }
+
+        private void MarkUncertain(JobRecord job, string? reason, List<HarborJobRecord>? persist)
+        {
+            if (HarborJobRecord.IsTerminal(job.State)) return;
+            string stableReason = String.IsNullOrWhiteSpace(reason) ? ReasonResumeUnconfirmed : reason;
+            if (job.State == HarborJobStateEnum.Uncertain && !job.StopConfirmed
+                && String.Equals(job.FailureReason, stableReason, StringComparison.Ordinal)) return;
+            job.State = HarborJobStateEnum.Uncertain;
+            job.StopConfirmed = false;
+            job.ResumeReplayTarget = null;
+            job.ResumeTerminalPending = false;
+            job.ResumeExitCode = null;
+            job.FailureReason = stableReason;
+            Touch(job, persist);
         }
 
         /// <summary>
         /// Deliver terminal observer notifications after the durable write. Observers read the job row,
         /// so the exit must not be visible before that write commits.
         /// </summary>
-        private void DeliverFinished(List<JobRecord> jobs)
+        private async Task DeliverFinishedAsync(List<JobRecord> jobs, HashSet<string> persisted)
         {
             foreach (JobRecord job in jobs)
             {
+                if (!persisted.Contains(job.JobId))
+                {
+                    job.State = HarborJobStateEnum.Uncertain;
+                    job.StopConfirmed = false;
+                    job.FailureReason = ReasonResumeUnconfirmed;
+                    continue;
+                }
+                if (!String.IsNullOrWhiteSpace(job.MissionId) && job.Observer == null) continue;
                 HarborJobSnapshot finished = job.Snapshot();
-                Notify(job, observer => observer.OnFinished(finished));
+                try
+                {
+                    await job.NotificationTail.ConfigureAwait(false);
+                    if (job.Observer is IHarborJobCompletionObserver completionObserver)
+                        await completionObserver.OnFinishedAsync(finished).ConfigureAwait(false);
+                    else if (job.Observer != null)
+                        job.Observer.OnFinished(finished);
+                    if (_Store != null && !await AcknowledgeCompletionDeliveredAsync(job.JobId, finished.Revision, CancellationToken.None).ConfigureAwait(false))
+                        continue;
+                    if (_Store == null) job.CompletionDelivered = true;
+                    job.Completion.TrySetResult(job.Snapshot());
+                }
+                catch (Exception exception)
+                {
+                    Interlocked.Increment(ref _ObserverFailures);
+                    _Logging?.Warn(_Header + "terminal observer for job " + job.JobId + " failed: " + exception.Message);
+                }
             }
         }
 
@@ -741,39 +902,50 @@ namespace Armada.Core.Harbor
         /// Queue a notification behind the job's earlier notifications. Called under the lock, so the queue order is
         /// the order in which the events were accepted; delivery runs after the lock is released.
         /// </summary>
-        private void Notify(JobRecord job, Action<IHarborJobObserver> notification)
+        private void DispatchNotifications(List<JobNotification> notifications, HashSet<string> persisted)
         {
-            IHarborJobObserver? observer = job.Observer;
-            if (observer == null) return;
-            string jobId = job.JobId;
-            job.NotificationTail = job.NotificationTail.ContinueWith(_ =>
+            foreach (JobNotification item in notifications)
             {
-                try
+                JobRecord job = item.Job;
+                IHarborJobObserver? observer = job.Observer;
+                if (observer == null || (job.Durable && !persisted.Contains(job.JobId))) continue;
+                string jobId = job.JobId;
+                job.NotificationTail = job.NotificationTail.ContinueWith(_ =>
                 {
-                    notification(observer);
-                }
-                catch (Exception exception)
-                {
-                    Interlocked.Increment(ref _ObserverFailures);
-                    _Logging?.Warn(_Header + "observer for job " + jobId + " failed: " + exception.Message);
-                }
-            }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                    try
+                    {
+                        item.Callback(observer);
+                    }
+                    catch (Exception exception)
+                    {
+                        Interlocked.Increment(ref _ObserverFailures);
+                        _Logging?.Warn(_Header + "observer for job " + jobId + " failed: " + exception.Message);
+                    }
+                }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            }
         }
 
-        private async Task PersistAsync(List<HarborJobRecord> records)
+        private async Task<HashSet<string>> PersistAsync(List<HarborJobRecord> records)
         {
-            if (_Store == null || records.Count == 0) return;
+            HashSet<string> persisted = new HashSet<string>(StringComparer.Ordinal);
+            if (records.Count == 0) return persisted;
+            if (_Store == null)
+            {
+                foreach (HarborJobRecord record in records) persisted.Add(record.JobId);
+                return persisted;
+            }
             foreach (HarborJobRecord record in records)
             {
                 try
                 {
-                    await _Store.TryUpdateAsync(record, CancellationToken.None).ConfigureAwait(false);
+                    if (await _Store.TryUpdateAsync(record, CancellationToken.None).ConfigureAwait(false)) persisted.Add(record.JobId);
                 }
                 catch (Exception exception)
                 {
                     RecordPersistFailure(record.JobId, "update to " + record.State, exception);
                 }
             }
+            return persisted;
         }
 
         private void RecordPersistFailure(string jobId, string operation, Exception exception)
@@ -800,6 +972,18 @@ namespace Armada.Core.Harbor
             }
         }
 
+        private sealed class JobNotification
+        {
+            public JobRecord Job { get; }
+            public Action<IHarborJobObserver> Callback { get; }
+
+            public JobNotification(JobRecord job, Action<IHarborJobObserver> callback)
+            {
+                Job = job;
+                Callback = callback;
+            }
+        }
+
         private sealed class JobRecord
         {
             public string JobId { get; }
@@ -812,10 +996,11 @@ namespace Armada.Core.Harbor
             public long EnrollmentGeneration { get; }
             public string? MissionId { get; }
             public string? CaptainId { get; }
-            public DateTime CreatedUtc { get; } = DateTime.UtcNow;
+            public DateTime CreatedUtc { get; }
             public long SessionGeneration { get; set; }
             public HarborJobStateEnum State { get; set; } = HarborJobStateEnum.Pending;
             public int? ProcessId { get; set; }
+            public DateTime? RunnerProcessStartedUtc { get; set; }
             public int? ExitCode { get; set; }
             public string? FailureReason { get; set; }
             public long NextOutputSequence { get; set; }
@@ -824,6 +1009,15 @@ namespace Armada.Core.Harbor
             public bool Durable { get; set; }
             public DateTime LastUpdateUtc { get; set; } = DateTime.UtcNow;
             public DateTime? CompletedUtc { get; set; }
+            public string? DockId { get; }
+            public int? AdmiralProcessId { get; }
+            public DateTime? AdmiralProcessStartedUtc { get; }
+            public bool StopConfirmed { get; set; }
+            public bool StopRequested { get; set; }
+            public bool CompletionDelivered { get; set; }
+            public long? ResumeReplayTarget { get; set; }
+            public bool ResumeTerminalPending { get; set; }
+            public int? ResumeExitCode { get; set; }
             public IHarborJobObserver? Observer { get; set; }
             public Task NotificationTail { get; set; } = Task.CompletedTask;
             public List<HarborOutput> Output { get; } = new List<HarborOutput>();
@@ -841,16 +1035,55 @@ namespace Armada.Core.Harbor
                 OwnerUserId = ownerUserId;
                 EnrollmentGeneration = enrollmentGeneration;
                 SessionGeneration = sessionGeneration;
+                CreatedUtc = DateTime.UtcNow;
                 MissionId = binding?.MissionId;
                 CaptainId = binding?.CaptainId;
+                DockId = binding?.DockId;
+                AdmiralProcessId = binding?.AdmiralProcessId;
+                AdmiralProcessStartedUtc = binding?.AdmiralProcessStartedUtc;
                 Observer = binding?.Observer;
+            }
+
+            public JobRecord(HarborJobRecord record)
+            {
+                JobId = record.JobId;
+                RunnerId = record.RunnerId;
+                LaunchKey = record.LaunchKey;
+                RequestedByTenantId = record.TenantId;
+                RequestedByUserId = record.UserId;
+                OwnerTenantId = record.TenantId;
+                OwnerUserId = record.UserId;
+                EnrollmentGeneration = record.EnrollmentGeneration;
+                MissionId = record.MissionId;
+                CaptainId = record.CaptainId;
+                CreatedUtc = record.CreatedUtc;
+                DockId = record.DockId;
+                AdmiralProcessId = record.AdmiralProcessId;
+                AdmiralProcessStartedUtc = record.AdmiralProcessStartedUtc;
+                SessionGeneration = record.SessionGeneration;
+                State = record.State;
+                ProcessId = record.ProcessId;
+                RunnerProcessStartedUtc = record.RunnerProcessStartedUtc;
+                ExitCode = record.ExitCode;
+                FailureReason = record.FailureReason;
+                NextOutputSequence = record.NextOutputSequence;
+                Revision = record.Revision;
+                LastUpdateUtc = record.LastUpdateUtc;
+                CompletedUtc = record.CompletedUtc;
+                StopConfirmed = record.StopConfirmed;
+                StopRequested = record.StopRequested;
+                CompletionDelivered = record.CompletionDelivered;
+                Durable = true;
+                PersistedOutputSequence = record.NextOutputSequence;
             }
 
             public HarborJobSnapshot Snapshot()
             {
                 return new HarborJobSnapshot(JobId, RunnerId, LaunchKey, RequestedByTenantId, RequestedByUserId,
                     EnrollmentGeneration, SessionGeneration, State, ProcessId, ExitCode, FailureReason, Output.ToArray(),
-                    OwnerTenantId, OwnerUserId, MissionId, CaptainId, NextOutputSequence);
+                    OwnerTenantId, OwnerUserId, MissionId, CaptainId, NextOutputSequence,
+                    RunnerProcessStartedUtc, DockId, AdmiralProcessId, AdmiralProcessStartedUtc,
+                    StopConfirmed, StopRequested, CompletionDelivered, Revision);
             }
 
             public HarborJobRecord ToDurable()
@@ -866,11 +1099,18 @@ namespace Armada.Core.Harbor
                     SessionGeneration = SessionGeneration,
                     State = State,
                     ProcessId = ProcessId,
+                    RunnerProcessStartedUtc = RunnerProcessStartedUtc,
                     ExitCode = ExitCode,
                     FailureReason = FailureReason,
                     NextOutputSequence = NextOutputSequence,
                     MissionId = MissionId,
                     CaptainId = CaptainId,
+                    DockId = DockId,
+                    AdmiralProcessId = AdmiralProcessId,
+                    AdmiralProcessStartedUtc = AdmiralProcessStartedUtc,
+                    StopConfirmed = StopConfirmed,
+                    StopRequested = StopRequested,
+                    CompletionDelivered = CompletionDelivered,
                     Revision = Revision,
                     CreatedUtc = CreatedUtc,
                     LastUpdateUtc = LastUpdateUtc,

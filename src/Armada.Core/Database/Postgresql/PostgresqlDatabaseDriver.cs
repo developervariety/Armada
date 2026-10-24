@@ -76,6 +76,8 @@ namespace Armada.Core.Database.Postgresql
                 { "deployments.verified_utc", StoredTimestampEnum.TimestampWithZone },
                 { "environments.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "environments.last_update_utc", StoredTimestampEnum.TimestampWithZone },
+                { "harbor_jobs.admiral_process_started_utc", StoredTimestampEnum.TimestampWithZone },
+                { "harbor_jobs.runner_process_started_utc", StoredTimestampEnum.TimestampWithZone },
                 { "harbor_jobs.completed_utc", StoredTimestampEnum.TimestampWithZone },
                 { "harbor_jobs.created_utc", StoredTimestampEnum.TimestampWithZone },
                 { "harbor_jobs.last_update_utc", StoredTimestampEnum.TimestampWithZone },

@@ -5,7 +5,8 @@ the runner executes it and reports back. This document is the contract both side
 `HarborProtocol.Version` (currently `1.0`); change that constant on any breaking change to the message set.
 
 Harbor is disabled by default. When `Harbor.Enabled` is false the Admiral registers no link route and no
-enrollment routes. See [Opt-in operation](#opt-in-operation).
+enrollment routes. Stored-job safety checks and the administrator stop-confirmation route remain available.
+See [Opt-in operation](#opt-in-operation).
 
 ## Transport and framing
 
@@ -48,6 +49,7 @@ Admiral to runner:
 | `handshakeAck` | `HarborHandshakeAck` | accept or reject the link; a rejection carries a stable `reason` |
 | `launch` | `HarborLaunchRequest` | start a process for a server-issued `jobId` |
 | `kill` | `HarborKillRequest` | stop a job: grace period, then kill the process tree |
+| `resumeAck` | `HarborResumeResponse` | per-job resume decision and output replay position |
 | `error` | `HarborError` | a runner frame was refused; `message` is a stable reason, `jobId` names the job when there is one |
 
 Runner to Admiral:
@@ -55,7 +57,8 @@ Runner to Admiral:
 | type | class | purpose |
 |------|-------|---------|
 | `handshake` | `HarborHandshake` | name the runner; advertise capabilities and capacity |
-| `started` | `HarborStarted` | a launched process started (host process id) |
+| `resume` | `HarborResumeRequest` | retained job identity and output replay proof |
+| `started` | `HarborStarted` | a launched process started (host process id and UTC start time) |
 | `output` | `HarborOutput` | one output chunk with its `sequence` |
 | `exited` | `HarborExited` | the process exited (exit code) |
 | `heartbeat` | `HarborHeartbeat` | liveness plus the jobs still running |
@@ -136,24 +139,48 @@ heartbeat, and every `started`, `output`, `exited` and job `error` frame, revali
 credential outside the registry lock before it changes a job. A revoked enrollment, a changed enrollment
 generation, or an inactive credential, user or tenant is answered with `error` naming the reason
 (`runner_enrollment_revoked`, `runner_enrollment_generation_stale`, `runner_principal_inactive`,
-`credential_revoked_or_mismatched`), the link closes, and the runner's jobs from that enrollment become `Lost`
-with that reason. The revocation may have happened on any Admiral instance.
+`credential_revoked_or_mismatched`), the link closes, and jobs without a confirmed process stop remain
+`Uncertain`. Revocation does not prove that an agent stopped writing its checkout.
 
-After a reconnect with the same enrollment generation, the runner lists its still-running jobs in `liveJobIds`.
-Listed jobs are rebound to the new connection and continue from their next output sequence. Jobs from an earlier
-enrollment generation are refused with `harbor_job_not_rebindable` and become `Lost`; re-enrollment never
-revives earlier work. Jobs a reconnected runner does not list become `Lost`. Unknown or foreign listed jobs are
-answered with `error`.
+A reconnect within the same Admiral process can bind known jobs from `liveJobIds`. A job missing from that
+list stays uncertain. A new enrollment cannot adopt an older enrollment's work. Unknown or foreign jobs receive
+an error. A heartbeat alone cannot adopt a job restored after an Admiral restart.
 
-Job records are durable. Each state change and each heartbeat persists the job's state, connection generation,
-host process id, exit code, next output sequence and failure reason, guarded by a revision so a delayed write
-never overwrites a newer state. An Admiral restart ends every link; at start the Admiral marks every job that was
-not terminal `Lost` with `harbor_admiral_restarted`. A reconnecting runner that lists such a job is refused with
-`harbor_job_not_rebindable`; a job the store does not know is refused with `harbor_job_unknown`.
+Job records retain the enrolled owner, enrollment and session generations, launch key, runner process identifier
+and start time, next output sequence, mission, captain, dock, and Admiral synthetic process identity. Before a
+mission launch is sent, one transaction binds the assigned mission and captain to that durable job. A changed
+assignment prevents the send.
 
-A runner whose link stays closed longer than `Harbor.DisconnectedJobGraceSeconds` (default 180) loses its live
-jobs with `harbor_runner_disconnected`. A stop for a job whose runner is not connected releases it with
-`harbor_job_released_runner_unavailable`.
+At startup, the Admiral loads recovery records in bounded pages before the link listener and stale-captain
+cleanup. It restores the exact mission attempt without launching an agent. Missing or conflicting identity stays
+blocked. This safety check applies even when the Harbor link is disabled. Planned Admiral shutdown detaches
+Harbor jobs and retains their assignment.
+
+After an authenticated handshake, a runner sends `resume` with its retained job proofs. Each proof names the
+job and launch key, runner process identifier and UTC start time, running or confirmed-stopped state, and the
+first and next retained output sequences. The Admiral verifies the durable owner and enrollment, current session,
+exact mission attempt, process identity, and a replay range that contains the next persisted sequence. Its
+`resumeAck` gives a decision and `replayFromSequence` for each job. Accepted output must arrive in sequence;
+missing output does not permit a terminal result to bypass the replay fence.
+
+A confirmed terminal result is durable before lifecycle delivery. A requeue stores its computed captain
+and quarantine policy as a completion intent before it clears assignment pointers. Stable fact, event and signal
+identifiers let recovery finish that intent without repeating its recorded effects. The Admiral acknowledges delivery only after
+the actual mission exit handler completes. The acknowledgment uses the exact job revision. Startup can retry an
+undelivered terminal result without applying it to a later mission attempt.
+
+Disconnect grace expiry, a missing heartbeat job, a failed stop request, or an unavailable owner leaves the job
+uncertain. These states retain capacity and prevent replacement assignment or dock reclamation. Elapsed time
+never proves that a remote writer stopped. A legacy mission job without a stored dock identity blocks
+checkout reclamation in its tenant until its old writer is accounted for. Existing jobs cannot move to another
+host as a recovery fallback.
+
+A global administrator can confirm an externally verified stop with
+`POST /api/v1/harbor-runners/jobs/{jobId}/confirm-stopped`. The request includes
+`expectedRevision`, `enrollmentGeneration`, `runnerProcessId`, `runnerProcessStartedUtc`, and named `evidence`.
+The process fields must match the stored identity; both can be null only when no process identity was recorded.
+The runner must be disconnected. A stale revision or identity returns 409. This route remains available when
+Harbor transport is disabled. Confirmation records the terminal result before it delivers the mission exit.
 
 ## Opt-in operation
 
@@ -211,5 +238,7 @@ the runner never lands or pushes, and the protocol has no git command. Only non-
 
 The mission owner must be the runner's enrolled tenant and user (`harbor_runner_owner_mismatch` otherwise). The
 durable job record is written before the runner receives the launch. The runner's `output` chunks become lines
-in the mission log, and `exited` or a lost job completes the mission process exactly like a local process exit.
-A captain stop becomes `kill` for the job. There is no fallback to a local process or another runner.
+in the mission log. A confirmed `exited` result enters the shared mission exit lifecycle. Uncertain jobs retain
+their process and assignment fence. A captain stop sends `kill` and waits for confirmed exit and lifecycle
+handling; sending the command alone is insufficient. The stored stop request survives restart and yields a
+`Stop` decision when its runner returns. There is no fallback to a local process or another runner.

@@ -82,7 +82,7 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Seconds a runner may stay disconnected before its live jobs are lost, like a local process that died.
+        /// Seconds before a disconnected runner receives a named uncertainty hold; its process stop remains unconfirmed.
         /// A runner that reconnects inside this window rebinds its jobs.
         /// </summary>
         public int DisconnectedJobGraceSeconds

@@ -712,7 +712,8 @@ namespace Armada.Core.Database.Mysql
                     115,
                     "Add preserved_run_output column to missions so an in-place Judge re-run keeps the prior run's review output and verdict",
                     TableQueries.MigrationPreservedRunOutputStatements
-                )
+                ),
+                new SchemaMigration(116, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.MysqlStatements)
             };
         }
 

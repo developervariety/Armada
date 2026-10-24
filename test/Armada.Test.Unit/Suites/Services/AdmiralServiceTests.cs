@@ -1,9 +1,12 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Collections.Generic;
     using System.Globalization;
     using Microsoft.Data.Sqlite;
+    using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -29,6 +32,19 @@ namespace Armada.Test.Unit.Suites.Services
                     cmd.Parameters.AddWithValue("@id", missionId);
                     cmd.Parameters.AddWithValue("@last_update_utc", lastUpdateUtc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture));
                     await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static async Task ExecuteSqliteAsync(TestDatabase testDb, string sql)
+        {
+            using (SqliteConnection connection = new SqliteConnection(testDb.ConnectionString))
+            {
+                await connection.OpenAsync().ConfigureAwait(false);
+                using (SqliteCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = sql;
+                    await command.ExecuteNonQueryAsync().ConfigureAwait(false);
                 }
             }
         }
@@ -120,6 +136,31 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<CaptainQuarantineResult> ReleaseCaptainAsync(AuthContext auth, string captainId, CancellationToken token = default) => _Inner.ReleaseCaptainAsync(auth, captainId, token);
             public Task RestoreExpiredQuarantinesAsync(CancellationToken token = default) => throw new InvalidOperationException("unreadable quarantine row");
             public Task<bool> TryProbeRestoreAsync(Captain captain, CancellationToken token = default) => _Inner.TryProbeRestoreAsync(captain, token);
+        }
+
+        private sealed class AdmiralServiceHarborRecoveryHost : IHarborJobRecoveryHost
+        {
+            private readonly AdmiralService _Service;
+
+            public AdmiralServiceHarborRecoveryHost(AdmiralService service)
+            {
+                _Service = service ?? throw new ArgumentNullException(nameof(service));
+            }
+
+            public Task<HarborJobRecoveryResult> RestoreAsync(HarborJobSnapshot job, CancellationToken token = default)
+            {
+                return Task.FromResult(new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Uncertain));
+            }
+
+            public Task<HarborJobRecoveryResult> TryAdoptAsync(HarborJobSnapshot job, HarborRunnerSession session, CancellationToken token = default)
+            {
+                return Task.FromResult(new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Uncertain));
+            }
+
+            public Task<bool> DeliverCompletionAsync(HarborJobSnapshot job, CancellationToken token = default)
+            {
+                return _Service.ResumeConfirmedCompletionAsync(job, token);
+            }
         }
 
         private sealed class CrashLoopExcludedFailureCase
@@ -270,6 +311,165 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, owner.Objects.Count, "The mission owner's scoped read must find the process exit event");
                     EnumerationResult<ArmadaEvent> other = await testDb.Driver.Events.EnumerateAsync(tenantId, "usr_other_owner", query).ConfigureAwait(false);
                     AssertEqual(0, other.Objects.Count, "Another user's scoped read must not find the process exit event");
+                }
+            });
+
+            await RunTest("HarborCompletionIntent_ResumesAfterCaptainReleaseCrashWithoutRepeatingEffects", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    string tenantId = Armada.Core.Constants.DefaultTenantId;
+                    string userId = Armada.Core.Constants.DefaultUserId;
+                    string suffix = Guid.NewGuid().ToString("N");
+                    string jobId = "hjob_completion_" + suffix;
+                    string runnerId = "hbr_completion_" + suffix;
+                    int processId = ProcessSupervisor.AllocateSyntheticProcessId();
+                    DateTime processStartedUtc = DateTime.UtcNow;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_completion_intent_" + suffix, "logs");
+                    LoggingModule logging = CreateLogging();
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(logging, db, settings, git);
+
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("Completion intent " + suffix, "https://example.invalid/completion-intent")
+                    {
+                        TenantId = tenantId,
+                        UserId = userId
+                    }).ConfigureAwait(false);
+                    Captain captain = new Captain("Completion intent " + suffix)
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        State = CaptainStateEnum.Working,
+                        ProcessId = processId,
+                        ProcessStartedUtc = processStartedUtc
+                    };
+                    Mission mission = new Mission("Completion intent " + suffix)
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        CaptainId = captain.Id,
+                        VesselId = vessel.Id,
+                        DockId = null,
+                        HarborJobId = jobId,
+                        ProcessId = processId,
+                        ProcessStartedUtc = processStartedUtc,
+                        StartedUtc = processStartedUtc
+                    };
+                    captain.CurrentMissionId = mission.Id;
+                    Dock dock = new Dock(vessel.Id)
+                    {
+                        TenantId = tenantId,
+                        UserId = userId,
+                        CaptainId = captain.Id,
+                        WorktreePath = null,
+                        Active = true
+                    };
+                    captain.CurrentDockId = dock.Id;
+                    mission.DockId = dock.Id;
+
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+                    await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    HarborJobRecord job = new HarborJobRecord
+                    {
+                        JobId = jobId,
+                        RunnerId = runnerId,
+                        LaunchKey = "mission:" + suffix,
+                        TenantId = tenantId,
+                        UserId = userId,
+                        EnrollmentGeneration = 1,
+                        SessionGeneration = 1,
+                        State = HarborJobStateEnum.Failed,
+                        ExitCode = 137,
+                        FailureReason = "runner_process_exited",
+                        MissionId = mission.Id,
+                        CaptainId = captain.Id,
+                        DockId = dock.Id,
+                        AdmiralProcessId = processId,
+                        AdmiralProcessStartedUtc = processStartedUtc,
+                        StopConfirmed = true,
+                        Revision = 3,
+                        CompletedUtc = DateTime.UtcNow
+                    };
+                    await db.HarborJobs.CreateAsync(job).ConfigureAwait(false);
+
+                    string triggerName = "fail_harbor_release_" + suffix;
+                    await ExecuteSqliteAsync(testDb,
+                        "CREATE TRIGGER " + triggerName + " BEFORE UPDATE OF process_id ON captains "
+                        + "WHEN OLD.id = '" + captain.Id + "' AND OLD.process_id = " + processId + " AND NEW.process_id IS NULL "
+                        + "BEGIN SELECT RAISE(FAIL, 'simulated Harbor completion crash'); END;").ConfigureAwait(false);
+
+                    bool stoppedAtCaptainRelease = false;
+                    try
+                    {
+                        await service.HandleProcessExitAsync(processId, 137, captain.Id, mission.Id).ConfigureAwait(false);
+                    }
+                    catch (SqliteException exception)
+                    {
+                        stoppedAtCaptainRelease = exception.Message.Contains("simulated Harbor completion crash", StringComparison.Ordinal);
+                    }
+                    AssertTrue(stoppedAtCaptainRelease, "the real process-exit handler writes the pending outcome before the captain release fails");
+
+                    HarborCompletionIntent? pendingIntent = await db.HarborJobs.ReadCompletionIntentAsync(jobId).ConfigureAwait(false);
+                    AssertNotNull(pendingIntent, "the computed completion intent survives the interrupted exit handler");
+                    AssertFalse(pendingIntent!.Completed, "the incomplete captain release does not acknowledge the intent");
+                    Mission? pendingMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, pendingMission!.Status, "mission reset was persisted before the simulated crash");
+                    AssertEqual(jobId, pendingMission.HarborJobId, "the pending mission keeps its completed Harbor job identity");
+                    AssertNull(pendingMission.CaptainId, "the pending mission no longer names the old captain");
+                    Captain? stillBound = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(mission.Id, stillBound!.CurrentMissionId, "failed captain CAS preserves the old pointer for recovery");
+                    AssertEqual(processId, stillBound.ProcessId ?? 0, "failed captain CAS preserves the old process identity");
+
+                    await ExecuteSqliteAsync(testDb, "DROP TRIGGER " + triggerName + ";").ConfigureAwait(false);
+                    AdmiralService restartedService = CreateAdmiralService(CreateLogging(), db, settings, git);
+                    HarborRunnerEnrollmentService enrollments = new HarborRunnerEnrollmentService(db);
+                    HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, enrollments);
+                    HarborJobCoordinator coordinator = new HarborJobCoordinator(registry, enrollments, db.HarborJobs);
+                    AssertTrue(await coordinator.InitializeRecoveryAsync(new AdmiralServiceHarborRecoveryHost(restartedService)).ConfigureAwait(false),
+                        "restart recovery resumes the persisted completion intent before acknowledging the job");
+
+                    HarborJobRecord? recoveredJob = await db.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                    AssertTrue(recoveredJob!.CompletionDelivered, "the exact lifecycle continuation is acknowledged after it completes");
+                    HarborCompletionIntent? completedIntent = await db.HarborJobs.ReadCompletionIntentAsync(jobId).ConfigureAwait(false);
+                    AssertTrue(completedIntent!.Completed, "the resumed intent completes after mission, captain, and audit effects");
+                    Mission? recoveredMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, recoveredMission!.Status, "restart leaves the same mission queued once");
+                    AssertEqual(jobId, recoveredMission.HarborJobId, "restart preserves the completion owner on the queued mission");
+                    Captain? recoveredCaptain = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Stalled, recoveredCaptain!.State, "the stored captain policy is applied");
+                    AssertNull(recoveredCaptain.CurrentMissionId, "the old captain is released");
+                    AssertNull(recoveredCaptain.ProcessId, "the old synthetic process identity is cleared");
+                    Dock? recoveredDock = await db.Docks.ReadAsync(tenantId, dock.Id).ConfigureAwait(false);
+                    AssertFalse(recoveredDock!.Active, "the old dock is reclaimed before completion acknowledgment");
+
+                    MissionAttemptFact? fact = await db.MissionAttemptFacts.ReadAsync(completedIntent.FactId).ConfigureAwait(false);
+                    ArmadaEvent? retryEvent = await db.Events.ReadAsync(completedIntent.EventId).ConfigureAwait(false);
+                    Signal? signal = await db.Signals.ReadAsync(completedIntent.SignalId).ConfigureAwait(false);
+                    AssertNotNull(fact, "the stable retry fact is restored");
+                    AssertNotNull(retryEvent, "the stable retry event is restored");
+                    AssertNotNull(signal, "the stable captain signal is restored");
+
+                    HarborJobSnapshot? recoveredSnapshot = null;
+                    foreach (HarborJobSnapshot snapshot in coordinator.GetSnapshots())
+                    {
+                        if (String.Equals(snapshot.JobId, jobId, StringComparison.Ordinal)) recoveredSnapshot = snapshot;
+                    }
+                    AssertNotNull(recoveredSnapshot, "the coordinator retains the completed job snapshot");
+                    AssertTrue(await restartedService.ResumeConfirmedCompletionAsync(recoveredSnapshot!).ConfigureAwait(false),
+                        "replaying the completed intent is safe");
+                    AssertEqual(completedIntent.FactId, (await db.MissionAttemptFacts.ReadAsync(completedIntent.FactId).ConfigureAwait(false))!.Id,
+                        "replay keeps one append-only retry fact");
+                    AssertEqual(completedIntent.EventId, (await db.Events.ReadAsync(completedIntent.EventId).ConfigureAwait(false))!.Id,
+                        "replay keeps one lifecycle event");
+                    AssertEqual(completedIntent.SignalId, (await db.Signals.ReadAsync(completedIntent.SignalId).ConfigureAwait(false))!.Id,
+                        "replay keeps one signal");
+                    AssertEqual(1, (await db.Events.EnumerateByTypeAsync("mission.retry_requeued", 20).ConfigureAwait(false)).Count,
+                        "recovery does not emit a second retry event or consume another retry slot");
                 }
             });
 

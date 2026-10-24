@@ -68,6 +68,12 @@ namespace Armada.Core.Database.Interfaces
         /// <returns>True when the row was written; false when the stored status had changed and nothing was written.</returns>
         Task<bool> TryUpdateIfStatusAsync(Mission mission, MissionStatusEnum expectedStatus, CancellationToken token = default);
 
+        /// <summary>Atomically bind an assigned mission and its captain to a durable Harbor job before launch.</summary>
+        /// <param name="update">Exact owner, assignment and process identity.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True only when both assignment rows still match.</returns>
+        Task<bool> TryBindHarborJobAsync(HarborMissionBindingUpdate update, CancellationToken token = default);
+
         /// <summary>
         /// Update the mission heartbeat timestamp without rewriting the full record.
         /// Implementations should also advance the parent voyage LastUpdateUtc when applicable.

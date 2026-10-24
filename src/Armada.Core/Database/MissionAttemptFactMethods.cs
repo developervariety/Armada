@@ -62,6 +62,26 @@ namespace Armada.Core.Database
         }
 
         /// <inheritdoc />
+        public async Task<MissionAttemptFact?> ReadAsync(string id, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(id)) throw new ArgumentException("Fact identifier is required.", nameof(id));
+            using (DbConnection connection = _ConnectionFactory())
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "SELECT " + _Columns + " FROM mission_attempt_facts WHERE id = @id;";
+                    ProductionFactSql.Add(command, "@id", id);
+                    using (DbDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false))
+                    {
+                        if (await reader.ReadAsync(token).ConfigureAwait(false)) return FromReader(reader);
+                    }
+                }
+            }
+            return null;
+        }
+
+        /// <inheritdoc />
         public async Task<ProductionFactPage<MissionAttemptFact>> EnumerateAsync(ProductionFactQuery query, CancellationToken token = default)
         {
             if (query == null) throw new ArgumentNullException(nameof(query));

@@ -561,6 +561,31 @@ namespace Armada.Core.Services
                     return false;
                 }
 
+                List<HarborJobRecord> unconfirmedHarborJobs;
+                try
+                {
+                    unconfirmedHarborJobs = await _Database.HarborJobs.EnumerateAsync(new HarborJobQuery
+                    {
+                        MissionId = mission.Id,
+                        RecoveryOnly = true,
+                        Limit = 1
+                    }, token).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!(exception is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    _Logging.Warn(_Header + "cannot confirm Harbor stop state for mission " + mission.Id + "; assignment remains held: " + exception.Message);
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.HarborJobUnconfirmed, mission.Id,
+                        "Harbor job stop state could not be read. No second writer may start until the durable job state is available.", token).ConfigureAwait(false);
+                    return false;
+                }
+                if (unconfirmedHarborJobs.Count > 0)
+                {
+                    HarborJobRecord unconfirmedJob = unconfirmedHarborJobs[0];
+                    await HoldForAssignmentAsync(mission, MissionAssignmentHold.HarborJobUnconfirmed, unconfirmedJob.JobId,
+                        "Harbor job " + unconfirmedJob.JobId + " has no confirmed stop. No second writer may start for this mission.", token).ConfigureAwait(false);
+                    return false;
+                }
+
                 if (!String.IsNullOrEmpty(mission.VoyageId))
                 {
                     Voyage? voyage = await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);

@@ -12,9 +12,9 @@ namespace Armada.Server.Routes
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
-    /// Operator routes to list, inspect and stop Harbor runner jobs. Registered only when Harbor is enabled. Every
-    /// route applies the shared runner authorization rule through <see cref="HarborJobService"/>; a job the caller may
-    /// not see reads as not found.
+    /// Operator routes to list, inspect and stop Harbor runner jobs. The recovery confirmation route remains
+    /// available when Harbor transport is disabled. Every route applies the shared authorization rules; a job
+    /// the caller may not see reads as not found.
     /// </summary>
     public sealed class HarborJobRoutes
     {
@@ -96,6 +96,64 @@ namespace Armada.Server.Routes
                     Message = result.Reason
                 };
             });
+
+            RegisterRecoveryConfirmation(app, authenticate, authz);
+        }
+
+        /// <summary>Register the global-admin orphan confirmation route, including when Harbor transport is disabled.</summary>
+        /// <param name="app">Web server.</param>
+        /// <param name="authenticate">Verified request authentication.</param>
+        /// <param name="authz">Common authorization service.</param>
+        public void RegisterRecoveryConfirmation(
+            Webserver app,
+            Func<HttpContextBase, Task<AuthContext>> authenticate,
+            IAuthorizationService authz)
+        {
+            if (app == null) throw new ArgumentNullException(nameof(app));
+            if (authenticate == null) throw new ArgumentNullException(nameof(authenticate));
+            if (authz == null) throw new ArgumentNullException(nameof(authz));
+
+            app.Post("/api/v1/harbor-runners/jobs/{jobId}/confirm-stopped", async (ApiRequest req) =>
+            {
+                AuthContext context = await authenticate(req.Http).ConfigureAwait(false);
+                string jobId = req.Parameters["jobId"] ?? String.Empty;
+                string routePath = "/api/v1/harbor-runners/jobs/" + jobId + "/confirm-stopped";
+                if (!context.IsAdmin || !authz.IsAuthorized(context, "POST", routePath))
+                    return Denied(req, context);
+
+                HarborJobConfirmStoppedRequest? request;
+                try
+                {
+                    request = JsonSerializer.Deserialize<HarborJobConfirmStoppedRequest>(req.Http.Request.DataAsString ?? String.Empty, _JsonOptions);
+                }
+                catch (JsonException exception)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid Harbor stop confirmation: " + exception.Message };
+                }
+                if (request == null || request.ExpectedRevision < 1 || request.EnrollmentGeneration < 1
+                    || String.IsNullOrWhiteSpace(request.Evidence))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "expectedRevision, enrollmentGeneration and evidence are required" };
+                }
+
+                bool confirmed = await _Jobs.ConfirmStoppedByOperatorAsync(
+                    context,
+                    jobId,
+                    request.ExpectedRevision,
+                    request.EnrollmentGeneration,
+                    request.RunnerProcessId,
+                    request.RunnerProcessStartedUtc,
+                    request.Evidence,
+                    req.Http.Token).ConfigureAwait(false);
+                if (!confirmed)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return (object)new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "harbor_stop_confirmation_stale_or_unavailable" };
+                }
+                return (object)new HarborJobConfirmStoppedResponse { Confirmed = true };
+            });
         }
 
         #endregion
@@ -123,7 +181,9 @@ namespace Armada.Server.Routes
         /// <summary>Whether the stop was accepted.</summary>
         public bool Stopped { get; set; }
 
-        /// <summary>Release reason when the runner was disconnected and the job was released; empty otherwise.</summary>
+        /// <summary>Named result of the stop request; empty when no additional reason applies.</summary>
         public string Reason { get; set; } = String.Empty;
     }
+
+
 }

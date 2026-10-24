@@ -46,11 +46,16 @@ namespace Armada.Core.Harbor
                 throw new HarborLaunchException("harbor_launch_invalid");
             if (String.IsNullOrWhiteSpace(launch.OwnerTenantId) || String.IsNullOrWhiteSpace(launch.OwnerUserId))
                 throw new HarborLaunchException("harbor_mission_owner_missing");
+            if (String.IsNullOrWhiteSpace(launch.MissionId) || String.IsNullOrWhiteSpace(launch.CaptainId)
+                || String.IsNullOrWhiteSpace(launch.DockId) || launch.OnRecorded == null)
+                throw new HarborLaunchException("harbor_mission_binding_missing");
 
             // The mission owner is the only principal a mission job runs for; the coordinator refuses a runner
             // enrolled to anyone else.
             AuthContext owner = AuthContext.Authenticated(launch.OwnerTenantId, launch.OwnerUserId, false, false, "HarborMission", null);
             int processId = ProcessSupervisor.AllocateSyntheticProcessId();
+            DateTime processStartedUtc = DateTime.UtcNow;
+            processStartedUtc = new DateTime(processStartedUtc.Ticks - (processStartedUtc.Ticks % 10), DateTimeKind.Utc);
             MissionJobObserver observer = new MissionJobObserver(processId, events, _Logging, _Header);
 
             // Registered before the launch is sent, so an exit the runner reports at once cannot arrive before the
@@ -63,7 +68,15 @@ namespace Armada.Core.Harbor
                 {
                     MissionId = launch.MissionId,
                     CaptainId = launch.CaptainId,
-                    Observer = observer
+                    DockId = launch.DockId,
+                    AdmiralProcessId = processId,
+                    AdmiralProcessStartedUtc = processStartedUtc,
+                    Observer = observer,
+                    OnRecorded = async (job, callbackToken) =>
+                    {
+                        observer.JobId = job.JobId;
+                        return launch.OnRecorded == null || await launch.OnRecorded(job, callbackToken).ConfigureAwait(false);
+                    }
                 }, token).ConfigureAwait(false);
             }
             catch
@@ -77,9 +90,19 @@ namespace Armada.Core.Harbor
                 throw new HarborLaunchException(result.Reason, runnerId: launch.RunnerId);
             }
 
-            observer.JobId = result.JobId;
             _Logging.Info(_Header + "mission " + (launch.MissionId ?? "(none)") + " runs on runner " + launch.RunnerId + " as job " + result.JobId + " (process " + processId + ")");
             return processId;
+        }
+
+        /// <summary>Request stop of a restored job without re-entering the local process supervisor.</summary>
+        /// <param name="job">Restored durable job.</param>
+        /// <param name="token">Cancellation token.</param>
+        public async Task StopRestoredAsync(HarborJobSnapshot job, CancellationToken token = default)
+        {
+            if (job == null) throw new ArgumentNullException(nameof(job));
+            AuthContext owner = AuthContext.Authenticated(job.OwnerTenantId, job.OwnerUserId, false, false, "HarborMission", null);
+            HarborCommandResult result = await _Coordinator.StopAndWaitForCompletionAsync(owner, job.JobId, 10000, token).ConfigureAwait(false);
+            if (!result.Accepted) throw new InvalidOperationException(result.Reason);
         }
 
         #endregion
@@ -91,12 +114,16 @@ namespace Armada.Core.Harbor
             string? jobId = observer.JobId;
             if (String.IsNullOrWhiteSpace(jobId))
             {
-                _Logging.Warn(_Header + "stop for process " + observer.ProcessId + " arrived before its job was accepted; nothing was sent");
-                return;
+                const string reason = "harbor_job_binding_unavailable";
+                _Logging.Warn(_Header + "stop for process " + observer.ProcessId + " refused: " + reason);
+                throw new InvalidOperationException(reason);
             }
-            HarborCommandResult stopped = await _Coordinator.StopAsync(owner, jobId, 10000, token).ConfigureAwait(false);
+            HarborCommandResult stopped = await _Coordinator.StopAndWaitForCompletionAsync(owner, jobId, 10000, token).ConfigureAwait(false);
             if (!stopped.Accepted)
+            {
                 _Logging.Warn(_Header + "stop for job " + jobId + " was refused: " + stopped.Reason);
+                throw new InvalidOperationException(stopped.Reason);
+            }
             else if (!String.IsNullOrEmpty(stopped.Reason))
                 _Logging.Info(_Header + "stop for job " + jobId + ": " + stopped.Reason);
         }
@@ -105,7 +132,7 @@ namespace Armada.Core.Harbor
 
         #region Private-Types
 
-        private sealed class MissionJobObserver : IHarborJobObserver
+        private sealed class MissionJobObserver : IHarborJobCompletionObserver
         {
             private readonly IHarborProcessEvents _Events;
             private readonly LoggingModule _Logging;
@@ -135,12 +162,20 @@ namespace Armada.Core.Harbor
 
             public void OnFinished(HarborJobSnapshot job)
             {
+                OnFinishedAsync(job).GetAwaiter().GetResult();
+            }
+
+            public async Task OnFinishedAsync(HarborJobSnapshot job)
+            {
                 try
                 {
                     bool exited = job.State == HarborJobStateEnum.Exited;
                     string? reason = exited ? null : (job.FailureReason ?? "harbor_job_" + job.State.ToString().ToLowerInvariant());
                     if (!exited) _Logging.Warn(_Header + "job " + job.JobId + " ended " + job.State + ": " + reason);
-                    _Events.OnExited(ProcessId, exited ? job.ExitCode : null, reason);
+                    if (_Events is IHarborProcessCompletionEvents completionEvents)
+                        await completionEvents.OnExitedAsync(ProcessId, exited ? job.ExitCode : null, reason).ConfigureAwait(false);
+                    else
+                        _Events.OnExited(ProcessId, exited ? job.ExitCode : null, reason);
                 }
                 finally
                 {

@@ -431,6 +431,32 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Reconnect this runtime's output handlers to an already-running Harbor job. This does not start a process,
+        /// reset its runner state, or publish a final-message artifact from an earlier attempt.
+        /// </summary>
+        /// <param name="processId">Persisted Admiral synthetic process identifier.</param>
+        /// <param name="logFilePath">Existing mission log to append.</param>
+        /// <returns>Handlers for output and exit from the restored job.</returns>
+        public IHarborProcessEvents CreateHarborReattachmentEvents(int processId, string? logFilePath)
+        {
+            if (processId <= ProcessSupervisor.SyntheticProcessIdFloor)
+                throw new ArgumentOutOfRangeException(nameof(processId));
+
+            ResetFinalReplyCapture(false);
+            ShowThinking = false;
+            StreamWriter? logWriter = OpenLogWriter(logFilePath, preserveExisting: true);
+            if (logWriter != null)
+            {
+                logWriter.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Admiral reattached to Harbor process " + processId);
+            }
+            return new HarborRuntimeEvents(this, logWriter);
+        }
+
+        /// <summary>Wait for the lifecycle owner to finish handling a Harbor process exit.</summary>
+        /// <remarks>The lifecycle handler sets this callback before it starts or reattaches a Harbor process.</remarks>
+        public Func<int, Task>? HarborExitCompletionWaiter { get; set; }
+
+        /// <summary>
         /// Grace period, in milliseconds, that <see cref="StopAsync"/> waits for an agent to exit on its own before
         /// it kills the agent's process tree.
         /// </summary>
@@ -902,7 +928,7 @@ namespace Armada.Runtimes
             return variables;
         }
 
-        private StreamWriter? OpenLogWriter(string? logFilePath)
+        private StreamWriter? OpenLogWriter(string? logFilePath, bool preserveExisting = false)
         {
             // If a prior launch leaked a handle on the canonical log path (admiral crash mid-launch,
             // orphan agent process holding the file), `new StreamWriter(...)` throws IOException due to
@@ -915,8 +941,11 @@ namespace Armada.Runtimes
             // Best-effort cleanup: if the canonical log file is stale and not held by any live
             // process, deleting it now lets us reopen it cleanly. Failures are silent; the open
             // below will either succeed (we win the race) or throw (we fall through to the suffix path).
-            try { if (File.Exists(logFilePath)) File.Delete(logFilePath); }
-            catch (Exception ex) { WarnSwallowed("deleting stale log " + logFilePath + " (the open below falls back to a suffixed path if it is locked)", ex); }
+            if (!preserveExisting)
+            {
+                try { if (File.Exists(logFilePath)) File.Delete(logFilePath); }
+                catch (Exception ex) { WarnSwallowed("deleting stale log " + logFilePath + " (the open below falls back to a suffixed path if it is locked)", ex); }
+            }
 
             try
             {
@@ -1207,7 +1236,7 @@ namespace Armada.Runtimes
         /// Feeds a Harbor job's output chunks into the runtime's line handling. Chunks are split into lines per
         /// stream; a partial final line is delivered when the job ends.
         /// </summary>
-        private sealed class HarborRuntimeEvents : IHarborProcessEvents
+        private sealed class HarborRuntimeEvents : IHarborProcessCompletionEvents
         {
             private readonly BaseAgentRuntime _Runtime;
             private readonly object _Lock = new object();
@@ -1258,6 +1287,14 @@ namespace Armada.Runtimes
                     _Writer = null;
                     _Runtime.CompleteExit(processId, exitCode, writer, null);
                 }
+            }
+
+            public async Task OnExitedAsync(int processId, int? exitCode, string? failureReason)
+            {
+                OnExited(processId, exitCode, failureReason);
+                Func<int, Task>? waiter = _Runtime.HarborExitCompletionWaiter;
+                if (waiter != null)
+                    await waiter(processId).ConfigureAwait(false);
             }
 
             public void CloseLog()

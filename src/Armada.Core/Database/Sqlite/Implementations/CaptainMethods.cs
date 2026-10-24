@@ -14,7 +14,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
     /// <summary>
     /// SQLite implementation of captain database operations.
     /// </summary>
-    public class CaptainMethods : ICaptainMethods
+    public partial class CaptainMethods : ICaptainMethods
     {
         #region Private-Members
 

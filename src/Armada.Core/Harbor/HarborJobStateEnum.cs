@@ -22,6 +22,9 @@ namespace Armada.Core.Harbor
         Failed,
 
         /// <summary>The owning runner can no longer report this job.</summary>
-        Lost
+        Lost,
+
+        /// <summary>The runner state is uncertain; capacity remains reserved until a process exit is confirmed.</summary>
+        Uncertain
     }
 }

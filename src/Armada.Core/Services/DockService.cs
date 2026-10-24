@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Core.Services.Interfaces;
@@ -83,6 +84,27 @@ namespace Armada.Core.Services
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            if (!String.IsNullOrWhiteSpace(missionId))
+            {
+                List<HarborJobRecord> unconfirmedJobs;
+                try
+                {
+                    unconfirmedJobs = await _Database.HarborJobs.EnumerateAsync(new HarborJobQuery
+                    {
+                        MissionId = missionId,
+                        RecoveryOnly = true,
+                        Limit = 1
+                    }, token).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!(exception is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    throw new InvalidOperationException("dock_worktree_held: Harbor stop state is unavailable for mission " + missionId, exception);
+                }
+                if (unconfirmedJobs.Count > 0)
+                    throw new InvalidOperationException("dock_worktree_held: Harbor job " + unconfirmedJobs[0].JobId
+                        + " has no confirmed stop for mission " + missionId);
+            }
 
             string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
 
@@ -440,6 +462,39 @@ namespace Armada.Core.Services
                 ? await _Database.Docks.ReadAsync(tenantId, dockId, token).ConfigureAwait(false)
                 : await _Database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
             if (dock == null) return;
+
+            List<HarborJobRecord> unconfirmedHarborJobs;
+            try
+            {
+                unconfirmedHarborJobs = await _Database.HarborJobs.EnumerateAsync(new HarborJobQuery
+                {
+                    DockId = dockId,
+                    UnconfirmedOnly = true,
+                    Limit = 1
+                }, token).ConfigureAwait(false);
+                if (unconfirmedHarborJobs.Count == 0)
+                {
+                    // A legacy mission job with no dock identity cannot prove which checkout it still writes.
+                    unconfirmedHarborJobs = await _Database.HarborJobs.EnumerateAsync(new HarborJobQuery
+                    {
+                        TenantId = dock.TenantId,
+                        UnboundMissionOnly = true,
+                        UnconfirmedOnly = true,
+                        Limit = 1
+                    }, token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception exception) when (!(exception is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Warn(_Header + "cannot confirm Harbor stop state for dock " + dockId + "; reclamation remains held: " + exception.Message);
+                return;
+            }
+            if (unconfirmedHarborJobs.Count > 0)
+            {
+                _Logging.Warn(_Header + "deferring reclamation of dock " + dockId + " while Harbor job "
+                    + unconfirmedHarborJobs[0].JobId + " has no confirmed stop");
+                return;
+            }
 
             // Idempotency guard: if the dock is already inactive, it was already reclaimed.
             // This prevents duplicate worktree removal when both MissionService (background finalizer)

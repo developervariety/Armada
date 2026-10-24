@@ -4,7 +4,7 @@ namespace Armada.Core.Harbor
 
     /// <summary>
     /// Durable record of a job the Admiral launched on a Harbor runner. The record outlives the Admiral process:
-    /// after a restart every job that was not terminal is failed with a named reason instead of being forgotten.
+    /// after a restart every job remains fenced until its owner confirms that its process is stopped or running.
     /// </summary>
     public sealed class HarborJobRecord
     {
@@ -37,6 +37,9 @@ namespace Armada.Core.Harbor
         /// <summary>Host process identifier reported by the runner.</summary>
         public int? ProcessId { get; set; } = null;
 
+        /// <summary>UTC start time reported by the runner for its operating-system process.</summary>
+        public DateTime? RunnerProcessStartedUtc { get; set; } = null;
+
         /// <summary>Exit code reported by the runner.</summary>
         public int? ExitCode { get; set; } = null;
 
@@ -51,6 +54,24 @@ namespace Armada.Core.Harbor
 
         /// <summary>Captain the job runs for, when it was launched for a mission.</summary>
         public string? CaptainId { get; set; } = null;
+
+        /// <summary>Dock that owns the mission attempt, when mission-bound.</summary>
+        public string? DockId { get; set; } = null;
+
+        /// <summary>Admiral synthetic process identifier bound to this attempt.</summary>
+        public int? AdmiralProcessId { get; set; } = null;
+
+        /// <summary>Start time of the Admiral process attempt, in UTC.</summary>
+        public DateTime? AdmiralProcessStartedUtc { get; set; } = null;
+
+        /// <summary>Whether the runner confirmed that the remote process has stopped.</summary>
+        public bool StopConfirmed { get; set; } = false;
+
+        /// <summary>Whether an operator or owner requested that this runner job stop.</summary>
+        public bool StopRequested { get; set; } = false;
+
+        /// <summary>Whether the exact lifecycle completion callback acknowledged this terminal result.</summary>
+        public bool CompletionDelivered { get; set; } = false;
 
         /// <summary>Monotonic revision. A stored record is replaced only by a record with a higher revision.</summary>
         public long Revision { get; set; } = 0;
@@ -68,7 +89,7 @@ namespace Armada.Core.Harbor
 
         #region Public-Methods
 
-        /// <summary>Whether a state is terminal: the job can no longer run or report.</summary>
+        /// <summary>Whether the control state is terminal. StopConfirmed separately proves that the remote writer stopped.</summary>
         /// <param name="state">Job state.</param>
         /// <returns>True for Exited, Failed and Lost.</returns>
         public static bool IsTerminal(HarborJobStateEnum state)

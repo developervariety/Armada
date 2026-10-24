@@ -120,6 +120,11 @@ namespace Armada.Core.Models
         public string? DockId { get; set; } = null;
 
         /// <summary>
+        /// Harbor job that owns this mission attempt, or null for a local process.
+        /// </summary>
+        public string? HarborJobId { get; set; } = null;
+
+        /// <summary>
         /// Operating system process identifier for the agent working this mission. A change of identifier clears <see cref="ProcessStartedUtc"/>, so a start time never outlives the
         /// process it describes.
         /// </summary>

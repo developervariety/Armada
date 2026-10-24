@@ -116,6 +116,7 @@ namespace Armada.Server
 
         private ArmadaMcpHttpServer _McpServer = null!;
         private Armada.Core.Services.HarborJobService? _HarborJobService = null;
+        private Armada.Core.Harbor.HarborJobCoordinator? _HarborJobCoordinator = null;
         private ArmadaWebSocketHub _WebSocketHub = null!;
         private MissionStatusTransitionService _StatusTransitions = null!;
         private MissionOperations _MissionOperations = null!;
@@ -997,11 +998,18 @@ namespace Armada.Server
             _App.WebSocket("/ws", _WebSocketHub.HandleWebSocketAsync);
             _Logging.Info(_Header + "WebSocket route registered at /ws");
 
-            await ReconcileHarborJobsAsync().ConfigureAwait(false);
+            // Build Harbor recovery before REST starts. Durable jobs must remain fenced even when the
+            // runner link is disabled for this Admiral process.
+            RegisterHarbor();
+            if (_HarborJobCoordinator != null)
+            {
+                bool harborRecoveryReady = await _HarborJobCoordinator.InitializeRecoveryAsync(_AgentLifecycle, _TokenSource.Token).ConfigureAwait(false);
+                if (!harborRecoveryReady)
+                    throw new InvalidOperationException("harbor_recovery_initialization_failed");
+            }
 
-            // A job the previous process accepted and never finished is recorded Lost, with an event
-            // on its objective, before REST or MCP accept a request: an accepted job never turns into
-            // job_not_found across a restart.
+            // A job the previous process accepted and never finished is held as uncertain until an
+            // authenticated runner reconnects or an operator confirms its stop.
             int lostJobs = await _LongRunningJobs.RecoverInterruptedJobsAsync().ConfigureAwait(false);
             if (lostJobs > 0)
                 _Logging.Warn(_Header + lostJobs + " background job" + (lostJobs == 1 ? " was" : "s were")
@@ -1015,8 +1023,6 @@ namespace Armada.Server
             if (launchIdentities.UnverifiedProcessIds.Count > 0)
                 _Logging.Warn(_Header + "stored agent process(es) " + String.Join(", ", launchIdentities.UnverifiedProcessIds)
                     + " have no stored start time (process_identity_unverified); they are not killed by identifier alone");
-
-            RegisterHarbor();
 
             // Watson 7 StartAsync is long-running; Start() binds and returns after
             // scheduling the accept loop.
@@ -1312,8 +1318,10 @@ namespace Armada.Server
                     _SettingsWatcher?.Dispose();
                     _SettingsWatcher = null;
                 });
+                _AgentLifecycle.SetPreserveHarborJobsOnShutdown(true);
                 // Kill agent subprocesses so none survive as orphans after the Admiral exits.
-                // Runs before the token is cancelled and the database is disposed (it needs both).
+                // Harbor jobs are detached by the lifecycle handler and remain fenced for recovery.
+                // This runs before the token is cancelled and the database is disposed (it needs both).
                 RunStopStep("agent process stop", () => _Admiral?.StopAllAgentProcessesAsync().GetAwaiter().GetResult());
 
                 RunStopStep("background cancellation", () => _TokenSource.Cancel());
@@ -1439,20 +1447,27 @@ namespace Armada.Server
         /// </summary>
         private void RegisterHarbor()
         {
-            if (!_Settings.Harbor.Enabled)
-            {
-                _Logging.Info(_Header + "Harbor runner link disabled");
-                return;
-            }
-            if (!_Settings.WebSocketEnabled)
-            {
-                _Logging.Warn(_Header + "Harbor runner link not registered: Harbor requires WebSocketEnabled");
-                return;
-            }
             Armada.Core.Services.HarborRunnerEnrollmentService enrollments = new Armada.Core.Services.HarborRunnerEnrollmentService(
                 _Database, TimeSpan.FromSeconds(_Settings.Harbor.OwnerLookupTimeoutSeconds));
             Armada.Core.Services.HarborRunnerSessionRegistry registry = new Armada.Core.Services.HarborRunnerSessionRegistry(true, enrollments);
             Armada.Core.Harbor.HarborJobCoordinator coordinator = new Armada.Core.Harbor.HarborJobCoordinator(registry, enrollments, _Database.HarborJobs, _Logging);
+            _HarborJobCoordinator = coordinator;
+            _AgentLifecycle.SetHarborHost(new Armada.Core.Harbor.HarborMissionExecutor(coordinator, _Logging));
+            _HarborJobService = new Armada.Core.Services.HarborJobService(coordinator, _Database.HarborJobs, enrollments);
+
+            if (!_Settings.Harbor.Enabled)
+            {
+                new HarborJobRoutes(_HarborJobService, _JsonOptions).RegisterRecoveryConfirmation(_App, AuthenticateRequestAsync, _AuthorizationService);
+                _Logging.Info(_Header + "Harbor runner link disabled; durable Harbor job recovery remains active");
+                return;
+            }
+            if (!_Settings.WebSocketEnabled)
+            {
+                new HarborJobRoutes(_HarborJobService, _JsonOptions).RegisterRecoveryConfirmation(_App, AuthenticateRequestAsync, _AuthorizationService);
+                _Logging.Warn(_Header + "Harbor runner link not registered: Harbor requires WebSocketEnabled; durable job recovery remains active");
+                return;
+            }
+
             if (_MissionService is Armada.Core.Services.MissionService missionService)
                 missionService.HarborCapacityProbe = coordinator.IsRunnerAtCapacityAsync;
             Armada.Server.Harbor.HarborLinkEndpoint endpoint = new Armada.Server.Harbor.HarborLinkEndpoint(_Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging);
@@ -1460,31 +1475,9 @@ namespace Armada.Server
             new HarborRunnerEnrollmentRoutes(enrollments, _JsonOptions).Register(_App, AuthenticateRequestAsync, _AuthorizationService);
 
             // Missions reach a runner only through a configured route; the host is what the lifecycle launches through.
-            _AgentLifecycle.SetHarborHost(new Armada.Core.Harbor.HarborMissionExecutor(coordinator, _Logging));
-            _HarborJobService = new Armada.Core.Services.HarborJobService(coordinator, _Database.HarborJobs, enrollments);
             new HarborJobRoutes(_HarborJobService, _JsonOptions).Register(_App, AuthenticateRequestAsync, _AuthorizationService);
             StartHarborJobExpiry(coordinator);
             _Logging.Info(_Header + "Harbor runner link registered at " + _Settings.Harbor.LinkPath + " with " + _Settings.Harbor.MissionRoutes.Count + " mission route(s)");
-        }
-
-        /// <summary>
-        /// Fail the Harbor jobs an earlier Admiral process left unfinished, whether or not Harbor is enabled now, so no
-        /// job record stays active with nothing left to report for it.
-        /// </summary>
-        private async Task ReconcileHarborJobsAsync()
-        {
-            try
-            {
-                int lost = await Armada.Core.Harbor.HarborJobCoordinator.ReconcileAfterRestartAsync(_Database.HarborJobs, DateTime.UtcNow).ConfigureAwait(false);
-                if (lost > 0)
-                    _Logging.Warn(_Header + lost + " unfinished Harbor job(s) from an earlier Admiral process marked lost: " + Armada.Core.Harbor.HarborJobCoordinator.ReasonAdmiralRestarted);
-                else
-                    _Logging.Info(_Header + "no unfinished Harbor jobs from an earlier Admiral process");
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "Harbor job reconciliation failed; unfinished job records keep their last state: " + ex.Message);
-            }
         }
 
         /// <summary>

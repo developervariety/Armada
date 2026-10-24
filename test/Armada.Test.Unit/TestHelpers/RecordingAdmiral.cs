@@ -16,6 +16,9 @@ namespace Armada.Test.Unit.TestHelpers
         private readonly ConcurrentQueue<RecordedProcessExit> _Exits = new ConcurrentQueue<RecordedProcessExit>();
         private readonly SemaphoreSlim _Signal = new SemaphoreSlim(0);
 
+        /// <summary>Optional exit handler used to control the lifecycle completion boundary in tests.</summary>
+        public Func<RecordedProcessExit, Task>? ExitHandler { get; set; }
+
         /// <summary>The recorder as an Admiral service.</summary>
         public IAdmiralService Service => (IAdmiralService)(object)this;
 
@@ -38,14 +41,26 @@ namespace Armada.Test.Unit.TestHelpers
             return exit;
         }
 
+        /// <summary>Read an exit only when the lifecycle reports one before the timeout.</summary>
+        /// <param name="timeout">Maximum wait.</param>
+        /// <returns>The exit, or null when no exit was reported.</returns>
+        public async Task<RecordedProcessExit?> TryNextExitAsync(TimeSpan timeout)
+        {
+            if (!await _Signal.WaitAsync(timeout).ConfigureAwait(false)) return null;
+            if (!_Exits.TryDequeue(out RecordedProcessExit? exit)) return null;
+            return exit;
+        }
+
         /// <inheritdoc />
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             if (targetMethod == null) return null;
             if (targetMethod.Name == nameof(IAdmiralService.HandleProcessExitAsync) && args != null && args.Length >= 4)
             {
-                _Exits.Enqueue(new RecordedProcessExit((int)args[0]!, (int?)args[1], (string)args[2]!, (string)args[3]!));
+                RecordedProcessExit exit = new RecordedProcessExit((int)args[0]!, (int?)args[1], (string)args[2]!, (string)args[3]!);
+                _Exits.Enqueue(exit);
                 _Signal.Release();
+                if (ExitHandler != null) return ExitHandler(exit);
                 return Task.CompletedTask;
             }
 

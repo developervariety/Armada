@@ -34,4 +34,14 @@ namespace Armada.Core.Harbor
         /// <param name="failureReason">Named reason when the job failed or was lost.</param>
         void OnExited(int processId, int? exitCode, string? failureReason);
     }
+
+    /// <summary>Optional process event sink that acknowledges when lifecycle completion handling finishes.</summary>
+    public interface IHarborProcessCompletionEvents : IHarborProcessEvents
+    {
+        /// <summary>Handle process exit and complete after the lifecycle callback has applied it.</summary>
+        /// <param name="processId">Synthetic process identifier.</param>
+        /// <param name="exitCode">Exit code or null when no normal exit was reported.</param>
+        /// <param name="failureReason">Named failure reason.</param>
+        Task OnExitedAsync(int processId, int? exitCode, string? failureReason);
+    }
 }

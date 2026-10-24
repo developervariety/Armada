@@ -1,5 +1,6 @@
 namespace Armada.Core.Harbor
 {
+    using System.Threading.Tasks;
     /// <summary>
     /// Receives the lifecycle of one Harbor job. Notifications for a job are delivered one at a time, in the order the
     /// coordinator accepted the events, and never while the coordinator's lock is held.
@@ -18,5 +19,13 @@ namespace Armada.Core.Harbor
         /// <summary>The job reached a terminal state: Exited, Failed or Lost.</summary>
         /// <param name="job">Terminal job view, carrying the exit code or the named failure reason.</param>
         void OnFinished(HarborJobSnapshot job);
+    }
+
+    /// <summary>Optional observer that acknowledges terminal delivery after lifecycle handling completes.</summary>
+    public interface IHarborJobCompletionObserver : IHarborJobObserver
+    {
+        /// <summary>Handle the terminal job result and acknowledge completion after it is applied.</summary>
+        /// <param name="job">Terminal job snapshot.</param>
+        Task OnFinishedAsync(HarborJobSnapshot job);
     }
 }

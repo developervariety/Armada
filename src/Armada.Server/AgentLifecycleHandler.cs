@@ -19,7 +19,7 @@ namespace Armada.Server
     /// <summary>
     /// Handles agent process lifecycle: launching, heartbeats, output parsing, process exit, and stopping.
     /// </summary>
-    public class AgentLifecycleHandler
+    public partial class AgentLifecycleHandler
     {
         #region Private-Members
 
@@ -41,6 +41,8 @@ namespace Armada.Server
         private TerminalMarkerTracker? _TerminalMarkers;
         private CoordinationService? _CoordinationService;
         private IHarborProcessHost? _HarborHost;
+        private bool _PreserveHarborJobsOnShutdown;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, string> _HarborProcessIds = new System.Collections.Concurrent.ConcurrentDictionary<int, string>();
 
         // Mints the mission owner's scoped session token for a mission captain's MCP credential. Null in a
         // context that issues no tokens (a test host), which fails the mission launch credential closed:
@@ -146,6 +148,10 @@ namespace Armada.Server
         /// health check reads a finished process as a crash while its completion is being written.
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<int, byte> _InFlightProcessExits = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
+
+        /// <summary>Awaitable lifecycle completion for Harbor observers after the synchronous runtime exit signal.</summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, TaskCompletionSource<bool>> _ProcessExitCompletions =
+            new System.Collections.Concurrent.ConcurrentDictionary<int, TaskCompletionSource<bool>>();
 
         /// <summary>
         /// Process IDs whose exit handling has completed, with the completion time. Kept for
@@ -284,6 +290,13 @@ namespace Armada.Server
         public void SetHarborHost(IHarborProcessHost? host)
         {
             _HarborHost = host;
+        }
+
+        /// <summary>Keep remote Harbor jobs running when the Admiral stops for a restart.</summary>
+        /// <param name="preserve">True to detach without stopping Harbor jobs.</param>
+        public void SetPreserveHarborJobsOnShutdown(bool preserve)
+        {
+            _PreserveHarborJobsOnShutdown = preserve;
         }
 
         /// <summary>
@@ -776,6 +789,8 @@ namespace Armada.Server
             Armada.Core.Settings.HarborMissionRoute? harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
             BaseAgentRuntime? harborAdapter = harborRoute != null ? CreateHarborAdapter(captain) : null;
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = harborAdapter ?? await CreateRuntimeAsync(captain).ConfigureAwait(false);
+            if (harborAdapter != null)
+                harborAdapter.HarborExitCompletionWaiter = WaitForProcessExitCompletionAsync;
             string launchKey = captain.Id + ":" + mission.Id;
 
             // The new process owns the mission's per-process state from here, and starts it empty. An earlier
@@ -956,9 +971,37 @@ namespace Armada.Server
                 LaunchKey = launchKey,
                 MissionId = mission.Id,
                 CaptainId = captain.Id,
+                DockId = dock.Id,
                 OwnerTenantId = mission.TenantId!,
                 OwnerUserId = mission.UserId!,
-                WorkingDirectory = runnerDirectory
+                WorkingDirectory = runnerDirectory,
+                OnRecorded = async (job, token) =>
+                {
+                    HarborMissionBindingUpdate update = new HarborMissionBindingUpdate
+                    {
+                        MissionId = mission.Id,
+                        CaptainId = captain.Id,
+                        DockId = dock.Id,
+                        JobId = job.JobId,
+                        ExpectedJobId = mission.HarborJobId,
+                        TenantId = mission.TenantId!,
+                        UserId = mission.UserId!,
+                        AdmiralProcessId = job.AdmiralProcessId!.Value,
+                        ProcessStartedUtc = job.AdmiralProcessStartedUtc!.Value
+                    };
+                    bool bound = await _Database.Missions.TryBindHarborJobAsync(update, token).ConfigureAwait(false);
+                    if (!bound) return false;
+
+                    mission.HarborJobId = job.JobId;
+                    mission.ProcessId = update.AdmiralProcessId;
+                    mission.ProcessStartedUtc = update.ProcessStartedUtc;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    captain.ProcessId = update.AdmiralProcessId;
+                    captain.ProcessStartedUtc = update.ProcessStartedUtc;
+                    _HarborProcessIds.TryAdd(update.AdmiralProcessId, job.JobId);
+                    return true;
+                }
             };
 
             // A routed launch registers the same sibling and evidence roots as a local launch, at the paths the runner
@@ -1306,14 +1349,17 @@ namespace Armada.Server
                 if (!captainMatches || !missionMatches)
                     return;
 
+                DateTime? processStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
+                if (!processStartedUtc.HasValue && _HarborProcessIds.ContainsKey(processId))
+                    processStartedUtc = captain!.ProcessStartedUtc;
                 captain!.ProcessId = processId;
 
-                captain.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
+                captain.ProcessStartedUtc = processStartedUtc;
                 await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
 
                 mission!.ProcessId = processId;
 
-                mission.ProcessStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
+                mission.ProcessStartedUtc = processStartedUtc ?? mission.ProcessStartedUtc;
                 if (!mission.StartedUtc.HasValue)
                     mission.StartedUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
@@ -1826,7 +1872,16 @@ namespace Armada.Server
 
         private void HandleAgentProcessExited(int processId, int? exitCode, long? expectedStateOwner)
         {
-            if (RejectStaleProcessExit(processId, expectedStateOwner)) return;
+            TaskCompletionSource<bool>? completion = _HarborProcessIds.ContainsKey(processId)
+                ? _ProcessExitCompletions.GetOrAdd(
+                    processId,
+                    _ => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously))
+                : null;
+            if (RejectStaleProcessExit(processId, expectedStateOwner))
+            {
+                completion?.TrySetException(new InvalidOperationException("harbor_process_exit_owner_changed"));
+                return;
+            }
 
             long? errorStateOwner = expectedStateOwner;
             if (!errorStateOwner.HasValue && _ProcessStateOwners.TryGetValue(processId, out long mappedStateOwner))
@@ -1869,11 +1924,16 @@ namespace Armada.Server
 
             // The PID may have been reused while the mapping retry waited. A stale callback must not stop
             // the new process's heartbeat or remove its captain and mission mappings.
-            if (RejectStaleProcessExit(processId, expectedStateOwner)) return;
+            if (RejectStaleProcessExit(processId, expectedStateOwner))
+            {
+                completion?.TrySetException(new InvalidOperationException("harbor_process_exit_owner_changed"));
+                return;
+            }
 
             if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
             {
                 _Logging.Warn(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found after retries -- exit may be lost");
+                completion?.TrySetException(new InvalidOperationException("harbor_process_exit_mapping_missing"));
                 return;
             }
 
@@ -1948,9 +2008,19 @@ namespace Armada.Server
             string captainId,
             string missionId,
             RuntimeProviderError? providerError,
-            long? expectedStateOwner)
+            long? expectedStateOwner,
+            bool harborDeliveryLockHeld = false)
         {
+            IDisposable? completionLock = null;
+            if (!harborDeliveryLockHeld && _HarborProcessIds.TryGetValue(processId, out string? harborJobId))
+                completionLock = await _HarborCompletionDeliveryLocks.AcquireAsync(harborJobId, CancellationToken.None).ConfigureAwait(false);
             _InFlightProcessExits[processId] = 0;
+            TaskCompletionSource<bool>? completion = _HarborProcessIds.ContainsKey(processId)
+                ? _ProcessExitCompletions.GetOrAdd(
+                    processId,
+                    _ => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously))
+                : null;
+            bool handled = false;
             try
             {
                 await _Admiral.HandleProcessExitAsync(
@@ -1960,6 +2030,7 @@ namespace Armada.Server
                     missionId,
                     providerError,
                     CancellationToken.None).ConfigureAwait(false);
+                handled = true;
             }
             finally
             {
@@ -1971,9 +2042,37 @@ namespace Armada.Server
 
                 // Record completion only after owner-scoped cleanup, and before releasing the in-flight marker,
                 // so the health check can see neither only after the exit is fully handled.
-                _HandledProcessExits[processId] = DateTime.UtcNow;
+                if (handled || completion == null)
+                    _HandledProcessExits[processId] = DateTime.UtcNow;
+                else
+                    _HandledProcessExits.TryRemove(processId, out _);
                 _InFlightProcessExits.TryRemove(processId, out _);
+                if (completion != null)
+                {
+                    if (handled)
+                        completion.TrySetResult(true);
+                    else
+                        completion.TrySetException(new InvalidOperationException("harbor_lifecycle_completion_failed"));
+                }
+                _HarborProcessIds.TryRemove(processId, out _);
+                completionLock?.Dispose();
             }
+        }
+
+        private async Task WaitForProcessExitCompletionAsync(int processId)
+        {
+            if (_ProcessExitCompletions.TryGetValue(processId, out TaskCompletionSource<bool>? existingCompletion))
+            {
+                await existingCompletion.Task.ConfigureAwait(false);
+                _ProcessExitCompletions.TryRemove(new System.Collections.Generic.KeyValuePair<int, TaskCompletionSource<bool>>(processId, existingCompletion));
+                return;
+            }
+            if (_HandledProcessExits.ContainsKey(processId) && !_InFlightProcessExits.ContainsKey(processId)) return;
+            TaskCompletionSource<bool> completion = _ProcessExitCompletions.GetOrAdd(
+                processId,
+                _ => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously));
+            await completion.Task.ConfigureAwait(false);
+            _ProcessExitCompletions.TryRemove(new System.Collections.Generic.KeyValuePair<int, TaskCompletionSource<bool>>(processId, completion));
         }
 
         private void CaptureProviderError(int processId, long stateOwner, RuntimeProviderError providerError)
@@ -2047,6 +2146,15 @@ namespace Armada.Server
                 _MissionHeartbeatWrites.TryRemove(missionId, out _);
                 DiscardUnclaimedMissionOutput(missionId);
             }
+            return owner;
+        }
+
+        /// <summary>Restore in-memory ownership without deleting artifacts or changing durable mission state.</summary>
+        private long RestoreMissionStateOwnership(string missionId)
+        {
+            long owner = Interlocked.Increment(ref _LastMissionStateOwner);
+            lock (_MissionStateOwners)
+                _MissionStateOwners[missionId] = owner;
             return owner;
         }
 
@@ -2131,6 +2239,11 @@ namespace Armada.Server
         public async Task HandleStopAgentAsync(Captain captain)
         {
             if (!captain.ProcessId.HasValue) return;
+            if (_PreserveHarborJobsOnShutdown && _HarborProcessIds.ContainsKey(captain.ProcessId.Value))
+            {
+                _Logging.Info(_Header + "detaching Harbor process " + captain.ProcessId.Value + " for captain " + captain.Id + " during Admiral shutdown");
+                return;
+            }
             _Logging.Info(_Header + "stopping agent process " + captain.ProcessId.Value + " for captain " + captain.Id);
             if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
             {

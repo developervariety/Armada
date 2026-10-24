@@ -34,6 +34,9 @@ namespace Armada.Core.Harbor
         /// <summary>Host process identifier reported by the owning runner.</summary>
         public int? ProcessId { get; }
 
+        /// <summary>UTC start time reported by the runner for its operating-system process.</summary>
+        public DateTime? RunnerProcessStartedUtc { get; }
+
         /// <summary>Exit code reported by the owning runner.</summary>
         public int? ExitCode { get; }
 
@@ -55,6 +58,27 @@ namespace Armada.Core.Harbor
         /// <summary>Captain the job runs for, when it is mission-bound.</summary>
         public string? CaptainId { get; }
 
+        /// <summary>Dock that owns the mission attempt, when mission-bound.</summary>
+        public string? DockId { get; }
+
+        /// <summary>Admiral synthetic process identifier bound to this attempt.</summary>
+        public int? AdmiralProcessId { get; }
+
+        /// <summary>Start time of the Admiral process attempt, in UTC.</summary>
+        public DateTime? AdmiralProcessStartedUtc { get; }
+
+        /// <summary>Whether the runner confirmed that the remote process has stopped.</summary>
+        public bool StopConfirmed { get; }
+
+        /// <summary>Whether an operator or owner requested that this runner job stop.</summary>
+        public bool StopRequested { get; }
+
+        /// <summary>Whether the exact lifecycle completion callback acknowledged this terminal result.</summary>
+        public bool CompletionDelivered { get; }
+
+        /// <summary>Durable record revision.</summary>
+        public long Revision { get; }
+
         /// <summary>Next output sequence the Admiral expects.</summary>
         public long NextOutputSequence { get; }
 
@@ -75,13 +99,29 @@ namespace Armada.Core.Harbor
             string ownerUserId,
             string? missionId,
             string? captainId,
-            long nextOutputSequence)
+            long nextOutputSequence,
+            DateTime? runnerProcessStartedUtc,
+            string? dockId,
+            int? admiralProcessId,
+            DateTime? admiralProcessStartedUtc,
+            bool stopConfirmed,
+            bool stopRequested,
+            bool completionDelivered,
+            long revision)
         {
             OwnerTenantId = ownerTenantId;
             OwnerUserId = ownerUserId;
             MissionId = missionId;
             CaptainId = captainId;
             NextOutputSequence = nextOutputSequence;
+            RunnerProcessStartedUtc = runnerProcessStartedUtc;
+            DockId = dockId;
+            AdmiralProcessId = admiralProcessId;
+            AdmiralProcessStartedUtc = admiralProcessStartedUtc;
+            StopConfirmed = stopConfirmed;
+            StopRequested = stopRequested;
+            CompletionDelivered = completionDelivered;
+            Revision = revision;
             JobId = jobId;
             RunnerId = runnerId;
             LaunchKey = launchKey;

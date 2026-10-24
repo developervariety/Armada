@@ -13,7 +13,7 @@ namespace Armada.Core.Database.Mysql.Implementations
     /// <summary>
     /// MySQL implementation of captain database operations.
     /// </summary>
-    public class CaptainMethods : ICaptainMethods
+    public partial class CaptainMethods : ICaptainMethods
     {
         #region Private-Members
 

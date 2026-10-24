@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Net;
     using System.Net.Http;
@@ -304,10 +305,11 @@ namespace Armada.Test.Unit.Suites.Services
                     HarborError refused = await runner.NextAsync<HarborError>().ConfigureAwait(false);
                     AssertEqual("runner_enrollment_revoked", refused.Message, frameKind + " frame from a revoked runner is refused by name");
                     AssertTrue(await runner.WaitClosedAsync().ConfigureAwait(false), "revoked runner's link closed");
-                    HarborJobSnapshot lost = await launch.Completion!.WaitAsync(Wait).ConfigureAwait(false);
-                    AssertEqual(HarborJobStateEnum.Lost, lost.State, "the revoked runner's job is lost, not completed");
-                    AssertEqual("runner_enrollment_revoked", lost.FailureReason, "lost job carries the refusal");
-                    AssertEqual(0, lost.Output.Count, "no output accepted after revocation");
+                    AssertTrue(harness.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? uncertain), "revoked job remains known");
+                    AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "revocation does not confirm that the runner process stopped");
+                    AssertEqual("runner_enrollment_revoked", uncertain.FailureReason, "uncertain job carries the refusal reason");
+                    AssertEqual(0, uncertain.Output.Count, "no output accepted after revocation");
+                    AssertFalse(launch.Completion!.IsCompleted, "an unconfirmed process does not deliver a lifecycle completion");
                 });
             }
 
@@ -343,8 +345,9 @@ namespace Armada.Test.Unit.Suites.Services
                 HarborError refused = await runner.NextAsync<HarborError>().ConfigureAwait(false);
                 AssertEqual("runner_enrollment_generation_stale", refused.Message, "output from a stale enrollment generation is refused by name");
                 AssertTrue(await runner.WaitClosedAsync().ConfigureAwait(false), "stale link closed");
-                HarborJobSnapshot lost = await launch.Completion!.WaitAsync(Wait).ConfigureAwait(false);
-                AssertEqual(HarborJobStateEnum.Lost, lost.State, "stale generation's job is lost");
+                AssertTrue(harness.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? uncertain), "stale job remains known");
+                AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "stale generation does not confirm that the runner process stopped");
+                AssertFalse(launch.Completion!.IsCompleted, "stale runner cannot deliver a terminal lifecycle result");
             });
 
             await RunTest("Heartbeat_AfterDurableRevocation_NamesTheRevocation", async () =>
@@ -371,7 +374,8 @@ namespace Armada.Test.Unit.Suites.Services
                 HarborLaunchResult launch = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a", "mission-reconnect", Plan()).ConfigureAwait(false);
                 AssertTrue(launch.Accepted, launch.Reason);
                 string jobId = (await original.NextAsync<HarborLaunchRequest>().ConfigureAwait(false)).JobId;
-                await original.SendAsync(new HarborStarted { JobId = jobId, ProcessId = 700 }).ConfigureAwait(false);
+                DateTime runnerStartedUtc = DateTime.UtcNow;
+                await original.SendAsync(new HarborStarted { JobId = jobId, ProcessId = 700, ProcessStartedUtc = runnerStartedUtc }).ConfigureAwait(false);
                 await original.SendAsync(Output(jobId, 0, "before")).ConfigureAwait(false);
                 await original.SendAsync(new HarborHeartbeat { LiveJobIds = new List<string> { jobId } }).ConfigureAwait(false);
                 AssertTrue(await original.NoMessageAsync().ConfigureAwait(false), "original link events accepted");
@@ -390,6 +394,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(currentA!.Generation > 0 && harness.Registry.IsCurrent(currentA), "replacement session remains current");
                 await replacement.SendAsync(Output(jobId, 1, "unbound")).ConfigureAwait(false);
                 AssertEqual("harbor_job_not_bound", (await replacement.NextAsync<HarborError>().ConfigureAwait(false)).Message, "replacement cannot report before it claims the job");
+                HarborJobRecord? durable = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                HarborResumeJobInfo resumeProof = new HarborResumeJobInfo
+                {
+                    JobId = jobId,
+                    LaunchKey = durable!.LaunchKey,
+                    ProcessId = 700,
+                    ProcessStartedUtc = durable.RunnerProcessStartedUtc,
+                    IsRunning = true,
+                    FirstAvailableOutputSequence = 0,
+                    NextOutputSequence = 1
+                };
+                await replacement.SendAsync(new HarborResumeRequest { Jobs = new List<HarborResumeJobInfo> { resumeProof } }).ConfigureAwait(false);
+                HarborResumeJobResult resume = (await replacement.NextAsync<HarborResumeResponse>().ConfigureAwait(false)).Jobs[0];
+                AssertEqual(HarborResumeDecisionEnum.Replay, resume.Decision, "replacement adopts only after process identity proof");
+                AssertEqual(1L, resume.ReplayFromSequence, "replacement replays from the durable cursor");
                 await replacement.SendAsync(new HarborHeartbeat { LiveJobIds = new List<string> { jobId, "hjob_forged" } }).ConfigureAwait(false);
                 HarborError forged = await replacement.NextAsync<HarborError>().ConfigureAwait(false);
                 AssertEqual("hjob_forged", forged.JobId, "unknown reported job named");
@@ -433,8 +452,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(await revoked.WaitClosedAsync().ConfigureAwait(false), "revoked link closed");
                 await revoked.DisposeAsync().ConfigureAwait(false);
 
-                HarborJobSnapshot lost = await launch.Completion!.WaitAsync(Wait).ConfigureAwait(false);
-                AssertEqual(HarborJobStateEnum.Lost, lost.State, "revoked runner's job is lost");
+                AssertTrue(harness.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? uncertain), "revoked job remains known");
+                AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "revocation leaves the runner process uncertain");
+                AssertFalse(launch.Completion!.IsCompleted, "revocation does not invoke the terminal observer");
                 AssertEqual("harbor_runner_unavailable", (await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a", "mission-revoked", Plan()).ConfigureAwait(false)).Reason, "revoked runner refuses work");
 
                 await using (FakeRunner beforeReenroll = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false))
@@ -453,7 +473,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await reenrolled.SendAsync(new HarborExited { JobId = jobId, ExitCode = 0 }).ConfigureAwait(false);
                 AssertEqual("harbor_job_not_owned", (await reenrolled.NextAsync<HarborError>().ConfigureAwait(false)).Message, "re-enrolled link cannot resolve old work");
                 AssertTrue(harness.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? after), "job known");
-                AssertEqual(HarborJobStateEnum.Lost, after!.State, "old job stays lost");
+                AssertEqual(HarborJobStateEnum.Uncertain, after!.State, "old job stays fenced after re-enrollment");
             });
 
             await RunTest("MissionRoute_DefaultsLocalAndOptsInExplicitly", () =>
@@ -633,11 +653,14 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "start accepted");
 
                         Captain? captain = await harness.Driver.Captains.ReadAsync(scope.Captain.Id).ConfigureAwait(false);
-                        await scope.Handler.HandleStopAgentAsync(captain!).ConfigureAwait(false);
+                        Task stopTask = scope.Handler.HandleStopAgentAsync(captain!);
                         HarborKillRequest kill = await runner.NextAsync<HarborKillRequest>().ConfigureAwait(false);
                         AssertEqual(jobId, kill.JobId, "the captain stop reaches the job on its runner");
 
                         await runner.SendAsync(new HarborExited { JobId = jobId, ExitCode = 137 }).ConfigureAwait(false);
+                        await stopTask.ConfigureAwait(false);
+                        AssertTrue(scope.HasLifecycleEvent("captain.stopped"), "confirmed runner exit completes the captain stop");
+                        AssertFalse(scope.HasLifecycleEvent("captain.stop_refused"), "confirmed runner exit is not reported as a refused stop");
                         RecordedProcessExit exit = await scope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);
                         AssertEqual(processId, exit.ProcessId, "stopped job exits through the lifecycle");
                         AssertEqual(137, exit.ExitCode, "stopped exit code");
@@ -645,7 +668,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("MissionStop_WhileRunnerDisconnected_ReleasesTheJobByName", async () =>
+            await RunTest("MissionStop_AcceptedKillWithoutConfirmedExitRemainsUncertain", async () =>
+            {
+                await using (Harness harness = await Harness.StartAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false))
+                {
+                    await harness.EnrollBothAsync().ConfigureAwait(false);
+                    await using (FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false))
+                    using (MissionScope scope = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a").ConfigureAwait(false))
+                    {
+                        AssertTrue((await runner.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner connected");
+                        int processId = await scope.Handler.HandleLaunchAgentAsync(scope.Captain, scope.Mission, scope.Dock).ConfigureAwait(false);
+                        HarborLaunchRequest launch = await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+                        await runner.SendAsync(new HarborStarted { JobId = launch.JobId, ProcessId = 9005 }).ConfigureAwait(false);
+
+                        Captain? captain = await harness.Driver.Captains.ReadAsync(scope.Captain.Id).ConfigureAwait(false);
+                        Task stopTask = scope.Handler.HandleStopAgentAsync(captain!);
+                        HarborKillRequest kill = await runner.NextAsync<HarborKillRequest>().ConfigureAwait(false);
+                        AssertEqual(launch.JobId, kill.JobId, "the runner accepts a kill request for this job");
+                        AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "the runner sends no exit before the confirmation wait completes");
+                        AssertFalse(stopTask.IsCompleted, "the lifecycle waits for a confirmed runner exit");
+
+                        await stopTask.ConfigureAwait(false);
+
+                        HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(launch.JobId).ConfigureAwait(false);
+                        AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "a kill request without an exit becomes an uncertainty hold");
+                        AssertFalse(uncertain.StopConfirmed, "sending the kill does not confirm that the remote process stopped");
+                        AssertFalse(uncertain.CompletionDelivered, "no completion is delivered without a confirmed exit");
+                        AssertTrue(ProcessSupervisor.IsSyntheticProcessAlive(processId), "the synthetic process stays registered while the runner state is uncertain");
+                        Mission? heldMission = await harness.Driver.Missions.ReadAsync(scope.Mission.Id).ConfigureAwait(false);
+                        AssertEqual(launch.JobId, heldMission!.HarborJobId, "the mission stays bound to the uncertain job");
+                        AssertNull(await scope.Admiral.TryNextExitAsync(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false), "no terminal lifecycle callback is delivered");
+                        AssertFalse(scope.HasLifecycleEvent("captain.stopped"), "the lifecycle does not report an unconfirmed remote stop as stopped");
+                        AssertTrue(scope.HasLifecycleEvent("captain.stop_refused"), "the lifecycle reports the unconfirmed stop as refused");
+                        ProcessSupervisor.UnregisterSyntheticProcess(processId);
+                    }
+                }
+            });
+
+            await RunTest("MissionStop_WhileRunnerDisconnected_KeepsTheJobAndMissionFenced", async () =>
             {
                 await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
                 {
@@ -665,12 +725,19 @@ namespace Armada.Test.Unit.Suites.Services
 
                         Captain? captain = await harness.Driver.Captains.ReadAsync(scope.Captain.Id).ConfigureAwait(false);
                         await scope.Handler.HandleStopAgentAsync(captain!).ConfigureAwait(false);
-                        RecordedProcessExit exit = await scope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);
-                        AssertEqual(processId, exit.ProcessId, "released job exits through the lifecycle");
-                        AssertNull(exit.ExitCode, "a released job has no exit code");
-                        HarborJobRecord? released = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
-                        AssertEqual(HarborJobStateEnum.Lost, released!.State, "released job is lost");
-                        AssertEqual(HarborJobCoordinator.ReasonReleasedRunnerUnavailable, released.FailureReason, "release reason");
+                        HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                        AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "a disconnected stop does not claim that the runner process stopped");
+                        AssertFalse(uncertain.StopConfirmed, "disconnected stop leaves stop confirmation unset");
+                        AssertEqual(HarborJobCoordinator.ReasonReleasedRunnerUnavailable, uncertain.FailureReason, "uncertain stop reason is durable");
+                        AssertTrue(ProcessSupervisor.IsSyntheticProcessAlive(processId), "the mission process identity stays registered while stop is unconfirmed");
+                        Mission? held = await harness.Driver.Missions.ReadAsync(scope.Mission.Id).ConfigureAwait(false);
+                        Captain? heldCaptain = await harness.Driver.Captains.ReadAsync(scope.Captain.Id).ConfigureAwait(false);
+                        AssertEqual(jobId, held!.HarborJobId, "mission remains bound to the uncertain job");
+                        AssertEqual(processId, held.ProcessId ?? 0, "mission process identity stays fenced");
+                        AssertEqual(CaptainStateEnum.Working, heldCaptain!.State, "captain stays working while the remote process may still run");
+                        AssertNull(await scope.Admiral.TryNextExitAsync(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false), "no terminal callback is delivered for an unconfirmed stop");
+                        AssertFalse(scope.HasLifecycleEvent("captain.stopped"), "the lifecycle does not report an unconfirmed remote stop as stopped");
+                        ProcessSupervisor.UnregisterSyntheticProcess(processId);
                     }
                 }
             });
@@ -757,7 +824,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("MissionRevocationMidJob_LosesTheJobAndRunsTheSharedExitPath", async () =>
+            await RunTest("MissionRevocationMidJob_KeepsTheMissionFencedUntilStopConfirmation", async () =>
             {
                 await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
                 {
@@ -775,19 +842,23 @@ namespace Armada.Test.Unit.Suites.Services
                         await runner.SendAsync(Output(jobId, 0, "after revocation\n")).ConfigureAwait(false);
                         AssertEqual("runner_enrollment_revoked", (await runner.NextAsync<HarborError>().ConfigureAwait(false)).Message, "revoked runner refused by name");
 
-                        RecordedProcessExit exit = await scope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);
-                        AssertEqual(processId, exit.ProcessId, "the lost job enters the shared exit and recovery path");
-                        AssertNull(exit.ExitCode, "a lost job has no exit code");
-                        HarborJobRecord? lost = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
-                        AssertEqual(HarborJobStateEnum.Lost, lost!.State, "durable lost state");
-                        AssertEqual("runner_enrollment_revoked", lost.FailureReason, "durable refusal reason");
-                        string log = await ReadWhenContainsAsync(scope.LogFilePath, "runner_enrollment_revoked").ConfigureAwait(false);
+                        HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                        AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "durable job remains uncertain after revocation");
+                        AssertFalse(uncertain.StopConfirmed, "revocation does not confirm that the remote process stopped");
+                        AssertEqual("runner_enrollment_revoked", uncertain.FailureReason, "durable refusal reason");
+                        AssertTrue(ProcessSupervisor.IsSyntheticProcessAlive(processId), "mission process remains registered while its runner state is uncertain");
+                        Mission? heldMission = await harness.Driver.Missions.ReadAsync(scope.Mission.Id).ConfigureAwait(false);
+                        AssertEqual(jobId, heldMission!.HarborJobId, "mission remains bound to its uncertain job");
+                        AssertTrue(await scope.Handler.IsMissionProcessActiveAsync(heldMission).ConfigureAwait(false), "mission remains active and cannot be reassigned");
+                        AssertNull(await scope.Admiral.TryNextExitAsync(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false), "revocation does not invoke terminal lifecycle handling");
+                        string log = File.Exists(scope.LogFilePath) ? File.ReadAllText(scope.LogFilePath) : String.Empty;
                         AssertFalse(log.Contains("after revocation"), "no output accepted after revocation");
+                        ProcessSupervisor.UnregisterSyntheticProcess(processId);
                     }
                 }
             });
 
-            await RunTest("DisconnectedRunner_JobsExpireAsLostAfterTheGrace", async () =>
+            await RunTest("DisconnectedRunner_JobsExpireAsUncertainAfterTheGrace", async () =>
             {
                 await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
                 {
@@ -809,46 +880,402 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(0, await harness.Coordinator.ExpireDetachedRunnersAsync(TimeSpan.FromMinutes(5), DateTime.UtcNow).ConfigureAwait(false), "a job inside the grace period stays live");
                         AssertTrue(ProcessSupervisor.IsTrackedProcessAlive(processId), "the mission process stays live inside the grace period");
 
-                        AssertEqual(1, await harness.Coordinator.ExpireDetachedRunnersAsync(TimeSpan.FromMinutes(5), DateTime.UtcNow.AddMinutes(6)).ConfigureAwait(false), "a job past the grace period is lost");
-                        RecordedProcessExit exit = await scope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);
-                        AssertEqual(processId, exit.ProcessId, "the expired job enters the shared exit path");
-                        HarborJobRecord? lost = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
-                        AssertEqual(HarborJobCoordinator.ReasonRunnerDisconnected, lost!.FailureReason, "expiry reason");
+                        AssertEqual(1, await harness.Coordinator.ExpireDetachedRunnersAsync(TimeSpan.FromMinutes(5), DateTime.UtcNow.AddMinutes(6)).ConfigureAwait(false), "the grace expiry changes the active row to an uncertainty hold");
+                        HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                        AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "expired disconnect remains uncertain until the runner proves it stopped");
+                        AssertEqual(HarborJobCoordinator.ReasonRunnerDisconnected, uncertain.FailureReason, "expiry reason is durable");
+                        AssertFalse(uncertain.StopConfirmed, "disconnect timeout does not confirm process exit");
+                        AssertTrue(ProcessSupervisor.IsSyntheticProcessAlive(processId), "remote process identity remains registered after the grace period");
+                        Mission? heldMission = await harness.Driver.Missions.ReadAsync(scope.Mission.Id).ConfigureAwait(false);
+                        AssertEqual(jobId, heldMission!.HarborJobId, "mission remains bound to the uncertain runner job");
+                        AssertTrue(await scope.Handler.IsMissionProcessActiveAsync(heldMission).ConfigureAwait(false), "the mission stays active while the runner's process may still run");
+                        AssertNull(await scope.Admiral.TryNextExitAsync(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false), "grace expiry does not deliver a terminal callback");
+                        ProcessSupervisor.UnregisterSyntheticProcess(processId);
                     }
                 }
             });
 
-            await RunTest("AdmiralRestart_FailsUnfinishedJobsByNameAndRefusesTheirReports", async () =>
+            await RunTest("HarborRestart_AdoptsExactMissionAttemptAfterRunnerProof", async () =>
             {
                 await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
                 {
                     await harness.EnrollBothAsync().ConfigureAwait(false);
+                    using (MissionScope scope = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a").ConfigureAwait(false))
+                    {
+                        DateTime runnerStartedUtc = DateTime.UtcNow;
+                        int admiralProcessId;
+                        string jobId;
+                        await using (FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false))
+                        {
+                            AssertTrue((await runner.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner connected");
+                            admiralProcessId = await scope.Handler.HandleLaunchAgentAsync(scope.Captain, scope.Mission, scope.Dock).ConfigureAwait(false);
+                            HarborLaunchRequest launch = await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+                            jobId = launch.JobId;
+                            await runner.SendAsync(new HarborStarted { JobId = jobId, ProcessId = 9005, ProcessStartedUtc = runnerStartedUtc }).ConfigureAwait(false);
+                            await runner.SendAsync(Output(jobId, 0, "before restart")).ConfigureAwait(false);
+                            AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "initial launch events accepted");
+                        }
+
+                        ProcessSupervisor.UnregisterSyntheticProcess(admiralProcessId);
+                        MissionScope recoveryScope = MissionScope.CreateRecovery(harness, "hbr_a", scope);
+                        using (recoveryScope)
+                        {
+                            TaskCompletionSource<bool> releaseLifecycle = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                            recoveryScope.Admiral.ExitHandler = _ => releaseLifecycle.Task;
+                            AdmiralInstance restarted = await harness.RestartAdmiralAsync(recoveryScope.Handler, recoveryScope.UseCoordinator).ConfigureAwait(false);
+                            HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                            AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "the unfinished mission job stays fenced during restart");
+                            AssertEqual(HarborJobCoordinator.ReasonResumeUnconfirmed, uncertain.FailureReason, "the restart records an unconfirmed resume");
+                            AssertEqual(scope.Mission.Id, uncertain.MissionId, "the durable job remains bound to its mission");
+                            AssertTrue(uncertain.RunnerProcessStartedUtc.HasValue, "the durable runner process start time survives restart");
+                            AssertEqual(1L, uncertain.NextOutputSequence, "the durable output cursor survives restart");
+
+                            await using (FakeRunner reconnected = await harness.ConnectAsync(restarted, harness.OwnerA).ConfigureAwait(false))
+                            {
+                                AssertTrue((await reconnected.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner reconnects to the restarted Admiral");
+                                HarborResumeJobInfo wrongProof = new HarborResumeJobInfo
+                                {
+                                    JobId = jobId,
+                                    LaunchKey = uncertain.LaunchKey,
+                                    ProcessId = 9005,
+                                    ProcessStartedUtc = uncertain.RunnerProcessStartedUtc!.Value.AddSeconds(1),
+                                    IsRunning = true,
+                                    NextOutputSequence = 1
+                                };
+                                await reconnected.SendAsync(new HarborResumeRequest { Jobs = new List<HarborResumeJobInfo> { wrongProof } }).ConfigureAwait(false);
+                                HarborResumeJobResult refused = (await reconnected.NextAsync<HarborResumeResponse>().ConfigureAwait(false)).Jobs[0];
+                                AssertEqual(HarborResumeDecisionEnum.Reject, refused.Decision, "a different runner process start time is not adopted");
+
+                                HarborResumeJobInfo proof = new HarborResumeJobInfo
+                                {
+                                    JobId = jobId,
+                                    LaunchKey = uncertain.LaunchKey,
+                                    ProcessId = 9005,
+                                    ProcessStartedUtc = uncertain.RunnerProcessStartedUtc!.Value,
+                                    IsRunning = true,
+                                    NextOutputSequence = 1
+                                };
+                                await reconnected.SendAsync(new HarborResumeRequest { Jobs = new List<HarborResumeJobInfo> { proof } }).ConfigureAwait(false);
+                                HarborResumeJobResult adopted = (await reconnected.NextAsync<HarborResumeResponse>().ConfigureAwait(false)).Jobs[0];
+                                AssertEqual(HarborResumeDecisionEnum.Replay, adopted.Decision, "the exact live runner attempt is adopted");
+                                AssertEqual(1L, adopted.ReplayFromSequence, "resume starts at the durable output sequence");
+                                HarborRunnerSession? currentSession;
+                                AssertTrue(restarted.Registry.TryGetCurrent("hbr_a", out currentSession) && currentSession != null, "reconnected runner owns a current session");
+                                HarborJobRecord? rebound = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                                AssertEqual(HarborJobStateEnum.Running, rebound!.State, "the adopted job returns to running state");
+                                AssertEqual(currentSession!.Generation, rebound.SessionGeneration, "the durable job is bound to the current link generation");
+                                AssertTrue(await reconnected.NoMessageAsync().ConfigureAwait(false), "restart does not send a duplicate launch");
+
+                                await reconnected.SendAsync(Output(jobId, 1, "after restart")).ConfigureAwait(false);
+                                await reconnected.SendAsync(new HarborExited { JobId = jobId, ExitCode = 0 }).ConfigureAwait(false);
+                                RecordedProcessExit exit = await recoveryScope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);
+                                AssertEqual(admiralProcessId, exit.ProcessId, "confirmed completion reaches the restored lifecycle");
+                                HarborJobRecord? completed = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                                AssertEqual(HarborJobStateEnum.Exited, completed!.State, "the durable job records the runner's confirmed result");
+                                AssertFalse(completed!.CompletionDelivered, "the durable delivery acknowledgement waits for lifecycle handling");
+                                releaseLifecycle.TrySetResult(true);
+                                DateTime completionDeadline = DateTime.UtcNow.Add(Wait);
+                                while (completed != null && !completed.CompletionDelivered && DateTime.UtcNow < completionDeadline)
+                                {
+                                    await Task.Delay(TimeSpan.FromMilliseconds(20)).ConfigureAwait(false);
+                                    completed = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                                }
+                                AssertTrue(completed != null && completed.CompletionDelivered, "the lifecycle handles the result before the durable delivery acknowledgement");
+                                AssertTrue(await reconnected.NoMessageAsync().ConfigureAwait(false), "resumed output and terminal result are accepted without another launch");
+                                List<HarborJobRecord> missionJobs = await harness.Driver.HarborJobs.EnumerateAsync(new HarborJobQuery { MissionId = scope.Mission.Id, Limit = 10 }).ConfigureAwait(false);
+                                AssertEqual(1, missionJobs.Count, "restart adoption keeps one durable chain for the mission");
+                                AssertEqual(jobId, missionJobs[0].JobId, "the original durable job remains the mission attempt");
+                            }
+                        }
+                    }
+                }
+            });
+
+            await RunTest("HarborRestart_StopRequestedRunningProofGetsStopDecision", async () =>
+            {
+                await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                {
+                    await harness.EnrollBothAsync().ConfigureAwait(false);
+                    using (MissionScope scope = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a").ConfigureAwait(false))
+                    {
+                        DateTime runnerStartedUtc = DateTime.UtcNow;
+                        int admiralProcessId;
+                        string jobId;
+                        await using (FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false))
+                        {
+                            AssertTrue((await runner.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner connected");
+                            admiralProcessId = await scope.Handler.HandleLaunchAgentAsync(scope.Captain, scope.Mission, scope.Dock).ConfigureAwait(false);
+                            jobId = (await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false)).JobId;
+                            await runner.SendAsync(new HarborStarted { JobId = jobId, ProcessId = 9010, ProcessStartedUtc = runnerStartedUtc }).ConfigureAwait(false);
+                            AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "runner start accepted");
+
+                            HarborCommandResult stop = await harness.Coordinator.StopAsync(harness.OwnerA.Auth, jobId, 250).ConfigureAwait(false);
+                            AssertTrue(stop.Accepted, stop.Reason);
+                            AssertEqual(jobId, (await runner.NextAsync<HarborKillRequest>().ConfigureAwait(false)).JobId, "stop request reaches the runner");
+                            HarborJobRecord? stopping = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                            AssertTrue(stopping!.StopRequested, "the stop intent is durable before disconnect");
+                            await runner.CloseAsync().ConfigureAwait(false);
+                        }
+
+                        AssertTrue(await WaitUntilAsync(() => harness.Registry.SessionCount == 0).ConfigureAwait(false), "runner disconnected after stop request");
+                        ProcessSupervisor.UnregisterSyntheticProcess(admiralProcessId);
+                        MissionScope recoveryScope = MissionScope.CreateRecovery(harness, "hbr_a", scope);
+                        using (recoveryScope)
+                        {
+                            AdmiralInstance restarted = await harness.RestartAdmiralAsync(recoveryScope.Handler, recoveryScope.UseCoordinator).ConfigureAwait(false);
+                            HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                            AssertTrue(uncertain != null && uncertain.StopRequested, "restart preserves the outstanding stop intent");
+                            AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "the unproven process remains fenced until its runner reconnects");
+
+                            await using (FakeRunner reconnected = await harness.ConnectAsync(restarted, harness.OwnerA).ConfigureAwait(false))
+                            {
+                                AssertTrue((await reconnected.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner reconnects to the restarted Admiral");
+                                HarborResumeJobInfo proof = new HarborResumeJobInfo
+                                {
+                                    JobId = jobId,
+                                    LaunchKey = uncertain.LaunchKey,
+                                    ProcessId = 9010,
+                                    ProcessStartedUtc = uncertain.RunnerProcessStartedUtc!.Value,
+                                    IsRunning = true,
+                                    NextOutputSequence = 0
+                                };
+                                await reconnected.SendAsync(new HarborResumeRequest { Jobs = new List<HarborResumeJobInfo> { proof } }).ConfigureAwait(false);
+                                HarborResumeJobResult decision = (await reconnected.NextAsync<HarborResumeResponse>().ConfigureAwait(false)).Jobs[0];
+                                AssertEqual(HarborResumeDecisionEnum.Stop, decision.Decision, "a running process receives Stop when its durable stop intent survived restart");
+                                AssertEqual("harbor_stop_requested", decision.Reason, "the resume response explains the stop decision");
+                                HarborJobRecord? resumed = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                                AssertEqual(HarborJobStateEnum.Stopping, resumed!.State, "the adopted job remains in stopping state");
+                                AssertTrue(resumed.StopRequested, "the durable stop intent remains set after adoption");
+                                AssertFalse(resumed.StopConfirmed, "a running proof does not claim that the process stopped");
+                                AssertTrue(await reconnected.NoMessageAsync().ConfigureAwait(false), "recovery does not send a duplicate launch");
+                            }
+                        }
+                    }
+                }
+            });
+
+            await RunTest("HarborRestart_LifecycleFailureDoesNotAcknowledgeCompletion", async () =>
+            {
+                await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                {
+                    await harness.EnrollBothAsync().ConfigureAwait(false);
+                    using (MissionScope scope = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a").ConfigureAwait(false))
+                    {
+                        DateTime runnerStartedUtc = DateTime.UtcNow;
+                        int admiralProcessId;
+                        string jobId;
+                        await using (FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false))
+                        {
+                            AssertTrue((await runner.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner connected");
+                            admiralProcessId = await scope.Handler.HandleLaunchAgentAsync(scope.Captain, scope.Mission, scope.Dock).ConfigureAwait(false);
+                            jobId = (await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false)).JobId;
+                            await runner.SendAsync(new HarborStarted { JobId = jobId, ProcessId = 9006, ProcessStartedUtc = runnerStartedUtc }).ConfigureAwait(false);
+                            AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "initial launch accepted");
+                        }
+
+                        ProcessSupervisor.UnregisterSyntheticProcess(admiralProcessId);
+                        MissionScope recoveryScope = MissionScope.CreateRecovery(harness, "hbr_a", scope);
+                        using (recoveryScope)
+                        {
+                            TaskCompletionSource<bool> exitHandlerEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                            recoveryScope.Admiral.ExitHandler = _ =>
+                            {
+                                exitHandlerEntered.TrySetResult(true);
+                                return Task.FromException(new InvalidOperationException("fixture_lifecycle_failure"));
+                            };
+                            AdmiralInstance restarted = await harness.RestartAdmiralAsync(recoveryScope.Handler, recoveryScope.UseCoordinator).ConfigureAwait(false);
+                            HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                            AssertTrue(uncertain != null && uncertain.RunnerProcessStartedUtc.HasValue, "runner attempt identity survives restart");
+
+                            await using (FakeRunner reconnected = await harness.ConnectAsync(restarted, harness.OwnerA).ConfigureAwait(false))
+                            {
+                                AssertTrue((await reconnected.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner reconnects");
+                                HarborResumeJobInfo proof = new HarborResumeJobInfo
+                                {
+                                    JobId = jobId,
+                                    LaunchKey = uncertain!.LaunchKey,
+                                    ProcessId = 9006,
+                                    ProcessStartedUtc = uncertain.RunnerProcessStartedUtc!.Value,
+                                    IsRunning = true,
+                                    NextOutputSequence = 0
+                                };
+                                await reconnected.SendAsync(new HarborResumeRequest { Jobs = new List<HarborResumeJobInfo> { proof } }).ConfigureAwait(false);
+                                HarborResumeJobResult adopted = (await reconnected.NextAsync<HarborResumeResponse>().ConfigureAwait(false)).Jobs[0];
+                                AssertEqual(HarborResumeDecisionEnum.Replay, adopted.Decision, "the exact live attempt is adopted before its terminal result");
+                                await reconnected.SendAsync(new HarborExited { JobId = jobId, ExitCode = 1 }).ConfigureAwait(false);
+                                AssertTrue(await reconnected.NoMessageAsync().ConfigureAwait(false), "runner terminal report is accepted");
+                            }
+
+                            RecordedProcessExit exit = await recoveryScope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);
+                            AssertEqual(admiralProcessId, exit.ProcessId, "restored lifecycle invokes the Admiral handler");
+                            AssertTrue(await exitHandlerEntered.Task.WaitAsync(Wait).ConfigureAwait(false), "the lifecycle failure reaches the completion boundary");
+                            AssertTrue(await WaitUntilAsync(() => !ProcessSupervisor.IsSyntheticProcessAlive(admiralProcessId)).ConfigureAwait(false),
+                                "restored observer exits after the lifecycle handler fails");
+                            AssertTrue(await WaitUntilAsync(() => restarted.Coordinator.ObserverFailureCount > 0).ConfigureAwait(false),
+                                "coordinator observes the failed lifecycle completion before the assertion");
+                            HarborJobRecord? terminal = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                            AssertEqual(HarborJobStateEnum.Exited, terminal!.State, "runner's confirmed exit remains durable");
+                            AssertTrue(terminal.StopConfirmed, "runner proof confirms the process stopped");
+                            AssertFalse(terminal.CompletionDelivered, "a failed lifecycle handler leaves completion unacknowledged");
+                        }
+                    }
+                }
+            });
+
+            await RunTest("HarborRestart_StopConfirmationRequiresGlobalAdministratorAndExactEvidence", async () =>
+            {
+                await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                {
+                    await harness.EnrollBothAsync().ConfigureAwait(false);
+                    Principal globalAdministrator = await harness.AddPrincipalAsync(harness.OwnerA.TenantId, "global-admin", false, true).ConfigureAwait(false);
                     string jobId;
+                    DateTime runnerStartedUtc = DateTime.UtcNow;
                     await using (FakeRunner runner = await harness.ConnectAsync(harness.OwnerA).ConfigureAwait(false))
                     {
                         AssertTrue((await runner.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner connected");
-                        HarborLaunchResult launch = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a", "mission-restart", Plan()).ConfigureAwait(false);
+                        HarborLaunchResult launch = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a", "operator-stop-confirmation", Plan()).ConfigureAwait(false);
                         AssertTrue(launch.Accepted, launch.Reason);
-                        jobId = (await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false)).JobId;
-                        await runner.SendAsync(new HarborStarted { JobId = jobId, ProcessId = 9005 }).ConfigureAwait(false);
-                        AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "start accepted");
+                        jobId = launch.JobId;
+                        await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+                        await runner.SendAsync(new HarborStarted { JobId = jobId, ProcessId = 9007, ProcessStartedUtc = runnerStartedUtc }).ConfigureAwait(false);
+                        AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "runner start accepted");
                     }
 
-                    AdmiralInstance restarted = await harness.RestartAdmiralAsync().ConfigureAwait(false);
-                    AssertEqual(1, harness.LastReconciledJobCount, "the restart fails the one unfinished job");
-                    HarborJobRecord? failed = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
-                    AssertEqual(HarborJobStateEnum.Lost, failed!.State, "unfinished job is lost after the restart");
-                    AssertEqual(HarborJobCoordinator.ReasonAdmiralRestarted, failed.FailureReason, "restart reason");
-                    AssertNotNull(failed.CompletedUtc, "restart records the completion time");
-                    AssertEqual(0, await HarborJobCoordinator.ReconcileAfterRestartAsync(harness.Driver.HarborJobs, DateTime.UtcNow).ConfigureAwait(false), "reconciliation is idempotent");
-
-                    await using (FakeRunner reconnected = await harness.ConnectAsync(restarted, harness.OwnerA).ConfigureAwait(false))
+                    using (MissionScope recoveryScope = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a").ConfigureAwait(false))
                     {
-                        AssertTrue((await reconnected.HandshakeAsync("hbr_a").ConfigureAwait(false)).Accepted, "runner reconnects to the restarted Admiral");
-                        await reconnected.SendAsync(new HarborHeartbeat { LiveJobIds = new List<string> { jobId } }).ConfigureAwait(false);
-                        HarborError refused = await reconnected.NextAsync<HarborError>().ConfigureAwait(false);
-                        AssertEqual(jobId, refused.JobId, "refusal names the job");
-                        AssertEqual("harbor_job_not_rebindable", refused.Message, "a job from an earlier Admiral process is not rebound");
+                        AdmiralInstance restarted = await harness.RestartAdmiralAsync(recoveryScope.Handler, recoveryScope.UseCoordinator).ConfigureAwait(false);
+                        HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                        AssertTrue(uncertain != null && uncertain.RunnerProcessStartedUtc.HasValue, "the uncertain runner process identity is durable");
+                        HarborJobConfirmStoppedRequest wrongIdentity = new HarborJobConfirmStoppedRequest
+                        {
+                            ExpectedRevision = uncertain!.Revision,
+                            EnrollmentGeneration = uncertain.EnrollmentGeneration,
+                            RunnerProcessId = uncertain.ProcessId,
+                            RunnerProcessStartedUtc = uncertain.RunnerProcessStartedUtc.Value.AddSeconds(1),
+                            Evidence = "host_confirmed_process_absent"
+                        };
+                        HttpReply tenantAdminReply = await harness.RequestAsync(harness.Administrator, System.Net.Http.HttpMethod.Post,
+                            "api/v1/harbor-runners/jobs/" + jobId + "/confirm-stopped", wrongIdentity, restarted).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Forbidden, tenantAdminReply.StatusCode, "a tenant administrator cannot confirm a stopped process");
+                        HarborJobRecord? afterDenial = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                        AssertEqual(HarborJobStateEnum.Uncertain, afterDenial!.State, "a denied confirmation keeps the durable capacity hold");
+
+                        HttpReply wrongIdentityReply = await harness.RequestAsync(globalAdministrator, System.Net.Http.HttpMethod.Post,
+                            "api/v1/harbor-runners/jobs/" + jobId + "/confirm-stopped", wrongIdentity, restarted).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Conflict, wrongIdentityReply.StatusCode, "global admin must present the exact runner process identity");
+                        HarborJobRecord? afterMismatch = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                        AssertEqual(HarborJobStateEnum.Uncertain, afterMismatch!.State, "a mismatched process proof keeps the job fenced");
+
+                        HarborJobConfirmStoppedRequest exactIdentity = new HarborJobConfirmStoppedRequest
+                        {
+                            ExpectedRevision = afterMismatch.Revision,
+                            EnrollmentGeneration = afterMismatch.EnrollmentGeneration,
+                            RunnerProcessId = afterMismatch.ProcessId,
+                            RunnerProcessStartedUtc = afterMismatch.RunnerProcessStartedUtc,
+                            Evidence = "host_confirmed_process_absent"
+                        };
+                        HttpReply accepted = await harness.RequestAsync(globalAdministrator, System.Net.Http.HttpMethod.Post,
+                            "api/v1/harbor-runners/jobs/" + jobId + "/confirm-stopped", exactIdentity, restarted).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.OK, accepted.StatusCode, "global admin can confirm a stopped job with exact named evidence");
+                        HarborJobConfirmStoppedResponse? confirmation = JsonSerializer.Deserialize<HarborJobConfirmStoppedResponse>(accepted.Body, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                        AssertTrue(confirmation != null && confirmation.Confirmed, "the route returns a confirmed result");
+                        HarborJobRecord? confirmed = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
+                        AssertEqual(HarborJobStateEnum.Failed, confirmed!.State, "confirmed job becomes terminal");
+                        AssertTrue(confirmed.StopConfirmed && confirmed.CompletionDelivered, "confirmed stop is durable and delivered");
+                    }
+                }
+            });
+
+            await RunTest("HarborDockReclaim_LegacyUnboundMissionJobStaysFencedUntilOperatorConfirmation", async () =>
+            {
+                await using (Harness harness = await Harness.StartAsync().ConfigureAwait(false))
+                {
+                    await harness.EnrollBothAsync().ConfigureAwait(false);
+                    Principal globalAdministrator = await harness.AddPrincipalAsync(harness.OwnerA.TenantId, "legacy-stop-admin", false, true).ConfigureAwait(false);
+                    using (MissionScope scope = await MissionScope.CreateAsync(harness, harness.OwnerA, "hbr_a").ConfigureAwait(false))
+                    {
+                        scope.Mission.Status = MissionStatusEnum.Pending;
+                        scope.Mission.AssignmentState = MissionAssignmentStateEnum.Pending;
+                        scope.Mission.CaptainId = null;
+                        scope.Mission.DockId = null;
+                        scope.Mission.HarborJobId = null;
+                        scope.Mission.ProcessId = null;
+                        scope.Mission.ProcessStartedUtc = null;
+                        scope.Mission.StartedUtc = null;
+                        scope.Mission.CompletedUtc = null;
+                        await harness.Driver.Missions.UpdateAsync(scope.Mission).ConfigureAwait(false);
+                        scope.Captain.State = CaptainStateEnum.Idle;
+                        scope.Captain.CurrentMissionId = null;
+                        scope.Captain.CurrentDockId = null;
+                        scope.Captain.ProcessId = null;
+                        scope.Captain.ProcessStartedUtc = null;
+                        await harness.Driver.Captains.UpdateAsync(scope.Captain).ConfigureAwait(false);
+                        scope.Dock.WorktreePath = null;
+                        await harness.Driver.Docks.UpdateAsync(scope.Dock).ConfigureAwait(false);
+
+                        DateTime nowUtc = DateTime.UtcNow;
+                        HarborJobRecord legacyJob = new HarborJobRecord
+                        {
+                            JobId = "hjob_legacy_" + Guid.NewGuid().ToString("N"),
+                            RunnerId = "hbr_a",
+                            LaunchKey = "legacy-mission:" + scope.Mission.Id,
+                            TenantId = harness.OwnerA.TenantId,
+                            UserId = harness.OwnerA.UserId,
+                            EnrollmentGeneration = 1,
+                            SessionGeneration = 1,
+                            State = HarborJobStateEnum.Uncertain,
+                            ProcessId = 9018,
+                            MissionId = scope.Mission.Id,
+                            CaptainId = scope.Captain.Id,
+                            DockId = null,
+                            AdmiralProcessId = ProcessSupervisor.AllocateSyntheticProcessId(),
+                            AdmiralProcessStartedUtc = nowUtc,
+                            RunnerProcessStartedUtc = nowUtc.AddSeconds(-5),
+                            StopConfirmed = false,
+                            CompletionDelivered = false,
+                            FailureReason = HarborJobCoordinator.ReasonResumeUnconfirmed,
+                            Revision = 1,
+                            CreatedUtc = nowUtc,
+                            LastUpdateUtc = nowUtc
+                        };
+                        await harness.Driver.HarborJobs.CreateAsync(legacyJob).ConfigureAwait(false);
+
+                        MissionScope recoveryScope = MissionScope.CreateRecovery(harness, "hbr_a", scope);
+                        using (recoveryScope)
+                        {
+                            AdmiralInstance restarted = await harness.RestartAdmiralAsync(recoveryScope.Handler, recoveryScope.UseCoordinator).ConfigureAwait(false);
+                            LoggingModule logging = new LoggingModule();
+                            logging.Settings.EnableConsole = false;
+                            ArmadaSettings settings = new ArmadaSettings();
+                            settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_harbor_legacy_reclaim_" + Guid.NewGuid().ToString("N"));
+                            DockService docks = new DockService(logging, harness.Driver, settings, new GitService(logging, null, harness.Driver));
+
+                            await docks.ReclaimAsync(scope.Dock.Id, scope.Dock.TenantId).ConfigureAwait(false);
+                            Dock? heldDock = await harness.Driver.Docks.ReadAsync(scope.Dock.TenantId, scope.Dock.Id).ConfigureAwait(false);
+                            AssertTrue(heldDock!.Active, "reclaim holds the actual dock when an unbound legacy mission job has no stop proof");
+
+                            HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(legacyJob.JobId).ConfigureAwait(false);
+                            AssertTrue(uncertain != null && uncertain.ProcessId == 9018, "legacy runner process identity survives recovery");
+                            HarborJobConfirmStoppedRequest confirmation = new HarborJobConfirmStoppedRequest
+                            {
+                                ExpectedRevision = uncertain!.Revision,
+                                EnrollmentGeneration = uncertain.EnrollmentGeneration,
+                                RunnerProcessId = uncertain.ProcessId,
+                                RunnerProcessStartedUtc = uncertain.RunnerProcessStartedUtc,
+                                Evidence = "host_confirmed_process_absent"
+                            };
+                            HttpReply confirmedReply = await harness.RequestAsync(globalAdministrator, System.Net.Http.HttpMethod.Post,
+                                "api/v1/harbor-runners/jobs/" + legacyJob.JobId + "/confirm-stopped", confirmation, restarted).ConfigureAwait(false);
+                            AssertEqual(HttpStatusCode.OK, confirmedReply.StatusCode, "global admin confirms the exact legacy runner process after mission and captain unbind");
+                            HarborJobRecord? confirmed = await harness.Driver.HarborJobs.ReadAsync(legacyJob.JobId).ConfigureAwait(false);
+                            AssertTrue(confirmed!.StopConfirmed && confirmed.CompletionDelivered, "operator confirmation accounts the legacy stop");
+
+                            await docks.ReclaimAsync(scope.Dock.Id, scope.Dock.TenantId).ConfigureAwait(false);
+                            Dock? reclaimedDock = await harness.Driver.Docks.ReadAsync(scope.Dock.TenantId, scope.Dock.Id).ConfigureAwait(false);
+                            AssertFalse(reclaimedDock!.Active, "reclaim proceeds after the legacy process stop is confirmed");
+                            HarborJobSnapshot? recoveredSnapshot;
+                            AssertTrue(restarted.Coordinator.TryGetJob(legacyJob.JobId, out recoveredSnapshot), "the confirmed legacy job remains readable after recovery");
+                        }
                     }
                 }
             });
@@ -1212,7 +1639,6 @@ namespace Armada.Test.Unit.Suites.Services
             public HarborRunnerSessionRegistry Registry => Primary.Registry;
             public HarborJobCoordinator Coordinator => Primary.Coordinator;
             public HarborJobService Jobs => Primary.Jobs;
-            public int LastReconciledJobCount { get; private set; }
             public Principal Administrator { get; }
             public Principal OwnerA { get; }
             public Principal OwnerB { get; }
@@ -1235,19 +1661,22 @@ namespace Armada.Test.Unit.Suites.Services
             /// Start a second Admiral over the same database, as a restarted process would: the restart
             /// reconciliation runs first, then a fresh registry, coordinator and link are served.
             /// </summary>
-            public async Task<AdmiralInstance> RestartAdmiralAsync()
+            public async Task<AdmiralInstance> RestartAdmiralAsync(IHarborJobRecoveryHost recoveryHost, Action<HarborJobCoordinator> configureRecovery)
             {
-                LastReconciledJobCount = await HarborJobCoordinator.ReconcileAfterRestartAsync(Driver.HarborJobs, DateTime.UtcNow).ConfigureAwait(false);
-                AdmiralInstance restarted = AdmiralInstance.Start(_Database, _Settings, _Authentication, _Logging);
+                AdmiralInstance restarted = await AdmiralInstance.StartAsync(_Database, _Settings, _Authentication, _Logging, recoveryHost, configureRecovery).ConfigureAwait(false);
                 _Admirals.Add(restarted);
                 return restarted;
             }
 
-            public async Task<HttpReply> RequestAsync(Principal? caller, System.Net.Http.HttpMethod method, string path)
+            public async Task<HttpReply> RequestAsync(Principal? caller, System.Net.Http.HttpMethod method, string path, object? body = null,
+                AdmiralInstance? target = null)
             {
-                using (HttpRequestMessage request = new HttpRequestMessage(method, path))
+                Uri? targetUri = target == null ? null : new Uri("http://127.0.0.1:" + target.Port + "/" + path);
+                using (HttpRequestMessage request = new HttpRequestMessage(method, targetUri == null ? path : targetUri.ToString()))
                 {
                     if (caller != null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", caller.BearerToken);
+                    if (body != null)
+                        request.Content = new StringContent(JsonSerializer.Serialize(body, new JsonSerializerOptions(JsonSerializerDefaults.Web)), Encoding.UTF8, "application/json");
                     using (HttpResponseMessage response = await _Http.SendAsync(request).ConfigureAwait(false))
                     {
                         return new HttpReply(response.StatusCode, await response.Content.ReadAsStringAsync().ConfigureAwait(false));
@@ -1266,7 +1695,7 @@ namespace Armada.Test.Unit.Suites.Services
                 return keys;
             }
 
-            public static async Task<Harness> StartAsync()
+            public static async Task<Harness> StartAsync(TimeSpan? stopConfirmationTimeout = null)
             {
                 TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 TenantMetadata tenant = await database.Driver.Tenants.CreateAsync(new TenantMetadata("harbor-transport-" + Guid.NewGuid().ToString("N"))).ConfigureAwait(false);
@@ -1279,7 +1708,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.Harbor.Enabled = true;
                 AuthenticationService authentication = new AuthenticationService(database.Driver, new SessionTokenService(), settings, logging);
-                AdmiralInstance primary = AdmiralInstance.Start(database, settings, authentication, logging);
+                AdmiralInstance primary = await AdmiralInstance.StartAsync(database, settings, authentication, logging, stopConfirmationTimeout: stopConfirmationTimeout).ConfigureAwait(false);
                 return new Harness(database, settings, authentication, logging, primary, administrator, ownerA, ownerB);
             }
 
@@ -1390,11 +1819,12 @@ namespace Armada.Test.Unit.Suites.Services
                 Jobs = jobs;
             }
 
-            public static AdmiralInstance Start(TestDatabase database, ArmadaSettings settings, AuthenticationService authentication, LoggingModule logging)
+            public static async Task<AdmiralInstance> StartAsync(TestDatabase database, ArmadaSettings settings, AuthenticationService authentication, LoggingModule logging,
+                IHarborJobRecoveryHost? recoveryHost = null, Action<HarborJobCoordinator>? configureRecovery = null, TimeSpan? stopConfirmationTimeout = null)
             {
                 HarborRunnerEnrollmentService enrollments = new HarborRunnerEnrollmentService(database.Driver);
                 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, enrollments);
-                HarborJobCoordinator coordinator = new HarborJobCoordinator(registry, enrollments, database.Driver.HarborJobs, logging);
+                HarborJobCoordinator coordinator = new HarborJobCoordinator(registry, enrollments, database.Driver.HarborJobs, logging, stopConfirmationTimeout);
                 HarborJobService jobs = new HarborJobService(coordinator, database.Driver.HarborJobs, enrollments);
                 HarborLinkEndpoint endpoint = new HarborLinkEndpoint(settings.Harbor, authentication, registry, coordinator, logging);
 
@@ -1414,6 +1844,13 @@ namespace Armada.Test.Unit.Suites.Services
                 new HarborRunnerEnrollmentRoutes(enrollments, jsonOptions).Register(server, authenticate, new AuthorizationService());
                 new HarborJobRoutes(jobs, jsonOptions).Register(server, authenticate, new AuthorizationService());
                 CancellationTokenSource cancellation = new CancellationTokenSource();
+                if (recoveryHost != null) configureRecovery?.Invoke(coordinator);
+                if (recoveryHost != null && !await coordinator.InitializeRecoveryAsync(recoveryHost, cancellation.Token).ConfigureAwait(false))
+                {
+                    cancellation.Dispose();
+                    server.Dispose();
+                    throw new InvalidOperationException("Harbor job recovery did not complete before the test link started.");
+                }
                 server.Start(cancellation.Token);
                 return new AdmiralInstance(server, cancellation, port, registry, coordinator, jobs);
             }
@@ -1465,6 +1902,7 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class MissionScope : IDisposable
         {
             private readonly string _Root;
+            private readonly ConcurrentQueue<string> _LifecycleEvents;
 
             public AgentLifecycleHandler Handler { get; }
             public RecordingAdmiral Admiral { get; }
@@ -1473,9 +1911,11 @@ namespace Armada.Test.Unit.Suites.Services
             public Dock Dock { get; }
             public string LogFilePath { get; }
 
-            private MissionScope(string root, AgentLifecycleHandler handler, RecordingAdmiral admiral, Captain captain, Mission mission, Dock dock, string logFilePath)
+            private MissionScope(string root, AgentLifecycleHandler handler, RecordingAdmiral admiral, Captain captain, Mission mission, Dock dock,
+                string logFilePath, ConcurrentQueue<string> lifecycleEvents)
             {
                 _Root = root;
+                _LifecycleEvents = lifecycleEvents;
                 Handler = handler;
                 Admiral = admiral;
                 Captain = captain;
@@ -1494,6 +1934,11 @@ namespace Armada.Test.Unit.Suites.Services
                 settings.LogDirectory = Path.Combine(root, "logs");
                 settings.Harbor.Enabled = true;
 
+                Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("Harbor mission vessel", "https://example.invalid/harbor-mission")
+                {
+                    TenantId = missionOwner.TenantId,
+                    UserId = missionOwner.UserId
+                }).ConfigureAwait(false);
                 Mission mission = new Mission("Harbor mission")
                 {
                     Persona = "Worker",
@@ -1501,25 +1946,39 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = MissionStatusEnum.Assigned,
                     AssignmentState = MissionAssignmentStateEnum.Assigned,
                     TenantId = missionOwner.TenantId,
-                    UserId = missionOwner.UserId
+                    UserId = missionOwner.UserId,
+                    VesselId = vessel.Id
                 };
                 Captain captain = new Captain("harbor-captain-" + Guid.NewGuid().ToString("N").Substring(0, 8), AgentRuntimeEnum.ClaudeCode)
                 {
                     State = CaptainStateEnum.Working,
-                    CurrentMissionId = mission.Id,
-                    TenantId = missionOwner.TenantId
+                    TenantId = missionOwner.TenantId,
+                    UserId = missionOwner.UserId
                 };
                 configureCaptain?.Invoke(captain);
                 mission.CaptainId = captain.Id;
+                Dock dock = new Dock(vessel.Id)
+                {
+                    TenantId = missionOwner.TenantId,
+                    UserId = missionOwner.UserId,
+                    CaptainId = captain.Id,
+                    BranchName = mission.BranchName,
+                    WorktreePath = worktree
+                };
+                mission.DockId = dock.Id;
                 settings.Harbor.MissionRoutes.Add(new HarborMissionRoute { RunnerId = runnerId, CaptainId = captain.Id });
                 if (prepare != null) await prepare(root, settings, mission).ConfigureAwait(false);
                 await harness.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                await harness.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
                 await harness.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
-                Dock dock = new Dock { BranchName = mission.BranchName, WorktreePath = worktree };
+                captain.CurrentMissionId = mission.Id;
+                captain.CurrentDockId = dock.Id;
+                await harness.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
 
                 LoggingModule logging = new LoggingModule();
                 logging.Settings.EnableConsole = false;
                 RecordingAdmiral admiral = RecordingAdmiral.Create();
+                ConcurrentQueue<string> lifecycleEvents = new ConcurrentQueue<string>();
                 AgentLifecycleHandler handler = new AgentLifecycleHandler(
                     logging,
                     harness.Driver,
@@ -1529,9 +1988,55 @@ namespace Armada.Test.Unit.Suites.Services
                     new MessageTemplateService(logging),
                     null,
                     null,
-                    (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+                    (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) =>
+                    {
+                        lifecycleEvents.Enqueue(eventType);
+                        return Task.CompletedTask;
+                    });
                 handler.SetHarborHost(new HarborMissionExecutor(harness.Coordinator, logging));
-                return new MissionScope(root, handler, admiral, captain, mission, dock, Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log"));
+                return new MissionScope(root, handler, admiral, captain, mission, dock,
+                    Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log"), lifecycleEvents);
+            }
+
+            public static MissionScope CreateRecovery(Harness harness, string runnerId, MissionScope previous)
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.LogDirectory = Path.Combine(previous._Root, "logs");
+                settings.Harbor.Enabled = true;
+                settings.Harbor.MissionRoutes.Add(new HarborMissionRoute { RunnerId = runnerId, CaptainId = previous.Captain.Id });
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                RecordingAdmiral admiral = RecordingAdmiral.Create();
+                ConcurrentQueue<string> lifecycleEvents = new ConcurrentQueue<string>();
+                AgentLifecycleHandler handler = new AgentLifecycleHandler(
+                    logging,
+                    harness.Driver,
+                    settings,
+                    new AgentRuntimeFactory(logging),
+                    admiral.Service,
+                    new MessageTemplateService(logging),
+                    null,
+                    null,
+                    (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) =>
+                    {
+                        lifecycleEvents.Enqueue(eventType);
+                        return Task.CompletedTask;
+                    });
+                handler.SetHarborHost(new HarborMissionExecutor(harness.Coordinator, logging));
+                return new MissionScope(previous._Root, handler, admiral, previous.Captain, previous.Mission, previous.Dock, previous.LogFilePath, lifecycleEvents);
+            }
+
+            public void UseCoordinator(HarborJobCoordinator coordinator)
+            {
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                Handler.SetHarborHost(new HarborMissionExecutor(coordinator, logging));
+            }
+
+            public bool HasLifecycleEvent(string eventType)
+            {
+                return _LifecycleEvents.Contains(eventType);
             }
 
             public void Dispose()

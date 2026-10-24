@@ -48,7 +48,9 @@ namespace Armada.Core
         /// <param name="processId">Synthetic process identifier.</param>
         public static void RegisterSyntheticProcess(int processId)
         {
-            _SyntheticProcesses[processId] = new SyntheticProcess(null);
+            if (processId <= SyntheticProcessIdFloor) throw new ArgumentOutOfRangeException(nameof(processId));
+            if (!_SyntheticProcesses.TryAdd(processId, new SyntheticProcess(null)))
+                throw new InvalidOperationException("synthetic_process_id_already_registered");
         }
 
         /// <summary>
@@ -60,7 +62,24 @@ namespace Armada.Core
         public static void RegisterSyntheticProcess(int processId, Func<CancellationToken, Task> stop)
         {
             if (stop == null) throw new ArgumentNullException(nameof(stop));
-            _SyntheticProcesses[processId] = new SyntheticProcess(stop);
+            if (processId <= SyntheticProcessIdFloor) throw new ArgumentOutOfRangeException(nameof(processId));
+            if (!_SyntheticProcesses.TryAdd(processId, new SyntheticProcess(stop)))
+                throw new InvalidOperationException("synthetic_process_id_already_registered");
+        }
+
+        /// <summary>
+        /// Restore a synthetic process owned by a Harbor job from durable mission state. The allocator moves past
+        /// the restored identifier before registration, so a later launch cannot receive the same identifier.
+        /// </summary>
+        /// <param name="processId">Previously persisted synthetic identifier.</param>
+        /// <param name="stop">Stops the restored Harbor job.</param>
+        /// <returns>True when the identifier was restored; false when another runtime already owns it.</returns>
+        public static bool TryRestoreSyntheticProcess(int processId, Func<CancellationToken, Task> stop)
+        {
+            if (processId <= SyntheticProcessIdFloor) return false;
+            if (stop == null) throw new ArgumentNullException(nameof(stop));
+            AdvanceSyntheticProcessId(processId);
+            return _SyntheticProcesses.TryAdd(processId, new SyntheticProcess(stop));
         }
 
         /// <summary>
@@ -82,6 +101,16 @@ namespace Armada.Core
         public static bool IsSyntheticProcessAlive(int processId)
         {
             return _SyntheticProcesses.ContainsKey(processId);
+        }
+
+        private static void AdvanceSyntheticProcessId(int processId)
+        {
+            while (true)
+            {
+                int current = Volatile.Read(ref _NextSyntheticProcessId);
+                if (current >= processId) return;
+                if (Interlocked.CompareExchange(ref _NextSyntheticProcessId, processId, current) == current) return;
+            }
         }
 
         /// <summary>

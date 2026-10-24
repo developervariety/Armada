@@ -99,6 +99,32 @@ namespace Armada.Core.Services
             return await _Coordinator.StopAsync(caller, record.JobId, 10000, token).ConfigureAwait(false);
         }
 
+        /// <summary>Record an administrator's verified stop confirmation for an uncertain disconnected job.</summary>
+        /// <param name="caller">Verified global administrator.</param>
+        /// <param name="jobId">Durable job identifier.</param>
+        /// <param name="expectedRevision">Revision inspected by the administrator.</param>
+        /// <param name="enrollmentGeneration">Expected durable runner enrollment generation.</param>
+        /// <param name="runnerProcessId">Expected runner process identifier.</param>
+        /// <param name="runnerProcessStartedUtc">Expected runner process start time.</param>
+        /// <param name="evidence">Named evidence that confirms the process stopped.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the exact uncertain job was confirmed.</returns>
+        public Task<bool> ConfirmStoppedByOperatorAsync(
+            AuthContext caller,
+            string jobId,
+            long expectedRevision,
+            long enrollmentGeneration,
+            int? runnerProcessId,
+            DateTime? runnerProcessStartedUtc,
+            string evidence,
+            CancellationToken token = default)
+        {
+            if (caller == null || !caller.IsAuthenticated || !caller.IsAdmin)
+                return Task.FromResult(false);
+            return _Coordinator.ConfirmStoppedByOperatorAsync(jobId, expectedRevision, enrollmentGeneration,
+                runnerProcessId, runnerProcessStartedUtc, evidence, token);
+        }
+
         #endregion
 
         #region Private-Methods

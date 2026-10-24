@@ -1012,7 +1012,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(117, "Persist the earlier run a check took its result from", CheckRunSatisfiedByPersistence.SqlServerStatements),
                 new SchemaMigration(118, "Add preserved_run_output column to missions so an in-place Judge re-run keeps the prior run's review output and verdict",
                     @"IF COL_LENGTH('missions', 'preserved_run_output') IS NULL ALTER TABLE missions ADD preserved_run_output NVARCHAR(MAX);"
-                )
+                ),
+                new SchemaMigration(119, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.SqlServerStatements)
             };
         }
 
