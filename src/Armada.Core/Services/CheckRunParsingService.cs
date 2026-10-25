@@ -56,6 +56,14 @@ namespace Armada.Core.Services
             @"(?im)^Test Count:\s*(?<total>\d+),\s*Passed:\s*(?<passed>\d+),\s*Failed:\s*(?<failed>\d+),\s*Warnings:\s*(?<warnings>\d+),\s*Inconclusive:\s*(?<inconclusive>\d+),\s*Skipped:\s*(?<skipped>\d+)",
             RegexOptions.Compiled);
 
+        private static readonly Regex _ConsoleTablePrefixRegex = new Regex(
+            @"(?m)^[ \t]*(?:unit(?:-shard-[1-9]\d*)?|automated|runtimes|shared)[ \t]+Total:",
+            RegexOptions.Compiled);
+
+        private static readonly Regex _ConsoleTableRowRegex = new Regex(
+            @"(?m)^[ \t]*(?<name>unit(?:-shard-[1-9]\d*)?|automated|runtimes|shared)[ \t]+Total:[ \t]*(?<total>\d+)[ \t]+Passed:[ \t]*(?<passed>\d+)[ \t]+Failed:[ \t]*(?<failed>\d+)[ \t]+Skipped:[ \t]*(?<skipped>\d+)(?:[ \t]+Runtime:[ \t]*\d+ms)?(?:[ \t]+\((?<seen>\d+) of (?<expected>\d+) shards summarised\))?[ \t]*\r?$",
+            RegexOptions.Compiled);
+
         private static readonly Regex _DurationTokenRegex = new Regex(
             @"(?<value>\d+(?:\.\d+)?)\s*(?<unit>ms|milliseconds?|s|sec|secs|seconds?|m|min|mins|minutes?)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -84,12 +92,36 @@ namespace Armada.Core.Services
             }
             else
             {
-                outputSummary = ParseDotNetSummary(output)
-                ?? ParsePytestSummary(output)
-                ?? ParseJavascriptSummary(output)
-                ?? ParseCargoSummary(output)
-                ?? ParseMavenSurefireSummary(output)
-                ?? ParseNUnitConsoleSummary(output);
+                CheckRunTestSummary? table = ParseConsoleTable(output, out string remainder);
+                if (table == null && _ConsoleTablePrefixRegex.IsMatch(output)) return null;
+                if (table == null) outputSummary = ParseNonConsoleSummary(output);
+                else
+                {
+                    List<CheckRunTestSummary> outside = new[]
+                    {
+                        ParseDotNetSummary(remainder), ParsePytestSummary(remainder), ParseJavascriptSummary(remainder),
+                        ParseCargoSummary(remainder), ParseMavenSurefireSummary(remainder), ParseNUnitConsoleSummary(remainder)
+                    }.Where(summary => summary != null).Select(summary => summary!).ToList();
+                    // Several outside formats can describe overlapping runs. Leave their combined
+                    // counts unknown rather than hide a failure through parser precedence.
+                    if (outside.Count > 1) return null;
+                    if (outside.Count == 0) return table;
+                    outputSummary = outside[0];
+                    // Concurrent shard runtimes are not this combined run's duration.
+                    try
+                    {
+                        checked
+                        {
+                            return new CheckRunTestSummary
+                            {
+                                Format = "combined", Total = table.Total + outputSummary.Total,
+                                Passed = table.Passed + outputSummary.Passed, Failed = table.Failed + outputSummary.Failed,
+                                Skipped = table.Skipped + outputSummary.Skipped
+                            };
+                        }
+                    }
+                    catch (OverflowException) { return null; }
+                }
             }
 
             if (outputSummary != null)
@@ -130,6 +162,60 @@ namespace Armada.Core.Services
             }
 
             return null;
+        }
+
+        /// <summary>Read the run-tests console table once, sharing its row ownership with the test digest.</summary>
+        internal static CheckRunTestSummary? ParseConsoleTable(string output, out string remainder)
+        {
+            remainder = output;
+            MatchCollection matches = _ConsoleTableRowRegex.Matches(output);
+            if (matches.Count == 0 || matches.Count != _ConsoleTablePrefixRegex.Matches(output).Count) return null;
+            Dictionary<string, CheckRunTestSummary> rows = new Dictionary<string, CheckRunTestSummary>(StringComparer.Ordinal);
+            Match? aggregate = null;
+            foreach (Match match in matches)
+            {
+                if (!Int32.TryParse(match.Groups["total"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int total)
+                    || !Int32.TryParse(match.Groups["passed"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int passed)
+                    || !Int32.TryParse(match.Groups["failed"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int failed)
+                    || !Int32.TryParse(match.Groups["skipped"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int skipped)
+                    || (long)passed + failed + skipped != total) return null;
+                string name = match.Groups["name"].Value;
+                if (!rows.TryAdd(name, new CheckRunTestSummary { Total = total, Passed = passed, Failed = failed, Skipped = skipped })) return null;
+                if (name == "unit") aggregate = match;
+            }
+            List<CheckRunTestSummary> shards = rows.Where(row => row.Key.StartsWith("unit-shard-", StringComparison.Ordinal)).Select(row => row.Value).ToList();
+            if (aggregate != null)
+            {
+                CheckRunTestSummary unit = rows["unit"];
+                if (aggregate.Groups["seen"].Success
+                    && (!Int32.TryParse(aggregate.Groups["seen"].Value, out int seen)
+                        || !Int32.TryParse(aggregate.Groups["expected"].Value, out int expected)
+                        || seen != expected || (shards.Count > 0 && seen != shards.Count))) return null;
+                if (shards.Count > 0 && (shards.Sum(row => (long)row.Total!.Value) != unit.Total
+                    || shards.Sum(row => (long)row.Passed!.Value) != unit.Passed
+                    || shards.Sum(row => (long)row.Failed!.Value) != unit.Failed
+                    || shards.Sum(row => (long)row.Skipped!.Value) != unit.Skipped)) return null;
+            }
+            List<CheckRunTestSummary> selected = rows.Where(row => aggregate == null || !row.Key.StartsWith("unit-shard-", StringComparison.Ordinal)).Select(row => row.Value).ToList();
+            long allTotal = selected.Sum(row => (long)row.Total!.Value);
+            if (allTotal > Int32.MaxValue) return null;
+            remainder = _ConsoleTableRowRegex.Replace(output, String.Empty);
+            return new CheckRunTestSummary
+            {
+                Format = "console", Total = (int)allTotal,
+                Passed = (int)selected.Sum(row => (long)row.Passed!.Value),
+                Failed = (int)selected.Sum(row => (long)row.Failed!.Value),
+                Skipped = (int)selected.Sum(row => (long)row.Skipped!.Value)
+            };
+        }
+
+        /// <summary>Whether output contains a console table row, including one with invalid counts.</summary>
+        internal static bool HasConsoleTableRows(string output) => _ConsoleTablePrefixRegex.IsMatch(output);
+
+        private static CheckRunTestSummary? ParseNonConsoleSummary(string output)
+        {
+            return ParseDotNetSummary(output) ?? ParsePytestSummary(output) ?? ParseJavascriptSummary(output)
+                ?? ParseCargoSummary(output) ?? ParseMavenSurefireSummary(output) ?? ParseNUnitConsoleSummary(output);
         }
 
         private static CheckRunTestSummary? ParseDotNetSummary(string output)

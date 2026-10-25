@@ -83,7 +83,9 @@ namespace Armada.Core.Services
             HashSet<string> failingSeen = new HashSet<string>(StringComparer.Ordinal);
             List<string> skipped = new List<string>();
             HashSet<string> skippedSeen = new HashSet<string>(StringComparer.Ordinal);
-            int summarySkipped = 0;
+            Armada.Core.Models.CheckRunTestSummary? table = CheckRunParsingService.ParseConsoleTable(output, out _);
+            int summarySkipped = table?.Skipped ?? 0;
+            bool unknownTableCounts = table == null && CheckRunParsingService.HasConsoleTableRows(output);
             bool patternTimedOut = false;
 
             for (int i = 0; i < lines.Length; i++)
@@ -105,6 +107,7 @@ namespace Armada.Core.Services
                     continue;
                 }
 
+                if (CheckRunParsingService.HasConsoleTableRows(line)) continue;
                 foreach (Match match in _SummarySkippedCountPattern.Matches(line))
                 {
                     if (Int32.TryParse(match.Groups["count"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int count))
@@ -112,7 +115,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (failing.Count == 0 && skipped.Count == 0 && summarySkipped == 0) return null;
+            if (failing.Count == 0 && skipped.Count == 0 && summarySkipped == 0 && !unknownTableCounts) return null;
 
             StringBuilder sb = new StringBuilder();
             if (failing.Count > 0)
@@ -137,6 +140,9 @@ namespace Armada.Core.Services
                         .Append(fullLogPointer).Append('\n');
                 }
             }
+
+            if (unknownTableCounts)
+                sb.Append("Console table counts could not be verified; full log: ").Append(fullLogPointer).Append('\n');
 
             string text = sb.ToString().TrimEnd('\n');
             return text.Length <= MaxDigestChars ? text : text.Substring(0, MaxDigestChars);

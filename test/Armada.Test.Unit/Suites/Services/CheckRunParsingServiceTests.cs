@@ -168,6 +168,11 @@ namespace Armada.Test.Unit.Suites.Services
                     + "Failed!  - Failed: 1, Passed: 1, Skipped: 0, Total: 2, Duration: 10 ms - Other.Tests.dll (net10.0)\n");
                 AssertNotNull(mixed, "an independent non-table summary remains visible");
                 AssertEqual(6, mixed!.Total); AssertEqual(3, mixed.Passed); AssertEqual(2, mixed.Failed); AssertEqual(1, mixed.Skipped);
+                AssertNull(CheckRunParsingService.ParseTestSummary(details + aggregate
+                    + "Passed!  - Failed: 0, Passed: 2, Skipped: 0, Total: 2, Duration: 10 ms - Other.Tests.dll (net10.0)\n"
+                    + "===== 1 failed, 2 passed in 0.10s =====\n"), "ambiguous outside formats cannot hide a failure through parser precedence");
+                AssertNull(CheckRunParsingService.ParseTestSummary(details + aggregate.Replace("2 of 2", "1 of 2")), "an incomplete aggregate is not a verified count");
+                AssertNull(CheckRunParsingService.ParseTestSummary(details + "unit Total: malformed\n"), "a malformed table stays unknown");
             }).ConfigureAwait(false);
 
             await RunTest("Jest and Vitest summaries parse counts, watch output, and duration", () =>

@@ -93,6 +93,10 @@ namespace Armada.Test.Unit.Suites.Services
                 string tableOutcomes = CheckRunSummaryView.From(MakeRun(table), 40).TestOutcomes ?? String.Empty;
                 AssertContains("--- SKIPPED TESTS (3) ---", tableOutcomes, "shard and aggregate skips count once");
                 AssertContains("X.Y.RealFailure: System.InvalidOperationException: retained failure", tableOutcomes, "table aggregation never hides a real failure");
+                string invalidOutcomes = CheckRunSummaryView.From(MakeRun(table.Replace("Total: 6 Passed: 2 Failed: 1", "Total: 6 Passed: 3 Failed: 0")), 40).TestOutcomes ?? String.Empty;
+                AssertContains("counts could not be verified", invalidOutcomes, "inconsistent table counts stay unknown");
+                AssertFalse(invalidOutcomes.Contains("SKIPPED TESTS (6)", StringComparison.Ordinal), "invalid ownership cannot recreate doubled skips");
+                AssertContains("X.Y.RealFailure: System.InvalidOperationException: retained failure", invalidOutcomes, "invalid counts still retain the actual failure");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
