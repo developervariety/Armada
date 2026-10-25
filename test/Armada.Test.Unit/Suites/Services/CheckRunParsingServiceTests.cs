@@ -136,6 +136,38 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, pytestSummary.Skipped, "Pytest uses the final skipped count.");
                 AssertEqual(7, pytestSummary.Total, "Pytest total includes skipped tests.");
                 AssertEqual(1500L, pytestSummary.DurationMs, "Pytest uses the final duration.");
+
+                string table = "unit-shard-1 Total: 1147 Passed: 1146 Failed: 0 Skipped: 1 Runtime: 116691ms\n"
+                    + "unit-shard-2 Total: 2242 Passed: 2241 Failed: 0 Skipped: 1 Runtime: 40623ms\n"
+                    + "unit-shard-3 Total: 447 Passed: 447 Failed: 0 Skipped: 0 Runtime: 27712ms\n"
+                    + "unit-shard-4 Total: 485 Passed: 485 Failed: 0 Skipped: 0 Runtime: 48965ms\n"
+                    + "unit-shard-5 Total: 758 Passed: 757 Failed: 0 Skipped: 1 Runtime: 68418ms\n"
+                    + "unit-shard-6 Total: 601 Passed: 601 Failed: 0 Skipped: 0 Runtime: 55834ms\n"
+                    + "unit Total: 5680 Passed: 5677 Failed: 0 Skipped: 3 (6 of 6 shards summarised)\n";
+                foreach (string newline in new[] { "\n", "\r\n" })
+                {
+                    CheckRunTestSummary? console = CheckRunParsingService.ParseTestSummary(table.Replace("\n", newline));
+                    AssertNotNull(console, "the actual sharded console summary is recognized");
+                    AssertEqual(5680, console!.Total);
+                    AssertEqual(5677, console.Passed);
+                    AssertEqual(0, console.Failed);
+                    AssertEqual(3, console.Skipped, "the aggregate replaces its shard rows");
+                    AssertNull(console.DurationMs, "concurrent shard runtimes are not summed");
+                }
+                string details = "unit-shard-1 Total: 2 Passed: 1 Failed: 1 Skipped: 0\nunit-shard-2 Total: 2 Passed: 1 Failed: 0 Skipped: 1\n";
+                string aggregate = "unit Total: 4 Passed: 2 Failed: 1 Skipped: 1 (2 of 2 shards summarised)\n";
+                foreach (string body in new[] { details, details + aggregate })
+                {
+                    CheckRunTestSummary? failed = CheckRunParsingService.ParseTestSummary(body + "automated Total: 3 Passed: 2 Failed: 0 Skipped: 1\n");
+                    AssertNotNull(failed, "shard fallback and independent suites remain visible");
+                    AssertEqual(7, failed!.Total); AssertEqual(4, failed.Passed); AssertEqual(1, failed.Failed); AssertEqual(2, failed.Skipped);
+                }
+                AssertNull(CheckRunParsingService.ParseTestSummary(details + "unit Total: 4 Passed: 3 Failed: 0 Skipped: 1 (2 of 2 shards summarised)\n"), "an inconsistent aggregate cannot hide a failed shard");
+                AssertNull(CheckRunParsingService.ParseTestSummary(details + details), "duplicate shard rows are ambiguous");
+                CheckRunTestSummary? mixed = CheckRunParsingService.ParseTestSummary(details + aggregate
+                    + "Failed!  - Failed: 1, Passed: 1, Skipped: 0, Total: 2, Duration: 10 ms - Other.Tests.dll (net10.0)\n");
+                AssertNotNull(mixed, "an independent non-table summary remains visible");
+                AssertEqual(6, mixed!.Total); AssertEqual(3, mixed.Passed); AssertEqual(2, mixed.Failed); AssertEqual(1, mixed.Skipped);
             }).ConfigureAwait(false);
 
             await RunTest("Jest and Vitest summaries parse counts, watch output, and duration", () =>

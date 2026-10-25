@@ -85,6 +85,14 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("X.Y.StderrTest: Assert.Equal() Failure: Values differ", outcomes, "The stderr failure is named with its exception line");
                 for (int i = 1; i <= 17; i++)
                     AssertContains("X.Y.SkippedTest" + i + "\n", outcomes + "\n", "Skip " + i + " of 17 is listed");
+
+                string table = "unit-shard-1 Total: 3 Passed: 1 Failed: 1 Skipped: 1\n"
+                    + "unit-shard-2 Total: 3 Passed: 1 Failed: 0 Skipped: 2\n"
+                    + "unit Total: 6 Passed: 2 Failed: 1 Skipped: 3 (2 of 2 shards summarised)\n"
+                    + "  Failed X.Y.RealFailure [1 ms]\n  Error Message:\n   System.InvalidOperationException: retained failure\n";
+                string tableOutcomes = CheckRunSummaryView.From(MakeRun(table), 40).TestOutcomes ?? String.Empty;
+                AssertContains("--- SKIPPED TESTS (3) ---", tableOutcomes, "shard and aggregate skips count once");
+                AssertContains("X.Y.RealFailure: System.InvalidOperationException: retained failure", tableOutcomes, "table aggregation never hides a real failure");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
