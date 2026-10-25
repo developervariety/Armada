@@ -423,9 +423,12 @@ namespace Armada.Test.Unit.Suites.Services
                         service.GetStatus(account, null, DateTime.UtcNow);
                         await Task.Delay(500).ConfigureAwait(false);
                         AssertEqual(callsBefore, File.ReadAllLines(counter).Length, "a fresh result is reused within the interval");
-                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, await WaitForReasonAsync(service, account, AccountLoginProbe.ReasonLoginExpired, DateTime.UtcNow.AddMinutes(11)).ConfigureAwait(false), "after the interval the probe runs again");
+                        // Expire the cache once; polling with the future clock would expire every
+                        // newly completed probe again and leave a writer running during teardown.
+                        service.GetStatus(account, null, DateTime.UtcNow.AddMinutes(11));
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, await WaitForReasonAsync(service, account, AccountLoginProbe.ReasonLoginExpired).ConfigureAwait(false), "after the interval the probe runs again");
                         AssertEqual(callsBefore + 1, File.ReadAllLines(counter).Length);
-                        AssertFalse(System.Text.Json.JsonSerializer.Serialize(service.GetStatus(account, null, DateTime.UtcNow.AddMinutes(11))).Contains("Not logged in"), "probe output never reaches status");
+                        AssertFalse(System.Text.Json.JsonSerializer.Serialize(service.GetStatus(account, null, DateTime.UtcNow)).Contains("Not logged in"), "probe output never reaches status");
                     }
                     finally { Directory.Delete(scratch, true); Directory.Delete(home, true); }
                 });
@@ -704,13 +707,13 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private static async Task<string?> WaitForReasonAsync(UsageRoutingService service, UsageAccountSettings account, string expected, DateTime? now = null)
+        private static async Task<string?> WaitForReasonAsync(UsageRoutingService service, UsageAccountSettings account, string expected)
         {
             DateTime deadline = DateTime.UtcNow.AddSeconds(15);
             string? reason = null;
             while (DateTime.UtcNow < deadline)
             {
-                reason = service.GetLoginProblem(account, now ?? DateTime.UtcNow);
+                reason = service.GetLoginProblem(account, DateTime.UtcNow);
                 if (reason == expected) return reason;
                 await Task.Delay(50).ConfigureAwait(false);
             }
