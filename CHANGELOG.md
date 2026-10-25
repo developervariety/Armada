@@ -7,6 +7,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Research preflight distinguishes explicit optional document work after review
+  from the current deliverable. Current commit duties and other blockers remain.
+
 - Harbor startup reads the final journal after supervisor exit. Empty runner
   heartbeats preserve a known refusal reason and retain the completion fence.
 
