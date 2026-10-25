@@ -1037,7 +1037,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Missions")
                 .WithSummary("Restart a failed or cancelled mission")
-                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields. Any other status is refused with 409; a LandingFailed mission keeps its produced work, and the refusal names retry-landing. A mission whose voyage is Complete, Failed or Cancelled is refused with 409 naming the voyage status: dispatch a new voyage or a rescue instead.")
+                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields. Any other status is refused with 409; a LandingFailed mission keeps its produced work, and the refusal names retry-landing. A mission whose voyage is Complete or Cancelled is refused with 409 naming the voyage status. An eligible failed stage, or a dependent stage cancelled after it, can reopen a Failed voyage at its last verified commit; cancelled downstream stages also return to Pending. Other ended-voyage cases require a new voyage or a rescue.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<MissionRestartRequest>("Optional updated instructions", false))
                 .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission"))

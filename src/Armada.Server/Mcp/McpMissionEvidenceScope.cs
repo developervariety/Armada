@@ -118,8 +118,8 @@ namespace Armada.Server.Mcp
         }
 
         /// <summary>
-        /// Return the id of the objective that authorizes the caller's own mission: one that lists the
-        /// mission, or else one that lists its voyage. Null when the caller holds no mission credential or
+        /// Return the id of the objective that authorizes the caller's own mission: the voyage's canonical
+        /// authorizer, then legacy direct mission or voyage links. Null when the caller holds no mission credential or
         /// no objective authorizes it.
         /// </summary>
         public static async Task<string?> FindOwnObjectiveIdAsync(DatabaseDriver database, AuthContext caller)
@@ -127,6 +127,13 @@ namespace Armada.Server.Mcp
             Mission? anchor = await ReadAnchorAsync(database, caller).ConfigureAwait(false);
             if (anchor == null) return null;
             List<Objective> owned = await ReadOwnedObjectivesAsync(database, caller).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(anchor.VoyageId))
+            {
+                Voyage? voyage = await CallerScopedRead.ReadVoyageAsync(database, OwnerScopeOf(caller), anchor.VoyageId).ConfigureAwait(false);
+                string? authorizerId = VoyageObjectiveResolver.ReadBriefObjectiveId(voyage?.Description);
+                Objective? authorizer = owned.FirstOrDefault(objective => String.Equals(objective.Id, authorizerId, StringComparison.Ordinal));
+                if (authorizer != null) return authorizer.Id;
+            }
             Objective? direct = owned.FirstOrDefault(objective => objective.MissionIds.Contains(anchor.Id, StringComparer.Ordinal));
             if (direct != null) return direct.Id;
             Objective? byVoyage = owned.FirstOrDefault(objective => Authorizes(objective, anchor));

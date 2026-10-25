@@ -347,9 +347,18 @@ namespace Armada.Test.Unit.Suites.Services
                         Objective read = (Objective)await readObjective!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false);
                         AssertEqual(objective.Id, read.Id, "an omitted objectiveId reads the objective that authorizes the captain's mission");
 
-                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("bound work", ObjectiveBriefRenderer.Render(objective))).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("bound work")).ConfigureAwait(false);
                         own.VoyageId = voyage.Id;
                         await testDb.Driver.Missions.UpdateAsync(own).ConfigureAwait(false);
+                        await testDb.Driver.Objectives.CreateAsync(new Objective
+                        {
+                            Title = "Legacy voyage listing",
+                            VoyageIds = new List<string> { voyage.Id }
+                        }).ConfigureAwait(false);
+                        read = (Objective)await readObjective!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false);
+                        AssertEqual(objective.Id, read.Id, "a markerless legacy voyage retains direct mission precedence");
+                        voyage.Description = ObjectiveBriefRenderer.Render(objective);
+                        await testDb.Driver.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
                         objective.MissionIds.Clear();
                         objective.VoyageIds.Add(voyage.Id);
                         await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);

@@ -369,7 +369,7 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
                     {
                         Title = "Use objective pipeline",
-                        Description = "Operator supplied voyage context.",
+                        Description = "Operator supplied voyage context. <!-- armada-objective-brief:obj_unrelated -->",
                         VesselId = vessel.Id,
                         ObjectiveId = objective.Id,
                         ObjectiveAuthContext = McpTestCaller.Operator,
@@ -384,7 +384,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("pln_objective", admiral.LastPipelineId);
                     Voyage voyage = (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Single();
                     AssertContains("Operator supplied voyage context.", voyage.Description!, "dispatch preserves caller context");
-                    AssertEqual(objective.Id, VoyageObjectiveResolver.ReadBriefObjectiveId(voyage.Description), "custom descriptions retain the dispatch authorizer");
+                    AssertEqual(objective.Id, VoyageObjectiveResolver.ReadBriefObjectiveId(voyage.Description), "the dispatch authorizer precedes a caller-supplied foreign marker");
                     await testDb.Driver.Objectives.CreateAsync(new Objective
                     {
                         Title = "Later diagnostic",

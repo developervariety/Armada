@@ -4701,7 +4701,7 @@ namespace Armada.Core.Services
                 sb.Append("## Objective Scope (Definition of Done)\n\n");
                 sb.Append("This mission belongs to a linked objective. The objective below is the definition of done; work that does not meet it is not complete, and the Judge reviews against these acceptance criteria and non-goals:\n\n");
                 sb.Append("**Title:** ").Append(linked.Title).Append("\n\n");
-                sb.Append("**Objective id:** `").Append(linked.Id).Append("` (`get_objective` with no id reads it; long fields come back previewed, so pass `includeFullContent=true` for the full text)\n\n");
+                sb.Append("**Objective id:** `").Append(linked.Id).Append("` (`get_objective` with no id returns the complete objective)\n\n");
                 if (!String.IsNullOrWhiteSpace(linked.ParentObjectiveId))
                 {
                     sb.Append("**Parent objective id:** `").Append(linked.ParentObjectiveId).Append("`\n\n");

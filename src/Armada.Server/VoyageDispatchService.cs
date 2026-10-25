@@ -373,8 +373,14 @@ namespace Armada.Server
                 objectiveId,
                 request.ObjectiveAuthContext,
                 missions).ConfigureAwait(false);
-            if (dispatchObjective != null && String.IsNullOrWhiteSpace(description))
-                description = ObjectiveBriefRenderer.Render(dispatchObjective, request.PreparationAnchorMoves);
+            // Keep the authorizer even when an operator supplies additional voyage context.
+            // Put its marker first so a caller-provided marker cannot select another objective.
+            if (dispatchObjective != null
+                && !String.Equals(VoyageObjectiveResolver.ReadBriefObjectiveId(description), dispatchObjective.Id, StringComparison.Ordinal))
+            {
+                string brief = ObjectiveBriefRenderer.Render(dispatchObjective, request.PreparationAnchorMoves);
+                description = String.IsNullOrWhiteSpace(description) ? brief : brief + Environment.NewLine + Environment.NewLine + description;
+            }
 
             // An operator forced past the preflight only when force was set and the objective was actually
             // incomplete or model-flagged; a force flag on a clean objective records nothing. Preconditions
