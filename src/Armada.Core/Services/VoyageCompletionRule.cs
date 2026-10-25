@@ -64,6 +64,9 @@ namespace Armada.Core.Services
     /// </remarks>
     public static class VoyageCompletionRule
     {
+        // One admiral process owns the decision. Release the per-voyage lease before external hooks.
+        private static readonly KeyedAsyncLock _CompletionLocks = new KeyedAsyncLock(StringComparer.Ordinal);
+
         #region Public-Members
 
         /// <summary>
@@ -276,20 +279,25 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(voyageId))
                 return new VoyageCompletionResult(null, VoyageCompletionVerdict.Keep(ReasonVoyageMissing));
 
-            Voyage? voyage = await database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
-            if (voyage == null)
-                return new VoyageCompletionResult(null, VoyageCompletionVerdict.Keep(ReasonVoyageMissing));
+            Voyage? voyage;
+            VoyageCompletionVerdict verdict;
+            using (await _CompletionLocks.AcquireAsync(voyageId, token).ConfigureAwait(false))
+            {
+                voyage = await database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
+                if (voyage == null)
+                    return new VoyageCompletionResult(null, VoyageCompletionVerdict.Keep(ReasonVoyageMissing));
 
-            List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
-            VoyageCompletionVerdict verdict = await EvaluateAsync(database, voyage, missions, isMissionCompletionInFlight, token).ConfigureAwait(false);
-            if (verdict.NewStatus == null)
-                return new VoyageCompletionResult(voyage, verdict);
+                List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
+                verdict = await EvaluateAsync(database, voyage, missions, isMissionCompletionInFlight, token).ConfigureAwait(false);
+                if (verdict.NewStatus == null)
+                    return new VoyageCompletionResult(voyage, verdict);
 
-            DateTime now = DateTime.UtcNow;
-            voyage.Status = verdict.NewStatus.Value;
-            voyage.CompletedUtc = now;
-            voyage.LastUpdateUtc = now;
-            await database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+                DateTime now = DateTime.UtcNow;
+                voyage.Status = verdict.NewStatus.Value;
+                voyage.CompletedUtc = now;
+                voyage.LastUpdateUtc = now;
+                await database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            }
 
             Exception? eventException = null;
             if (voyage.Status == VoyageStatusEnum.Complete)

@@ -126,23 +126,54 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                     mission.VoyageId = voyage.Id;
                     await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    LandingTestEntitiesResult sibling = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
+                    sibling.Mission.VoyageId = voyage.Id;
+                    await testDb.Driver.Missions.UpdateAsync(sibling.Mission).ConfigureAwait(false);
+                    TaskCompletionSource<bool> siblingEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    TaskCompletionSource<bool> finishSibling = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                     int completedVoyages = 0;
-                    missionService.OnVoyageComplete = _ => { completedVoyages++; return Task.CompletedTask; };
+                    bool? reentryWrote = null;
+                    missionService.OnVoyageComplete = async completed =>
+                    {
+                        completedVoyages++;
+                        VoyageCompletionResult repeated = await VoyageCompletionRule.ApplyAsync(testDb.Driver, completed.Id, null).ConfigureAwait(false);
+                        reentryWrote = repeated.Written;
+                    };
                     git.ExistingBranches.Add(entities.Dock.BranchName!);
                     missionService.OnMissionComplete = async (produced, dock) =>
                     {
+                        AssertEqual(MissionStatusEnum.WorkProduced, produced.Status, "agent exit hands WorkProduced to landing");
+                        if (produced.Id == sibling.Mission.Id)
+                        {
+                            siblingEntered.TrySetResult(true);
+                            await finishSibling.Task.ConfigureAwait(false);
+                        }
                         produced.DiffSnapshot = "diff --git a/app/routes_ops.py b/app/routes_ops.py";
                         await testDb.Driver.Missions.UpdateAsync(produced).ConfigureAwait(false);
                         await handler.HandleMissionCompleteAsync(produced, dock).ConfigureAwait(false);
                     };
 
-                    // Exercise the real synchronous handoff, with no periodic health sweep.
-                    await missionService.HandleCompletionAsync(captain);
+                    // Exercise both real handoffs with one sibling still completing, without a health sweep.
+                    Task siblingCompletion = missionService.HandleCompletionAsync(sibling.Captain);
+                    try
+                    {
+                        await siblingEntered.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        await missionService.HandleCompletionAsync(captain).ConfigureAwait(false);
+                        AssertEqual(VoyageStatusEnum.InProgress, (await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!.Status,
+                            "a sibling's in-flight landing keeps the voyage open");
+                        AssertEqual(0, completedVoyages);
+                    }
+                    finally
+                    {
+                        finishSibling.TrySetResult(true);
+                        await siblingCompletion.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                    }
                     Captain? releasedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
                     AssertEqual(CaptainStateEnum.Idle, releasedCaptain!.State, "Captain should be Idle after completion");
                     AssertEqual(VoyageStatusEnum.Complete, (await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!.Status,
                         "direct landing completes the voyage before a periodic health tick");
                     AssertEqual(1, completedVoyages, "the voyage completion callback runs once");
+                    AssertEqual(false, reentryWrote, "the external completion hook can safely re-enter without writing");
 
                     Mission? landed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, landed!.Status, "A successful local merge completes the mission");

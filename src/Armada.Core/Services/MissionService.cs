@@ -1528,6 +1528,23 @@ namespace Armada.Core.Services
                     });
                 }
             }
+
+            // Landing can complete the mission after the core handler's earlier state checks.
+            // Recheck only after this attempt's guard is settled, so the last concurrent handler
+            // can decide the voyage without waiting for the periodic health sweep.
+            if (handledSuccessfully && !String.IsNullOrWhiteSpace(launched?.VoyageId))
+            {
+                try
+                {
+                    await UpdateVoyageTerminalStatusAsync(launched.VoyageId, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Completion and landing already succeeded. Keep the periodic safety net and
+                    // report reconciliation failure without reclassifying the captain's result.
+                    _Logging.Warn(_Header + "could not reconcile voyage after mission completion " + missionId + ": " + ex.Message);
+                }
+            }
         }
 
         /// <inheritdoc />
