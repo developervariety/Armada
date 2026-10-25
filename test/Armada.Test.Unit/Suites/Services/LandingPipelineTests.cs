@@ -44,9 +44,9 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         private async Task<LandingTestEntitiesResult> CreateTestEntitiesAsync(
-            SqliteDatabaseDriver db, LandingModeEnum? landingMode = null, BranchCleanupPolicyEnum? cleanupPolicy = null, string? tenantId = null, string? userId = null)
+            SqliteDatabaseDriver db, LandingModeEnum? landingMode = null, BranchCleanupPolicyEnum? cleanupPolicy = null, string? tenantId = null, string? userId = null, string nameSuffix = "")
         {
-            Vessel vessel = new Vessel("test-vessel", "https://github.com/test/repo.git");
+            Vessel vessel = new Vessel("test-vessel" + nameSuffix, "https://github.com/test/repo.git");
             vessel.TenantId = tenantId;
             vessel.UserId = userId;
             vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
@@ -56,7 +56,7 @@ namespace Armada.Test.Unit.Suites.Services
             vessel.BranchCleanupPolicy = cleanupPolicy;
             await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
-            Captain captain = new Captain("test-captain");
+            Captain captain = new Captain("test-captain" + nameSuffix);
             captain.State = CaptainStateEnum.Working;
             await db.Captains.CreateAsync(captain).ConfigureAwait(false);
 
@@ -126,7 +126,7 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                     mission.VoyageId = voyage.Id;
                     await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    LandingTestEntitiesResult sibling = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
+                    LandingTestEntitiesResult sibling = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge, nameSuffix: "-sibling");
                     sibling.Mission.VoyageId = voyage.Id;
                     await testDb.Driver.Missions.UpdateAsync(sibling.Mission).ConfigureAwait(false);
                     TaskCompletionSource<bool> siblingEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
