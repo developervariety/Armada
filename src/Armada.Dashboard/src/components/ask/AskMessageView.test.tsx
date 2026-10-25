@@ -194,6 +194,22 @@ describe('AskMessageList with work reports', () => {
     expect(within(container.querySelector('article[data-sequence="5"]') as HTMLElement).getByText('Report')).toBeInTheDocument();
   });
 
+  it('keeps a live card where it is when older messages load, and Show live card highlights it', () => {
+    const milestone = (id: string, sequence: number) =>
+      reply({ id, sequence, kind: 'WorkUpdate', toolCalls: null, durationMs: null, trackedWorkId: 'atw_1', contentText: `Update ${sequence}` });
+    const newest = [milestone('amg_u1', 5), milestone('amg_u2', 6)];
+    const { container, rerender } = render(<MemoryRouter><AskMessageList {...listProps} messages={newest} trackedWork={[work]} hasMore /></MemoryRouter>);
+    expect(container.querySelector('#ask-work-atw_1')!.closest('article')!.getAttribute('data-sequence')).toBe('5');
+
+    const older = reply({ id: 'amg_r', sequence: 3, kind: 'ActionResult', toolCalls: null, durationMs: null, trackedWorkId: 'atw_1', contentText: 'Voyage started.' });
+    rerender(<MemoryRouter><AskMessageList {...listProps} messages={[older, ...newest]} trackedWork={[work]} /></MemoryRouter>);
+    expect(container.querySelectorAll('[id="ask-work-atw_1"]')).toHaveLength(1);
+    expect(container.querySelector('#ask-work-atw_1')!.closest('article')!.getAttribute('data-sequence')).toBe('5');
+
+    fireEvent.click(within(container.querySelector('article[data-sequence="6"]') as HTMLElement).getByRole('button', { name: 'Show live card' }));
+    expect(container.querySelector('#ask-work-atw_1')!.classList.contains('is-highlighted')).toBe(true);
+  });
+
   it('an older transcript without reports renders as before, and an unknown kind falls back to assistant text', () => {
     const messages: AskMessage[] = [
       reply({ id: 'amg_q', sequence: 1, role: 'User', toolCalls: null, durationMs: null, contentText: 'How are the tests?' }),

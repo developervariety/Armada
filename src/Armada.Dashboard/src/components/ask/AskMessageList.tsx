@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { AskActionProposal, AskMessage, AskTrackedWork, AskWorkSnapshot, CliPermissionRequest, CliPermissionResolution } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
 import Markdown from '../shared/Markdown';
@@ -60,8 +60,18 @@ const AskMessageList = forwardRef<AskMessageListHandle, AskMessageListProps>(fun
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const prependRef = useRef<{ height: number; top: number; firstSeq: number | null } | null>(null);
+  const hostsRef = useRef<Record<string, string>>({});
+  const highlightTimerRef = useRef<number | null>(null);
+  const [revealedWorkId, setRevealedWorkId] = useState<string | null>(null);
 
+  // A card stays on the message that first hosted it while that message is loaded, so loading older messages
+  // (which can contain the message that started the work) does not move a card out from under the reader.
   const hosts = workCardHosts(messages);
+  const loadedIds = new Set(messages.map((m) => m.id));
+  for (const [workId, messageId] of Object.entries(hostsRef.current)) {
+    if (loadedIds.has(messageId)) hosts[workId] = messageId;
+  }
+  hostsRef.current = hosts;
   // A proposal shown as a confirm card on its ActionProposal message is not repeated on the ActionResult.
   const proposalHosts = new Set(
     messages.filter((m) => m.kind === 'ActionProposal').map((m) => m.proposalId ?? m.proposal?.id).filter((id): id is string => !!id),
@@ -69,16 +79,29 @@ const AskMessageList = forwardRef<AskMessageListHandle, AskMessageListProps>(fun
   const workById = new Map(trackedWork.map((w) => [w.id, w]));
   const firstSeq = messages.length > 0 ? messages[0].sequence : null;
 
+  useEffect(() => () => {
+    if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+  }, []);
+
+  /** Scroll a tracked item's live card into view and flash it; false when the card is not rendered. */
+  function revealWork(workId: string): boolean {
+    const container = scrollRef.current;
+    const el = document.getElementById(`ask-work-${workId}`);
+    if (!container || !el) return false;
+    const offset = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    stickRef.current = false;
+    container.scrollTop += offset - 24;
+    setRevealedWorkId(workId);
+    if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = window.setTimeout(() => {
+      highlightTimerRef.current = null;
+      setRevealedWorkId((current) => (current === workId ? null : current));
+    }, 2000);
+    return true;
+  }
+
   useImperativeHandle(ref, () => ({
-    scrollToWork: (workId: string) => {
-      const container = scrollRef.current;
-      const el = document.getElementById(`ask-work-${workId}`);
-      if (!container || !el) return false;
-      const offset = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
-      stickRef.current = false;
-      container.scrollTop += offset - 24;
-      return true;
-    },
+    scrollToWork: revealWork,
     scrollToBottom: () => {
       const container = scrollRef.current;
       if (!container) return;
@@ -125,7 +148,7 @@ const AskMessageList = forwardRef<AskMessageListHandle, AskMessageListProps>(fun
     const workId = message.trackedWorkId ?? message.trackedWork?.id ?? null;
     if (!workId || hosts[workId] !== message.id) return null;
     const work = workById.get(workId) ?? message.trackedWork ?? null;
-    return <AskWorkCard work={work} snapshot={snapshots[workId] ?? work?.snapshot ?? null} highlighted={highlightedWorkId === workId} />;
+    return <AskWorkCard work={work} snapshot={snapshots[workId] ?? work?.snapshot ?? null} highlighted={highlightedWorkId === workId || revealedWorkId === workId} />;
   }
 
   const showWaiting = turnActive && (!streaming || (!streaming.text && streaming.tools.length === 0));
@@ -161,14 +184,7 @@ const AskMessageList = forwardRef<AskMessageListHandle, AskMessageListProps>(fun
               cliRequest={message.kind === 'CliPermission' ? cliRequestForMessage(cliState, message) : null}
               onCliDecided={onCliDecided}
               permissionDeniedNote={deniedNote}
-              onShowWork={workId && !card ? () => {
-                const el = document.getElementById(`ask-work-${workId}`);
-                if (el && scrollRef.current) {
-                  stickRef.current = false;
-                  scrollRef.current.scrollTop += el.getBoundingClientRect().top - scrollRef.current.getBoundingClientRect().top - 24;
-                  el.focus?.();
-                }
-              } : undefined}
+              onShowWork={workId && !card ? () => { revealWork(workId); } : undefined}
             />
           );
         })
