@@ -272,7 +272,7 @@ namespace Armada.Test.Unit.Suites.Services
                         - Exact-commit Check `check-example`: passed, 12.500 seconds.
                         - Foreground validation from a clone used:
                           `sh scripts/verify.sh`
-                          Result: **exit 0**, 14.500 seconds; **41 cases passed, 1 skipped**.
+                          Result: **exit 0**, 14.500 seconds, admission wait 0; **41 C# passed, 1 skipped; 12 Python passed**.
 
                         ## Acceptance Criteria
                         - Ownership survives cancellation -- NOT MET. src/Runner.cs:10 releases it early.
@@ -284,7 +284,7 @@ namespace Armada.Test.Unit.Suites.Services
                         NEEDS_REVISION. Fix cancellation before ownership release.
                         [ARMADA:VERDICT] NEEDS_REVISION
                         """, Keep: new[] { "cancellation releases ownership", "Keep ownership until", "Ownership survives cancellation -- NOT MET", "Concurrent work is serialized -- NOT MET", "All active work stops before release -- NOT MET", "Fix cancellation before ownership release" },
-                        Drop: new[] { "first task entered", "Cancellation ended its wrapper", "second task entered", "first task later completed", "21 passed", "check-example", "Foreground validation", "41 cases passed", "Nested operation succeeds" })
+                        Drop: new[] { "first task entered", "Cancellation ended its wrapper", "second task entered", "first task later completed", "21 passed", "check-example", "Foreground validation", "41 C# passed", "Nested operation succeeds" })
                 };
                 foreach (var sample in samples)
                 {

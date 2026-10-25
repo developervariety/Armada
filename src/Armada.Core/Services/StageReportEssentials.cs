@@ -781,7 +781,8 @@ namespace Armada.Core.Services
                 || Regex.IsMatch(plain, @"^Exact-commit Check\s+`[^`]+`:\s*passed" + elapsed + @"[.!]?$", RegexOptions.IgnoreCase)
                 || Regex.IsMatch(plain,
                     @"^Foreground validation\b[^:]*:\s*`[^`]+`\s+Result:\s*exit(?:\s+code)?\s+0" + elapsed
-                    + @"(?:;\s*" + count + @"\s+(?:cases\s+)?passed(?:,\s*" + count + @"\s+skipped)?)?[.!]?$", RegexOptions.IgnoreCase);
+                    + @"(?:,\s*admission\s+wait\s+0)?"
+                    + @"(?:;\s*" + count + @"\s+(?:(?:cases|C#|Python|JavaScript)\s+)?passed(?:,\s*" + count + @"\s+skipped)?)*[.!]?$", RegexOptions.IgnoreCase);
         }
 
         private static bool IsExplicitSuccess(string item, string section)
