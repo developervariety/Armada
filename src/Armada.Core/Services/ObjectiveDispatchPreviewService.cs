@@ -2149,10 +2149,7 @@ namespace Armada.Core.Services
             List<string> declared = WorkflowGateInputs.Normalize(profile?.GateInputPaths);
             if (declared.Count == 0) return;
 
-            List<string?> constraintTexts = new List<string?>();
-            constraintTexts.AddRange(objective.RolloutConstraints ?? new List<string>());
-            constraintTexts.AddRange(objective.NonGoals ?? new List<string>());
-            List<string> excluded = WorkflowGateInputs.FindExcluded(declared, constraintTexts);
+            List<string> excluded = WorkflowGateInputs.FindExcluded(declared, objective.RolloutConstraints, objective.NonGoals);
             List<string> inScope = declared.Where(entry => !excluded.Contains(entry, StringComparer.OrdinalIgnoreCase)).ToList();
             if (inScope.Count == 0) return;
             string excludedNote = excluded.Count == 0

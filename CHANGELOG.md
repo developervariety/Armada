@@ -7,6 +7,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Dispatch previews retain non-goal context when they exclude gate input files.
+  Positive rollout statements still warn about inputs that plans do not name.
+
 - Native Slop findings keep their analysis status and evidence without being
   listed as failing tests. Custom check commands retain test outcomes.
 

@@ -44,6 +44,11 @@ namespace Armada.Core.Services
             + @"|\b(?:chang\w*|edit\w*|modif\w*|touch\w*|writ\w*|updat\w*)\b.*?\b(?:forbidden|not\s+allowed|out\s+of\s+scope)\b",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        // A gerund change statement inside NonGoals is an exclusion, even without a negation.
+        private static readonly Regex _NonGoalChange = new Regex(
+            @"^\s*(?:changing|editing|modifying|touching|writing|updating)\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
         // A constraint sentence that allows only the files it names.
         private static readonly Regex _AllowsOnly = new Regex(
             @"\b(?:only|allow\w*\s+only|limited\s+to|restricted\s+to)\b.*?\b(?:chang\w*|edit\w*|modif\w*|touch\w*|writ\w*|file\w*)\b"
@@ -161,24 +166,29 @@ namespace Armada.Core.Services
         /// files a.cs and b.cs") excludes each entry it does not name. A sentence that names no path excludes nothing.
         /// </summary>
         /// <param name="paths">The resolved profile's gate-input entries.</param>
-        /// <param name="constraintTexts">The objective's rollout constraints and non-goals.</param>
+        /// <param name="constraintTexts">The objective's rollout constraints.</param>
+        /// <param name="nonGoalTexts">The objective's non-goals, whose change statements are exclusions.</param>
         /// <returns>The excluded entries, in declared order; empty when none is excluded.</returns>
-        public static List<string> FindExcluded(IEnumerable<string>? paths, IEnumerable<string?>? constraintTexts)
+        public static List<string> FindExcluded(IEnumerable<string>? paths, IEnumerable<string?>? constraintTexts, IEnumerable<string?>? nonGoalTexts)
         {
             List<string> entries = Normalize(paths);
             List<string> excluded = new List<string>();
-            if (entries.Count == 0 || constraintTexts == null) return excluded;
+            if (entries.Count == 0) return excluded;
 
             List<List<string>> forbidding = new List<List<string>>();
             List<List<string>> allowing = new List<List<string>>();
-            foreach (string? text in constraintTexts)
+            IEnumerable<(string? Text, bool IsNonGoal)> constraints = (constraintTexts ?? Enumerable.Empty<string?>())
+                .Select(text => (text, false))
+                .Concat((nonGoalTexts ?? Enumerable.Empty<string?>()).Select(text => (text, true)));
+            foreach (var constraint in constraints)
             {
+                string? text = constraint.Text;
                 if (String.IsNullOrWhiteSpace(text)) continue;
                 foreach (string sentence in text.Split(new[] { ". ", "; ", "\n" }, StringSplitOptions.RemoveEmptyEntries))
                 {
                     List<string> tokens = PathTokens(sentence);
                     if (tokens.Count == 0) continue;
-                    if (_Forbids.IsMatch(sentence)) forbidding.Add(tokens);
+                    if (_Forbids.IsMatch(sentence) || (constraint.IsNonGoal && _NonGoalChange.IsMatch(sentence))) forbidding.Add(tokens);
                     else if (_AllowsOnly.IsMatch(sentence)) allowing.Add(tokens);
                 }
             }
