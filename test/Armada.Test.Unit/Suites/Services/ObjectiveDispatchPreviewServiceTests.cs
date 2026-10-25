@@ -1816,6 +1816,29 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         new MissionDescription { Title = "Add the export column", Description = "Edit src/Export/Writer.cs and its tests." }
                     };
+                    foreach (string? pipelineId in new string?[] { architectPipeline.Id, null })
+                    {
+                        objective.NonGoals = new List<string> { "Changing src/ or docs/data-dictionary.md." };
+                        ObjectiveDispatchPreview nonGoalExcluded = await harness.Service.PreviewAsync(
+                            harness.Auth, objective, null, pipelineId, null, withoutInputs).ConfigureAwait(false);
+                        ObjectiveDispatchPreviewIssue nonGoalWarning = nonGoalExcluded.Issues.Single(
+                            issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
+                        AssertEqual("schema/**/*.sql", nonGoalWarning.RelatedValue,
+                            "a change named as a non-goal is excluded for both Architect and supplied plans");
+                        AssertContains("keep docs/data-dictionary.md out of the change", nonGoalWarning.Message);
+                        AssertEqual(ReadinessSeverityEnum.Warning, nonGoalWarning.Severity);
+
+                        objective.NonGoals.Clear();
+                        objective.RolloutConstraints = new List<string> { "Changing src/ or docs/data-dictionary.md." };
+                        ObjectiveDispatchPreview positiveRollout = await harness.Service.PreviewAsync(
+                            harness.Auth, objective, null, pipelineId, null, withoutInputs).ConfigureAwait(false);
+                        ObjectiveDispatchPreviewIssue positiveWarning = positiveRollout.Issues.Single(
+                            issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
+                        AssertContains("docs/data-dictionary.md", positiveWarning.RelatedValue!,
+                            "a positive rollout statement does not exclude the files it names");
+                        objective.RolloutConstraints.Clear();
+                    }
+
                     ObjectiveDispatchPreview unplanned = await harness.Service.PreviewAsync(
                         harness.Auth, objective, null, null, null, withoutInputs).ConfigureAwait(false);
                     ObjectiveDispatchPreviewIssue missing = unplanned.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
