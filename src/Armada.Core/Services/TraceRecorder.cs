@@ -350,19 +350,20 @@ namespace Armada.Core.Services
                 string current = queue.Dequeue();
                 TraceDocument? document = null;
                 TraceRecord? stored = await _Database.TraceRecords.ReadAsync(current, token).ConfigureAwait(false);
-                if (stored != null)
+                // A stored projection can lag completion, verdicts and linked checks until the next
+                // sweep. Read current facts without writing or uploading archives on an operator read.
+                if (TryResolveKind(current, out TraceEntityKindEnum kind))
+                    document = await BuildAsync(kind, current, token).ConfigureAwait(false);
+                if (document != null)
+                {
+                    if (stored != null && document.Archive.Count == 0)
+                        document.Archive = new List<TraceArchivePointer>(stored.Document.Archive);
+                    if (first) chain.Source = "live";
+                }
+                else if (stored != null)
                 {
                     document = stored.Document;
                     if (first) chain.Source = "table";
-                }
-                else if (TryResolveKind(current, out TraceEntityKindEnum kind))
-                {
-                    TraceRecord? built = await RecordAsync(kind, current, token).ConfigureAwait(false);
-                    if (built != null)
-                    {
-                        document = built.Document;
-                        if (first) chain.Source = "live";
-                    }
                 }
                 bool requested = first;
                 first = false;

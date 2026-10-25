@@ -49,6 +49,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("live", fresh.Source, "live source takes precedence over an older trace projection without a sweep");
                     AssertEqual(MissionStatusEnum.Complete.ToString(), fresh.Records[0].Status);
                     AssertEqual("PASS", fresh.Records[0].Verdict);
+                    AssertEqual(MissionStatusEnum.InProgress.ToString(), (await db.TraceRecords.ReadAsync(work.Mission.Id).ConfigureAwait(false))!.Document.Status, "a trace read does not write the projection or upload an archive");
                     AssertEqual(CheckRunStatusEnum.Failed.ToString(), fresh.Records.First(record => record.Id == work.Check.Id).Status, "linked records also refresh without a sweep");
 
                     await db.Events.CreateAsync(new ArmadaEvent("mission.completed", "done") { EntityType = "mission", EntityId = work.Mission.Id, MissionId = work.Mission.Id, VoyageId = work.Voyage.Id }).ConfigureAwait(false);
