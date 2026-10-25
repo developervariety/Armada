@@ -1,6 +1,7 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.IO;
+    using System.Text.Json;
     using Armada.Core.Models;
     using Armada.Core.Enums;
     using Armada.Core.Services;
@@ -386,6 +387,43 @@ namespace Armada.Test.Runtimes.Suites
                     int? exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
                     AssertEqual((int?)0, exitCode, "A successful terminal result exits successfully.");
                     AssertEqual("Cursor final answer", File.ReadAllText(finalPath), "The artifact contains only the terminal assistant answer.");
+
+                    const string report = "## Coverage Added\n- one test\n\n## Negative Paths\n- one refusal\n\n## Residual Risks\nnone\n[ARMADA:RESULT] COMPLETE";
+                    foreach (var sample in new[]
+                    {
+                        (Messages: new[] { new[] { "I will check both." }, new[] { "[ARMADA:STATUS] Testing" }, new[] { "## Coverage ", report.Substring("## Coverage ".Length) } },
+                            Partial: false, Result: "I will check both.[ARMADA:STATUS] Testing" + report,
+                            Expected: "I will check both.\n\n[ARMADA:STATUS] Testing\n\n" + report, Complete: (bool?)true),
+                        (Messages: new[] { new[] { "prefix## Coverage ", report.Substring("## Coverage ".Length) } },
+                            Partial: false, Result: "prefix" + report, Expected: "prefix" + report, Complete: (bool?)false),
+                        (Messages: new[] { new[] { "head" }, new[] { "ing" } },
+                            Partial: true, Result: "heading", Expected: "heading", Complete: (bool?)null),
+                        (Messages: new[] { new[] { "earlier progress" }, new[] { "later progress" } },
+                            Partial: false, Result: "authoritative answer", Expected: "authoritative answer", Complete: (bool?)null)
+                    })
+                    {
+                        File.Delete(finalPath);
+                        List<string> events = sample.Messages.Select((parts, index) => JsonSerializer.Serialize(new
+                        {
+                            type = "assistant",
+                            timestamp_ms = sample.Partial ? (long?)(index + 1) : null,
+                            message = new { role = "assistant", content = parts.Select(text => new { type = "text", text }).ToArray() }
+                        })).ToList();
+                        events.Add(JsonSerializer.Serialize(new { type = "result", subtype = "success", is_error = false, result = sample.Result }));
+                        runtime.ExecutablePath = FinalReplyProcessTestHelper.CreateExecutable(directory, events, 0);
+                        exitCode = await FinalReplyProcessTestHelper.StartAndWaitAsync(runtime, directory, finalPath).ConfigureAwait(false);
+                        AssertEqual((int?)0, exitCode);
+                        string captured = File.ReadAllText(finalPath);
+                        AssertEqual(sample.Expected, captured, "only complete message boundaries in the matching aggregate are separated");
+                        if (sample.Complete.HasValue)
+                        {
+                            Mission mission = new Mission("captured report")
+                            { Persona = "Test Engineer", Status = MissionStatusEnum.WorkProduced, AgentOutput = captured };
+                            AssertEqual(sample.Complete.Value, MissionOutputArtifact.Build(mission).Complete,
+                                "message framing preserves headings without inventing missing sections");
+                        }
+                    }
+
 
                     File.WriteAllText(finalPath, "keep existing artifact");
                     string secondSuccessExecutable = FinalReplyProcessTestHelper.CreateExecutable(directory, new[]

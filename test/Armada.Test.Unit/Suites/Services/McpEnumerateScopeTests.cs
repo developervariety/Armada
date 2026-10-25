@@ -74,6 +74,14 @@ namespace Armada.Test.Unit.Suites.Services
                             AssertFalse(asMission.Contains(created.OtherOwner, StringComparison.Ordinal),
                                 entity.EntityType + ": a mission caller never lists another owner's record, even when its owner is an administrator");
 
+                        if (entity.EntityType == "incidents")
+                        {
+                            IncidentService incidents = new IncidentService(testDb.Driver);
+                            AssertNotNull(await incidents.ReadAsync(missionCaller, created.Own).ConfigureAwait(false));
+                            AssertNull(await incidents.ReadAsync(missionCaller, created.OtherOwner).ConfigureAwait(false), "incident by-id reads retain the mission owner fence");
+                            AssertNull(await incidents.ReadAsync(missionCaller, created.OtherTenant).ConfigureAwait(false), "incident by-id reads retain the tenant fence");
+                        }
+
                         string asTenantAdmin = await ListAsync(enumerate, tenantAdmin, entity.EntityType).ConfigureAwait(false);
                         AssertContains(created.Own, asTenantAdmin, entity.EntityType + ": a tenant administrator lists its tenant's records");
                         AssertContains(created.OtherOwner, asTenantAdmin, entity.EntityType + ": a tenant administrator lists every owner in its tenant");
