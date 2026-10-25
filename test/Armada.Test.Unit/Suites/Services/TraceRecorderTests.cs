@@ -31,6 +31,26 @@ namespace Armada.Test.Unit.Suites.Services
                     TraceRecorder recorder = new TraceRecorder(db, QuietLogging());
                     LandedWork work = await CreateLandedWorkAsync(db).ConfigureAwait(false);
 
+                    work.Mission.Status = MissionStatusEnum.InProgress;
+                    work.Mission.Persona = "Judge";
+                    work.Mission.AgentOutput = "VERDICT: FAIL";
+                    await db.Missions.UpdateAsync(work.Mission).ConfigureAwait(false);
+                    work.Check.Status = CheckRunStatusEnum.Pending;
+                    await db.CheckRuns.UpdateAsync(work.Check).ConfigureAwait(false);
+                    await recorder.RecordAsync(TraceEntityKindEnum.Mission, work.Mission.Id).ConfigureAwait(false);
+                    await recorder.RecordAsync(TraceEntityKindEnum.CheckRun, work.Check.Id).ConfigureAwait(false);
+
+                    work.Mission.Status = MissionStatusEnum.Complete;
+                    work.Mission.AgentOutput = "VERDICT: PASS";
+                    await db.Missions.UpdateAsync(work.Mission).ConfigureAwait(false);
+                    work.Check.Status = CheckRunStatusEnum.Failed;
+                    await db.CheckRuns.UpdateAsync(work.Check).ConfigureAwait(false);
+                    TraceChain fresh = await recorder.TraceAsync(work.Mission.Id).ConfigureAwait(false);
+                    AssertEqual("live", fresh.Source, "live source takes precedence over an older trace projection without a sweep");
+                    AssertEqual(MissionStatusEnum.Complete.ToString(), fresh.Records[0].Status);
+                    AssertEqual("PASS", fresh.Records[0].Verdict);
+                    AssertEqual(CheckRunStatusEnum.Failed.ToString(), fresh.Records.First(record => record.Id == work.Check.Id).Status, "linked records also refresh without a sweep");
+
                     await db.Events.CreateAsync(new ArmadaEvent("mission.completed", "done") { EntityType = "mission", EntityId = work.Mission.Id, MissionId = work.Mission.Id, VoyageId = work.Voyage.Id }).ConfigureAwait(false);
                     await db.Events.CreateAsync(new ArmadaEvent("mission.status_changed", "rescue started") { EntityType = "mission", EntityId = work.Rescue.Id, MissionId = work.Rescue.Id }).ConfigureAwait(false);
 
