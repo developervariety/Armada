@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Test.Common;
 
     /// <summary>
@@ -20,6 +21,32 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Native classifier findings never become failing test outcomes", () =>
+            {
+                const string pattern = @"^FAIL (?<name>.+)$";
+                foreach (int findings in new[] { 0, 1 })
+                {
+                    CheckRun run = MakeRun("FAIL findings: " + findings + "; WARN findings: 0; suppressed: 0");
+                    run.Type = CheckRunTypeEnum.Slop;
+                    run.Command = SlopCheckRunner.CommandLabel;
+                    run.Status = findings == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
+                    run.ExitCode = findings == 0 ? 0 : 1;
+                    CheckRunSummaryView view = CheckRunSummaryView.From(run, 40, null, pattern);
+                    AssertNull(view.TestOutcomes, "native findings are analysis results, not test names");
+                    AssertEqual(run.Status, view.Status, "classification status is retained");
+                    AssertEqual(run.ExitCode, view.ExitCode, "classification exit code is retained");
+                    AssertEqual(run.Output, view.OutputTail, "analysis evidence remains visible");
+                }
+                CheckRun custom = MakeRun("FAIL Example.Tests.LoadRace: timed out");
+                custom.Type = CheckRunTypeEnum.Slop;
+                custom.Command = "sh scripts/check.sh";
+                custom.Status = CheckRunStatusEnum.Failed;
+                custom.ExitCode = 1;
+                AssertContains("Example.Tests.LoadRace", CheckRunSummaryView.From(custom, 40, null, pattern).TestOutcomes!,
+                    "a custom command still reports its real failing tests");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("The verdict fields survive the projection", () =>
             {
                 CheckRun run = MakeRun("line1\nline2");
