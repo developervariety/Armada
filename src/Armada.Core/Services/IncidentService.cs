@@ -80,6 +80,16 @@ namespace Armada.Core.Services
 
             List<Incident> incidents = await ReadAllIncidentsAsync(auth, token).ConfigureAwait(false);
             IEnumerable<Incident> filtered = incidents;
+            if (query.FromUtc.HasValue)
+            {
+                DateTime fromUtc = query.FromUtc.Value.ToUniversalTime();
+                filtered = filtered.Where(item => item.DetectedUtc >= fromUtc);
+            }
+            if (query.ToUtc.HasValue)
+            {
+                DateTime toUtc = query.ToUtc.Value.ToUniversalTime();
+                filtered = filtered.Where(item => item.DetectedUtc <= toUtc);
+            }
 
             if (!String.IsNullOrWhiteSpace(query.VesselId))
                 filtered = filtered.Where(item => String.Equals(item.VesselId, query.VesselId, StringComparison.OrdinalIgnoreCase));
@@ -440,13 +450,14 @@ namespace Armada.Core.Services
             string? incidentId,
             CancellationToken token)
         {
+            bool operatorScope = String.IsNullOrWhiteSpace(auth.MissionId);
             if (!String.IsNullOrWhiteSpace(incidentId))
             {
-                if (auth.IsAdmin)
+                if (operatorScope && auth.IsAdmin)
                     return (await _Database.Events.EnumerateByEntityAsync(IncidentEntityType, incidentId, 500, token).ConfigureAwait(false))
                         .Where(IsIncidentSnapshotEvent)
                         .ToList();
-                if (auth.IsTenantAdmin)
+                if (operatorScope && auth.IsTenantAdmin)
                     return (await _Database.Events.EnumerateByEntityAsync(auth.TenantId!, IncidentEntityType, incidentId, 500, token).ConfigureAwait(false))
                         .Where(IsIncidentSnapshotEvent)
                         .ToList();
@@ -473,9 +484,9 @@ namespace Armada.Core.Services
             while (true)
             {
                 EnumerationResult<ArmadaEvent> page;
-                if (auth.IsAdmin)
+                if (operatorScope && auth.IsAdmin)
                     page = await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false);
-                else if (auth.IsTenantAdmin)
+                else if (operatorScope && auth.IsTenantAdmin)
                     page = await _Database.Events.EnumerateAsync(auth.TenantId!, query, token).ConfigureAwait(false);
                 else
                     page = await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, query, token).ConfigureAwait(false);

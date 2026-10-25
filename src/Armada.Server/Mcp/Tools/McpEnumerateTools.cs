@@ -391,7 +391,7 @@ namespace Armada.Server.Mcp.Tools
                         case "incident":
                             IncidentService incidentService = new IncidentService(database);
                             return (object)await incidentService.EnumerateAsync(
-                                caller,
+                                listCaller,
                                 request.ToIncidentQuery()).ConfigureAwait(false);
                         case "checks":
                         case "check":
@@ -523,7 +523,9 @@ namespace Armada.Server.Mcp.Tools
                     VoyageId = VoyageId,
                     Status = ParseNullableEnum<IncidentStatusEnum>(Status),
                     PageNumber = PageNumber ?? 1,
-                    PageSize = PageSize ?? 25
+                    PageSize = PageSize ?? 25,
+                    FromUtc = CreatedAfter,
+                    ToUtc = CreatedBefore
                 };
             }
 

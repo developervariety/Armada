@@ -7,6 +7,12 @@ namespace Armada.Core.Models
     /// </summary>
     public class IncidentQuery
     {
+        /// <summary>Inclusive lower bound for incident detection time in UTC.</summary>
+        public DateTime? FromUtc { get; set; } = null;
+
+        /// <summary>Inclusive upper bound for incident detection time in UTC.</summary>
+        public DateTime? ToUtc { get; set; } = null;
+
         /// <summary>
         /// Optional tenant filter.
         /// </summary>
