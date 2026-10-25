@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
@@ -86,6 +87,51 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Incident date windows filter detection time before paging and retain other filters", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                DateTime from = new DateTime(2026, 2, 3, 4, 5, 0, DateTimeKind.Utc);
+                DateTime to = from.AddMinutes(1);
+                List<Incident> created = new List<Incident>();
+                foreach (var row in new[]
+                {
+                    (Title: "old incident", Detected: from.AddTicks(-1), Status: IncidentStatusEnum.Open),
+                    (Title: "lower boundary", Detected: from, Status: IncidentStatusEnum.Open),
+                    (Title: "upper boundary", Detected: to, Status: IncidentStatusEnum.Open),
+                    (Title: "new incident", Detected: to.AddTicks(1), Status: IncidentStatusEnum.Open),
+                    (Title: "mitigated incident", Detected: from, Status: IncidentStatusEnum.Mitigated)
+                })
+                    created.Add(await incidents.CreateAsync(McpTestCaller.Operator,
+                        new IncidentUpsertRequest { Title = row.Title, DetectedUtc = row.Detected, Status = row.Status }).ConfigureAwait(false));
+                await incidents.UpdateAsync(McpTestCaller.Operator, created[0].Id,
+                    new IncidentUpsertRequest { Title = "old incident updated recently" }).ConfigureAwait(false);
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                McpEnumerateTools.Register((name, _, _, handler) => { handlers[name] = handler; }, testDb.Driver);
+                async Task<EnumerationResult<Incident>> QueryAsync(DateTime? after, DateTime? before, int page = 1, int size = 50)
+                {
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                        return (EnumerationResult<Incident>)await handlers["armada_enumerate"](JsonSerializer.SerializeToElement(new
+                        { entityType = "incidents", createdAfter = after, createdBefore = before, status = "Open", pageNumber = page, pageSize = size })).ConfigureAwait(false);
+                }
+                EnumerationResult<Incident> bounded = await QueryAsync(from, to).ConfigureAwait(false);
+                AssertEqual(2L, bounded.TotalRecords, "both detection boundaries are inclusive; snapshots and mitigated rows are excluded");
+                AssertTrue(bounded.Objects.Select(item => item.Id).ToHashSet().SetEquals(new[] { created[1].Id, created[2].Id }));
+                AssertEqual(3L, (await QueryAsync(from, null).ConfigureAwait(false)).TotalRecords, "lower bound alone applies");
+                AssertEqual(3L, (await QueryAsync(null, to).ConfigureAwait(false)).TotalRecords, "upper bound alone applies");
+                EnumerationResult<Incident> first = await QueryAsync(from, to, 1, 1).ConfigureAwait(false);
+                EnumerationResult<Incident> second = await QueryAsync(from, to, 2, 1).ConfigureAwait(false);
+                AssertEqual(2L, first.TotalRecords);
+                AssertEqual(2L, second.TotalRecords);
+                AssertEqual(1, first.Objects.Count);
+                AssertEqual(1, second.Objects.Count);
+                AssertFalse(first.Objects[0].Id == second.Objects[0].Id, "paging occurs after filtering");
+                EnumerationResult<Incident> empty = await QueryAsync(to.AddDays(1), null).ConfigureAwait(false);
+                AssertEqual(0L, empty.TotalRecords);
+                AssertEqual(0, empty.Objects.Count);
+            });
+
             await RunTest("An undeclared argument is refused by name instead of listing unfiltered, and the declared status filter applies", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -157,6 +203,10 @@ namespace Armada.Test.Unit.Suites.Services
                     (await testDb.Driver.CheckRuns.CreateAsync(new CheckRun { TenantId = tenantId, UserId = userId, Label = label, Command = "echo " + label }).ConfigureAwait(false)).Id),
                 new ScopedEntity("releases", false, async (tenantId, userId, label) =>
                     (await testDb.Driver.Releases.CreateAsync(new Release { TenantId = tenantId, UserId = userId, Title = label }).ConfigureAwait(false)).Id),
+                new ScopedEntity("incidents", false, async (tenantId, userId, label) =>
+                    (await new IncidentService(testDb.Driver).CreateAsync(
+                        AuthContext.Authenticated(tenantId, userId, false, false, "Test"),
+                        new IncidentUpsertRequest { Title = label }).ConfigureAwait(false)).Id),
                 new ScopedEntity("deployments", false, async (tenantId, userId, label) =>
                     (await testDb.Driver.Deployments.CreateAsync(new Deployment { TenantId = tenantId, UserId = userId, Title = label }).ConfigureAwait(false)).Id)
             };
