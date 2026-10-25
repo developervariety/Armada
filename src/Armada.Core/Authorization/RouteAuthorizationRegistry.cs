@@ -45,6 +45,7 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/ask/threads/{id}/cancel", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/summarize", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/read", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/ask/threads/{id}/unread", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/actions", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/proposals/{pid}/approve", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/ask/threads/{id}/proposals/{pid}/reject", "AskThread", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);

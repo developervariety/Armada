@@ -8,6 +8,7 @@ import {
   enumerateAskThreads,
   getAskThread,
   markAskThreadRead,
+  markAskThreadUnread,
   ApiError,
   rejectAskProposal,
   runAskQuickAction,
@@ -31,6 +32,7 @@ vi.mock('../api/client', async (importOriginal) => {
     cancelAskTurn: vi.fn(),
     summarizeAskThread: vi.fn(),
     markAskThreadRead: vi.fn(),
+    markAskThreadUnread: vi.fn(),
     runAskQuickAction: vi.fn(),
     approveAskProposal: vi.fn(),
     rejectAskProposal: vi.fn(),
@@ -725,5 +727,148 @@ describe('AskArmada last open conversation', () => {
     await settle();
     expect(currentPath()).toBe('/ask');
     expect(screen.getByRole('heading', { name: 'New conversation' })).toBeInTheDocument();
+  });
+});
+
+describe('AskArmada unsent drafts across visits', () => {
+  const DRAFTS_KEY = 'armada_ask_drafts:usr_1';
+
+  function composer(): HTMLTextAreaElement {
+    return screen.getByRole('combobox', { name: 'Message' }) as HTMLTextAreaElement;
+  }
+
+  it('keeps an unsent draft when the page is left and restores it on the next visit', async () => {
+    const first = renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.change(composer(), { target: { value: 'half-written question' } });
+    expect(JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}')).toEqual({ ath_1: 'half-written question' });
+    first.unmount();
+
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(composer().value).toBe('half-written question');
+  });
+
+  it('restores the draft when the nav reopens the last conversation from /ask', async () => {
+    const first = renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.change(composer(), { target: { value: 'come back to this' } });
+    first.unmount();
+
+    renderAt('/ask');
+    await waitFor(() => expect(currentPath()).toBe('/ask/ath_1'));
+    await screen.findByText('Fix the billing retry bug');
+    await waitFor(() => expect(composer().value).toBe('come back to this'));
+  });
+
+  it('a draft belongs to its own conversation only', async () => {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify({ ath_2: 'for the other one' }));
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(composer().value).toBe('');
+  });
+
+  it('clearing the text removes the stored draft', async () => {
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.change(composer(), { target: { value: 'something' } });
+    fireEvent.change(composer(), { target: { value: '' } });
+    expect(localStorage.getItem(DRAFTS_KEY)).toBeNull();
+  });
+
+  it('sending the message removes the stored draft', async () => {
+    vi.mocked(sendAskMessage).mockResolvedValue({ messageId: 'amg_20', turnId: 'turn_1' });
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.change(composer(), { target: { value: 'How is it going?' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(sendAskMessage).toHaveBeenCalledWith('ath_1', 'How is it going?', false));
+    expect(localStorage.getItem(DRAFTS_KEY)).toBeNull();
+    expect(composer().value).toBe('');
+  });
+
+  it('deleting a conversation removes its stored draft', async () => {
+    vi.mocked(deleteAskThread).mockResolvedValue(undefined);
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify({ ath_3: 'never sent', ath_2: 'keep me' }));
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const dialog = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(deleteAskThread).toHaveBeenCalledWith('ath_3'));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}')).toEqual({ ath_2: 'keep me' }));
+  });
+
+  it('ignores a corrupt stored drafts value', async () => {
+    localStorage.setItem(DRAFTS_KEY, '{not json');
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(composer().value).toBe('');
+    fireEvent.change(composer(), { target: { value: 'fresh' } });
+    expect(JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}')).toEqual({ ath_1: 'fresh' });
+  });
+});
+
+describe('AskArmada mark read and unread', () => {
+  it('Mark unread on another conversation calls the server and shows an unread badge', async () => {
+    vi.mocked(markAskThreadUnread).mockResolvedValue({ ...threads[2], unreadCount: 1 });
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark unread' }));
+    await waitFor(() => expect(markAskThreadUnread).toHaveBeenCalledWith('ath_3'));
+    const row = threadRows().find((r) => r.getAttribute('title') === 'Checkout tests')!;
+    await waitFor(() => expect(within(row).getByLabelText('1 unread')).toBeInTheDocument());
+    expect(currentPath()).toBe('/ask/ath_1');
+  });
+
+  it('Mark unread on the open conversation closes it, so it is not marked read again', async () => {
+    vi.mocked(markAskThreadUnread).mockResolvedValue({ ...threads[0], unreadCount: 1 });
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBe('ath_1');
+    vi.mocked(markAskThreadRead).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark unread' }));
+    await waitFor(() => expect(markAskThreadUnread).toHaveBeenCalledWith('ath_1'));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBeNull();
+    const row = threadRows().find((r) => r.getAttribute('title') === 'Billing fix')!;
+    await waitFor(() => expect(within(row).getByLabelText('1 unread')).toBeInTheDocument());
+    emit('ask.thread', { threadId: 'ath_1', thread: { ...threads[0], unreadCount: 1 } });
+    expect(markAskThreadRead).not.toHaveBeenCalled();
+  });
+
+  it('Mark read clears the badge and calls the server', async () => {
+    renderAt('/ask');
+    await screen.findByText('Dependency sweep');
+    expect(screen.getByLabelText('3 unread')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Dependency sweep' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark read' }));
+    await waitFor(() => expect(markAskThreadRead).toHaveBeenCalledWith('ath_2'));
+    expect(screen.queryByLabelText('3 unread')).not.toBeInTheDocument();
+  });
+
+  it('a failed Mark unread shows an error and reloads the list', async () => {
+    vi.mocked(markAskThreadUnread).mockRejectedValue(new Error('server down'));
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    vi.mocked(enumerateAskThreads).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark unread' }));
+    expect(await screen.findByText('server down')).toBeInTheDocument();
+    await waitFor(() => expect(enumerateAskThreads).toHaveBeenCalled());
+  });
+
+  it('a failed Mark read shows an error and reloads the list', async () => {
+    vi.mocked(markAskThreadRead).mockRejectedValue(new Error('read failed'));
+    renderAt('/ask');
+    await screen.findByText('Dependency sweep');
+    vi.mocked(enumerateAskThreads).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Dependency sweep' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark read' }));
+    expect(await screen.findByText('read failed')).toBeInTheDocument();
+    await waitFor(() => expect(enumerateAskThreads).toHaveBeenCalled());
   });
 });

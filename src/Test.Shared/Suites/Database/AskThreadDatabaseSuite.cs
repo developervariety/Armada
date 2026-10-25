@@ -192,6 +192,14 @@ namespace Test.Shared.Suites.Database
                 AssertTrue(await db.AskThreads.MarkReadAsync(Constants.DefaultTenantId, "usr_seq", thread.Id).ConfigureAwait(false), "owner marks read");
                 AskThread? afterRead = await db.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false);
                 AssertEqual(0, afterRead!.UnreadCount, "unread reset");
+
+                AssertFalse(await db.AskThreads.MarkUnreadAsync(Constants.DefaultTenantId, "usr_other", thread.Id).ConfigureAwait(false), "another user cannot mark unread");
+                AssertEqual(0, (await db.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false))!.UnreadCount, "stranger left it read");
+                AssertFalse(await db.AskThreads.MarkUnreadAsync(Constants.DefaultTenantId, "usr_seq", "ath_missing").ConfigureAwait(false), "missing thread");
+                AssertTrue(await db.AskThreads.MarkUnreadAsync(Constants.DefaultTenantId, "usr_seq", thread.Id).ConfigureAwait(false), "owner marks unread");
+                AssertEqual(1, (await db.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false))!.UnreadCount, "unread set to one");
+                AssertTrue(await db.AskThreads.MarkUnreadAsync(Constants.DefaultTenantId, "usr_seq", thread.Id).ConfigureAwait(false), "marking unread again");
+                AssertEqual(1, (await db.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false))!.UnreadCount, "marking unread again keeps one");
             }));
 
             cases.Add(CaseAsync("message_turn_metrics_roundtrip", "A reply's turn telemetry (migration 82) round-trips through create, update, read, and enumerate", TestTags.Positive, async () =>

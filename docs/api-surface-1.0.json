@@ -306,6 +306,23 @@
       "experimental": false
     },
     {
+      "method": "POST",
+      "route": "/api/v1/ask/threads/{id}/unread",
+      "auth": "Authenticated",
+      "resource": "AskThread:Execute",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "AskThread",
+        "404": ""
+      },
+      "tags": [
+        "Ask"
+      ],
+      "summary": "Mark a thread unread",
+      "experimental": false
+    },
+    {
       "method": "GET",
       "route": "/api/v1/ask/threads/{id}/work/{workId}",
       "auth": "Authenticated",

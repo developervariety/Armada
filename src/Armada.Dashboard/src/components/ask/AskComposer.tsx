@@ -33,6 +33,8 @@ interface AskComposerProps {
   noCaptain: boolean;
   showThinking: boolean;
   onShowThinkingChange: (value: boolean) => void;
+  /** The user changed the draft (typing, or it was cleared by a send or command); not called by `reset`. */
+  onTextChange?: (text: string) => void;
 }
 
 export interface AskComposerOptions {
@@ -62,7 +64,7 @@ interface Hint {
  * typed (with its arguments), and an unknown command shows a hint and keeps the text.
  */
 const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function AskComposer(props, ref) {
-  const { quickActions, turnActive, stopping, onStop, onSend, onQuickAction, onLocalCommand, actionBusy, onOpenImport, noCaptain, showThinking, onShowThinkingChange } = props;
+  const { quickActions, turnActive, stopping, onStop, onSend, onQuickAction, onLocalCommand, actionBusy, onOpenImport, noCaptain, showThinking, onShowThinkingChange, onTextChange } = props;
   const { t } = useLocale();
   const [input, setInput] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -79,14 +81,19 @@ const AskComposer = forwardRef<AskComposerHandle, AskComposerProps>(function Ask
   const pending = resolveSubmit(catalog, input, highlighted);
   const formKind = openForm ? quickActionForm(openForm) : null;
 
-  function setText(text: string) {
+  function applyText(text: string) {
     setInput(text);
     setActiveIndex(0);
     setMenuDismissed(false);
   }
 
+  function setText(text: string) {
+    applyText(text);
+    onTextChange?.(text);
+  }
+
   function reset(options?: AskComposerOptions) {
-    setText(options?.text ?? '');
+    applyText(options?.text ?? '');
     setOpenForm(null);
     setHint(null);
     if (options?.focus) inputRef.current?.focus();

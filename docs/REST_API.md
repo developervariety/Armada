@@ -4046,6 +4046,7 @@ WEBSOCKET_API.md). Retention: threads are kept until deleted; there is no automa
 | POST | `/api/v1/ask/threads/{id}/cancel` | | `200` `{ "Cancelled": true }`; `409` when no turn runs |
 | POST | `/api/v1/ask/threads/{id}/summarize` | | `202` `AskMessageSendResponse` (`TurnId` null without a captain); `409` while a turn runs |
 | POST | `/api/v1/ask/threads/{id}/read` | | `200` `AskThread` with `UnreadCount = 0` |
+| POST | `/api/v1/ask/threads/{id}/unread` | | `200` `AskThread` with `UnreadCount = 1` when it was 0 (a non-zero count is kept) |
 | POST | `/api/v1/ask/threads/{id}/actions` | `AskActionRequest` | `200` `AskActionProposal` (executed or failed); `400` unknown tool |
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/approve` | | `200` `AskActionProposal` (`Executed` or `Failed`); `409` when not pending or expired |
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/reject` | | `200` `AskActionProposal` (`Rejected`); `409` when not pending |

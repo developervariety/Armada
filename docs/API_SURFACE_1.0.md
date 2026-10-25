@@ -24,7 +24,7 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 388 | 15 |
+| REST routes | 389 | 15 |
 | MCP tools | 177 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
@@ -57,6 +57,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/ask/threads/{id}/proposals/{pid}/reject` | Authenticated |  | 200 `AskActionProposal` |  |
 | POST | `/api/v1/ask/threads/{id}/read` | Authenticated |  | 200 `AskThread`, 404 |  |
 | POST | `/api/v1/ask/threads/{id}/summarize` | Authenticated |  | 202 `AskMessageSendResponse` |  |
+| POST | `/api/v1/ask/threads/{id}/unread` | Authenticated |  | 200 `AskThread`, 404 |  |
 | GET | `/api/v1/ask/threads/{id}/work/{workId}` | Authenticated |  | 200 `AskWorkSnapshot`, 404 |  |
 | POST | `/api/v1/authenticate` | NoAuthRequired |  |  |  |
 | GET | `/api/v1/backlog` | Authenticated |  | 200 `EnumerationResult<Objective>` |  |

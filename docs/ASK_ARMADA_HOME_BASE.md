@@ -287,6 +287,7 @@ syntax).
 | POST | `/ask/threads/{id}/cancel` | | stops the running captain turn |
 | POST | `/ask/threads/{id}/summarize` | | 202; posts a `Summary` message and sets `SummaryText` |
 | POST | `/ask/threads/{id}/read` | | marks the thread read (`UnreadCount = 0`) |
+| POST | `/ask/threads/{id}/unread` | | marks the thread unread (`UnreadCount = 1` when it was 0; a non-zero count is kept) |
 | POST | `/ask/threads/{id}/actions` | `{ ToolName, Arguments }` | `AskActionProposal` (executed) |
 | POST | `/ask/threads/{id}/proposals/{pid}/approve` | | `AskActionProposal` |
 | POST | `/ask/threads/{id}/proposals/{pid}/reject` | | `AskActionProposal` |

@@ -16,6 +16,7 @@ import {
   getCaptainTools,
   listCaptains,
   markAskThreadRead,
+  markAskThreadUnread,
   rejectAskProposal,
   runAskQuickAction,
   sendAskMessage,
@@ -67,6 +68,8 @@ const THINKING_STORAGE_KEY = 'armada_ask_show_thinking';
 // The conversation last opened, reopened when the page is entered on the bare /ask route. Suffixed with the signed-in
 // user id so one user never reopens another user's conversation in a shared browser.
 const LAST_THREAD_STORAGE_KEY = 'armada_ask_last_thread';
+// Unsent drafts of saved conversations, a JSON map of thread id to text, kept across visits. Suffixed with the user id.
+const DRAFTS_STORAGE_KEY = 'armada_ask_drafts';
 const THREAD_PAGE_SIZE = 50;
 const MESSAGE_PAGE_SIZE = 30;
 const SNAPSHOT_FETCH_LIMIT = 20;
@@ -81,6 +84,21 @@ function writeStored(key: string, value: string) {
 
 function removeStored(key: string) {
   try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
+}
+
+function readDrafts(key: string): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(readStored(key) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, string> : {};
+  } catch { return {}; }
+}
+
+function storeDraft(key: string, threadId: string, text: string) {
+  const drafts = readDrafts(key);
+  if (text) drafts[threadId] = text;
+  else delete drafts[threadId];
+  if (Object.keys(drafts).length > 0) writeStored(key, JSON.stringify(drafts));
+  else removeStored(key);
 }
 
 /** Router state on /ask: `newConversation` marks an explicit empty conversation, so the last one is not reopened. */
@@ -108,6 +126,8 @@ export default function AskArmada() {
   const lastThreadKey = userId ? `${LAST_THREAD_STORAGE_KEY}:${userId}` : LAST_THREAD_STORAGE_KEY;
   const lastThreadKeyRef = useRef(lastThreadKey);
   lastThreadKeyRef.current = lastThreadKey;
+  const draftsKeyRef = useRef('');
+  draftsKeyRef.current = userId ? `${DRAFTS_STORAGE_KEY}:${userId}` : DRAFTS_STORAGE_KEY;
   // The id the bare /ask route was redirected to from storage; if it no longer loads, the page returns to /ask.
   const restoringThreadIdRef = useRef<string | null>(null);
 
@@ -157,8 +177,16 @@ export default function AskArmada() {
   const [greeting] = useState(() => randomGreeting());
   const messageListRef = useRef<AskMessageListHandle>(null);
   const composerRef = useRef<AskComposerHandle>(null);
-  // Each saved conversation keeps its own unsent draft; a new conversation always starts empty.
+  // Each saved conversation keeps its own unsent draft, saved in the browser so it survives leaving the page; a new
+  // conversation always starts empty. The ref covers browsers where storage is unavailable.
   const draftsRef = useRef<Record<string, string>>({});
+  const saveDraft = useCallback((id: string, text: string) => {
+    if (text) draftsRef.current[id] = text;
+    else delete draftsRef.current[id];
+    storeDraft(draftsKeyRef.current, id, text);
+  }, []);
+  const routeOpenedRef = useRef(false);
+  const draftFor = useCallback((id: string) => draftsRef.current[id] ?? readDrafts(draftsKeyRef.current)[id] ?? '', []);
   const drawerRef = useRef<HTMLDivElement>(null);
   // On narrow screens the list is a modal drawer: keep focus inside it and close it with Escape.
   useFocusTrap(drawerRef, drawerOpen, () => setDrawerOpen(false));
@@ -319,17 +347,22 @@ export default function AskArmada() {
   useEffect(() => {
     setDrawerOpen(false);
     const previousId = convRef.current.threadId;
+    // The page opened straight on a conversation: put back the draft saved on an earlier visit.
+    const firstOpen = !routeOpenedRef.current;
+    routeOpenedRef.current = true;
     // A conversation just created by a send or quick action already holds this id: its composer state carries over.
     if (previousId !== routeThreadId) {
-      if (previousId) draftsRef.current[previousId] = composerRef.current?.getText() ?? '';
-      composerRef.current?.reset({ text: routeThreadId ? draftsRef.current[routeThreadId] ?? '' : '', focus: !routeThreadId });
+      if (previousId) saveDraft(previousId, composerRef.current?.getText() ?? '');
+      composerRef.current?.reset({ text: routeThreadId ? draftFor(routeThreadId) : '', focus: !routeThreadId });
       dispatch({ type: 'reset', threadId: routeThreadId });
+    } else if (firstOpen && routeThreadId) {
+      composerRef.current?.reset({ text: draftFor(routeThreadId) });
     }
     setConvError(null);
     setStopping(false);
     if (routeThreadId) void loadConversation(routeThreadId);
     else setConvLoading(false);
-  }, [routeThreadId, loadConversation]);
+  }, [routeThreadId, loadConversation, saveDraft, draftFor]);
 
   // After a reconnect, refetch the open conversation so nothing missed while offline is lost.
   useEffect(() => {
@@ -510,6 +543,28 @@ export default function AskArmada() {
     }
   }
 
+  async function markThreadRead(target: AskThread) {
+    setThreads((prev) => prev.map((th) => (th.id === target.id ? { ...th, unreadCount: 0 } : th)));
+    try { await markAskThreadRead(target.id); }
+    catch (err: unknown) { setError(errorText(err, t('The conversation could not be marked read.'))); void loadThreads(1); }
+  }
+
+  /** Mark a conversation unread. The open one would be marked read again at once, so it is closed first. */
+  async function markThreadUnread(target: AskThread) {
+    if (target.id === convRef.current.threadId) {
+      forgetLastThread([target.id]);
+      navigate('/ask', { state: NEW_CONVERSATION_STATE });
+    }
+    setThreads((prev) => prev.map((th) => (th.id === target.id ? { ...th, unreadCount: Math.max(1, th.unreadCount ?? 0) } : th)));
+    try {
+      const updated = await markAskThreadUnread(target.id);
+      if (updated?.id) setThreads((prev) => prev.map((th) => (th.id === updated.id ? { ...th, unreadCount: updated.unreadCount } : th)));
+    } catch (err: unknown) {
+      setError(errorText(err, t('The conversation could not be marked unread.')));
+      void loadThreads(1);
+    }
+  }
+
   async function changeCliPolicy(target: AskThread, policy: CliPermissionPolicy | null) {
     try {
       const updated = await setAskThreadCliPermissionPolicy(target.id, policy);
@@ -593,6 +648,7 @@ export default function AskArmada() {
       setThreads((prev) => prev.filter((th) => th.id !== target.id));
       pushToast('success', t('Conversation deleted.'));
       forgetLastThread([target.id]);
+      saveDraft(target.id, '');
       if (target.id === convRef.current.threadId) navigate('/ask', { state: NEW_CONVERSATION_STATE });
     } catch (err: unknown) {
       setError(errorText(err, t('The conversation could not be deleted.')));
@@ -614,6 +670,7 @@ export default function AskArmada() {
       if (skipped.length > 0) pushToast('warning', t('{{count}} conversations were not deleted.', { count: skipped.length }));
       else pushToast('success', t('Conversations deleted.'));
       forgetLastThread(deleted);
+      for (const id of deleted) saveDraft(id, '');
       if (convRef.current.threadId && deleted.includes(convRef.current.threadId)) navigate('/ask', { state: NEW_CONVERSATION_STATE });
       void loadThreads(1);
     } catch (err: unknown) {
@@ -707,6 +764,8 @@ export default function AskArmada() {
           onTogglePin={(th) => void updateThread(th, { pinned: !th.pinned })}
           onSummarize={(th) => void summarize(th)}
           onToggleArchive={(th) => void updateThread(th, { archived: !th.archived })}
+          onMarkRead={(th) => void markThreadRead(th)}
+          onMarkUnread={(th) => void markThreadUnread(th)}
           onDelete={(th) => setDeleteTarget(th)}
           selectedIds={selectedThreadIds}
           onToggleSelected={toggleSelected}
@@ -819,6 +878,7 @@ export default function AskArmada() {
           noCaptain={noCaptain}
           showThinking={showThinking}
           onShowThinkingChange={changeShowThinking}
+          onTextChange={(text) => { const id = convRef.current.threadId; if (id) saveDraft(id, text); }}
         />
       </section>
 

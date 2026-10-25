@@ -266,6 +266,28 @@ namespace Armada.Core.Database.SqlServer.Implementations
             return updated > 0;
         }
 
+        /// <inheritdoc />
+        public async Task<bool> MarkUnreadAsync(string tenantId, string userId, string id, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (String.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
+            if (String.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            int updated = 0;
+            await SqlServerCommandHelper.WriteAsync(_ConnectionString, _WriteLock, async (SqlConnection conn, SqlTransaction tx) =>
+            {
+                updated = await SqlServerCommandHelper.ExecuteAsync(conn, tx,
+                    "UPDATE ask_threads SET unread_count = CASE WHEN unread_count > 0 THEN unread_count ELSE 1 END WHERE tenant_id = @tenant_id AND user_id = @user_id AND id = @id;",
+                    cmd =>
+                    {
+                        SqlServerCommandHelper.Add(cmd, "@tenant_id", tenantId);
+                        SqlServerCommandHelper.Add(cmd, "@user_id", userId);
+                        SqlServerCommandHelper.Add(cmd, "@id", id);
+                    }, token).ConfigureAwait(false);
+            }, token).ConfigureAwait(false);
+            return updated > 0;
+        }
+
         #endregion
 
         #region Private-Methods

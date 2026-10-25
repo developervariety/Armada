@@ -1273,6 +1273,8 @@ export const sendAskMessage = (id: string, content: string, showThinking?: boole
 export const cancelAskTurn = (id: string) => post<void>(`${askThreadPath(id)}/cancel`, {});
 export const summarizeAskThread = (id: string) => post<void>(`${askThreadPath(id)}/summarize`, {});
 export const markAskThreadRead = (id: string) => post<void>(`${askThreadPath(id)}/read`, {});
+/** Mark a conversation unread: the server sets its unread count to one when it is zero. */
+export const markAskThreadUnread = (id: string) => post<AskThread>(`${askThreadPath(id)}/unread`, {});
 
 /** Run a quick action; the submitted form is the confirmation, so the result is already executed. */
 export const runAskQuickAction = (id: string, toolName: string, args: Record<string, unknown>) =>

@@ -292,6 +292,24 @@ namespace Armada.Core.Services.Ask
         }
 
         /// <summary>
+        /// Mark one of the caller's threads unread (UnreadCount = 1 when it was 0).
+        /// </summary>
+        /// <param name="auth">Caller.</param>
+        /// <param name="threadId">Thread identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The updated thread, or null when not found or not owned.</returns>
+        public async Task<AskThread?> MarkUnreadAsync(AuthContext auth, string threadId, CancellationToken token = default)
+        {
+            RequireOwner(auth);
+            if (String.IsNullOrWhiteSpace(threadId)) return null;
+            bool updated = await _Database.AskThreads.MarkUnreadAsync(auth.TenantId!, auth.UserId!, threadId, token).ConfigureAwait(false);
+            if (!updated) return null;
+            AskThread? thread = await GetThreadAsync(auth, threadId, token).ConfigureAwait(false);
+            if (thread != null) Emit(thread, "ask.thread", new { threadId = thread.Id, thread });
+            return thread;
+        }
+
+        /// <summary>
         /// Read a page of a thread's messages, newest page first when BeforeSequence is null, each with its tool calls,
         /// proposal, and tracked work (with snapshot) populated. Messages within the page are in ascending sequence.
         /// </summary>

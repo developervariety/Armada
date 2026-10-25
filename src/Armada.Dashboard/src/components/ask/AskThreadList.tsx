@@ -23,6 +23,8 @@ export interface AskThreadListProps {
   onTogglePin: (thread: AskThread) => void;
   onSummarize: (thread: AskThread) => void;
   onToggleArchive: (thread: AskThread) => void;
+  onMarkRead: (thread: AskThread) => void;
+  onMarkUnread: (thread: AskThread) => void;
   onDelete: (thread: AskThread) => void;
   /** IDs of the conversations ticked for a bulk delete (kept by the page). */
   selectedIds: string[];
@@ -43,7 +45,7 @@ export interface AskThreadListProps {
 export default function AskThreadList(props: AskThreadListProps) {
   const {
     threads, selectedId, activity, loading, error, search, onSearchChange, includeArchived, onIncludeArchivedChange,
-    hasMore, onLoadMore, onRetry, onSelect, onNew, onRename, onTogglePin, onSummarize, onToggleArchive, onDelete, onClose,
+    hasMore, onLoadMore, onRetry, onSelect, onNew, onRename, onTogglePin, onSummarize, onToggleArchive, onMarkRead, onMarkUnread, onDelete, onClose,
     selectedIds, onToggleSelected, onSelectAll, onClearSelection, onDeleteSelected,
   } = props;
   const { t, formatRelativeTime } = useLocale();
@@ -95,6 +97,10 @@ export default function AskThreadList(props: AskThreadListProps) {
       thread.pinned
         ? { label: 'Unpin', onClick: () => onTogglePin(thread) }
         : { label: 'Pin', onClick: () => onTogglePin(thread) },
+      // The open conversation always shows as read, so it only offers Mark unread.
+      thread.id !== selectedId && (thread.unreadCount ?? 0) > 0
+        ? { label: 'Mark read', onClick: () => onMarkRead(thread) }
+        : { label: 'Mark unread', onClick: () => onMarkUnread(thread) },
       { label: 'Summarize', onClick: () => onSummarize(thread) },
       thread.archived
         ? { label: 'Unarchive', onClick: () => onToggleArchive(thread) }

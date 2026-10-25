@@ -6018,7 +6018,11 @@
         "Minutes each stage-check command may run": "Minutos que puede durar cada comando de comprobación de etapa",
         "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "Minutos que puede tardar cada comando de comprobación de etapa (los comandos de compilación y pruebas unitarias de un repositorio, ejecutados tras una etapa) antes de considerarse agotado (predeterminado 15, de 1 a 240). Póngalo por encima del comando más lento o dé al perfil de flujo de trabajo un comando de prueba más acotado.",
         "Choose a runtime to add": "Elija un runtime para añadir",
-        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "Elija un runtime para añadirlo como prioridad al final de la lista, de modo que se pruebe en último lugar. Puede cambiarlo y añadir más campos después."
+        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "Elija un runtime para añadirlo como prioridad al final de la lista, de modo que se pruebe en último lugar. Puede cambiarlo y añadir más campos después.",
+        "Mark read": "Marcar como leída",
+        "Mark unread": "Marcar como no leída",
+        "The conversation could not be marked read.": "No se pudo marcar la conversación como leída.",
+        "The conversation could not be marked unread.": "No se pudo marcar la conversación como no leída."
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -10973,7 +10977,11 @@
         "Minutes each stage-check command may run": "每个阶段检查命令可运行的分钟数",
         "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "每个阶段检查命令（阶段完成后运行的仓库构建和单元测试命令）在被判定为超时前可运行的分钟数（默认 15，范围 1 到 240）。请将其设置为高于最慢命令的耗时，或为工作流配置提供范围更小的测试命令。",
         "Choose a runtime to add": "选择要添加的运行时",
-        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "选择一个运行时，将其作为优先级添加到列表末尾，最后尝试。添加后可以更改它并添加更多字段。"
+        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "选择一个运行时，将其作为优先级添加到列表末尾，最后尝试。添加后可以更改它并添加更多字段。",
+        "Mark read": "标为已读",
+        "Mark unread": "标为未读",
+        "The conversation could not be marked read.": "无法将对话标为已读。",
+        "The conversation could not be marked unread.": "无法将对话标为未读。"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15891,7 +15899,11 @@
         "Minutes each stage-check command may run": "每個階段檢查指令可執行的分鐘數",
         "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "每個階段檢查指令（階段完成後執行的儲存庫建置與單元測試指令）在被判定逾時前可執行的分鐘數（預設 15，範圍 1 到 240）。請設定為高於最慢指令的耗時，或為工作流程設定檔提供範圍較小的測試指令。",
         "Choose a runtime to add": "選擇要新增的執行環境",
-        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "選擇一個執行環境，將其作為優先順序新增到清單末尾，最後嘗試。新增後可以變更並加入更多欄位。"
+        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "選擇一個執行環境，將其作為優先順序新增到清單末尾，最後嘗試。新增後可以變更並加入更多欄位。",
+        "Mark read": "標為已讀",
+        "Mark unread": "標為未讀",
+        "The conversation could not be marked read.": "無法將對話標為已讀。",
+        "The conversation could not be marked unread.": "無法將對話標為未讀。"
       },
       "sections": {}
     },
@@ -20769,7 +20781,11 @@
         "Minutes each stage-check command may run": "每個階段檢查指令可以行幾多分鐘",
         "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "每個階段檢查指令（階段完成後行嘅儲存庫建置同單元測試指令）喺被當作逾時之前可以行幾多分鐘（預設 15，範圍 1 至 240）。請設定高過最慢嗰個指令，或者俾工作流程設定檔一個範圍細啲嘅測試指令。",
         "Choose a runtime to add": "揀一個要加嘅執行環境",
-        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "揀一個執行環境，將佢當做優先次序加到清單尾，最後先試。加完之後可以改佢同埋加更多欄位。"
+        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "揀一個執行環境，將佢當做優先次序加到清單尾，最後先試。加完之後可以改佢同埋加更多欄位。",
+        "Mark read": "標為已讀",
+        "Mark unread": "標為未讀",
+        "The conversation could not be marked read.": "冇辦法將對話標為已讀。",
+        "The conversation could not be marked unread.": "冇辦法將對話標為未讀。"
       },
       "sections": {}
     },
@@ -25663,7 +25679,11 @@
         "Minutes each stage-check command may run": "各ステージチェックコマンドの実行可能時間（分）",
         "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "各ステージチェックコマンド（ステージ後に実行されるリポジトリのビルドと単体テストのコマンド）がタイムアウトと見なされるまでの分数（既定値 15、1～240）。最も遅いコマンドより長く設定するか、ワークフロープロファイルにより範囲の狭いテストコマンドを指定してください。",
         "Choose a runtime to add": "追加するランタイムを選択",
-        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "ランタイムを選ぶと、リストの末尾に優先順位として追加され、最後に試されます。追加後に変更したり、項目を追加したりできます。"
+        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "ランタイムを選ぶと、リストの末尾に優先順位として追加され、最後に試されます。追加後に変更したり、項目を追加したりできます。",
+        "Mark read": "既読にする",
+        "Mark unread": "未読にする",
+        "The conversation could not be marked read.": "会話を既読にできませんでした。",
+        "The conversation could not be marked unread.": "会話を未読にできませんでした。"
       },
       "sections": {}
     },
@@ -30548,7 +30568,11 @@
         "Minutes each stage-check command may run": "Minuten, die jeder Stufenprüfungsbefehl laufen darf",
         "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "Minuten, die jeder Stufenprüfungsbefehl (Build- und Unit-Test-Befehle eines Repositorys, nach einer Stufe ausgeführt) laufen darf, bevor er als abgelaufen gilt (Standard 15, 1 bis 240). Setzen Sie den Wert über den langsamsten Befehl oder geben Sie dem Workflow-Profil einen engeren Testbefehl.",
         "Choose a runtime to add": "Laufzeit zum Hinzufügen wählen",
-        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "Wählen Sie eine Laufzeit, um sie als Priorität am Ende der Liste hinzuzufügen, sodass sie zuletzt versucht wird. Nach dem Hinzufügen können Sie sie ändern und weitere Felder ergänzen."
+        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "Wählen Sie eine Laufzeit, um sie als Priorität am Ende der Liste hinzuzufügen, sodass sie zuletzt versucht wird. Nach dem Hinzufügen können Sie sie ändern und weitere Felder ergänzen.",
+        "Mark read": "Als gelesen markieren",
+        "Mark unread": "Als ungelesen markieren",
+        "The conversation could not be marked read.": "Die Unterhaltung konnte nicht als gelesen markiert werden.",
+        "The conversation could not be marked unread.": "Die Unterhaltung konnte nicht als ungelesen markiert werden."
       },
       "sections": {}
     },
@@ -35433,7 +35457,11 @@
         "Minutes each stage-check command may run": "Minutes autorisées pour chaque commande de vérification d'étape",
         "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "Minutes que chaque commande de vérification d'étape (les commandes de build et de tests unitaires d'un dépôt, exécutées après une étape) peut prendre avant d'être signalée comme expirée (15 par défaut, de 1 à 240). Réglez-le au-dessus de la commande la plus lente, ou donnez au profil de workflow une commande de test plus ciblée.",
         "Choose a runtime to add": "Choisir un runtime à ajouter",
-        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "Choisissez un runtime pour l'ajouter comme priorité en fin de liste, afin qu'il soit essayé en dernier. Vous pouvez le modifier et ajouter d'autres champs ensuite."
+        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "Choisissez un runtime pour l'ajouter comme priorité en fin de liste, afin qu'il soit essayé en dernier. Vous pouvez le modifier et ajouter d'autres champs ensuite.",
+        "Mark read": "Marquer comme lue",
+        "Mark unread": "Marquer comme non lue",
+        "The conversation could not be marked read.": "La conversation n'a pas pu être marquée comme lue.",
+        "The conversation could not be marked unread.": "La conversation n'a pas pu être marquée comme non lue."
       },
       "sections": {}
     },
@@ -40318,7 +40346,11 @@
         "Minutes each stage-check command may run": "Minuti consentiti per ogni comando di verifica di fase",
         "Minutes each stage-check command (a vessel's build and unit-test commands, run after a stage) may take before it is reported as timed out (default 15, 1 to 240). Set it above the slowest command, or give the workflow profile a narrower test command.": "Minuti che ogni comando di verifica di fase (i comandi di build e di test unitari di un repository, eseguiti dopo una fase) può impiegare prima di essere segnalato come scaduto (predefinito 15, da 1 a 240). Impostalo oltre il comando più lento oppure assegna al profilo di workflow un comando di test più mirato.",
         "Choose a runtime to add": "Scegli un runtime da aggiungere",
-        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "Scegli un runtime per aggiungerlo come priorità in fondo all'elenco, così viene provato per ultimo. Dopo l'aggiunta puoi modificarlo e aggiungere altri campi."
+        "Choose a runtime to add it as a priority at the bottom of the list, so it is tried last. You can change it and add more fields after adding.": "Scegli un runtime per aggiungerlo come priorità in fondo all'elenco, così viene provato per ultimo. Dopo l'aggiunta puoi modificarlo e aggiungere altri campi.",
+        "Mark read": "Segna come letta",
+        "Mark unread": "Segna come non letta",
+        "The conversation could not be marked read.": "Impossibile segnare la conversazione come letta.",
+        "The conversation could not be marked unread.": "Impossibile segnare la conversazione come non letta."
       },
       "sections": {}
     }

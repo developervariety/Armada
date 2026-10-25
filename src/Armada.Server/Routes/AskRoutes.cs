@@ -347,6 +347,24 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/ask/threads/{id}/unread", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                AskThread? thread = await threads.MarkUnreadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                if (thread == null) return Error(req, 404, ApiResultEnum.NotFound, "Thread not found");
+                return thread;
+            },
+            api => api
+                .WithTag("Ask")
+                .WithSummary("Mark a thread unread")
+                .WithDescription("Sets UnreadCount to 1 when it is 0 (a non-zero count is kept) and returns the thread.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Thread ID (ath_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<AskThread>("The thread"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Post("/api/v1/ask/threads/{id}/actions", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

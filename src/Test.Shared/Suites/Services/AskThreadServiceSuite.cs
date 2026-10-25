@@ -52,6 +52,7 @@ namespace Test.Shared.Suites.Services
                     AssertNull(await h.Threads.UpdateThreadAsync(stranger, thread.Id, new AskThreadUpdateRequest { Title = "x" }).ConfigureAwait(false), "update");
                     AssertNull(await h.Threads.EnumerateMessagesAsync(stranger, thread.Id, null).ConfigureAwait(false), "messages");
                     AssertNull(await h.Threads.MarkReadAsync(stranger, thread.Id).ConfigureAwait(false), "read");
+                    AssertNull(await h.Threads.MarkUnreadAsync(stranger, thread.Id).ConfigureAwait(false), "unread");
                     AssertFalse(await h.Threads.DeleteThreadAsync(stranger, thread.Id).ConfigureAwait(false), "delete");
                     AssertEqual(0L, (await h.Threads.EnumerateThreadsAsync(stranger, null).ConfigureAwait(false)).TotalRecords, "enumerate");
                     AssertEqual(404, (await h.Turns.SendMessageAsync(stranger, thread.Id, new AskMessageSendRequest { Content = "hi" }).ConfigureAwait(false)).StatusCode, "send");
@@ -128,6 +129,15 @@ namespace Test.Shared.Suites.Services
                 AskThread? read = await h.Threads.MarkReadAsync(owner, thread.Id).ConfigureAwait(false);
                 AssertEqual(0, read!.UnreadCount, "marked read");
                 AssertTrue(h.EventsFor("usr_unread", "ask.thread").Any(), "ask.thread announced");
+
+                int threadEvents = h.EventsFor("usr_unread", "ask.thread").Count();
+                AskThread? markedUnread = await h.Threads.MarkUnreadAsync(owner, thread.Id).ConfigureAwait(false);
+                AssertEqual(1, markedUnread!.UnreadCount, "marked unread");
+                AssertTrue(h.EventsFor("usr_unread", "ask.thread").Count() > threadEvents, "mark unread announced");
+                await h.Threads.AppendMessageAsync(fresh, new AskMessage { Role = AskMessageRoleEnum.System, Kind = AskMessageKindEnum.WorkUpdate, ContentText = "Another update." }, true).ConfigureAwait(false);
+                AssertNotNull(await h.Threads.MarkUnreadAsync(owner, thread.Id).ConfigureAwait(false), "unread thread can be marked unread again");
+                AssertEqual(2, (await h.Threads.GetThreadAsync(owner, thread.Id).ConfigureAwait(false))!.UnreadCount, "a non-zero count is kept");
+                AssertNull(await h.Threads.MarkUnreadAsync(owner, "").ConfigureAwait(false), "blank id");
             }));
 
             cases.Add(CaseAsync("update_semantics_and_captain_clear", "Updates change only given fields; CaptainId present with null clears the captain", TestTags.Positive, async () =>
