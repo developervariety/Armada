@@ -230,9 +230,9 @@ namespace Armada.Test.Unit.Suites.Services
                         **Required revision:** src/Reader.cs:20 rejects normal timeout before cleanup.
 
                         Source completeness:
-                        - Request framing: ported at src/Reader.cs:10.
-                        - Pending wait and bounded retry: reused through src/Reader.cs:12.
-                        - Physical action and cleanup: preserved at src/Reader.cs:14.
+                        - Request framing: ported at `src/Reader.cs:10` and `:24`.
+                        - Pending wait and bounded retry: reused through `:30`.
+                        - Physical action and cleanup: preserved at `:14`.
                         - Timeout completion: **NOT DELIVERED**, not deferred.
                         - Alternate paths: preserved.
 
@@ -318,6 +318,26 @@ namespace Armada.Test.Unit.Suites.Services
                     "## Correctness\n**Required revision:** src/Reader.cs:20 is incorrect.\nSource completeness:\n- Reader path: preserved, but cancellation is incorrect.", out bool sourceComplete);
                 AssertTrue(sourceComplete);
                 AssertEqual(2, qualifiedSource.Count, "qualified source agreement retains the defect");
+                foreach (string defect in new[]
+                {
+                    "Parser: preserved; malformed input causes a crash.",
+                    "Parser: preserved. Timeout remains unsafe.",
+                    "Reader path: preserved; src/Reader.cs:20 still returns before cleanup."
+                })
+                {
+                    List<string> actual = JudgeChallenge.ExtractFindings(
+                        "## Correctness\n**Required revision:** src/Reader.cs:20 is incorrect.\nSource completeness:\n- " + defect,
+                        out bool defectComplete);
+                    AssertTrue(defectComplete);
+                    AssertEqual(2, actual.Count, "a positive prefix cannot hide a defect: " + defect);
+                    AssertContains(defect, String.Join("\n", actual));
+                }
+                List<string> indentedRevision = JudgeChallenge.ExtractFindings(
+                    "## Tests\n- Passed baseline.\n  **Required revision:** cap the retry deadline.", out bool revisionComplete);
+                AssertTrue(revisionComplete);
+                AssertEqual(1, indentedRevision.Count);
+                AssertContains("cap the retry deadline", String.Join("\n", indentedRevision));
+
 
             });
 

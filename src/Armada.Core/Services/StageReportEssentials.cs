@@ -295,7 +295,9 @@ namespace Armada.Core.Services
                     // Classify the complete result, including an indented command or exit status.
                     while (i + 1 < lines.Length && IsContinuation(lines[i + 1]))
                     {
-                        string continuation = lines[++i].Trim();
+                        string continuation = lines[i + 1].Trim();
+                        if (IsFindingLabel(continuation) || IsDefectLabel(continuation) || IsExplicitBlocking(continuation)) break;
+                        i++;
                         item += " " + continuation;
                         raw += " " + continuation;
                     }
@@ -763,8 +765,12 @@ namespace Armada.Core.Services
 
         private static bool IsSourceCompletenessSuccess(string item, string leadIn)
         {
+            const string location = @"[A-Za-z0-9_./\\-]*:\d+(?:-\d+)?";
+            const string anchor = "(?:`" + location + "`|" + location + ")";
             return String.Equals(leadIn.Trim(), "Source completeness:", StringComparison.OrdinalIgnoreCase)
-                && Regex.IsMatch(item, @"^[^:]+:\s*(?:ported|reused|preserved)\b", RegexOptions.IgnoreCase)
+                && Regex.IsMatch(item, @"^[^:]+:\s*(?:preserved|(?:ported|reused|preserved)\s+(?:at|through)\s+"
+                    + anchor + @"(?:\s+and\s+" + anchor + @")?)[.!]?$", RegexOptions.IgnoreCase)
+                && !_ParagraphDefect.IsMatch(item)
                 && !_QualifiedWording.IsMatch(item)
                 && !_DefectWord.IsMatch(item)
                 && !_RequiredWording.IsMatch(item)
