@@ -49,6 +49,10 @@ namespace Armada.Core.Services
             @"^\s*(?:changing|editing|modifying|touching|writing|updating)\b",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        private static readonly Regex _ExclusiveCommitScope = new Regex(
+            @"^\s*No\s+stage\s+commits\s+outside\b",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
         // A constraint sentence that allows only the files it names.
         private static readonly Regex _AllowsOnly = new Regex(
             @"\b(?:only|allow\w*\s+only|limited\s+to|restricted\s+to)\b.*?\b(?:chang\w*|edit\w*|modif\w*|touch\w*|writ\w*|file\w*)\b"
@@ -188,7 +192,10 @@ namespace Armada.Core.Services
                 {
                     List<string> tokens = PathTokens(sentence);
                     if (tokens.Count == 0) continue;
-                    if (_Forbids.IsMatch(sentence) || (constraint.IsNonGoal && _NonGoalChange.IsMatch(sentence))) forbidding.Add(tokens);
+                    // This path-only allow-list must precede generic negation matching: a file
+                    // named CHANGELOG.md is not a change verb that forbids its own allow-list.
+                    if (IsExclusiveCommitAllowList(sentence, tokens)) allowing.Add(tokens);
+                    else if (_Forbids.IsMatch(sentence) || (constraint.IsNonGoal && _NonGoalChange.IsMatch(sentence))) forbidding.Add(tokens);
                     else if (_AllowsOnly.IsMatch(sentence)) allowing.Add(tokens);
                 }
             }
@@ -207,6 +214,19 @@ namespace Armada.Core.Services
         #region Private-Methods
 
         // Path-shaped tokens of a sentence: a token with a slash or a file extension.
+        private static bool IsExclusiveCommitAllowList(string sentence, List<string> paths)
+        {
+            Match scope = _ExclusiveCommitScope.Match(sentence);
+            if (!scope.Success) return false;
+            // Conditional prose and further directives are not this narrow path-list grammar.
+            return _PathToken.Matches(sentence.Substring(scope.Length)).Cast<Match>().All(match =>
+            {
+                string token = NormalizeEntry(match.Value.TrimEnd('.', ','));
+                return token.Length == 0 || token.Equals("and", StringComparison.OrdinalIgnoreCase)
+                    || token.Equals("or", StringComparison.OrdinalIgnoreCase) || paths.Contains(token, StringComparer.OrdinalIgnoreCase);
+            });
+        }
+
         private static List<string> PathTokens(string sentence)
         {
             List<string> tokens = new List<string>();

@@ -1867,13 +1867,19 @@ namespace Armada.Test.Unit.Suites.Services
                         ObjectiveDispatchPreviewIssue exclusiveWarning = exclusive.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
                         AssertEqual("schema/**/*.sql", exclusiveWarning.RelatedValue, "an exclusive commit allow-list excludes only paths outside its scope");
                         AssertEqual(ReadinessSeverityEnum.Warning, exclusiveWarning.Severity);
-                        AssertTrue(exclusive.IsReady, "the warning remains advisory");
+                        AssertEqual(nonGoalExcluded.IsReady, exclusive.IsReady, "the warning does not change readiness");
 
                         objective.RolloutConstraints = new List<string> { "No stage commits outside docs/data-dictionary.md, schema/**/*.sql and CHANGELOG.md." };
                         ObjectiveDispatchPreview included = await harness.Service.PreviewAsync(
                             harness.Auth, objective, null, pipelineId, null, withoutInputs).ConfigureAwait(false);
                         AssertContains("docs/data-dictionary.md", included.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode).RelatedValue!,
                             "an included gate input is not accidentally forbidden by CHANGELOG's name");
+
+                        objective.RolloutConstraints = new List<string> { "No stage commits outside tests/OnlyTests.cs unless the operator approves another path." };
+                        ObjectiveDispatchPreview conditional = await harness.Service.PreviewAsync(
+                            harness.Auth, objective, null, pipelineId, null, withoutInputs).ConfigureAwait(false);
+                        AssertContains("docs/data-dictionary.md", conditional.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode).RelatedValue!,
+                            "conditional prose is not the narrow exclusive path-list grammar");
 
                         objective.RolloutConstraints = new List<string> { "Do not edit docs/data-dictionary.md." };
                         ObjectiveDispatchPreview forbidden = await harness.Service.PreviewAsync(

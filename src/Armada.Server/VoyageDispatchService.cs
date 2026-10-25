@@ -159,8 +159,11 @@ namespace Armada.Server
                 {
                     // A request that names its own skipStages, an empty list included, replaces the
                     // objective's stored default skip, so the stored skip neither applies nor gates it.
-                    if (request.SkipStages != null && objective.Preparation != null)
-                        objective.Preparation.StageSkip = null;
+                    if (request.SkipStages != null)
+                    {
+                        objective.Preparation ??= new ObjectivePreparation();
+                        objective.Preparation.StageSkip = PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, objectiveAuth);
+                    }
                     string? effectivePipeline = NormalizeEmpty(request.PipelineId)
                         ?? NormalizeEmpty(request.Pipeline)
                         ?? NormalizeEmpty(objective.SuggestedPipelineId);
