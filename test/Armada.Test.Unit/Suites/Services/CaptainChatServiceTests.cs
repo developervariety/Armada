@@ -515,6 +515,15 @@ namespace Armada.Test.Unit.Suites.Services
                         ReplayRuntimeFactory factory = new ReplayRuntimeFactory(logging, new[] { "reply" });
                         CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, settings, sessionTokens);
                         AuthContext caller = AuthContext.Authenticated("tenant-cli", "user-cli", false, false, "Session");
+                        AuthContext scopedCaller = AuthContext.Authenticated("tenant-cli", "user-cli", true, true, "Session");
+                        scopedCaller.MissionId = "msn_chat_scope";
+                        AssertNull(CallerMcpToolAccessFactory.Create(scopedCaller, sessionTokens, settings.McpPort),
+                            "mission callers cannot obtain an unrestricted child credential");
+                        CaptainChatResponse refused = await chat.ChatAsync(scopedCaller, captain.Id,
+                            new CaptainChatRequest { Message = "hello" }).ConfigureAwait(false);
+                        AssertFalse(refused.Success, "mission callers cannot start conversational chat");
+                        AssertNull(factory.LastRuntime, "scope refusal happens before creating a runtime");
+
                         // The reply content is irrelevant here; the launched runtime records the isolation plan the
                         // chat turn built when StartAsync is called, so assert on that plan regardless of the reply.
                         await chat.ChatAsync(caller, captain.Id, new CaptainChatRequest { Message = "hello" }).ConfigureAwait(false);

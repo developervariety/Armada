@@ -10,6 +10,20 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Mission credentials cannot enter captain chat even for administrator owners", () =>
+            {
+                AuthorizationService service = new AuthorizationService();
+                foreach (bool isAdmin in new[] { false, true })
+                {
+                    AuthContext caller = AuthContext.Authenticated("tenant-chat", "user-chat", isAdmin, true, "Session");
+                    AssertTrue(service.IsAuthorized(caller, "POST", "/api/v1/captains/cpt_chat/chat"));
+                    caller.MissionId = "msn_chat_scope";
+                    AssertFalse(service.IsAuthorized(caller, "POST", "/api/v1/captains/cpt_chat/chat"));
+                    AssertFalse(service.IsAuthorized(caller, "POST", "/api/v1/captains/cpt_chat/chat/?mode=stream"));
+                    AssertTrue(service.IsAuthorized(caller, "GET", "/api/v1/captains/cpt_chat"), "captain reads stay available");
+                }
+            });
+
             // --- IsAuthorized tests ---
 
             await RunTest("IsAuthorized Status Matrix Admits Only Global Administrators", () =>

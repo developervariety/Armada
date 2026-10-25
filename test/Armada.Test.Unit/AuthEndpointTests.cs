@@ -1,6 +1,8 @@
 namespace Armada.Test.Unit
 {
     using System.Security.Cryptography;
+    using System.Net.Http;
+    using System.Text.Json;
     using Armada.Core;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Models;
@@ -31,6 +33,43 @@ namespace Armada.Test.Unit
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Authentication HTTP exchange never removes mission scope", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    JsonSerializerOptions json = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    SurfaceReply operatorReply = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate").ConfigureAwait(false);
+                    AssertEqual(200, operatorReply.Status, "operator API key can obtain a session");
+                    AuthenticateResult ordinary = JsonSerializer.Deserialize<AuthenticateResult>(operatorReply.Body, json)!;
+                    AssertTrue(ordinary.Success);
+                    AssertFalse(String.IsNullOrWhiteSpace(ordinary.Token));
+                    SurfaceReply refreshed = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate", sessionToken: ordinary.Token).ConfigureAwait(false);
+                    AssertEqual(200, refreshed.Status, "ordinary session refresh remains available");
+                    AssertTrue(JsonSerializer.Deserialize<AuthenticateResult>(refreshed.Body, json)!.Success);
+
+                    UserMaster user = await harness.Driver.Users.CreateAsync(new UserMaster(
+                        Constants.DefaultTenantId, "scoped-exchange@example.com", "test-password")).ConfigureAwait(false);
+                    foreach (string userId in new[] { Constants.DefaultUserId, user.Id })
+                    {
+                        Mission mission = await harness.Driver.Missions.CreateAsync(new Mission("scoped exchange")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = userId
+                        }).ConfigureAwait(false);
+                        string scoped = harness.CreateMissionToken(Constants.DefaultTenantId, userId, mission.Id);
+                        SurfaceReply identity = await harness.RestAsync(HttpMethod.Get, "/api/v1/whoami", sessionToken: scoped).ConfigureAwait(false);
+                        AssertEqual(200, identity.Status, "real signer and middleware accept the mission credential");
+                        SurfaceReply refused = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate", sessionToken: scoped).ConfigureAwait(false);
+                        AssertEqual(403, refused.Status, "mission credentials cannot obtain an unrestricted session, regardless of owner roles");
+                        AuthenticateResult result = JsonSerializer.Deserialize<AuthenticateResult>(refused.Body, json)!;
+                        AssertFalse(result.Success);
+                        AssertNull(result.Token, "refusal issues no credential");
+                    }
+                    SurfaceReply invalid = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate", sessionToken: "invalid-session").ConfigureAwait(false);
+                    AssertEqual(401, invalid.Status, "invalid authentication remains unauthorized");
+                }
+            });
+
             // ================================================================
             // SessionTokenService
             // ================================================================

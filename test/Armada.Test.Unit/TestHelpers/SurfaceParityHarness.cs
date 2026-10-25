@@ -240,6 +240,7 @@ namespace Armada.Test.Unit.TestHelpers
                 ctx.Request.Headers.Get("X-Token"),
                 ctx.Request.Headers.Get("X-Api-Key"));
             AuthorizationService authz = new AuthorizationService();
+            new AuthRoutes(_SessionTokens, authentication, Driver, Settings, _RestJsonOptions).Register(_Server, authenticate, authz);
 
             new MissionRoutes(Driver, Admiral.Service, missionService, Settings, Git, landing, landingPreview, gitHub,
                 emitEvent, null, logging, _RestJsonOptions, transitions, Operations).Register(_Server, authenticate, authz);
