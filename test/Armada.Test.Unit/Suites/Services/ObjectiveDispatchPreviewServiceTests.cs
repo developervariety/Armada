@@ -1860,6 +1860,27 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("docs/data-dictionary.md", positiveWarning.RelatedValue!,
                             "a positive rollout statement does not exclude the files it names");
                         objective.RolloutConstraints.Clear();
+
+                        objective.RolloutConstraints = new List<string> { "No stage commits outside docs/operations.md, schema/**/*.sql and CHANGELOG.md." };
+                        ObjectiveDispatchPreview exclusive = await harness.Service.PreviewAsync(
+                            harness.Auth, objective, null, pipelineId, null, withoutInputs).ConfigureAwait(false);
+                        ObjectiveDispatchPreviewIssue exclusiveWarning = exclusive.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
+                        AssertEqual("schema/**/*.sql", exclusiveWarning.RelatedValue, "an exclusive commit allow-list excludes only paths outside its scope");
+                        AssertEqual(ReadinessSeverityEnum.Warning, exclusiveWarning.Severity);
+                        AssertTrue(exclusive.IsReady, "the warning remains advisory");
+
+                        objective.RolloutConstraints = new List<string> { "No stage commits outside docs/data-dictionary.md, schema/**/*.sql and CHANGELOG.md." };
+                        ObjectiveDispatchPreview included = await harness.Service.PreviewAsync(
+                            harness.Auth, objective, null, pipelineId, null, withoutInputs).ConfigureAwait(false);
+                        AssertContains("docs/data-dictionary.md", included.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode).RelatedValue!,
+                            "an included gate input is not accidentally forbidden by CHANGELOG's name");
+
+                        objective.RolloutConstraints = new List<string> { "Do not edit docs/data-dictionary.md." };
+                        ObjectiveDispatchPreview forbidden = await harness.Service.PreviewAsync(
+                            harness.Auth, objective, null, pipelineId, null, withoutInputs).ConfigureAwait(false);
+                        AssertEqual("schema/**/*.sql", forbidden.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode).RelatedValue,
+                            "explicit forbidding constraints still apply");
+                        objective.RolloutConstraints.Clear();
                     }
 
                     ObjectiveDispatchPreview unplanned = await harness.Service.PreviewAsync(

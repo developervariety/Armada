@@ -696,6 +696,43 @@ namespace Armada.Test.Unit.Suites.Services
                     }).ConfigureAwait(false);
                     AssertFalse(named.Succeeded, "a skip the request names must match a stage of the chosen pipeline");
                     AssertContains(PipelineStageSkip.UnknownPersonaCode, JsonSerializer.Serialize(named.Value));
+
+                    Pipeline withRecorder = await testDb.Driver.Pipelines.CreateAsync(new Pipeline("ExplicitRecorderPreview")
+                    {
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, PersonaCatalog.Worker), new PipelineStage(2, "Recorder"), new PipelineStage(3, PersonaCatalog.Judge)
+                        }
+                    }).ConfigureAwait(false);
+                    Objective confirmed = await CreateObjectiveWithStoredSkipAsync(testDb, harness.Vessel, "Explicit confirmed Recorder", "Recorder").ConfigureAwait(false);
+                    string? storedConfirmation = confirmed.Preparation.StageSkip!.OperatorConfirmationId;
+                    ObjectiveDispatchPreview ready = await preview.PreviewAsync(McpTestCaller.Operator, confirmed, harness.Vessel.Id, withRecorder.Id).ConfigureAwait(false);
+                    AssertTrue(ready.IsReady, "the stored Recorder skip needs no Recorder captain");
+                    VoyageDispatchResult explicitSkip = await harness.NewDispatchService(preview).DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "explicit Recorder skip", VesselId = harness.Vessel.Id, PipelineId = withRecorder.Id,
+                        CodeContextMode = "off", ObjectiveId = confirmed.Id, ObjectiveAuthContext = McpTestCaller.Operator,
+                        SkipStages = new List<string> { "Recorder" }, SkipStagesReason = "Operator confirms no recording stage is needed.",
+                        Missions = new List<MissionDescription> { new MissionDescription("Change", "Change and prove.") }
+                    }).ConfigureAwait(false);
+                    AssertTrue(explicitSkip.Succeeded, "explicit and stored skips agree in readiness and dispatch: " + JsonSerializer.Serialize(explicitSkip.Value));
+                    List<Mission> explicitStages = await testDb.Driver.Missions.EnumerateByVoyageAsync(explicitSkip.Voyage!.Id).ConfigureAwait(false);
+                    AssertEqual("Worker|1|none;Judge|3|Worker", String.Join(";", DescribePipelineGraph(explicitStages)));
+                    List<ArmadaEvent> skips = await testDb.Driver.Events.EnumerateByTypeAsync(PipelineStageSkip.StageSkippedEventType, 50).ConfigureAwait(false);
+                    AssertEqual(1, skips.Count(evt => evt.VoyageId == explicitSkip.Voyage.Id), "one actual stage skip is recorded");
+                    AssertEqual(storedConfirmation, (await testDb.Driver.Objectives.ReadAsync(confirmed.Id).ConfigureAwait(false))!.Preparation.StageSkip!.OperatorConfirmationId,
+                        "preview never overwrites the objective's saved confirmation");
+
+                    Objective noSkip = await CreateObjectiveWithStoredSkipAsync(testDb, harness.Vessel, "Explicit empty skips", "Recorder").ConfigureAwait(false);
+                    VoyageDispatchResult emptySkip = await harness.NewDispatchService(preview).DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "explicitly retain Recorder", VesselId = harness.Vessel.Id, PipelineId = withRecorder.Id,
+                        CodeContextMode = "off", ObjectiveId = noSkip.Id, ObjectiveAuthContext = McpTestCaller.Operator,
+                        SkipStages = new List<string>(),
+                        Missions = new List<MissionDescription> { new MissionDescription("Change", "Change and prove.") }
+                    }).ConfigureAwait(false);
+                    AssertFalse(emptySkip.Succeeded, "an explicit empty list removes the saved skip and requires a Recorder captain");
+                    AssertContains("required_role_has_no_captain", JsonSerializer.Serialize(emptySkip.Value));
                 }
             });
 
