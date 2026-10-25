@@ -296,7 +296,8 @@ namespace Armada.Core.Services
                     while (i + 1 < lines.Length && IsContinuation(lines[i + 1]))
                     {
                         string continuation = lines[i + 1].Trim();
-                        if (IsFindingLabel(continuation) || IsDefectLabel(continuation) || IsExplicitBlocking(continuation)) break;
+                        if (IsFindingLabel(continuation) || IsDefectLabel(continuation) || IsExplicitBlocking(continuation)
+                            || _ParagraphDirective.IsMatch(continuation) || _ParagraphDefect.IsMatch(continuation)) break;
                         i++;
                         item += " " + continuation;
                         raw += " " + continuation;

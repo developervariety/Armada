@@ -337,6 +337,12 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(revisionComplete);
                 AssertEqual(1, indentedRevision.Count);
                 AssertContains("cap the retry deadline", String.Join("\n", indentedRevision));
+                List<string> indentedDirective = JudgeChallenge.ExtractFindings(
+                    "## Tests\n- Passed baseline.\n  Fix the retry deadline.", out bool directiveComplete);
+                AssertTrue(directiveComplete);
+                AssertEqual(1, indentedDirective.Count);
+                AssertContains("Fix the retry deadline", String.Join("\n", indentedDirective));
+
 
 
             });
