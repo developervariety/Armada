@@ -49,6 +49,10 @@ namespace Armada.Core.Services
             @"^\s*(?:changing|editing|modifying|touching|writing|updating)\b",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
+        private static readonly Regex _CommitPathAnnotation = new Regex(
+            @"\(\s*(?:comments\s+only|description\s+and\s+message\s+only)\s*\)",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
         private static readonly Regex _ExclusiveCommitScope = new Regex(
             @"^\s*No\s+stage\s+commits\s+outside\b",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
@@ -219,7 +223,8 @@ namespace Armada.Core.Services
             Match scope = _ExclusiveCommitScope.Match(sentence);
             if (!scope.Success) return false;
             // Conditional prose and further directives are not this narrow path-list grammar.
-            return _PathToken.Matches(sentence.Substring(scope.Length)).Cast<Match>().All(match =>
+            string pathList = _CommitPathAnnotation.Replace(sentence.Substring(scope.Length), String.Empty);
+            return _PathToken.Matches(pathList).Cast<Match>().All(match =>
             {
                 string token = NormalizeEntry(match.Value.TrimEnd('.', ','));
                 return token.Length == 0 || token.Equals("and", StringComparison.OrdinalIgnoreCase)

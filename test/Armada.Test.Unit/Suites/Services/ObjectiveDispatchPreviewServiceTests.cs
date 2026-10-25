@@ -1861,7 +1861,7 @@ namespace Armada.Test.Unit.Suites.Services
                             "a positive rollout statement does not exclude the files it names");
                         objective.RolloutConstraints.Clear();
 
-                        objective.RolloutConstraints = new List<string> { "No stage commits outside docs/operations.md, schema/**/*.sql and CHANGELOG.md." };
+                        objective.RolloutConstraints = new List<string> { "No stage commits outside docs/operations.md, src/Reader.cs (comments only), tests/ReaderTests.cs (description and message only), schema/**/*.sql and CHANGELOG.md." };
                         ObjectiveDispatchPreview exclusive = await harness.Service.PreviewAsync(
                             harness.Auth, objective, null, pipelineId, null, withoutInputs).ConfigureAwait(false);
                         ObjectiveDispatchPreviewIssue exclusiveWarning = exclusive.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
