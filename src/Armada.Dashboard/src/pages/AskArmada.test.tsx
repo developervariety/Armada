@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import AskArmada from './AskArmada';
 import {
   approveAskProposal,
@@ -8,6 +8,7 @@ import {
   enumerateAskThreads,
   getAskThread,
   markAskThreadRead,
+  ApiError,
   rejectAskProposal,
   runAskQuickAction,
   sendAskMessage,
@@ -24,6 +25,7 @@ vi.mock('../api/client', async (importOriginal) => {
     getAskThread: vi.fn(),
     updateAskThread: vi.fn(),
     deleteAskThread: vi.fn(),
+    deleteAskThreads: vi.fn(),
     enumerateAskMessages: vi.fn(),
     sendAskMessage: vi.fn(),
     cancelAskTurn: vi.fn(),
@@ -59,7 +61,7 @@ const socketValue = {
   send: vi.fn(),
 };
 vi.mock('../context/WebSocketContext', () => ({ useWebSocket: () => socketValue }));
-vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { user: { tenantId: 'ten_1' } } }) }));
+vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ user: { user: { id: 'usr_1', tenantId: 'ten_1' } } }) }));
 const pushToast = vi.fn();
 vi.mock('../context/NotificationContext', () => ({ useNotifications: () => ({ pushToast }) }));
 vi.mock('../components/vessels/import/ImportWizard', () => ({ default: ({ open }: { open: boolean }) => (open ? <div>import wizard open</div> : null) }));
@@ -103,17 +105,37 @@ function threadRows(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>('[data-thread-row]'));
 }
 
-function renderAt(path: string) {
+// Shows the router location and offers a Back button, so tests can see redirects and history moves.
+function LocationProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-testid="location">{location.pathname}</output>
+      <button type="button" onClick={() => navigate(-1)}>probe back</button>
+    </>
+  );
+}
+
+function renderAt(path: string | { pathname: string; state?: unknown }, entries: Array<string | { pathname: string; state?: unknown }> = []) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[...entries, path]}>
       <Routes>
         <Route path="/ask/:threadId?" element={<AskArmada />} />
       </Routes>
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
 
+const LAST_THREAD_KEY = 'armada_ask_last_thread:usr_1';
+
+function currentPath(): string {
+  return screen.getByTestId('location').textContent ?? '';
+}
+
 beforeEach(() => {
+  localStorage.clear();
   handlers.clear();
   vi.clearAllMocks();
   vi.mocked(api.listCaptains).mockResolvedValue(page([{ id: 'cpt_1', name: 'Ada', runtime: 'ClaudeCode', model: 'opus' } as never]));
@@ -540,5 +562,168 @@ describe('AskArmada commands', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => expect(api.updateAskThread).toHaveBeenCalledWith('ath_1', { captainId: 'cpt_2' }));
     expect(await screen.findByText('Captain: Grace Hopper')).toBeInTheDocument();
+  });
+});
+
+describe('AskArmada last open conversation', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  async function settle() {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+  }
+
+  it('stores the open conversation and reopens it when /ask is entered again', async () => {
+    const first = renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBe('ath_1');
+    first.unmount();
+
+    vi.mocked(getAskThread).mockClear();
+    renderAt('/ask');
+    await waitFor(() => expect(currentPath()).toBe('/ask/ath_1'));
+    expect(await screen.findByText('Fix the billing retry bug')).toBeInTheDocument();
+    expect(getAskThread).toHaveBeenCalledWith('ath_1');
+  });
+
+  it('replaces the bare /ask entry, so Back does not bounce through it', async () => {
+    localStorage.setItem(LAST_THREAD_KEY, 'ath_1');
+    renderAt('/ask', ['/missions']);
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.click(screen.getByRole('button', { name: 'probe back' }));
+    await waitFor(() => expect(currentPath()).toBe('/missions'));
+  });
+
+  it('Back from a conversation to an empty /ask stays on the empty /ask', async () => {
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    fireEvent.click(threadRows()[0]);
+    await screen.findByText('Fix the billing retry bug');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBe('ath_1');
+    fireEvent.click(screen.getByRole('button', { name: 'probe back' }));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    await settle();
+    expect(currentPath()).toBe('/ask');
+    expect(screen.getByRole('heading', { name: 'New conversation' })).toBeInTheDocument();
+  });
+
+  it('does not reopen another user\'s conversation', async () => {
+    localStorage.setItem('armada_ask_last_thread:usr_2', 'ath_2');
+    localStorage.setItem('armada_ask_last_thread', 'ath_2');
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    await settle();
+    expect(currentPath()).toBe('/ask');
+    expect(getAskThread).not.toHaveBeenCalled();
+  });
+
+  it('New conversation does not redirect back to the stored conversation', async () => {
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBe('ath_1');
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    await settle();
+    expect(currentPath()).toBe('/ask');
+    expect(screen.getByRole('heading', { name: 'New conversation' })).toBeInTheDocument();
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBeNull();
+    expect(getAskThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('a draft handed over from another page opens a new conversation, not the stored one', async () => {
+    localStorage.setItem(LAST_THREAD_KEY, 'ath_1');
+    renderAt({ pathname: '/ask', state: { draft: 'Why did the build fail?' } });
+    await screen.findByText('Checkout tests');
+    await waitFor(() => expect((screen.getByRole('combobox', { name: 'Message' }) as HTMLTextAreaElement).value).toBe('Why did the build fail?'));
+    await settle();
+    expect(currentPath()).toBe('/ask');
+    expect(getAskThread).not.toHaveBeenCalled();
+  });
+
+  it('a stored conversation that no longer loads is forgotten and the page stays on an empty /ask', async () => {
+    localStorage.setItem(LAST_THREAD_KEY, 'ath_gone');
+    vi.mocked(getAskThread).mockRejectedValue(new ApiError('Not found', 404, null));
+    renderAt('/ask');
+    await waitFor(() => expect(getAskThread).toHaveBeenCalledWith('ath_gone'));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    await settle();
+    expect(currentPath()).toBe('/ask');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBeNull();
+    expect(getAskThread).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: 'New conversation' })).toBeInTheDocument();
+    expect(screen.queryByText(/This conversation was not found/)).toBeNull();
+  });
+
+  it('a conversation opened by URL that is not found is forgotten but still shows the error', async () => {
+    localStorage.setItem(LAST_THREAD_KEY, 'ath_gone');
+    vi.mocked(getAskThread).mockRejectedValue(new ApiError('Not found', 404, null));
+    renderAt('/ask/ath_gone');
+    expect(await screen.findByText(/This conversation was not found/)).toBeInTheDocument();
+    expect(currentPath()).toBe('/ask/ath_gone');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBeNull();
+  });
+
+  it('a transient failure keeps the stored conversation for a retry', async () => {
+    localStorage.setItem(LAST_THREAD_KEY, 'ath_1');
+    vi.mocked(getAskThread).mockRejectedValue(new ApiError('Server error', 500, null));
+    renderAt('/ask');
+    expect(await screen.findByText('Server error')).toBeInTheDocument();
+    expect(currentPath()).toBe('/ask/ath_1');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBe('ath_1');
+  });
+
+  it('deleting the open conversation forgets it', async () => {
+    vi.mocked(deleteAskThread).mockResolvedValue(undefined);
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBe('ath_1');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const dialog = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    await settle();
+    expect(currentPath()).toBe('/ask');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBeNull();
+  });
+
+  it('bulk deleting the stored conversation forgets it', async () => {
+    vi.mocked(api.deleteAskThreads).mockResolvedValue({ status: 'Deleted', deleted: 1, skipped: [], deletedIds: ['ath_1'] } as never);
+    localStorage.setItem(LAST_THREAD_KEY, 'ath_1');
+    renderAt({ pathname: '/ask', state: { newConversation: true } });
+    await screen.findByText('Checkout tests');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Billing fix' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete (1)' }));
+    const dialog = document.querySelector('.modal-box') as HTMLElement;
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(api.deleteAskThreads).toHaveBeenCalledWith(['ath_1']));
+    await waitFor(() => expect(localStorage.getItem(LAST_THREAD_KEY)).toBeNull());
+  });
+
+  it('archiving the open conversation while archived ones are hidden forgets it', async () => {
+    vi.mocked(api.updateAskThread).mockImplementation(async (id, data) => ({ ...threads.find((t) => t.id === id)!, ...data } as AskThread));
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(localStorage.getItem(LAST_THREAD_KEY)).toBe('ath_1');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Archive' }));
+    await waitFor(() => expect(api.updateAskThread).toHaveBeenCalledWith('ath_1', { archived: true }));
+    await waitFor(() => expect(localStorage.getItem(LAST_THREAD_KEY)).toBeNull());
+  });
+
+  it('keeps working when localStorage throws', async () => {
+    const fail = () => { throw new Error('storage disabled'); };
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(fail);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(fail);
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(fail);
+    const first = renderAt('/ask/ath_1');
+    expect(await screen.findByText('Fix the billing retry bug')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    first.unmount();
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    await settle();
+    expect(currentPath()).toBe('/ask');
+    expect(screen.getByRole('heading', { name: 'New conversation' })).toBeInTheDocument();
   });
 });
