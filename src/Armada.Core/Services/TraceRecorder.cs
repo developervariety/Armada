@@ -356,8 +356,29 @@ namespace Armada.Core.Services
                     document = await BuildAsync(kind, current, token).ConfigureAwait(false);
                 if (document != null)
                 {
-                    if (stored != null && document.Archive.Count == 0)
-                        document.Archive = new List<TraceArchivePointer>(stored.Document.Archive);
+                    if (stored != null)
+                    {
+                        TraceDocument history = stored.Document;
+                        if (document.Archive.Count == 0)
+                            document.Archive = new List<TraceArchivePointer>(history.Archive);
+                        // Raw children and events can expire while their parent remains live. Keep
+                        // historical edges and events so the walk can still reach their archives.
+                        foreach (TraceLink link in history.Links) AddLink(document, link.Kind, link.Id, link.Relation);
+                        document.Timeline = history.Timeline.Concat(document.Timeline)
+                            .GroupBy(entry => (entry.Event, entry.Utc)).Select(group => group.Last())
+                            .OrderBy(entry => entry.Utc).TakeLast(TraceDocument.MaximumTimelineEntries).ToList();
+                        // Derived proof is applicable only to the same attempt and exact commit.
+                        bool sameAttempt = !String.IsNullOrWhiteSpace(document.CommitSha)
+                            && String.Equals(document.CommitSha, history.CommitSha, StringComparison.Ordinal)
+                            && document.StartedUtc == history.StartedUtc
+                            && String.Equals(document.BranchName, history.BranchName, StringComparison.Ordinal);
+                        if (sameAttempt)
+                        {
+                            if (document.LandedSha == null) document.LandedSha = history.LandedSha;
+                            if (document.Gate == null && String.Equals(history.Gate?.CommitSha, document.CommitSha, StringComparison.Ordinal))
+                                document.Gate = history.Gate;
+                        }
+                    }
                     if (first) chain.Source = "live";
                 }
                 else if (stored != null)

@@ -55,13 +55,41 @@ namespace Armada.Test.Unit.Suites.Services
                     await db.Events.CreateAsync(new ArmadaEvent("mission.completed", "done") { EntityType = "mission", EntityId = work.Mission.Id, MissionId = work.Mission.Id, VoyageId = work.Voyage.Id }).ConfigureAwait(false);
                     await db.Events.CreateAsync(new ArmadaEvent("mission.status_changed", "rescue started") { EntityType = "mission", EntityId = work.Rescue.Id, MissionId = work.Rescue.Id }).ConfigureAwait(false);
 
+                    ArmadaEvent gateEvent = await db.Events.CreateAsync(new ArmadaEvent(DefinitionOfDoneEvaluationRecord.EventType, "gate passed")
+                    {
+                        EntityType = "mission", EntityId = work.Mission.Id, MissionId = work.Mission.Id,
+                        Payload = System.Text.Json.JsonSerializer.Serialize(new DefinitionOfDoneEvaluationRecord
+                        {
+                            Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Passed,
+                            CommitHash = work.Mission.CommitHash
+                        })
+                    }).ConfigureAwait(false);
                     TraceSweepResult sweep = await recorder.SweepAsync(1000).ConfigureAwait(false);
                     AssertTrue(sweep.Done, "one sweep reaches the newest event");
-                    AssertEqual(2, sweep.EventsRead, "the sweep reads both events");
+                    AssertEqual(3, sweep.EventsRead, "the sweep reads completion, rescue and gate events");
                     AssertTrue(sweep.RecordsWritten >= 6, "the mission, rescue, voyage, merge entry, check run and deployment are recorded: " + sweep.RecordsWritten);
 
-                    await db.Deployments.DeleteAsync(work.Deployment.Id).ConfigureAwait(false);
+                    await db.Events.DeleteAsync(gateEvent.Id).ConfigureAwait(false);
                     await db.MergeEntries.DeleteAsync(work.Merge.Id).ConfigureAwait(false);
+                    TraceChain partial = await recorder.TraceAsync(work.Mission.Id).ConfigureAwait(false);
+                    AssertEqual("live", partial.Source);
+                    AssertEqual("PASS", partial.Records[0].Verdict);
+                    AssertEqual("commit-work", partial.Records[0].LandedSha, "partial raw expiry retains applicable landed proof");
+                    AssertEqual("Passed", partial.Records[0].Gate?.Outcome, "partial raw expiry retains the same-commit gate proof");
+                    AssertTrue(partial.Records[0].Timeline.Any(entry => entry.Event == gateEvent.EventType), "expired events remain in the compact history");
+                    AssertTrue(partial.Records[0].Links.Any(link => link.Id == work.Merge.Id), "expired child links remain walkable");
+
+                    work.Mission.CommitHash = "new-attempt";
+                    work.Mission.StartedUtc = DateTime.UtcNow;
+                    await db.Missions.UpdateAsync(work.Mission).ConfigureAwait(false);
+                    TraceChain restarted = await recorder.TraceAsync(work.Mission.Id).ConfigureAwait(false);
+                    AssertTrue(restarted.Records[0].Gate == null, "an older attempt's gate is not restored onto a new commit");
+                    AssertTrue(restarted.Records[0].LandedSha == null, "an older attempt's landing is not restored onto a new commit");
+                    work.Mission.CommitHash = "commit-work";
+                    work.Mission.StartedUtc = null;
+                    await db.Missions.UpdateAsync(work.Mission).ConfigureAwait(false);
+
+                    await db.Deployments.DeleteAsync(work.Deployment.Id).ConfigureAwait(false);
                     await db.CheckRuns.DeleteAsync(work.Check.Id).ConfigureAwait(false);
                     await db.Missions.DeleteAsync(work.Rescue.Id).ConfigureAwait(false);
                     await db.Missions.DeleteAsync(work.Mission.Id).ConfigureAwait(false);
