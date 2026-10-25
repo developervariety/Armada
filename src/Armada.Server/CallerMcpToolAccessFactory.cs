@@ -29,6 +29,7 @@ namespace Armada.Server
         public static CallerMcpToolAccess? Create(AuthContext? caller, ISessionTokenService? sessionTokens, int mcpPort, LoggingModule? logging = null)
         {
             if (caller == null || !caller.IsAuthenticated) return null;
+            if (!String.IsNullOrWhiteSpace(caller.MissionId)) return null;
             if (String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId)) return null;
             if (sessionTokens == null || mcpPort <= 0) return null;
 

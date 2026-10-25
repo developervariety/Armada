@@ -68,6 +68,12 @@ namespace Armada.Server.Routes
                 AuthContext headerCtx = await authenticate(req.Http).ConfigureAwait(false);
                 if (headerCtx.IsAuthenticated)
                 {
+                    // A mission credential cannot be exchanged for an unrestricted user session.
+                    if (!String.IsNullOrWhiteSpace(headerCtx.MissionId))
+                    {
+                        req.Http.Response.StatusCode = 403;
+                        return (object)new AuthenticateResult { Success = false };
+                    }
                     AuthenticateResult result = _sessionTokenService.CreateToken(headerCtx.TenantId!, headerCtx.UserId!);
                     return (object)result;
                 }

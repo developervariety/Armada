@@ -7,6 +7,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Mission credentials cannot be exchanged for unrestricted sessions or start
+  captain chat. Child MCP access also refuses mission-scoped callers.
+
 - Newly armed lane Checks name the work mission they measure. Lanes that share
   a commit retain separate pending, passing and failing review results.
 

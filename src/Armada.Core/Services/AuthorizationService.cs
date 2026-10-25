@@ -29,7 +29,7 @@ namespace Armada.Core.Services
             // Mission identity constrains REST writes at this boundary while the underlying services remain
             // available to trusted internal workflows that preserve owner roles.
             if (ctx != null && !String.IsNullOrWhiteSpace(ctx.MissionId)
-                && IsObjectiveMutationRoute(method, path))
+                && IsMissionForbiddenRoute(method, path))
                 return false;
 
             PermissionLevel required = AuthorizationConfig.GetPermissionLevel(method, path);
@@ -53,7 +53,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private static bool IsObjectiveMutationRoute(string method, string path)
+        private static bool IsMissionForbiddenRoute(string method, string path)
         {
             if (String.IsNullOrWhiteSpace(method) || String.IsNullOrWhiteSpace(path)) return false;
 
@@ -62,7 +62,10 @@ namespace Armada.Core.Services
             if (normalizedMethod == "GET" || normalizedMethod == "HEAD" || normalizedMethod == "OPTIONS") return false;
             if (normalizedMethod == "POST" && normalizedPath.EndsWith("/enumerate", StringComparison.Ordinal)) return false;
 
-            return normalizedPath == "/api/v1/objectives"
+            return (normalizedMethod == "POST"
+                    && normalizedPath.StartsWith("/api/v1/captains/", StringComparison.Ordinal)
+                    && normalizedPath.EndsWith("/chat", StringComparison.Ordinal))
+                || normalizedPath == "/api/v1/objectives"
                 || normalizedPath.StartsWith("/api/v1/objectives/", StringComparison.Ordinal)
                 || normalizedPath == "/api/v1/backlog"
                 || normalizedPath.StartsWith("/api/v1/backlog/", StringComparison.Ordinal)

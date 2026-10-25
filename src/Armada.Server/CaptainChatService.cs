@@ -130,6 +130,7 @@ namespace Armada.Server
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.Message)) return Fail("A message is required.");
+            if (!String.IsNullOrWhiteSpace(caller?.MissionId)) return Fail("Mission credentials cannot start captain chat.");
 
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
             if (captain == null) return Fail("Captain not found.");
