@@ -164,7 +164,7 @@ namespace Armada.Test.Runtimes.Suites
                 {
                     if (File.ResolveLinkTarget(path, false)?.FullName == Path.GetFullPath(log)) descriptors.Add(descriptor);
                 }
-                catch (FileNotFoundException) { }
+                catch (IOException) { }
             }
             if (descriptors.Count != 1) throw new InvalidOperationException("Expected one descriptor for the private mission log.");
             // Replace only this isolated child's verified log descriptor, after the normal header.

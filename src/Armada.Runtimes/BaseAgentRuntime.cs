@@ -2,6 +2,7 @@ namespace Armada.Runtimes
 {
     using System.Diagnostics;
     using System.IO;
+    using System.Runtime.CompilerServices;
     using System.Text;
     using Armada.Core;
     using Armada.Core.Enums;
@@ -119,6 +120,8 @@ namespace Armada.Runtimes
 
         private string _Header = "[BaseAgentRuntime] ";
         private LoggingModule _Logging;
+        private const int LogCaptureFailureExitCode = 74;
+        private readonly ConditionalWeakTable<StreamWriter, LogWriteState> _LogWriteStates = new ConditionalWeakTable<StreamWriter, LogWriteState>();
         private readonly object _FinalReplyLock = new object();
         private bool _FinalReplyRequested;
         private string? _FinalReplyText;
@@ -814,6 +817,60 @@ namespace Armada.Runtimes
         {
             try { _Logging.Warn(_Header + operation + " failed: " + ex.Message); }
             catch (ObjectDisposedException) { }
+            catch (IOException)
+            {
+                // The diagnostic sink can be on the same full filesystem. Never let reporting
+                // a contained I/O failure throw back into an asynchronous process callback.
+                try { Console.Error.WriteLine(_Header + operation + " failed (" + ex.GetType().Name + ")."); }
+                catch (IOException) { }
+                catch (ObjectDisposedException) { }
+            }
+        }
+
+        private void WriteLogRecord(int processId, StreamWriter? writer, string? text)
+        {
+            if (writer == null) return;
+            LogWriteState state = _LogWriteStates.GetValue(writer, _ => new LogWriteState());
+            IOException? failure = null;
+            lock (state)
+            {
+                if (state.Failed) return;
+                try { writer.WriteLine(text); }
+                catch (ObjectDisposedException) { }
+                catch (IOException ex) { state.Failed = true; failure = ex; }
+            }
+            if (failure != null) ReportLogFailure(processId, failure);
+        }
+
+        private void CloseLogWriter(int processId, StreamWriter? writer)
+        {
+            if (writer == null) return;
+            LogWriteState state = _LogWriteStates.GetValue(writer, _ => new LogWriteState());
+            IOException? failure = null;
+            lock (state)
+            {
+                try { writer.Dispose(); }
+                catch (ObjectDisposedException) { }
+                catch (IOException ex)
+                {
+                    if (!state.Failed) failure = ex;
+                    state.Failed = true;
+                }
+            }
+            if (failure != null) ReportLogFailure(processId, failure);
+        }
+
+        private bool LogCaptureFailed(StreamWriter? writer)
+        {
+            if (writer == null || !_LogWriteStates.TryGetValue(writer, out LogWriteState? state)) return false;
+            lock (state) return state.Failed;
+        }
+
+        private void ReportLogFailure(int processId, IOException failure)
+        {
+            WarnSwallowed("persisting the runtime log for process " + processId, failure);
+            try { OnOutputReceived?.Invoke(processId, "[ARMADA:LOG_CAPTURE_FAILED] Runtime log persistence failed; this launch cannot succeed."); }
+            catch (Exception ex) { WarnSwallowed("reporting log capture failure for process " + processId, ex); }
         }
 
         /// <summary>
@@ -1008,7 +1065,7 @@ namespace Armada.Runtimes
         private void EmitStdoutLine(int processId, string line, StreamWriter? logWriter)
         {
             try { HandleRawOutputLine(processId, line); }
-            catch (Exception ex) { _Logging.Warn(_Header + "error parsing runtime telemetry: " + ex.Message); }
+            catch (Exception ex) { WarnSwallowed("parsing runtime telemetry", ex); }
 
             foreach (string outputLine in TransformOutputRecords(line))
             {
@@ -1018,9 +1075,10 @@ namespace Armada.Runtimes
                 // this keeps the log tight and has no markers to detect anyway.
                 if (String.IsNullOrEmpty(outputLine)) continue;
 
-                _Logging.Debug(_Header + "[stdout] " + outputLine);
-                try { logWriter?.WriteLine(outputLine); }
+                try { _Logging.Debug(_Header + "[stdout] " + outputLine); }
                 catch (ObjectDisposedException) { }
+                catch (IOException ex) { WarnSwallowed("logging stdout diagnostics", ex); }
+                WriteLogRecord(processId, logWriter, outputLine);
 
                 try { OnOutputReceived?.Invoke(processId, outputLine); }
                 catch (Exception ex) { WarnSwallowed("OnOutputReceived handler for process " + processId, ex); }
@@ -1038,9 +1096,11 @@ namespace Armada.Runtimes
         private void EmitStderrLine(int processId, string line, StreamWriter? logWriter)
         {
             try { HandleRawErrorLine(processId, line); }
-            catch (Exception ex) { _Logging.Warn(_Header + "error parsing runtime provider error evidence: " + ex.Message); }
+            catch (Exception ex) { WarnSwallowed("parsing runtime provider error evidence", ex); }
 
-            _Logging.Debug(_Header + "[stderr] " + line);
+            try { _Logging.Debug(_Header + "[stderr] " + line); }
+            catch (ObjectDisposedException) { }
+            catch (IOException ex) { WarnSwallowed("logging stderr diagnostics", ex); }
 
             // Gate ONLY the log-file write. Runtimes that stream their full
             // working transcript on stderr (Codex exec) would otherwise bloat
@@ -1060,8 +1120,7 @@ namespace Armada.Runtimes
             bool resetTimeLine = ProviderQuotaLimitDetector.IsResetTimeLine(line);
             if (WriteStderrToLogFile || quotaSignal || resetTimeLine)
             {
-                try { logWriter?.WriteLine("[stderr] " + line); }
-                catch (ObjectDisposedException) { }
+                WriteLogRecord(processId, logWriter, "[stderr] " + line);
             }
 
             // Treat stderr as runtime output for heartbeat/progress/output capture.
@@ -1086,16 +1145,13 @@ namespace Armada.Runtimes
                 {
                     if (String.IsNullOrEmpty(exitRecord)) continue;
 
-                    try { logWriter?.WriteLine(exitRecord); }
-                    catch (ObjectDisposedException) { }
+                    WriteLogRecord(processId, logWriter, exitRecord);
 
                     try { OnOutputReceived?.Invoke(processId, exitRecord); }
                     catch (Exception ex) { WarnSwallowed("OnOutputReceived handler for an exit record of process " + processId, ex); }
                 }
             }
-            catch (Exception ex) { _Logging.Warn(_Header + "error building process-exit records: " + ex.Message); }
-
-            WriteCapturedFinalReply(processId, code, finalMessageFilePath);
+            catch (Exception ex) { WarnSwallowed("building process-exit records", ex); }
 
             // Parity echo: when stderr is suppressed from the log file, the agent's
             // final answer (captured via the runtime's final-message file) would
@@ -1105,29 +1161,36 @@ namespace Armada.Runtimes
             {
                 try
                 {
-                    if (File.Exists(finalMessageFilePath))
+                    string? finalMsg = null;
+                    if (File.Exists(finalMessageFilePath)) finalMsg = File.ReadAllText(finalMessageFilePath);
+                    else if (code == 0)
                     {
-                        string finalMsg = File.ReadAllText(finalMessageFilePath);
-                        if (!String.IsNullOrWhiteSpace(finalMsg))
-                        {
-                            logWriter?.WriteLine();
-                            logWriter?.WriteLine("=== Final message ===");
-                            logWriter?.WriteLine(finalMsg);
-                        }
+                        lock (_FinalReplyLock) finalMsg = _FinalReplyRequested ? _FinalReplyText : null;
+                    }
+                    if (!String.IsNullOrWhiteSpace(finalMsg))
+                    {
+                        WriteLogRecord(processId, logWriter, null);
+                        WriteLogRecord(processId, logWriter, "=== Final message ===");
+                        WriteLogRecord(processId, logWriter, finalMsg);
                     }
                 }
                 catch (Exception ex) { WarnSwallowed("echoing the final message of process " + processId + " into the mission log", ex); }
             }
 
-            try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown")); }
-            catch (ObjectDisposedException) { }
-            logWriter?.Dispose();
+            WriteLogRecord(processId, logWriter, "[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown"));
+            CloseLogWriter(processId, logWriter);
+
+            // Drain and close before deciding success: the footer or final flush can be the
+            // first failed write. Preserve provider-owned files, but never synthesize success
+            // or report a successful captain when the mission log could not be persisted.
+            if (LogCaptureFailed(logWriter)) code = LogCaptureFailureExitCode;
+            WriteCapturedFinalReply(processId, code, finalMessageFilePath);
 
             // Notify subscribers that the process has exited BEFORE disposing.
             // Disposing first invalidates the PID, which can cause the health check
             // to race with the exit handler and trigger spurious recovery.
             try { OnProcessExited?.Invoke(processId, code); }
-            catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessExited handler for process " + processId + ": " + ex.Message); }
+            catch (Exception ex) { WarnSwallowed("OnProcessExited handler for process " + processId, ex); }
         }
 
         private void WriteCapturedFinalReply(int processId, int? code, string? finalMessageFilePath)
@@ -1235,6 +1298,11 @@ namespace Armada.Runtimes
 
         #region Private-Types
 
+        private sealed class LogWriteState
+        {
+            public bool Failed;
+        }
+
         /// <summary>
         /// Feeds a Harbor job's output chunks into the runtime's line handling. Chunks are split into lines per
         /// stream; a partial final line is delivered when the job ends.
@@ -1285,8 +1353,7 @@ namespace Armada.Runtimes
                     _Stderr.Clear();
                     if (!String.IsNullOrEmpty(failureReason))
                     {
-                        try { _Writer?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Harbor job ended without an exit: " + failureReason); }
-                        catch (ObjectDisposedException) { }
+                        _Runtime.WriteLogRecord(processId, _Writer, "[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Harbor job ended without an exit: " + failureReason);
                     }
                     StreamWriter? writer = _Writer;
                     _Writer = null;
@@ -1307,7 +1374,9 @@ namespace Armada.Runtimes
                 lock (_Lock)
                 {
                     _Ended = true;
-                    try { _Writer?.Dispose(); } catch (ObjectDisposedException) { }
+                    try { _Writer?.Dispose(); }
+                    catch (ObjectDisposedException) { }
+                    catch (IOException ex) { _Runtime.WarnSwallowed("closing the log of a failed Harbor launch", ex); }
                     _Writer = null;
                 }
             }
