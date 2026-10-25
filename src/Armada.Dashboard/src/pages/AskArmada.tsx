@@ -158,6 +158,15 @@ export default function AskArmada() {
       if (err instanceof Error && err.name === 'AbortError') {
         // Stop pressed: keep whatever streamed so far and just clear the in-flight flag.
         if (streaming) updateStreamingTurn((turn) => ({ ...turn, streaming: false }));
+      } else if (err instanceof Error && (err.name === 'NetworkError' || err.message === 'Request timed out')) {
+        // A lost response does not prove the captain stopped. Keep received work and let the
+        // operator choose the next question; repeating the request could run its tools twice.
+        if (streaming) updateStreamingTurn((turn) => ({ ...turn, streaming: false }));
+        setTurns((current) => [...current, {
+          role: 'system',
+          text: t('The connection ended before the reply was confirmed. The captain may have completed the request. Any partial reply is kept above. Check the result before sending the request again.'),
+        }]);
+        setError(err.message);
       } else {
         setError(err instanceof Error ? err.message : t('Chat failed.'));
         setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));

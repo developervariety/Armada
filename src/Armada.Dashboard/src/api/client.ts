@@ -226,6 +226,23 @@ const PLANNING_SUMMARIZE_TIMEOUT_MS = 3 * 60 * 1000;
 // Allow a complete collection sweep plus transport overhead before reporting a timeout.
 const USAGE_SETTINGS_TIMEOUT_MS = 150000;
 
+/** Retry backoff shares the request deadline and stops immediately on caller cancellation. */
+function waitForReadRetry(delay: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', abort);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }, delay);
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
 async function request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (authToken) {
@@ -250,14 +267,23 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
   }
 
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
+    let res: Response;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        res = await fetch(`${BASE_URL}${path}`, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+        break;
+      } catch (err) {
+        // A rejected fetch has no HTTP response. Reads may recover from a dropped connection;
+        // writes must not repeat because the server may already have performed the action.
+        if (method !== 'GET' || !(err instanceof TypeError) || controller.signal.aborted || attempt >= 2) throw err;
+        await waitForReadRetry(attempt === 0 ? 250 : 750, controller.signal);
+      }
+    }
 
     if (res.status === 401) {
       onUnauthorized?.();
@@ -294,8 +320,11 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
       aborted.name = 'AbortError';
       throw aborted;
     }
-    if (err instanceof DOMException && err.name === 'AbortError') {
+    if (controller.signal.aborted) {
       throw new Error('Request timed out');
+    }
+    if (err instanceof TypeError) {
+      throw Object.assign(new Error('Connection to Armada failed. Check your connection and try again.'), { name: 'NetworkError' });
     }
     throw err;
   } finally {

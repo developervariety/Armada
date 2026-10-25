@@ -239,6 +239,13 @@ The dashboard provides Code Index at `/code-index` and notification history at
 Code Index reports why a selected vessel's index is unavailable and discards
 responses from a previous vessel selection.
 
+Dashboard GET requests retry a connection failure after 250 ms and 750 ms,
+with one deadline covering the attempts and the response body. HTTP refusals
+and server errors remain visible. A failed write is not repeated. Ask Armada
+keeps the question and any partial reply when the response is lost or times
+out. It shows an unconfirmed-result notice and releases the composer without
+a tab reload. Check the result before resending a request that can run tools.
+
 An implementation mission whose branch already matches the merge-queue target
 requires a recorded delivery commit and a reachable commit made strictly after
 `Mission.StartedUtc`. Git commit time supplies this check. Missing or unreadable

@@ -13,6 +13,11 @@ upstream integrations and excludes changes already present at that baseline.
 - Judge blocker extraction keeps complete command outcomes and excludes
   passing checks, source agreement and reproduction steps from findings.
 
+- Dashboard reads retry brief connection failures within one request deadline.
+  The deadline covers response bodies as well as headers. Ask Armada keeps the
+  question and partial reply when delivery is uncertain and permits the next
+  question without reloading; chat requests and other writes are never retried.
+
 - Newly armed lane Checks name the work mission they measure. Lanes that share
   a commit retain separate pending, passing and failing review results.
 

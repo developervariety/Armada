@@ -763,6 +763,11 @@ is in [`docs/MCP_API.md`](docs/MCP_API.md).
 
 The Admiral server exposes REST routes under `/api/v1/*`, serves the dashboard from the same HTTP server, and broadcasts live state through WebSocket. REST and MCP share the same database-backed services, so operators can mix dashboard workflows, scripts, and orchestrator-agent calls without splitting state.
 
+Dashboard reads retry a dropped connection up to twice within the request's
+deadline. The deadline includes response-body reads. Writes are not retried.
+Ask Armada retains questions and partial replies after a connection failure
+and marks the result as unconfirmed, so the operator can check before resending.
+
 Useful REST areas include:
 
 - `/api/v1/status`
