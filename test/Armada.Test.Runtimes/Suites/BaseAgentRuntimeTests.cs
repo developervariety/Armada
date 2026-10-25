@@ -106,8 +106,90 @@ namespace Armada.Test.Runtimes.Suites
             }
         }
 
+        /// <summary>Isolated public-launch fixture: only private log files receive a bounded file-size limit.</summary>
+        internal static async Task<int> RunLogIoFixtureAsync(string mode, string root)
+        {
+            if (mode != "stdout" && mode != "stderr" && mode != "exit-record") return 2;
+            string log = Path.Combine(root, "agent.log");
+            string reply = Path.Combine(root, "reply.txt");
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            LogIoFixtureRuntime runtime = new LogIoFixtureRuntime(logging, mode);
+            TaskCompletionSource<int?> exited = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int markers = 0, exits = 0;
+            runtime.OnOutputReceived += (_, text) =>
+            {
+                if (text.Contains("[ARMADA:LOG_CAPTURE_FAILED]", StringComparison.Ordinal)) Interlocked.Increment(ref markers);
+            };
+            runtime.OnProcessStarted += _ => runtime.SeedReply();
+            runtime.OnProcessExited += (_, code) => { Interlocked.Increment(ref exits); exited.TrySetResult(code); };
+            int pid = await runtime.StartAsync(root, "small prompt", finalMessageFilePath: reply, logFilePath: log).ConfigureAwait(false);
+            try
+            {
+                int? code = await exited.Task.WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+                bool artifact = File.Exists(reply);
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { mode, code, markers, exits, successArtifact = artifact }));
+                return code.HasValue && code.Value != 0 && markers == 1 && exits == 1 && !artifact ? 0 : 1;
+            }
+            finally { KillQuietly(pid); }
+        }
+
+        private sealed class LogIoFixtureRuntime : TestAgentRuntime
+        {
+            private readonly string _Mode;
+            public LogIoFixtureRuntime(LoggingModule logging, string mode) : base(logging)
+            {
+                _Mode = mode;
+                CommandOverride = "/bin/sh";
+                RedirectStdinOverride = false;
+                ArgsOverride = new List<string> { "-c", mode == "exit-record" ? "true" : "printf '%4096s\\n' x" + (mode == "stderr" ? " >&2" : "") };
+            }
+            public void SeedReply() => SetFinalReply("captured successful reply");
+            protected override IEnumerable<string> BuildProcessExitRecords()
+                => _Mode == "exit-record" ? new[] { new string('x', 4096) } : Array.Empty<string>();
+        }
+
         protected override async Task RunTestsAsync()
         {
+            if (!OperatingSystem.IsLinux())
+                SkipTest("Log persistence errors stay local and prevent a successful captain outcome", "the isolated file-size limit fixture requires Linux");
+            else await RunTest("Log persistence errors stay local and prevent a successful captain outcome", async () =>
+            {
+                List<string> failures = new List<string>();
+                foreach (string mode in new[] { "stdout", "stderr", "exit-record" })
+                {
+                    string root = Path.Combine(Path.GetTempPath(), "armada_log_io_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(root);
+                    try
+                    {
+                        ProcessStartInfo start = new ProcessStartInfo("bash")
+                        {
+                            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true
+                        };
+                        foreach (string argument in new[] { "-c", "trap '' XFSZ; ulimit -c 0; ulimit -f 1; exec \"$@\"", "--", "dotnet", typeof(BaseAgentRuntimeTests).Assembly.Location, "--log-io-fixture", mode, root })
+                            start.ArgumentList.Add(argument);
+                        start.Environment["DOTNET_DbgEnableMiniDump"] = "0";
+                        using Process process = Process.Start(start)!;
+                        Task<string> stdout = process.StandardOutput.ReadToEndAsync();
+                        Task<string> stderr = process.StandardError.ReadToEndAsync();
+                        using CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                        try { await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false); }
+                        catch (OperationCanceledException)
+                        {
+                            process.Kill(entireProcessTree: true);
+                            await process.WaitForExitAsync().ConfigureAwait(false);
+                            failures.Add(mode + ": fixture timed out");
+                        }
+                        string result = await stdout.ConfigureAwait(false);
+                        string error = await stderr.ConfigureAwait(false);
+                        if (process.ExitCode != 0)
+                            failures.Add(mode + ": host exit " + process.ExitCode + "; " + result + "; " + error.Substring(Math.Max(0, error.Length - 3000)));
+                    }
+                    finally { Directory.Delete(root, true); }
+                }
+                AssertTrue(failures.Count == 0, String.Join("\n", failures));
+            });
+
             await RunTest("StartAsync_ProcessStartInfo_SetsMsBuildNoNodeReuseEnvironment", async () =>
             {
                 TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());

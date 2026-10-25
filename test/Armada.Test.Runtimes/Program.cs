@@ -13,6 +13,9 @@ namespace Armada.Test.Runtimes
             TestDataDirectory.Redirect();
             TestDataDirectory.Verify();
 
+            if (args.Length == 3 && args[0] == "--log-io-fixture")
+                return await BaseAgentRuntimeTests.RunLogIoFixtureAsync(args[1], args[2]).ConfigureAwait(false);
+
             // Adapter tests assert on the environment a captain process inherits, so the developer's provider
             // variables must not be present unless a test sets them.
             global::Test.Shared.Infrastructure.TestProcessEnvironment.RemoveProviderVariablesAndReport();
