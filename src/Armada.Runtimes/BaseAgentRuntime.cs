@@ -1187,8 +1187,8 @@ namespace Armada.Runtimes
             // or report a successful captain when the mission log could not be persisted.
             bool logCaptureFailed = LogCaptureFailed(logWriter);
             if (logCaptureFailed) code = LogCaptureFailureExitCode;
-            exitEvidence?.Complete(code, logCaptureFailed);
             WriteCapturedFinalReply(processId, code, finalMessageFilePath);
+            exitEvidence?.Complete(code, logCaptureFailed);
 
             // Notify subscribers that the process has exited BEFORE disposing.
             // Disposing first invalidates the PID, which can cause the health check
