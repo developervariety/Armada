@@ -106,12 +106,13 @@ namespace Armada.Test.Runtimes.Suites
             }
         }
 
-        /// <summary>Isolated public-launch fixture: only private log files receive a bounded file-size limit.</summary>
+        /// <summary>Isolated public-launch fixture: only its private mission-log descriptor is redirected to a failing device.</summary>
         internal static async Task<int> RunLogIoFixtureAsync(string mode, string root)
         {
-            if (mode != "stdout" && mode != "stderr" && mode != "exit-record") return 2;
+            if (mode != "stdout" && mode != "stderr" && mode != "exit-record" && mode != "normal" && mode != "stdout-provider") return 2;
             string log = Path.Combine(root, "agent.log");
             string reply = Path.Combine(root, "reply.txt");
+            if (mode == "stdout-provider") File.WriteAllText(reply, "provider-owned reply");
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             LogIoFixtureRuntime runtime = new LogIoFixtureRuntime(logging, mode);
@@ -121,18 +122,60 @@ namespace Armada.Test.Runtimes.Suites
             {
                 if (text.Contains("[ARMADA:LOG_CAPTURE_FAILED]", StringComparison.Ordinal)) Interlocked.Increment(ref markers);
             };
-            runtime.OnProcessStarted += _ => runtime.SeedReply();
+            bool injected = false;
+            string? injectionError = null;
+            runtime.OnProcessStarted += _ =>
+            {
+                runtime.SeedReply();
+                if (mode == "normal") return;
+                try { RedirectPrivateLogToFullDevice(log); injected = true; }
+                catch (Exception ex) { injectionError = ex.GetType().Name + ": " + ex.Message; }
+            };
             runtime.OnProcessExited += (_, code) => { Interlocked.Increment(ref exits); exited.TrySetResult(code); };
             int pid = await runtime.StartAsync(root, "small prompt", finalMessageFilePath: reply, logFilePath: log).ConfigureAwait(false);
             try
             {
                 int? code = await exited.Task.WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
                 bool artifact = File.Exists(reply);
-                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { mode, code, markers, exits, successArtifact = artifact }));
-                return code.HasValue && code.Value != 0 && markers == 1 && exits == 1 && !artifact ? 0 : 1;
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { mode, code, markers, exits, injected, injectionError, successArtifact = artifact }));
+                if (mode == "normal")
+                    return code == 0 && markers == 0 && exits == 1 && artifact
+                        && File.ReadAllText(reply) == "captured successful reply"
+                        && File.ReadAllText(log).Contains("=== Final message ===", StringComparison.Ordinal) ? 0 : 1;
+                bool preservedProvider = mode == "stdout-provider" && artifact && File.ReadAllText(reply) == "provider-owned reply";
+                return injected && injectionError == null && code.HasValue && code.Value != 0 && markers == 1 && exits == 1
+                    && (mode == "stdout-provider" ? preservedProvider : !artifact) ? 0 : 1;
             }
-            finally { KillQuietly(pid); }
+            finally
+            {
+                if (!exited.Task.IsCompleted) await runtime.StopAsync(pid).ConfigureAwait(false);
+            }
         }
+
+        private static void RedirectPrivateLogToFullDevice(string log)
+        {
+            if (!OperatingSystem.IsLinux() || new FileInfo(log).Length == 0)
+                throw new InvalidOperationException("The private launch header must exist before fault injection.");
+            List<int> descriptors = new List<int>();
+            foreach (string path in Directory.EnumerateFileSystemEntries("/proc/self/fd"))
+            {
+                if (!Int32.TryParse(Path.GetFileName(path), out int descriptor) || descriptor < 3) continue;
+                try
+                {
+                    if (File.ResolveLinkTarget(path, false)?.FullName == Path.GetFullPath(log)) descriptors.Add(descriptor);
+                }
+                catch (FileNotFoundException) { }
+            }
+            if (descriptors.Count != 1) throw new InvalidOperationException("Expected one descriptor for the private mission log.");
+            // Replace only this isolated child's verified log descriptor, after the normal header.
+            // /dev/full supplies ENOSPC without filling a filesystem or changing any device.
+            using Microsoft.Win32.SafeHandles.SafeFileHandle full = File.OpenHandle("/dev/full", FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+            if (dup2(full.DangerousGetHandle().ToInt32(), descriptors[0]) != descriptors[0])
+                throw new System.ComponentModel.Win32Exception(System.Runtime.InteropServices.Marshal.GetLastPInvokeError());
+        }
+
+        [System.Runtime.InteropServices.DllImport("libc", SetLastError = true)]
+        private static extern int dup2(int source, int target);
 
         private sealed class LogIoFixtureRuntime : TestAgentRuntime
         {
@@ -142,7 +185,9 @@ namespace Armada.Test.Runtimes.Suites
                 _Mode = mode;
                 CommandOverride = "/bin/sh";
                 RedirectStdinOverride = false;
-                ArgsOverride = new List<string> { "-c", mode == "exit-record" ? "true" : "printf '%4096s\\n' x" + (mode == "stderr" ? " >&2" : "") };
+                WriteStderrToLogFileOverride = mode != "normal";
+                ArgsOverride = new List<string> { "-c", mode == "exit-record" ? "true"
+                    : mode == "normal" ? "printf 'okay\\n'" : "printf '%4096s\\n' x" + (mode == "stderr" ? " >&2" : "") };
             }
             public void SeedReply() => SetFinalReply("captured successful reply");
             protected override IEnumerable<string> BuildProcessExitRecords()
@@ -152,11 +197,11 @@ namespace Armada.Test.Runtimes.Suites
         protected override async Task RunTestsAsync()
         {
             if (!OperatingSystem.IsLinux())
-                SkipTest("Log persistence errors stay local and prevent a successful captain outcome", "the isolated file-size limit fixture requires Linux");
+                SkipTest("Log persistence errors stay local and prevent a successful captain outcome", "the isolated file-descriptor failure fixture requires Linux");
             else await RunTest("Log persistence errors stay local and prevent a successful captain outcome", async () =>
             {
                 List<string> failures = new List<string>();
-                foreach (string mode in new[] { "stdout", "stderr", "exit-record" })
+                foreach (string mode in new[] { "stdout", "stderr", "exit-record", "normal", "stdout-provider" })
                 {
                     string root = Path.Combine(Path.GetTempPath(), "armada_log_io_" + Guid.NewGuid().ToString("N"));
                     Directory.CreateDirectory(root);
@@ -166,7 +211,7 @@ namespace Armada.Test.Runtimes.Suites
                         {
                             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true
                         };
-                        foreach (string argument in new[] { "-c", "trap '' XFSZ; ulimit -c 0; ulimit -f 1; exec \"$@\"", "--", "dotnet", typeof(BaseAgentRuntimeTests).Assembly.Location, "--log-io-fixture", mode, root })
+                        foreach (string argument in new[] { "-c", "ulimit -c 0; exec \"$@\"", "--", "dotnet", typeof(BaseAgentRuntimeTests).Assembly.Location, "--log-io-fixture", mode, root })
                             start.ArgumentList.Add(argument);
                         start.Environment["DOTNET_DbgEnableMiniDump"] = "0";
                         using Process process = Process.Start(start)!;
