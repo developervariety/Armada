@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Cursor final reports preserve complete message boundaries when the terminal
+  text matches their flattened aggregate. Text chunks and distinct final replies
+  retain their original content; report completeness checks stay strict.
+
 - Incident lists apply detection-time bounds before paging. Mission credentials
   retain owner scope for incident lists and by-id reads despite owner admin roles.
 

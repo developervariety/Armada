@@ -60,6 +60,11 @@ namespace Armada.Runtimes
         #region Private-Members
 
         private string _ExecutablePath = "cursor-agent";
+        private readonly List<string> _ReplyRecords = new List<string>();
+        private int _ReplyCharacters;
+        private bool _ReplyRecordsUsable = true;
+        private bool _ReplyEnded;
+
 
         #endregion
 
@@ -185,6 +190,47 @@ namespace Armada.Runtimes
             if (error != null) PublishProviderError(processId, error);
         }
 
+        /// <inheritdoc />
+        protected override void ResetFinalReplyState()
+        {
+            _ReplyRecords.Clear();
+            _ReplyCharacters = 0;
+            _ReplyRecordsUsable = true;
+            _ReplyEnded = false;
+        }
+
+        // stream-json without --stream-partial-output emits complete assistant messages:
+        // https://cursor.com/docs/cli/reference/output-format
+        private void CaptureReplyRecord(CursorEvent evt)
+        {
+            if (!FinalReplyRequested || !_ReplyRecordsUsable) return;
+            bool partial = evt.TimestampMs.ValueKind != JsonValueKind.Undefined && evt.TimestampMs.ValueKind != JsonValueKind.Null
+                || evt.ModelCallId.ValueKind != JsonValueKind.Undefined && evt.ModelCallId.ValueKind != JsonValueKind.Null
+                || String.Equals(evt.Subtype, "delta", StringComparison.Ordinal);
+            string text = AssistantText(evt);
+            int separator = _ReplyRecords.Count == 0 ? 0 : 2;
+            if (partial || text.Length > MaximumFinalReplyCharacters - _ReplyCharacters - separator)
+            {
+                _ReplyRecordsUsable = false;
+                _ReplyRecords.Clear();
+                _ReplyCharacters = 0;
+                return;
+            }
+            if (text.Length == 0) return;
+            _ReplyRecords.Add(text);
+            _ReplyCharacters += text.Length + separator;
+        }
+
+        private static string AssistantText(CursorEvent evt)
+        {
+            StringBuilder builder = new StringBuilder();
+            if (evt.Message?.Content != null)
+                foreach (CursorContent content in evt.Message.Content)
+                    if (String.Equals(content.Type, "text", StringComparison.Ordinal) && !String.IsNullOrEmpty(content.Text))
+                        builder.Append(content.Text);
+            return builder.ToString();
+        }
+
         /// <summary>
         /// Capture Cursor's exact terminal usage counters.
         /// </summary>
@@ -196,6 +242,8 @@ namespace Armada.Runtimes
 
             if (String.Equals(evt.Type, "assistant", StringComparison.Ordinal))
             {
+                if (_ReplyEnded) ResetFinalReplyState();
+                CaptureReplyRecord(evt);
                 SetFinalReply(null);
                 return;
             }
@@ -203,9 +251,13 @@ namespace Armada.Runtimes
             if (!String.Equals(evt.Type, "result", StringComparison.Ordinal))
                 return;
 
-            SetFinalReply(String.Equals(evt.Subtype, "success", StringComparison.Ordinal) && evt.IsError == false
-                ? evt.Result
-                : null);
+            string? reply = String.Equals(evt.Subtype, "success", StringComparison.Ordinal) && evt.IsError == false
+                ? evt.Result : null;
+            if (_ReplyRecordsUsable && _ReplyRecords.Count > 1
+                && String.Equals(reply, String.Concat(_ReplyRecords), StringComparison.Ordinal))
+                reply = String.Join("\n\n", _ReplyRecords);
+            SetFinalReply(reply);
+            _ReplyEnded = true;
 
             if (evt.Usage == null)
                 return;
@@ -244,14 +296,8 @@ namespace Armada.Runtimes
 
             if (String.Equals(evt.Type, "assistant", StringComparison.Ordinal) && evt.Message?.Content != null)
             {
-                StringBuilder builder = new StringBuilder();
-                foreach (CursorContent content in evt.Message.Content)
-                {
-                    if (String.Equals(content.Type, "text", StringComparison.Ordinal) && !String.IsNullOrEmpty(content.Text))
-                        builder.Append(content.Text);
-                }
-                if (builder.Length > 0)
-                    return builder.ToString();
+                string text = AssistantText(evt);
+                if (text.Length > 0) return text;
             }
 
             // Reasoning is private model deliberation, not mission progress. Every runtime drops
@@ -367,6 +413,12 @@ namespace Armada.Runtimes
 
             [JsonPropertyName("message")]
             public CursorMessage? Message { get; set; }
+
+            [JsonPropertyName("timestamp_ms")]
+            public JsonElement TimestampMs { get; set; }
+
+            [JsonPropertyName("model_call_id")]
+            public JsonElement ModelCallId { get; set; }
 
             /// <summary>
             /// Tool call payload. cursor-agent keys the payload by tool name
