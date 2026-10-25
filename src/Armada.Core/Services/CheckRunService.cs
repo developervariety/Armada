@@ -619,7 +619,7 @@ namespace Armada.Core.Services
             if (vessel == null)
                 return await CompleteExistingRunAsFailureAsync(run, "Vessel not found or not accessible.", token).ConfigureAwait(false);
 
-            if (IsNativeSlopRun(run))
+            if (CheckRunGateRules.IsNativeSlopRun(run))
                 return await ExecuteSlopRunAsync(run, vessel, token).ConfigureAwait(false);
 
             CheckRun? unstamped = await HandleUnstampedVoyageRecordAsync(run, token).ConfigureAwait(false);
@@ -968,17 +968,6 @@ namespace Armada.Core.Services
         private static bool ShouldResolvePendingCommand(CheckRun run)
         {
             return CheckRunGateRules.HasUnresolvedCommand(run);
-        }
-
-        /// <summary>
-        /// True when a record is executed by the native Slop classifier rather than a shell command.
-        /// A Slop record carrying an operator-supplied command runs that command instead.
-        /// </summary>
-        private static bool IsNativeSlopRun(CheckRun run)
-        {
-            if (run.Type != CheckRunTypeEnum.Slop) return false;
-            return CheckRunGateRules.HasUnresolvedCommand(run)
-                || String.Equals(run.Command, SlopCheckRunner.CommandLabel, StringComparison.Ordinal);
         }
 
         private async Task<CheckRun> RunNewSlopAsync(AuthContext auth, Vessel vessel, CheckRunRequest request, CancellationToken token)

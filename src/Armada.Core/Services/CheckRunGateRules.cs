@@ -35,6 +35,16 @@ namespace Armada.Core.Services
 
         #region Public-Methods
 
+        /// <summary>True when the Check uses native diff classification rather than a shell command.</summary>
+        /// <param name="run">The Check to inspect. Null returns false.</param>
+        /// <returns>True for native Slop intent markers and executed native classifier records.</returns>
+        public static bool IsNativeSlopRun(CheckRun? run)
+        {
+            return run != null && run.Type == CheckRunTypeEnum.Slop
+                && (HasUnresolvedCommand(run)
+                    || String.Equals(run.Command, SlopCheckRunner.CommandLabel, StringComparison.Ordinal));
+        }
+
         /// <summary>
         /// True when the Check has no runnable command, so nothing can be executed for it until a
         /// workflow profile resolves one.

@@ -228,7 +228,8 @@ namespace Armada.Core.Models
                 OutputLength = output.Length,
                 OutputTruncated = tail.Length < output.Length,
                 OutputTail = tail.Length == 0 ? null : tail,
-                TestOutcomes = TestOutcomeDigest.Render(output, profilePattern, _FullLogPointer),
+                TestOutcomes = CheckRunGateRules.IsNativeSlopRun(run)
+                    ? null : TestOutcomeDigest.Render(output, profilePattern, _FullLogPointer),
                 OutputRetrieval = tail.Length < output.Length
                     ? "Full log omitted (" + output.Length + " chars). Call get_check_run with includeOutput=true for the complete output."
                     : null,

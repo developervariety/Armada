@@ -7,6 +7,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Native Slop findings keep their analysis status and evidence without being
+  listed as failing tests. Custom check commands retain test outcomes.
+
 - Mission credentials cannot be exchanged for unrestricted sessions or start
   captain chat. Child MCP access also refuses mission-scoped callers.
 
