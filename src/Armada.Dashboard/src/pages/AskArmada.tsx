@@ -64,6 +64,9 @@ import { fallbackReasonText, isPendingRequest, parseCliPermissionEvent } from '.
 
 const CAPTAIN_STORAGE_KEY = 'armada_ask_captain';
 const THINKING_STORAGE_KEY = 'armada_ask_show_thinking';
+// The conversation last opened, reopened when the page is entered on the bare /ask route. Suffixed with the signed-in
+// user id so one user never reopens another user's conversation in a shared browser.
+const LAST_THREAD_STORAGE_KEY = 'armada_ask_last_thread';
 const THREAD_PAGE_SIZE = 50;
 const MESSAGE_PAGE_SIZE = 30;
 const SNAPSHOT_FETCH_LIMIT = 20;
@@ -75,6 +78,14 @@ function readStored(key: string): string {
 function writeStored(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* storage unavailable */ }
 }
+
+function removeStored(key: string) {
+  try { localStorage.removeItem(key); } catch { /* storage unavailable */ }
+}
+
+/** Router state on /ask: `newConversation` marks an explicit empty conversation, so the last one is not reopened. */
+type AskRouteState = AskNavigationState & { newConversation?: boolean };
+const NEW_CONVERSATION_STATE: AskRouteState = { newConversation: true };
 
 function errorText(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
@@ -93,6 +104,12 @@ export default function AskArmada() {
   const { subscribe, reconnectCount } = useWebSocket();
   const { user, isAdmin, isTenantAdmin } = useAuth();
   const { pushToast } = useNotifications();
+  const userId = user?.user?.id ?? null;
+  const lastThreadKey = userId ? `${LAST_THREAD_STORAGE_KEY}:${userId}` : LAST_THREAD_STORAGE_KEY;
+  const lastThreadKeyRef = useRef(lastThreadKey);
+  lastThreadKeyRef.current = lastThreadKey;
+  // The id the bare /ask route was redirected to from storage; if it no longer loads, the page returns to /ask.
+  const restoringThreadIdRef = useRef<string | null>(null);
 
   // Captains and quick actions.
   const [captains, setCaptains] = useState<Captain[]>([]);
@@ -236,18 +253,28 @@ export default function AskArmada() {
         enumerateAskMessages(id, { pageSize: MESSAGE_PAGE_SIZE }),
       ]);
       if (convRef.current.threadId !== id) return;
+      if (restoringThreadIdRef.current === id) restoringThreadIdRef.current = null;
+      if (detail?.thread?.archived && !filterRef.current.includeArchived) forgetLastThread([id]);
+      else writeStored(lastThreadKeyRef.current, id);
       dispatch({ type: 'loaded', threadId: id, detail, messages: page?.messages ?? [], hasMore: !!page?.hasMore });
       if (detail?.thread) setThreads((prev) => applyThreadUpdate(prev, detail.thread, filterRef.current, id));
       markRead(id);
       fetchSnapshots(id, detail?.trackedWork ?? []);
     } catch (err: unknown) {
       if (convRef.current.threadId !== id) return;
+      const restoring = restoringThreadIdRef.current === id;
+      if (restoring) restoringThreadIdRef.current = null;
+      if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
+        // Gone or not ours: forget it, and when it was only reopened from storage, go back to the empty /ask.
+        forgetLastThread([id]);
+        if (restoring) { navigate('/ask', { replace: true, state: NEW_CONVERSATION_STATE }); return; }
+      }
       if (err instanceof ApiError && err.status === 404) setConvError(t('This conversation was not found. It may have been deleted.'));
       else setConvError(errorText(err, t('Failed to load the conversation.')));
     } finally {
       if (convRef.current.threadId === id) setConvLoading(false);
     }
-  }, [fetchSnapshots, markRead, t]);
+  }, [fetchSnapshots, markRead, navigate, t]);
 
   const refreshLatest = useCallback(async (id: string) => {
     try {
@@ -264,15 +291,29 @@ export default function AskArmada() {
     } catch { /* reconciliation only */ }
   }, [fetchSnapshots]);
 
-  // Another page (Workspace's Ask Armada) can open a new conversation with a draft in the message box. The state is
+  // Another page (Workspace's Ask Armada) can open a new conversation with a draft in the message box. The draft is
   // cleared once used, so reloading or going back does not put it there again.
+  // The bare /ask route (the nav link) reopens the conversation last open. An explicit new conversation carries
+  // NEW_CONVERSATION_STATE; any other bare /ask entry is stamped with it once handled, so Back never bounces.
   const location = useLocation();
   useEffect(() => {
-    const draft = (location.state as AskNavigationState | null)?.draft;
-    if (!draft || routeThreadId) return;
-    composerRef.current?.reset({ text: draft, focus: true });
-    navigate(location.pathname + location.search, { replace: true, state: null });
-  }, [location.state, location.pathname, location.search, routeThreadId, navigate]);
+    if (routeThreadId) return;
+    const state = location.state as AskRouteState | null;
+    const here = location.pathname + location.search;
+    if (state?.draft) {
+      composerRef.current?.reset({ text: state.draft, focus: true });
+      navigate(here, { replace: true, state: NEW_CONVERSATION_STATE });
+      return;
+    }
+    if (state?.newConversation) return;
+    const lastId = readStored(lastThreadKey);
+    if (lastId) {
+      restoringThreadIdRef.current = lastId;
+      navigate(`/ask/${encodeURIComponent(lastId)}`, { replace: true });
+      return;
+    }
+    navigate(here, { replace: true, state: NEW_CONVERSATION_STATE });
+  }, [location.state, location.pathname, location.search, routeThreadId, lastThreadKey, navigate]);
 
   // Route changes open a different conversation (or the new-conversation screen).
   useEffect(() => {
@@ -461,6 +502,7 @@ export default function AskArmada() {
       const merged = { ...target, ...patch, ...updated } as AskThread;
       setThreads((prev) => applyThreadUpdate(prev, merged, filterRef.current, convRef.current.threadId));
       if (merged.id === convRef.current.threadId) dispatch({ type: 'thread', thread: merged });
+      if (merged.archived && !filterRef.current.includeArchived) forgetLastThread([merged.id]);
       return merged;
     } catch (err: unknown) {
       setError(errorText(err, t('The conversation could not be updated.')));
@@ -497,8 +539,15 @@ export default function AskArmada() {
   function newConversation(keepCaptain: boolean) {
     setDrawerOpen(false);
     if (keepCaptain && thread?.captainId) { setDraftCaptainId(thread.captainId); writeStored(CAPTAIN_STORAGE_KEY, thread.captainId); }
-    if (convRef.current.threadId) navigate('/ask');
+    removeStored(lastThreadKeyRef.current);
+    if (convRef.current.threadId) navigate('/ask', { state: NEW_CONVERSATION_STATE });
     else composerRef.current?.reset({ focus: true });
+  }
+
+  /** Stop reopening the stored last conversation when it is one of `ids` (deleted, archived out of view, or gone). */
+  function forgetLastThread(ids: string[]) {
+    const key = lastThreadKeyRef.current;
+    if (ids.includes(readStored(key))) removeStored(key);
   }
 
   function openCaptainPicker() {
@@ -543,7 +592,8 @@ export default function AskArmada() {
       await deleteAskThread(target.id);
       setThreads((prev) => prev.filter((th) => th.id !== target.id));
       pushToast('success', t('Conversation deleted.'));
-      if (target.id === convRef.current.threadId) navigate('/ask');
+      forgetLastThread([target.id]);
+      if (target.id === convRef.current.threadId) navigate('/ask', { state: NEW_CONVERSATION_STATE });
     } catch (err: unknown) {
       setError(errorText(err, t('The conversation could not be deleted.')));
     }
@@ -563,7 +613,8 @@ export default function AskArmada() {
       setSelectedThreadIds([]);
       if (skipped.length > 0) pushToast('warning', t('{{count}} conversations were not deleted.', { count: skipped.length }));
       else pushToast('success', t('Conversations deleted.'));
-      if (convRef.current.threadId && deleted.includes(convRef.current.threadId)) navigate('/ask');
+      forgetLastThread(deleted);
+      if (convRef.current.threadId && deleted.includes(convRef.current.threadId)) navigate('/ask', { state: NEW_CONVERSATION_STATE });
       void loadThreads(1);
     } catch (err: unknown) {
       setSelectedThreadIds([]);
@@ -723,7 +774,7 @@ export default function AskArmada() {
         {convError ? (
           <div className="ask-conv-error">
             <ErrorState message={convError} onRetry={routeThreadId ? () => void loadConversation(routeThreadId) : undefined} />
-            <button type="button" className="btn btn-sm" onClick={() => navigate('/ask')} title={t('Leave this conversation and open an empty one.')}>{t('Start a new conversation')}</button>
+            <button type="button" className="btn btn-sm" onClick={() => { forgetLastThread(routeThreadId ? [routeThreadId] : []); navigate('/ask', { state: NEW_CONVERSATION_STATE }); }} title={t('Leave this conversation and open an empty one.')}>{t('Start a new conversation')}</button>
           </div>
         ) : convLoading && conv.messages.length === 0 ? (
           <div className="ask-transcript ask-transcript-loading"><LoadingState label={t('Loading conversation...')} /></div>
