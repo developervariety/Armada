@@ -1651,7 +1651,7 @@ namespace Armada.Core.Services
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
             if (captain == null)
             {
-                _Logging.Warn(_Header + "captain " + captainId + " not found during process exit handling");
+                RuntimeExitDiagnostics.Try(() => _Logging.Warn(_Header + "captain " + captainId + " not found during process exit handling"));
                 return;
             }
 
@@ -1668,7 +1668,7 @@ namespace Armada.Core.Services
             }
             if (mission == null)
             {
-                _Logging.Warn(_Header + "mission " + missionId + " not found during process exit handling");
+                RuntimeExitDiagnostics.Try(() => _Logging.Warn(_Header + "mission " + missionId + " not found during process exit handling"));
                 return;
             }
 
@@ -1686,8 +1686,8 @@ namespace Armada.Core.Services
                 ignoredReason = "captain " + captain.Id + " now runs process " + captain.ProcessId.Value;
             if (ignoredReason != null)
             {
-                _Logging.Info(_Header + "process " + processId + " exit (code " + (exitCode?.ToString() ?? "unknown") + ") for mission "
-                    + missionId + " ignored: " + ignoredReason);
+                RuntimeExitDiagnostics.Try(() => _Logging.Info(_Header + "process " + processId + " exit (code " + (exitCode?.ToString() ?? "unknown") + ") for mission "
+                    + missionId + " ignored: " + ignoredReason));
                 await EmitEventAsync("captain.process_exit_ignored",
                     "Process " + processId + " exit (code " + (exitCode?.ToString() ?? "unknown") + ") ignored: " + ignoredReason,
                     entityType: "captain", entityId: captain.Id,
@@ -1700,14 +1700,14 @@ namespace Armada.Core.Services
             // or another handler already processed this completion/failure.
             if (IsPostWorkOrTerminal(mission.Status))
             {
-                _Logging.Debug(_Header + "mission " + missionId + " already in terminal/post-work state " + mission.Status + " — skipping process exit handling");
+                RuntimeExitDiagnostics.Try(() => _Logging.Debug(_Header + "mission " + missionId + " already in terminal/post-work state " + mission.Status + " — skipping process exit handling"));
                 return;
             }
 
             // If the captain is no longer working on this mission, skip
             if (captain.CurrentMissionId != missionId)
             {
-                _Logging.Debug(_Header + "captain " + captainId + " is no longer assigned to mission " + missionId + " — skipping process exit handling");
+                RuntimeExitDiagnostics.Try(() => _Logging.Debug(_Header + "captain " + captainId + " is no longer assigned to mission " + missionId + " — skipping process exit handling"));
                 return;
             }
 
@@ -1717,27 +1717,29 @@ namespace Armada.Core.Services
                 captainId: captain.Id, missionId: missionId,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
 
-            if (exitCode == 0)
+            RuntimeProcessExitEvidence? exitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId);
+            bool logCaptureFailed = exitEvidence != null && exitEvidence.TryGetOutcome(out _, out bool captureFailed) && captureFailed;
+            if (exitCode == 0 && !logCaptureFailed)
             {
                 // Clean exit — delegate to the normal completion flow
-                _Logging.Info(_Header + "agent process " + processId + " exited cleanly for mission " + missionId + " — handling completion");
+                RuntimeExitDiagnostics.Try(() => _Logging.Info(_Header + "agent process " + processId + " exited cleanly for mission " + missionId + " — handling completion"));
                 await ClearUsageAccountHoldAfterServedRunAsync(captain, mission, token).ConfigureAwait(false);
                 await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
             }
-            else if (await AgentDeclaredExplicitSuccessAsync(missionId, token).ConfigureAwait(false))
+            else if (!logCaptureFailed && await AgentDeclaredExplicitSuccessAsync(missionId, token).ConfigureAwait(false))
             {
                 // A non-zero/lost exit code alone must not override the agent's EXPLICIT terminal
                 // success verdict. When the agent declared [ARMADA:RESULT] COMPLETE, honor it and run
                 // the normal completion flow -- the DoD gates then verify the work -- rather than
                 // mislabeling good work as Failed and cascade-cancelling the voyage.
-                _Logging.Info(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId + " but declared [ARMADA:RESULT] COMPLETE — honoring the explicit success verdict and handling completion");
+                RuntimeExitDiagnostics.Try(() => _Logging.Info(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId + " but declared [ARMADA:RESULT] COMPLETE — honoring the explicit success verdict and handling completion"));
                 await ClearUsageAccountHoldAfterServedRunAsync(captain, mission, token).ConfigureAwait(false);
                 await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
             }
             else
             {
                 // Non-zero or unknown exit code with no explicit success verdict.
-                _Logging.Warn(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId);
+                RuntimeExitDiagnostics.Try(() => _Logging.Warn(_Header + "agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for mission " + missionId));
 
                 // Treat exit 137 as a probable resource kill. SIGKILL is not definitive OOM
                 // evidence, but a cooldown plus a live capacity probe prevents a tight retry loop
@@ -1746,7 +1748,7 @@ namespace Armada.Core.Services
                 {
                     string oomReason = BuildOomFailureReason(exitCode);
                     _ResourcePressureAdmission.MarkOom();
-                    _Logging.Warn(_Header + "mission " + missionId + " classified as probable OOM/resource kill " + oomReason);
+                    RuntimeExitDiagnostics.Try(() => _Logging.Warn(_Header + "mission " + missionId + " classified as probable OOM/resource kill " + oomReason));
                     await RequeueTransientMissionFailureAsync(captain, mission, missionId, oomReason, token).ConfigureAwait(false);
                     await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                     return;
@@ -1765,11 +1767,15 @@ namespace Armada.Core.Services
                 // Fail the mission deterministically. Process exits should not bounce between
                 // recovery paths; preserve the captured runtime error, halt the voyage, and only
                 // stall the captain when the failure indicates the runtime itself is unavailable.
-                string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, captain.Runtime, token).ConfigureAwait(false);
+                string failureReason = logCaptureFailed
+                    ? "Runtime log persistence failed; the launch outcome cannot be accepted as successful."
+                    : await BuildProcessExitFailureReasonAsync(missionId, exitCode, captain.Runtime, token).ConfigureAwait(false);
+                if (logCaptureFailed) providerError = null;
                 RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason, providerError);
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, failureKind, token, providerError).ConfigureAwait(false);
                 failureKind = await RefineRuntimeFailureAsync(mission, captain, exitCode, failureReason, failureKind, token).ConfigureAwait(false);
                 if (_Settings.CrashLoopDetection.Enabled
+                    && !logCaptureFailed
                     && failureKind == RuntimeFailureKindEnum.Crash
                     && !ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(failureReason)
                     && !IsTestOrDefinitionOfDoneFailure(failureReason))
@@ -2154,6 +2160,32 @@ namespace Armada.Core.Services
             catch (ArgumentException)
             {
                 processGone = true;
+            }
+
+            if (!isAlive)
+            {
+                if (OnIsProcessExitHandled != null && OnIsProcessExitHandled(processId.Value)) return;
+                RuntimeProcessExitEvidence? evidence = ProcessSupervisor.GetRuntimeExitEvidence(processId.Value);
+                if (evidence != null)
+                {
+                    if (evidence.TryGetOutcome(out int? effectiveExitCode, out bool captureFailed))
+                    {
+                        if (captureFailed)
+                        {
+                            await HandleProcessExitAsync(processId.Value, effectiveExitCode, captain.Id, captain.CurrentMissionId!, token).ConfigureAwait(false);
+                            return;
+                        }
+                        exitCode = effectiveExitCode ?? -1;
+                        processGone = false;
+                    }
+                    else if (evidence.ShouldDefer(DateTime.UtcNow)) return;
+                    else
+                    {
+                        // An unfinished drain cannot be a successful raw OS exit, even after grace.
+                        exitCode = -1;
+                        processGone = false;
+                    }
+                }
             }
 
             if (processGone)

@@ -2013,7 +2013,7 @@ namespace Armada.Server
                     }
                     if (!String.IsNullOrEmpty(captainId) && !String.IsNullOrEmpty(missionId))
                     {
-                        _Logging.Info(_Header + "process " + processId + " exit handler resolved mapping after " + (attempt + 1) + " retries");
+                        RuntimeExitDiagnostics.Try(() => _Logging.Info(_Header + "process " + processId + " exit handler resolved mapping after " + (attempt + 1) + " retries"));
                         break;
                     }
                 }
@@ -2029,7 +2029,7 @@ namespace Armada.Server
 
             if (String.IsNullOrEmpty(captainId) || String.IsNullOrEmpty(missionId))
             {
-                _Logging.Warn(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found after retries -- exit may be lost");
+                RuntimeExitDiagnostics.Try(() => _Logging.Warn(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") but no captain/mission mapping found after retries -- exit may be lost"));
                 completion?.TrySetException(new InvalidOperationException("harbor_process_exit_mapping_missing"));
                 return;
             }
@@ -2039,12 +2039,18 @@ namespace Armada.Server
 
             StopProcessLivenessHeartbeat(processId);
 
-            _Logging.Info(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") for captain " + captainId + " mission " + missionId);
+            RuntimeProcessExitEvidence? exitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId);
+            bool logCaptureFailed = exitEvidence != null && exitEvidence.TryGetOutcome(out _, out bool captureFailed) && captureFailed;
+
+            RuntimeExitDiagnostics.Try(() => _Logging.Info(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") for captain " + captainId + " mission " + missionId));
 
             if (_IntentionalStops.TryTake(processId, captainId, missionId, IntentionalStopKindEnum.Completion))
             {
-                _Logging.Info(_Header + "process " + processId + " was stopped after its terminal marker; completing mission " + missionId + " from the recorded output");
-                exitCode = 0;
+                if (!logCaptureFailed)
+                {
+                    RuntimeExitDiagnostics.Try(() => _Logging.Info(_Header + "process " + processId + " was stopped after its terminal marker; completing mission " + missionId + " from the recorded output"));
+                    exitCode = 0;
+                }
             }
 
             // Only the launch that still owns the mission's state releases it. The exit of a process the
@@ -2073,7 +2079,7 @@ namespace Armada.Server
                 }
                 catch (Exception ex)
                 {
-                    _Logging.Warn(_Header + "error handling process exit for captain " + capturedCaptainId + " mission " + capturedMissionId + ": " + ex.Message);
+                    RuntimeExitDiagnostics.Try(() => _Logging.Warn(_Header + "error handling process exit for captain " + capturedCaptainId + " mission " + capturedMissionId + ": " + ex.Message));
                 }
             });
         }
