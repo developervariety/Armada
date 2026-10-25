@@ -1415,6 +1415,28 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreview reportResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
                     ObjectiveDispatchPreflightFact reportKindFact = reportResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 2);
                     AssertEqual(PreflightFactStatusEnum.Fail, reportKindFact.Status, "a report-only deliverable that is not Research fails question 2");
+                    objective.Kind = ObjectiveKindEnum.Research;
+                    foreach (var sample in new[]
+                    {
+                        (Description: "Inspect the existing export and report exact counts. Documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Unknown),
+                        (Description: "Produce a report to the owner. Documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Pass),
+                        (Description: "Commit the final document at docs/result.md. Optional documentation, if needed, is separate work after review.", Expected: PreflightFactStatusEnum.Fail),
+                        (Description: "Commit the final document at docs/result.md; documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Fail)
+                    })
+                    {
+                        objective.Description = sample.Description;
+                        ObjectiveDispatchPreview deferred = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                        AssertEqual(sample.Expected, deferred.Preflight.Facts.Single(fact => fact.QuestionNumber == 2).Status,
+                            "a separate future clause does not replace the current deliverable: " + sample.Description);
+                    }
+                    objective.Description = "Produce a report to the owner. Documentation writes, if needed, are separate committed document work after review.";
+                    objective.RefinementSummary = null;
+                    objective.Preparation.Preflight = new ObjectivePreflight();
+                    ObjectiveDispatchPreview incomplete = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(incomplete.IsReady, "a delivery fact does not waive missing preparation");
+                    AssertTrue(incomplete.Issues.Any(issue => issue.Code == "brief_method_missing"));
+                    AssertEqual(14, incomplete.Preflight.IncompleteQuestions.Count, "unanswered preflight remains incomplete");
+
                 }
             }).ConfigureAwait(false);
 
