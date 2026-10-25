@@ -499,13 +499,15 @@ namespace Armada.Core.Services
             Objective objective, ObjectivePreflight preflight, string description)
         {
             const int question = 2;
-            // Separate optional document work after review is not the current delivery contract.
-            string lower = String.Join(" ", Regex.Split(description.ToLowerInvariant(), @"(?<=[.!?;])\s+|\r?\n")
-                .Where(statement => !Regex.IsMatch(statement.Trim(),
-                    @"^[^,;.!?\r\n]+\b(?:writes|updates|changes),\s*if\s+needed,\s+(?:is|are)\s+separate\s+committed\s+document\s+work\s+after\s+review[.!]?$",
-                    RegexOptions.CultureInvariant)));
             string[] reportWords = { "report-only", "report only", "a report", "produce a report", "findings report", "report to the owner" };
             string[] committedWords = { "commit a", "commit the", "committed doc", "committed document", "census", "ledger row", "discoveries.d", "write a file", "record a file" };
+            // Separate optional document work after review is not the current delivery contract.
+            // A current commit duty before that condition must still participate in classification.
+            string lower = String.Join(" ", Regex.Split(description.ToLowerInvariant(), @"(?<=[.!?;])\s+|\r?\n")
+                .Where(statement => committedWords.Any(word => statement.Split(',', 2)[0].Contains(word))
+                    || !Regex.IsMatch(statement.Trim(),
+                        @"^[^,;.!?\r\n]+\b(?:writes|updates|changes),\s*if\s+needed,\s+(?:is|are)\s+separate\s+committed\s+document\s+work\s+after\s+review[.!]?$",
+                        RegexOptions.CultureInvariant)));
             bool report = reportWords.Any(word => lower.Contains(word));
             bool committed = committedWords.Any(word => lower.Contains(word));
 

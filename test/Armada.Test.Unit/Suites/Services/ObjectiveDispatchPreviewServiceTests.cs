@@ -1421,7 +1421,8 @@ namespace Armada.Test.Unit.Suites.Services
                         (Description: "Inspect the existing export and report exact counts. Documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Unknown),
                         (Description: "Produce a report to the owner. Documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Pass),
                         (Description: "Commit the final document at docs/result.md. Optional documentation, if needed, is separate work after review.", Expected: PreflightFactStatusEnum.Fail),
-                        (Description: "Commit the final document at docs/result.md; documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Fail)
+                        (Description: "Commit the final document at docs/result.md; documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Fail),
+                        (Description: "Commit the final document and documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Fail)
                     })
                     {
                         objective.Description = sample.Description;
