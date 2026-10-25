@@ -1948,10 +1948,23 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }).ConfigureAwait(false);
             AssertTrue(launch.Accepted, "the server records a launch attempt before the runner rejects its out-of-checkout configuration: " + launch.Reason);
-            AssertTrue(await WaitUntilAsync(() => restarted.Coordinator.TryGetJob(launch.JobId!, out HarborJobSnapshot? current)
+            bool refusalObserved = await WaitUntilAsync(() => restarted.Coordinator.TryGetJob(launch.JobId!, out HarborJobSnapshot? current)
                 && current!.State == HarborJobStateEnum.Uncertain
-                && current.FailureReason == "harbor_runner_error: working_directory_outside_roots").ConfigureAwait(false),
-                "the runner's configuration refusal reaches the durable server fence");
+                && current.FailureReason == "harbor_runner_error: working_directory_outside_roots").ConfigureAwait(false);
+            string refusalEvidence = String.Empty;
+            if (!refusalObserved)
+            {
+                restarted.Coordinator.TryGetJob(launch.JobId!, out HarborJobSnapshot? snapshot);
+                HarborJobRecord? persisted = await harness.Driver.HarborJobs.ReadAsync(launch.JobId!).ConfigureAwait(false);
+                string journalPath = Path.Combine(root, "state", launch.JobId!, "job.json");
+                HarborLocalJobRecord? journal = File.Exists(journalPath)
+                    ? JsonSerializer.Deserialize<HarborLocalJobRecord>(File.ReadAllText(journalPath)) : null;
+                refusalEvidence = " snapshot=" + snapshot?.State + "/" + snapshot?.FailureReason
+                    + "; persisted=" + persisted?.State + "/" + persisted?.FailureReason
+                    + "; journalFailure=" + journal?.FailureReason
+                    + "; stopConfirmed=" + journal?.StopConfirmed + "; child=" + journal?.ProcessId;
+            }
+            AssertTrue(refusalObserved, "the runner's configuration refusal reaches the durable server fence" + refusalEvidence);
             HarborLocalJobRecord refused = JsonSerializer.Deserialize<HarborLocalJobRecord>(
                 File.ReadAllText(Path.Combine(root, "state", launch.JobId!, "job.json")))!;
             AssertEqual("working_directory_outside_roots", refused.FailureReason, "outside configuration has a stable refusal reason");

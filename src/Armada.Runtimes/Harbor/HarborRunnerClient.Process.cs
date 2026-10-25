@@ -16,6 +16,8 @@ namespace Armada.Runtimes.Harbor
             while (DateTime.UtcNow < deadline)
             {
                 token.ThrowIfCancellationRequested();
+                // Observe exit before reading, so a refusal persisted before exit gets a final read.
+                bool supervisorExited = supervisor.HasExited;
                 try
                 {
                     HarborLocalJobRecord record = _Journal.Read(jobId);
@@ -23,17 +25,17 @@ namespace Armada.Runtimes.Harbor
                     if (!String.IsNullOrWhiteSpace(record.FailureReason))
                         throw new HarborJobJournalException(record.FailureReason, "The supervisor failed before it started the child process.");
                 }
-                catch (HarborJobJournalException exception) when (exception.ReasonCode == "job_not_found" && !supervisor.HasExited)
+                catch (HarborJobJournalException exception) when (exception.ReasonCode == "job_not_found" && !supervisorExited)
                 {
                     await Task.Delay(TimeSpan.FromMilliseconds(100), token).ConfigureAwait(false);
                     continue;
                 }
-                catch (IOException) when (!supervisor.HasExited)
+                catch (IOException) when (!supervisorExited)
                 {
                     await Task.Delay(TimeSpan.FromMilliseconds(100), token).ConfigureAwait(false);
                     continue;
                 }
-                if (supervisor.HasExited) break;
+                if (supervisorExited) break;
                 await Task.Delay(TimeSpan.FromMilliseconds(100), token).ConfigureAwait(false);
             }
             throw new HarborJobJournalException("supervisor_start_unconfirmed", "The supervisor did not persist child identity before the start deadline.");

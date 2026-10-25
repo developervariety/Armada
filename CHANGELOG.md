@@ -7,6 +7,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Harbor startup reads the final journal after supervisor exit. Empty runner
+  heartbeats preserve a known refusal reason and retain the completion fence.
+
 - Dispatch previews retain non-goal context when they exclude gate input files.
   Positive rollout statements still warn about inputs that plans do not name.
 

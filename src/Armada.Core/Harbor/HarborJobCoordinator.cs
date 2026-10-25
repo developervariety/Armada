@@ -427,8 +427,10 @@ namespace Armada.Core.Harbor
                         if (job.NextOutputSequence != job.PersistedOutputSequence && !persist.Exists(r => r.JobId == job.JobId)) Touch(job, persist);
                         continue;
                     }
-                    MarkUncertain(job, job.EnrollmentGeneration != session.EnrollmentGeneration
-                        ? "harbor_enrollment_changed" : "harbor_job_not_reported", persist);
+                    if (job.EnrollmentGeneration != session.EnrollmentGeneration)
+                        MarkUncertain(job, "harbor_enrollment_changed", persist);
+                    else if (job.State != HarborJobStateEnum.Uncertain || String.IsNullOrWhiteSpace(job.FailureReason))
+                        MarkUncertain(job, "harbor_job_not_reported", persist);
                 }
             }
 
