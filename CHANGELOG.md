@@ -10,6 +10,9 @@ upstream integrations and excludes changes already present at that baseline.
 - Mission credentials cannot be exchanged for unrestricted sessions or start
   captain chat. Child MCP access also refuses mission-scoped callers.
 
+- Judge blocker extraction keeps complete command outcomes and excludes
+  passing checks, source agreement and reproduction steps from findings.
+
 - Newly armed lane Checks name the work mission they measure. Lanes that share
   a commit retain separate pending, passing and failing review results.
 

@@ -83,7 +83,7 @@ namespace Armada.Core.Services
         // A lead-in that introduces the steps of a reproduction or counterexample: its items are evidence for
         // the finding they follow, not findings of their own.
         private static readonly Regex _EvidenceLeadIn = new Regex(
-            @"\b(?:counter-?examples?|reproductions?|repros?|steps\s+to\s+reproduce|reproduce\s+(?:it|this|the\s+\w+)\s+(?:with|by)|interleavings?)\b",
+            @"\b(?:counter-?examples?|reproductions?|repros?|steps\s+to\s+reproduce|reproduc(?:e|ed)\s+(?:it|this|the\s+\w+)\s+(?:with|by|using)|interleavings?)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _NonBlockingParenthetical = new Regex(
@@ -290,6 +290,16 @@ namespace Armada.Core.Services
 
                 string item;
                 bool listItem = TryStripListPrefix(raw, out item);
+                if (listItem)
+                {
+                    // Classify the complete result, including an indented command or exit status.
+                    while (i + 1 < lines.Length && IsContinuation(lines[i + 1]))
+                    {
+                        string continuation = lines[++i].Trim();
+                        item += " " + continuation;
+                        raw += " " + continuation;
+                    }
+                }
                 bool leadInLine = !listItem && item.EndsWith(":", StringComparison.Ordinal);
                 if (!listItem) leadIn = item;
                 if (leadInLine) paragraphLead = item;
@@ -301,10 +311,11 @@ namespace Armada.Core.Services
                 if (IsPositiveNoTestResult(item, section)) continue;
                 if (acceptanceSection && IsCompletedCriterion(raw)) continue;
                 bool notMetCriterion = ContainsAny(raw, "NOT DELIVERED", "NOT MET", "NOT RESOLVED");
-                if (!notMetCriterion && IsExplicitSuccess(item, section)) continue;
 
                 bool boldDefect = IsDefectLabel(item);
                 bool explicitBlocking = IsExplicitBlocking(raw) || boldDefect;
+                if (!notMetCriterion && !explicitBlocking && !IsFindingLabel(item)
+                    && (IsExplicitSuccess(item, section) || IsSourceCompletenessSuccess(item, leadIn))) continue;
                 if (!notMetCriterion && !explicitBlocking && IsLesserItem(item)) continue;
                 bool findingSectionItem = section == "Correctness"
                     || section == "Failure Modes"
@@ -750,8 +761,36 @@ namespace Armada.Core.Services
                 || Regex.IsMatch(item, @"^[^:]+:\s*(?:" + count + @"\s+scripts?,\s*)?0\s+issues?[.!]?$", RegexOptions.IgnoreCase);
         }
 
+        private static bool IsSourceCompletenessSuccess(string item, string leadIn)
+        {
+            return String.Equals(leadIn.Trim(), "Source completeness:", StringComparison.OrdinalIgnoreCase)
+                && Regex.IsMatch(item, @"^[^:]+:\s*(?:ported|reused|preserved)\b", RegexOptions.IgnoreCase)
+                && !_QualifiedWording.IsMatch(item)
+                && !_DefectWord.IsMatch(item)
+                && !_RequiredWording.IsMatch(item)
+                && !_ParagraphDirective.IsMatch(item);
+        }
+
+        private static bool IsSuccessfulTestResult(string item)
+        {
+            string plain = item.Replace("**", String.Empty, StringComparison.Ordinal);
+            const string count = @"(?:\d{1,3}(?:,\d{3})+|\d+)";
+            const string elapsed = @"(?:,\s*\d+(?:\.\d+)?\s+seconds)?";
+            return Regex.IsMatch(plain,
+                    @"^`[^`]+`:\s*(?:0\s+(?:failed|errors?)|" + count + @"\s+passed(?:,\s*0\s+failed)?" + elapsed + @")[.!]?$", RegexOptions.IgnoreCase)
+                || Regex.IsMatch(plain, @"^Exact-commit Check\s+`[^`]+`:\s*passed" + elapsed + @"[.!]?$", RegexOptions.IgnoreCase)
+                || Regex.IsMatch(plain,
+                    @"^Foreground validation\b[^:]*:\s*`[^`]+`\s+Result:\s*exit(?:\s+code)?\s+0" + elapsed
+                    + @"(?:;\s*" + count + @"\s+(?:cases\s+)?passed(?:,\s*" + count + @"\s+skipped)?)?[.!]?$", RegexOptions.IgnoreCase);
+        }
+
         private static bool IsExplicitSuccess(string item, string section)
         {
+            if (_QualifiedWording.IsMatch(item)
+                || Regex.IsMatch(item.Replace("**", String.Empty, StringComparison.Ordinal),
+                    @"\b(?:exit(?:ed)?(?:\s+code)?\s+[1-9]\d*|[1-9]\d*\s+(?:failed|failures?|errors?))\b", RegexOptions.IgnoreCase))
+                return false;
+            if (section == "Tests" && IsSuccessfulTestResult(item)) return true;
             if (Regex.IsMatch(item, @"^Failure mode\b.*\bhandled(?:\s+by\b.+)?[.!]?$", RegexOptions.IgnoreCase))
                 return !Regex.IsMatch(item, @"\b(not|never|unhandled|missing|still open|remains)\b", RegexOptions.IgnoreCase);
             if (ContainsAny(item, "MISSING", "FAIL", "FAILURE", "LACKS", "UNCOVERED", "NO TEST", "NO ASSERTION", "NO COVERAGE", "DOES NOT", "NOT RUN", "NOT COVER", "ABSENT", "UNTESTED"))
