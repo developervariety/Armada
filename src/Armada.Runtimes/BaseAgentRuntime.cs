@@ -235,6 +235,7 @@ namespace Armada.Runtimes
             // still pending drops every buffered stdout/stderr line -- the agent's only diagnostic.
             // Wait for the readers to be attached, then let WaitForExit drain them.
             ManualResetEventSlim readersAttached = new ManualResetEventSlim(false);
+            RuntimeProcessExitEvidence? exitEvidence = null;
 
             process.Exited += (sender, e) =>
             {
@@ -251,7 +252,7 @@ namespace Armada.Runtimes
                 catch (Exception ex) { WarnSwallowed("reading the exit code of process " + processId + "; recording it as unknown", ex); }
 
                 DeleteLaunchTempDirectory(launchTempDirectory);
-                CompleteExit(processId, code, logWriter, capturedFinalMessageFilePath);
+                CompleteExit(processId, code, logWriter, capturedFinalMessageFilePath, exitEvidence);
 
                 // Dispose the Process object to release the working directory handle.
                 // On Windows, undisposed Process objects hold handles on the WorkingDirectory
@@ -278,6 +279,7 @@ namespace Armada.Runtimes
                     throw new InvalidOperationException("Failed to start agent process: " + command);
 
                 RecordLaunchIdentity(process, launchUtc);
+                exitEvidence = ProcessSupervisor.TrackRuntimeExit(process.Id);
 
                 try { OnProcessStarted?.Invoke(process.Id); }
                 catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessStarted handler for process " + process.Id + ": " + ex.Message); }
@@ -1133,7 +1135,7 @@ namespace Armada.Runtimes
         /// Finish a local process or a Harbor job: held records, the final-message echo, the exit line, and the
         /// exit event. The log writer is closed here.
         /// </summary>
-        private void CompleteExit(int processId, int? code, StreamWriter? logWriter, string? finalMessageFilePath)
+        private void CompleteExit(int processId, int? code, StreamWriter? logWriter, string? finalMessageFilePath, RuntimeProcessExitEvidence? exitEvidence)
         {
             // Give the runtime a chance to write records it was still holding. A runtime that
             // correlates a tool call with a later result event has nothing to write when the
@@ -1183,7 +1185,9 @@ namespace Armada.Runtimes
             // Drain and close before deciding success: the footer or final flush can be the
             // first failed write. Preserve provider-owned files, but never synthesize success
             // or report a successful captain when the mission log could not be persisted.
-            if (LogCaptureFailed(logWriter)) code = LogCaptureFailureExitCode;
+            bool logCaptureFailed = LogCaptureFailed(logWriter);
+            if (logCaptureFailed) code = LogCaptureFailureExitCode;
+            exitEvidence?.Complete(code, logCaptureFailed);
             WriteCapturedFinalReply(processId, code, finalMessageFilePath);
 
             // Notify subscribers that the process has exited BEFORE disposing.
@@ -1316,6 +1320,7 @@ namespace Armada.Runtimes
             private StreamWriter? _Writer;
             private readonly string? _FinalMessageFilePath;
             private bool _Ended;
+            private RuntimeProcessExitEvidence? _ExitEvidence;
 
             public HarborRuntimeEvents(BaseAgentRuntime runtime, StreamWriter? writer, string? finalMessageFilePath = null)
             {
@@ -1329,6 +1334,7 @@ namespace Armada.Runtimes
                 lock (_Lock)
                 {
                     if (_Ended) return;
+                    _ExitEvidence ??= ProcessSupervisor.TrackRuntimeExit(processId);
                     bool isStderr = stream == HarborOutputStreamEnum.Stderr;
                     StringBuilder buffer = isStderr ? _Stderr : _Stdout;
                     buffer.Append(data);
@@ -1346,6 +1352,7 @@ namespace Armada.Runtimes
                 lock (_Lock)
                 {
                     if (_Ended) return;
+                    _ExitEvidence ??= ProcessSupervisor.TrackRuntimeExit(processId);
                     _Ended = true;
                     Emit(processId, false, _Stdout.ToString());
                     Emit(processId, true, _Stderr.ToString());
@@ -1357,7 +1364,7 @@ namespace Armada.Runtimes
                     }
                     StreamWriter? writer = _Writer;
                     _Writer = null;
-                    _Runtime.CompleteExit(processId, exitCode, writer, _FinalMessageFilePath);
+                    _Runtime.CompleteExit(processId, exitCode, writer, _FinalMessageFilePath, _ExitEvidence);
                 }
             }
 

@@ -28,6 +28,27 @@ namespace Armada.Core
         private static readonly TimeSpan _StartTimeTolerance = TimeSpan.FromMinutes(5);
         private static readonly ConcurrentDictionary<int, SyntheticProcess> _SyntheticProcesses = new ConcurrentDictionary<int, SyntheticProcess>();
         private static int _NextSyntheticProcessId = SyntheticProcessIdFloor;
+        private static readonly ConcurrentDictionary<int, RuntimeProcessExitEvidence> _RuntimeExits = new();
+
+        /// <summary>Claim finalization for this recorded native launch or unique Harbor process identifier.</summary>
+        public static RuntimeProcessExitEvidence TrackRuntimeExit(int processId)
+        {
+            DateTime? startedUtc = GetRecordedLaunchStartUtc(processId);
+            if (processId <= 0 || (processId <= SyntheticProcessIdFloor && !startedUtc.HasValue))
+                throw new InvalidOperationException("runtime_exit_launch_identity_missing");
+            RuntimeProcessExitEvidence evidence = new RuntimeProcessExitEvidence(startedUtc);
+            _RuntimeExits[processId] = evidence;
+            return evidence;
+        }
+
+        /// <summary>Read only the current launch's trusted evidence; a reused native PID cannot inherit it.</summary>
+        public static RuntimeProcessExitEvidence? GetRuntimeExitEvidence(int processId)
+        {
+            if (!_RuntimeExits.TryGetValue(processId, out RuntimeProcessExitEvidence? evidence)) return null;
+            return processId > SyntheticProcessIdFloor || evidence.LaunchStartUtc == GetRecordedLaunchStartUtc(processId)
+                ? evidence : null;
+        }
+
 
         /// <summary>
         /// Allocate a synthetic process identifier. Every runtime that runs work outside a local OS process (an
@@ -202,6 +223,7 @@ namespace Armada.Core
         public static void ForgetLaunchedProcess(int processId)
         {
             _LaunchedProcesses.TryRemove(processId, out _);
+            _RuntimeExits.TryRemove(processId, out _);
         }
 
         /// <summary>
