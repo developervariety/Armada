@@ -242,6 +242,30 @@ namespace Armada.Test.Unit.Suites.Services
                 HarborLaunchResult relaunch = await harness.Coordinator.LaunchAsync(harness.OwnerA.Auth, "hbr_a", "mission-dup", Plan()).ConfigureAwait(false);
                 AssertTrue(relaunch.Accepted, "launch key reusable after the job ended: " + relaunch.Reason);
                 AssertFalse(String.Equals(first.JobId, relaunch.JobId, StringComparison.Ordinal), "server job ids are never reused");
+                await runnerA.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+                await runnerA.SendAsync(new HarborStarted { JobId = second.JobId!, ProcessId = 101 }).ConfigureAwait(false);
+                await runnerA.SendAsync(new HarborError { JobId = relaunch.JobId!, Message = "working_directory_outside_roots" }).ConfigureAwait(false);
+                AssertTrue(await runnerA.NoMessageAsync().ConfigureAwait(false), "named refusal has been processed");
+                HarborJobRecord? refused = await harness.Driver.HarborJobs.ReadAsync(relaunch.JobId!).ConfigureAwait(false);
+                AssertEqual(HarborJobStateEnum.Uncertain, refused!.State, "refusal is durable");
+                AssertEqual("harbor_runner_error: working_directory_outside_roots", refused.FailureReason, "specific refusal persisted");
+
+                for (int heartbeat = 0; heartbeat < 2; heartbeat++)
+                {
+                    await runnerA.SendAsync(new HarborHeartbeat { LiveJobIds = new List<string>() }).ConfigureAwait(false);
+                    AssertTrue(await runnerA.NoMessageAsync().ConfigureAwait(false), "empty heartbeat has been processed");
+                    refused = await harness.Driver.HarborJobs.ReadAsync(relaunch.JobId!).ConfigureAwait(false);
+                    AssertEqual("harbor_runner_error: working_directory_outside_roots", refused!.FailureReason,
+                        "heartbeat preserves the durable refusal cause");
+                    AssertEqual(HarborJobStateEnum.Uncertain, refused.State, "refusal remains fenced");
+                    AssertFalse(refused.StopConfirmed, "a missing heartbeat does not prove a stop");
+                    AssertFalse(relaunch.Completion!.IsCompleted, "refusal cannot deliver completion");
+                }
+                HarborJobRecord? absent = await harness.Driver.HarborJobs.ReadAsync(second.JobId!).ConfigureAwait(false);
+                AssertEqual(HarborJobStateEnum.Uncertain, absent!.State, "a missing running job becomes uncertain");
+                AssertEqual("harbor_job_not_reported", absent.FailureReason, "a missing running job is still detected");
+                AssertFalse(second.Completion!.IsCompleted, "missing job has no terminal proof");
+
             });
 
             await RunTest("HarborCapacity_AssignmentHoldsWithoutProvisioningAndRetriesOnTheSameRunner", async () =>
