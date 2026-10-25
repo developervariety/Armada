@@ -222,6 +222,103 @@ namespace Armada.Test.Unit.Suites.Services
                 foreach (string count in new[] { "1,389 passed", "138 passed", "112 passed", "0 issues" })
                     AssertFalse(joined.Contains(count, StringComparison.Ordinal), "the passing count '" + count + "' is not a finding");
                 AssertEqual(3, findings.Count, "only the three real findings are numbered (findings: " + joined + ")");
+
+                var samples = new[]
+                {
+                    (Expected: 7, Review: """
+                        ## Correctness
+                        **Required revision:** src/Reader.cs:20 rejects normal timeout before cleanup.
+
+                        Source completeness:
+                        - Request framing: ported at src/Reader.cs:10.
+                        - Pending wait and bounded retry: reused through src/Reader.cs:12.
+                        - Physical action and cleanup: preserved at src/Reader.cs:14.
+                        - Timeout completion: **NOT DELIVERED**, not deferred.
+                        - Alternate paths: preserved.
+
+                        ## Tests
+                        Commands completed:
+                        - `dotnet test tests/Reader.Tests`: 0 failed.
+                        - `dotnet test Example.sln`: exit 1. Core failed PendingWithinBudget at tests/ReaderTests.cs:30, expected Ready, actual Timeout.
+                        - `dotnet build Example.sln`: 0 errors.
+                        - `dotnet build tools/Client.csproj`: 0 errors.
+
+                        The timeout test pins the defect. Replace it with the required outcome and demonstrate failure before repair. The full-suite failure remains unverified.
+
+                        ## Acceptance Criteria
+                        - Timeout must clean up -- NOT MET. src/Reader.cs:20 rejects timeout.
+                        - Matched negatives remain failures -- MET. src/Reader.cs:12.
+                        - Correct the timeout assertion and pass full checks -- NOT MET. The old assertion remains; full test command exited 1.
+
+                        ## Verdict
+                        NEEDS_REVISION. Implement timeout cleanup, replace the wrong test and obtain passing full checks.
+                        [ARMADA:VERDICT] NEEDS_REVISION
+                        """, Keep: new[] { "rejects normal timeout", "**NOT DELIVERED**", "Core failed PendingWithinBudget", "Replace it with the required outcome", "Timeout must clean up -- NOT MET", "Correct the timeout assertion", "Implement timeout cleanup" },
+                        Drop: new[] { "Request framing: ported", "bounded retry: reused", "Physical action and cleanup: preserved", "Alternate paths: preserved", "tests/Reader.Tests", "build Example.sln", "build tools/Client.csproj", "Matched negatives remain failures" }),
+                    (Expected: 6, Review: """
+                        ## Correctness
+                        **Required revision: cancellation releases ownership before active work stops.** src/Runner.cs:10 returns early.
+
+                        I reproduced this using the existing fixture:
+                        1. The first task entered a bounded wait.
+                        2. Cancellation ended its wrapper; ownership became free.
+                        3. A second task entered while the first remained active.
+                        4. The first task later completed.
+
+                        Keep ownership until active work stops. Preserve exit propagation. Add a direct cancellation test.
+
+                        ## Tests
+                        - `python3 -m unittest tests.test_runner`: **21 passed**, 0.125 seconds.
+                        - Exact-commit Check `check-example`: passed, 12.500 seconds.
+                        - Foreground validation from a clone used:
+                          `sh scripts/verify.sh`
+                          Result: **exit 0**, 14.500 seconds; **41 cases passed, 1 skipped**.
+
+                        ## Acceptance Criteria
+                        - Ownership survives cancellation -- NOT MET. src/Runner.cs:10 releases it early.
+                        - Nested operation succeeds -- MET. The fixture passes.
+                        - Concurrent work is serialized -- NOT MET. src/Runner.cs:10 permits overlap.
+                        - All active work stops before release -- NOT MET. The first task survives.
+
+                        ## Verdict
+                        NEEDS_REVISION. Fix cancellation before ownership release.
+                        [ARMADA:VERDICT] NEEDS_REVISION
+                        """, Keep: new[] { "cancellation releases ownership", "Keep ownership until", "Ownership survives cancellation -- NOT MET", "Concurrent work is serialized -- NOT MET", "All active work stops before release -- NOT MET", "Fix cancellation before ownership release" },
+                        Drop: new[] { "first task entered", "Cancellation ended its wrapper", "second task entered", "first task later completed", "21 passed", "check-example", "Foreground validation", "41 cases passed", "Nested operation succeeds" })
+                };
+                foreach (var sample in samples)
+                {
+                    List<string> actual = JudgeChallenge.ExtractFindings(sample.Review, out bool sampleComplete);
+                    string extracted = String.Join("\n", actual);
+                    AssertTrue(sampleComplete);
+                    AssertEqual(sample.Expected, actual.Count, extracted);
+                    foreach (string keep in sample.Keep) AssertContains(keep, extracted);
+                    foreach (string drop in sample.Drop)
+                        AssertFalse(extracted.Contains(drop, StringComparison.Ordinal), "passing evidence is not a finding: " + drop);
+                }
+
+                foreach (string failure in new[]
+                {
+                    "`dotnet test Example.sln`: exit 1.",
+                    "`dotnet test Example.sln`: 1 failed.",
+                    "`dotnet build Example.sln`: 1 error.",
+                    "`dotnet test Example.sln`: 0 failed, but required coverage is missing.",
+                    "Validation: passed.\n  Result: exit 1.",
+                    "Foreground validation used:\n  `sh scripts/verify.sh`\n  Result: **exit 1**, 2 seconds."
+                })
+                {
+                    List<string> actual = JudgeChallenge.ExtractFindings(
+                        "## Correctness\n**Required revision:** src/Reader.cs:20 is incorrect.\n## Tests\nCommands completed:\n- " + failure,
+                        out bool failureComplete);
+                    AssertTrue(failureComplete);
+                    AssertEqual(2, actual.Count, "a failed or qualified result must remain: " + failure);
+                    AssertContains(System.Text.RegularExpressions.Regex.Replace(failure, @"\s+", " "), String.Join("\n", actual));
+                }
+                List<string> qualifiedSource = JudgeChallenge.ExtractFindings(
+                    "## Correctness\n**Required revision:** src/Reader.cs:20 is incorrect.\nSource completeness:\n- Reader path: preserved, but cancellation is incorrect.", out bool sourceComplete);
+                AssertTrue(sourceComplete);
+                AssertEqual(2, qualifiedSource.Count, "qualified source agreement retains the defect");
+
             });
 
             await RunTest("The round is off by default, and an excluded vessel is never challenged", () =>
