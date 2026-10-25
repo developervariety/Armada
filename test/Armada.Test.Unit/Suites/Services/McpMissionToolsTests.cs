@@ -346,6 +346,22 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("own stage report", page.Content, "an omitted missionId reads the captain's own output");
                         Objective read = (Objective)await readObjective!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false);
                         AssertEqual(objective.Id, read.Id, "an omitted objectiveId reads the objective that authorizes the captain's mission");
+
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("bound work", ObjectiveBriefRenderer.Render(objective))).ConfigureAwait(false);
+                        own.VoyageId = voyage.Id;
+                        await testDb.Driver.Missions.UpdateAsync(own).ConfigureAwait(false);
+                        objective.MissionIds.Clear();
+                        objective.VoyageIds.Add(voyage.Id);
+                        await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+                        await testDb.Driver.Objectives.CreateAsync(new Objective
+                        {
+                            Title = "Later diagnostic",
+                            MissionIds = new List<string> { own.Id },
+                            VoyageIds = new List<string> { voyage.Id },
+                            CreatedUtc = objective.CreatedUtc.AddMinutes(1)
+                        }).ConfigureAwait(false);
+                        read = (Objective)await readObjective!(JsonSerializer.SerializeToElement(new { })).ConfigureAwait(false);
+                        AssertEqual(objective.Id, read.Id, "default reads use the voyage authorizer before a later direct diagnostic");
                     }
 
                     using (McpCallerContext.Begin(McpTestCaller.Operator))

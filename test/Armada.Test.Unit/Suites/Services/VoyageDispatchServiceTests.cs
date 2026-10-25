@@ -369,6 +369,7 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
                     {
                         Title = "Use objective pipeline",
+                        Description = "Operator supplied voyage context.",
                         VesselId = vessel.Id,
                         ObjectiveId = objective.Id,
                         ObjectiveAuthContext = McpTestCaller.Operator,
@@ -381,6 +382,17 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(result.Succeeded, "Dispatch failed: " + JsonSerializer.Serialize(result.Value));
                     AssertEqual("pln_objective", preview.RequestedPipelineId);
                     AssertEqual("pln_objective", admiral.LastPipelineId);
+                    Voyage voyage = (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Single();
+                    AssertContains("Operator supplied voyage context.", voyage.Description!, "dispatch preserves caller context");
+                    AssertEqual(objective.Id, VoyageObjectiveResolver.ReadBriefObjectiveId(voyage.Description), "custom descriptions retain the dispatch authorizer");
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Later diagnostic",
+                        VoyageIds = new List<string> { voyage.Id },
+                        CreatedUtc = objective.CreatedUtc.AddMinutes(1)
+                    }).ConfigureAwait(false);
+                    Objective? resolved = await VoyageObjectiveResolver.ResolveAsync(testDb.Driver, voyage.Id).ConfigureAwait(false);
+                    AssertEqual(objective.Id, resolved?.Id, "a later diagnostic cannot replace the dispatch authorizer");
                 }
             });
 
