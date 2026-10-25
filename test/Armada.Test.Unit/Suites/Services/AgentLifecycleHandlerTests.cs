@@ -1397,6 +1397,100 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            foreach (string mode in new[] { "capture-failed", "provider-74", "diagnostic-io" })
+            {
+                await RunTest("Trusted exit delivery: " + mode, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    LoggingModule logging = CreateLogging();
+                    FileLoggingMode priorFileLogging = logging.Settings.FileLogging;
+                    TaskCompletionSource<int?> exitSeen = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                    int calls = 0;
+                    StubAdmiralService admiral = new StubAdmiralService();
+                    admiral.OnHandleProcessExit = (pid, code, cpt, msn) =>
+                    {
+                        Interlocked.Increment(ref calls);
+                        exitSeen.TrySetResult(code);
+                        return Task.CompletedTask;
+                    };
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, admiralOverride: admiral, loggingOverride: logging);
+                    IntentionalProcessStops stops = new IntentionalProcessStops();
+                    handler.SetIntentionalStops(stops);
+                    int processId = mode == "capture-failed" ? 939391 : mode == "provider-74" ? 939392 : 939394;
+                    Mission mission = await CreateWorkingMissionAsync(testDb.Driver, "exit-" + mode, processId).ConfigureAwait(false);
+                    RegisterTrackedProcess(handler, processId, mission.CaptainId!, mission.Id);
+                    Armada.Core.ProcessSupervisor.RecordLaunchedProcess(processId, DateTime.UtcNow);
+                    Armada.Core.RuntimeProcessExitEvidence evidence = Armada.Core.ProcessSupervisor.TrackRuntimeExit(processId);
+                    evidence.Complete(mode == "diagnostic-io" ? 1 : 74, mode == "capture-failed");
+                    string root = Path.Combine(Path.GetTempPath(), "exit-diagnostic-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(root);
+                    try
+                    {
+                        if (mode != "diagnostic-io")
+                            AssertTrue(stops.TryRegister(processId, mission.CaptainId!, mission.Id, IntentionalStopKindEnum.Completion));
+                        else
+                        {
+                            string blocker = Path.Combine(root, "regular-file");
+                            File.WriteAllText(blocker, "not a directory");
+                            logging.Settings.FileLogging = FileLoggingMode.FileWithDate;
+                            logging.Settings.LogFilename = Path.Combine(blocker, "admiral.log");
+                            bool threw = false;
+                            try { logging.Info("prove the diagnostic sink fails"); }
+                            catch (IOException) { threw = true; }
+                            AssertTrue(threw, "the real diagnostic sink must throw before testing containment");
+                        }
+                        handler.HandleAgentProcessExited(processId, mode == "diagnostic-io" ? 1 : 74);
+                        Task finished = await Task.WhenAny(exitSeen.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+                        AssertTrue(finished == exitSeen.Task, "the effective exit reaches durable handling despite diagnostic failure: " + mode);
+                        AssertEqual(mode == "capture-failed" ? 74 : mode == "provider-74" ? 0 : 1, exitSeen.Task.Result,
+                            "only trusted capture failure defeats completion-stop success: " + mode);
+                        await WaitForProcessExitCompletedAsync(handler, processId).ConfigureAwait(false);
+                        AssertEqual(1, calls, "the exit is delivered exactly once");
+                    }
+                    finally
+                    {
+                        logging.Settings.FileLogging = priorFileLogging;
+                        Armada.Core.ProcessSupervisor.ForgetLaunchedProcess(processId);
+                        Directory.Delete(root, true);
+                    }
+                });
+            }
+
+            await RunTest("Trusted log capture failure defeats a saved success verdict in the real admiral", async () =>
+            {
+                foreach (bool captureFailed in new[] { false, true })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    ArmadaSettings settings = CreateSettings();
+                    LoggingModule logging = CreateLogging();
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    CaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+                    AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captains, missions,
+                        new VoyageService(logging, testDb.Driver), docks, git: git);
+                    int processId = captureFailed ? 939395 : 939396;
+                    Mission mission = await CreateWorkingMissionAsync(testDb.Driver, "verdict-" + captureFailed, processId).ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.Combine(settings.LogDirectory, "missions"));
+                    File.WriteAllText(Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log"), "[ARMADA:RESULT] COMPLETE\n");
+                    Armada.Core.ProcessSupervisor.RecordLaunchedProcess(processId, DateTime.UtcNow);
+                    Armada.Core.ProcessSupervisor.TrackRuntimeExit(processId).Complete(74, captureFailed);
+                    try
+                    {
+                        await admiral.HandleProcessExitAsync(processId, 74, mission.CaptainId!, mission.Id).ConfigureAwait(false);
+                        Mission? result = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(captureFailed ? MissionStatusEnum.Failed : MissionStatusEnum.WorkProduced, result!.Status,
+                            "trusted persistence failure takes precedence, while ordinary provider exit74 retains explicit-success policy");
+                        if (captureFailed) AssertContains("log persistence", result.FailureReason ?? "", "the durable failure names the lost evidence");
+                    }
+                    finally
+                    {
+                        Armada.Core.ProcessSupervisor.ForgetLaunchedProcess(processId);
+                        Directory.Delete(settings.LogDirectory, true);
+                    }
+                }
+            });
+
             await RunTest("A process that outlives its first terminal marker is stopped after the grace period and completes cleanly", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -2283,9 +2377,9 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null, AgentRuntimeFactory? runtimeFactoryOverride = null, ISessionTokenService? sessionTokens = null, List<string>? emittedEventTypes = null)
+        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null, AgentRuntimeFactory? runtimeFactoryOverride = null, ISessionTokenService? sessionTokens = null, List<string>? emittedEventTypes = null, LoggingModule? loggingOverride = null)
         {
-            LoggingModule logging = CreateLogging();
+            LoggingModule logging = loggingOverride ?? CreateLogging();
             settings = CreateSettings();
             AgentRuntimeFactory runtimeFactory = runtimeFactoryOverride ?? new AgentRuntimeFactory(logging);
             IAdmiralService admiral = admiralOverride ?? new StubAdmiralService();

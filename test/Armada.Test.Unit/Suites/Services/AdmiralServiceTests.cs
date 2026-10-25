@@ -2109,6 +2109,68 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HealthCheckAsync waits for a launched runtime to finish draining its output", async () =>
+            {
+                if (!OperatingSystem.IsLinux()) { SkipTest("HealthCheckAsync waits for a launched runtime to finish draining its output", "Linux process/drain integration"); return; }
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ArmadaSettings settings = CreateSettings();
+                settings.MinIdleCaptains = 0;
+                AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, settings, new StubGitService());
+                using ManualResetEventSlim releaseOutput = new(false);
+                TaskCompletionSource<bool> outputHeld = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<int?> exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                global::Test.Shared.Infrastructure.TestAgentRuntime runtime = new(CreateLogging())
+                {
+                    CommandOverride = "bash",
+                    ArgsOverride = new List<string> { "-c", "printf 'held-output\\n'" }
+                };
+                runtime.OnOutputReceived += (pid, line) =>
+                {
+                    outputHeld.TrySetResult(true);
+                    releaseOutput.Wait(TimeSpan.FromSeconds(20));
+                };
+                runtime.OnProcessExited += (pid, code) => exited.TrySetResult(code);
+                int processId = 0;
+                try
+                {
+                    processId = await runtime.StartAsync(Path.GetTempPath(), "drain ownership test").ConfigureAwait(false);
+                    AssertTrue(await Task.WhenAny(outputHeld.Task, Task.Delay(5000)).ConfigureAwait(false) == outputHeld.Task,
+                        "the real process output callback is held before exit finalization");
+                    DateTime exitDeadline = DateTime.UtcNow.AddSeconds(5);
+                    while (ProcessSupervisor.IsTrackedProcessAlive(processId) && DateTime.UtcNow < exitDeadline)
+                        await Task.Delay(10).ConfigureAwait(false);
+                    AssertFalse(ProcessSupervisor.IsTrackedProcessAlive(processId), "the native process exited while its output is still held");
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("draining runtime")
+                    {
+                        Status = MissionStatusEnum.InProgress, AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        ProcessId = processId, StartedUtc = DateTime.UtcNow.AddMinutes(-1)
+                    }).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("draining-runtime")
+                    {
+                        State = CaptainStateEnum.Working, CurrentMissionId = mission.Id, ProcessId = processId
+                    }).ConfigureAwait(false);
+                    await service.HealthCheckAsync().ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.InProgress, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.Status,
+                        "health must not complete or fail an owned runtime before its final log writes");
+                    releaseOutput.Set();
+                    AssertTrue(await Task.WhenAny(exited.Task, Task.Delay(5000)).ConfigureAwait(false) == exited.Task, "drain completes");
+                    AssertEqual(0, exited.Task.Result, "healthy effective exit is preserved");
+                    await service.HandleProcessExitAsync(processId, exited.Task.Result, captain.Id, mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.WorkProduced, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.Status,
+                        "normal completion proceeds once finalization is authoritative");
+                }
+                finally
+                {
+                    releaseOutput.Set();
+                    if (processId > 0)
+                    {
+                        await Task.WhenAny(exited.Task, Task.Delay(5000)).ConfigureAwait(false);
+                        if (!exited.Task.IsCompleted) await runtime.StopAsync(processId).ConfigureAwait(false);
+                        ProcessSupervisor.ForgetLaunchedProcess(processId);
+                    }
+                }
+            });
+
             await RunTest("HealthCheckAsync VanishedProcess IsNotTreatedAsAnInterruption", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
