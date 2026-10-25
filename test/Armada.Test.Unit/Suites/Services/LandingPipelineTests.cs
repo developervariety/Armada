@@ -95,7 +95,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
                     IMessageTemplateService templateService = new MessageTemplateService(logging);
                     MissionLandingHandler handler = new MissionLandingHandler(
@@ -120,19 +120,29 @@ namespace Armada.Test.Unit.Suites.Services
                     Vessel vessel = entities.Vessel;
                     string integrationWorktree = Path.Combine(settings.DocksDirectory, "_integration", mission.Id);
 
-                    // Agent completion hands the work to landing and releases the captain.
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("direct landing voyage")
+                    {
+                        Status = VoyageStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+                    mission.VoyageId = voyage.Id;
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    int completedVoyages = 0;
+                    missionService.OnVoyageComplete = _ => { completedVoyages++; return Task.CompletedTask; };
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+                    missionService.OnMissionComplete = async (produced, dock) =>
+                    {
+                        produced.DiffSnapshot = "diff --git a/app/routes_ops.py b/app/routes_ops.py";
+                        await testDb.Driver.Missions.UpdateAsync(produced).ConfigureAwait(false);
+                        await handler.HandleMissionCompleteAsync(produced, dock).ConfigureAwait(false);
+                    };
+
+                    // Exercise the real synchronous handoff, with no periodic health sweep.
                     await missionService.HandleCompletionAsync(captain);
-                    Mission? produced = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    AssertEqual(MissionStatusEnum.WorkProduced, produced!.Status, "Mission should be WorkProduced after agent exit");
                     Captain? releasedCaptain = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
                     AssertEqual(CaptainStateEnum.Idle, releasedCaptain!.State, "Captain should be Idle after completion");
-
-                    // The landing handler then merges the mission branch in the integration worktree.
-                    git.ExistingBranches.Add(entities.Dock.BranchName!);
-                    produced.DiffSnapshot = "diff --git a/app/routes_ops.py b/app/routes_ops.py";
-                    await testDb.Driver.Missions.UpdateAsync(produced).ConfigureAwait(false);
-
-                    await handler.HandleMissionCompleteAsync(produced, entities.Dock).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, (await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!.Status,
+                        "direct landing completes the voyage before a periodic health tick");
+                    AssertEqual(1, completedVoyages, "the voyage completion callback runs once");
 
                     Mission? landed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, landed!.Status, "A successful local merge completes the mission");
