@@ -41,6 +41,8 @@ interface CaptainChatPanelProps {
   inputPlaceholder?: string;
   /** Disables the composer input independently of busy (e.g. no target selected / session inactive). */
   inputDisabled?: boolean;
+  /** Optional maximum message length for persisted chat services with a bounded request contract. */
+  inputMaxLength?: number;
   /** Optional per-turn footer (e.g. Planning's "Open in Dispatch" action) rendered under the bubble. */
   renderTurnFooter?: (turn: ChatTurn, index: number) => ReactNode;
   /** Optional runtime label shown on each tool card (e.g. "ApiEndpoint", "Mux"). */
@@ -77,6 +79,7 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
     thinking,
     inputPlaceholder,
     inputDisabled,
+    inputMaxLength,
     renderTurnFooter,
     windowRef,
     notice,
@@ -222,6 +225,7 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
           placeholder={inputPlaceholder ?? t('Message the captain...')}
+          maxLength={inputMaxLength}
           style={{ flex: 1 }}
           disabled={busy || inputDisabled}
         />

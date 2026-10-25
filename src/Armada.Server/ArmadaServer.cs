@@ -1741,10 +1741,14 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Ask Armada assistant
+            CaptainChatService captainChat = new CaptainChatService(_Database, _RuntimeFactory, _WebSocketHub, _PromptTemplateService, _Logging, _Settings, _SessionTokenService);
             new AskRoutes(
                 new AskArmadaService(_Database, _Admiral, _Logging),
-                new CaptainChatService(_Database, _RuntimeFactory, _WebSocketHub, _PromptTemplateService, _Logging, _Settings, _SessionTokenService),
+                captainChat,
                 _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            new AskThreadRoutes(new AskThreadService(_Database, captainChat))
                 .Register(_App, authenticate, _AuthorizationService);
         }
 

@@ -25,7 +25,7 @@ namespace Armada.Server
     /// <see cref="IAgentRuntime"/> adapter in a throwaway working directory; API-endpoint captains use
     /// their already authorized tenant-owned model endpoint.
     /// </summary>
-    public class CaptainChatService
+    public partial class CaptainChatService
     {
         #region Private-Members
 
@@ -120,13 +120,18 @@ namespace Armada.Server
         /// <param name="request">The new message and prior conversation.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The assistant reply and its timing statistics.</returns>
-        public async Task<CaptainChatResponse> ChatAsync(AuthContext? caller, string captainId, CaptainChatRequest request, CancellationToken token = default)
+        public Task<CaptainChatResponse> ChatAsync(AuthContext? caller, string captainId, CaptainChatRequest request, CancellationToken token = default)
         {
-            _TurnScope.Value = caller == null || !caller.IsAuthenticated
+            return ChatWithScopeAsync(caller, captainId, request, null, token);
+        }
+
+        private async Task<CaptainChatResponse> ChatWithScopeAsync(AuthContext? caller, string captainId, CaptainChatRequest request, Armada.Server.WebSocket.WebSocketDeliveryScope? liveScope, CancellationToken token)
+        {
+            Armada.Server.WebSocket.WebSocketDeliveryScope turnScope = liveScope ?? (caller == null || !caller.IsAuthenticated
                 ? Armada.Server.WebSocket.WebSocketDeliveryScope.AdminOnly
                 : Armada.Server.WebSocket.WebSocketDeliveryScope.ForOwner(
                     Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller),
-                    Armada.Core.Authorization.OwnershipPolicy.UserOf(caller));
+                    Armada.Core.Authorization.OwnershipPolicy.UserOf(caller)));
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.Message)) return Fail("A message is required.");
@@ -266,7 +271,7 @@ namespace Armada.Server
                                             if (firstOutputUtc == null) firstOutputUtc = DateTime.UtcNow;
                                             if (output.Length < _MaxOutputChars) output.Append(deltaText);
                                         }
-                                        EmitChunk(turnId, deltaText!);
+                                        EmitChunk(turnId, turnScope, deltaText!);
                                     }
                                 }
                                 else if (eventType == "assistant"
@@ -350,8 +355,8 @@ namespace Armada.Server
                                     }
                                 }
 
-                                if (!String.IsNullOrEmpty(deltaText)) EmitChunk(turnId, deltaText!);
-                                if (!String.IsNullOrEmpty(thinkingDelta)) EmitThinking(turnId, thinkingDelta!);
+                                if (!String.IsNullOrEmpty(deltaText)) EmitChunk(turnId, turnScope, deltaText!);
+                                if (!String.IsNullOrEmpty(thinkingDelta)) EmitThinking(turnId, turnScope, thinkingDelta!);
 
                                 // Surface tool activity to the chat UI: when a tool call is proposed and when
                                 // it completes (with success/failure, runtime, and result for inspection).
@@ -360,7 +365,7 @@ namespace Armada.Server
                                     string? toolId = proposed.TryGetProperty("id", out JsonElement propId) && propId.ValueKind == JsonValueKind.String ? propId.GetString() : null;
                                     string? toolName = proposed.TryGetProperty("name", out JsonElement pnm) && pnm.ValueKind == JsonValueKind.String ? pnm.GetString() : null;
                                     string? argsJson = proposed.TryGetProperty("arguments", out JsonElement parg) ? Truncate(parg.GetRawText(), 4000) : null;
-                                    EmitTool(turnId, new { turnId, phase = "started", id = toolId, name = toolName, arguments = argsJson });
+                                    EmitTool(turnId, turnScope, new { turnId, phase = "started", id = toolId, name = toolName, arguments = argsJson });
                                 }
                                 else if (eventType == "tool_call_completed")
                                 {
@@ -376,7 +381,7 @@ namespace Armada.Server
                                         JsonElement resultBody = res.TryGetProperty("content", out JsonElement content) ? content : res;
                                         resultJson = Truncate(resultBody.GetRawText(), 16000);
                                     }
-                                    EmitTool(turnId, new { turnId, phase = "completed", id = toolId, name = toolName, ok, elapsedMs, result = resultJson });
+                                    EmitTool(turnId, turnScope, new { turnId, phase = "completed", id = toolId, name = toolName, ok, elapsedMs, result = resultJson });
                                 }
                             }
                         }
@@ -397,7 +402,7 @@ namespace Armada.Server
                         {
                             ChatToolActivityEvent toolEvent;
                             lock (outputLock) toolEvent = activityTracker.Next(activity);
-                            EmitTool(turnId, new { turnId, phase = toolEvent.Phase, id = toolEvent.Id, name = toolEvent.Name, arguments = toolEvent.Arguments, ok = toolEvent.Ok });
+                            EmitTool(turnId, turnScope, new { turnId, phase = toolEvent.Phase, id = toolEvent.Id, name = toolEvent.Name, arguments = toolEvent.Arguments, ok = toolEvent.Ok });
                         }
                         return;
                     }
@@ -411,7 +416,7 @@ namespace Armada.Server
                             output.Append('\n');
                         }
                     }
-                    EmitChunk(turnId, line + "\n");
+                    EmitChunk(turnId, turnScope, line + "\n");
                 };
                 runtime.OnProcessExited += (pid, code) => exitSource.TrySetResult(code);
 
@@ -668,34 +673,24 @@ namespace Armada.Server
             return collected.ToString().Trim();
         }
 
-        // The delivery scope of the chat turn running on this async flow. It is set once per turn from
-        // the caller, so every live event of that turn reaches the same sessions.
-        private static readonly AsyncLocal<Armada.Server.WebSocket.WebSocketDeliveryScope?> _TurnScope =
-            new AsyncLocal<Armada.Server.WebSocket.WebSocketDeliveryScope?>();
-
-        private Armada.Server.WebSocket.WebSocketDeliveryScope CurrentTurnScope()
-        {
-            return _TurnScope.Value ?? Armada.Server.WebSocket.WebSocketDeliveryScope.AdminOnly;
-        }
-
-        private void EmitChunk(string? turnId, string delta)
+        private void EmitChunk(string? turnId, Armada.Server.WebSocket.WebSocketDeliveryScope turnScope, string delta)
         {
             if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null || String.IsNullOrEmpty(delta)) return;
-            try { _WebSocketHub.BroadcastEvent("ask.chunk", String.Empty, new { turnId, delta }, CurrentTurnScope()); }
+            try { _WebSocketHub.BroadcastEvent("ask.chunk", String.Empty, new { turnId, delta }, turnScope); }
             catch (Exception ex) { _Logging.Debug(_Header + "ask.chunk broadcast failed for turn " + turnId + ": " + ex.Message); }
         }
 
-        private void EmitTool(string? turnId, object payload)
+        private void EmitTool(string? turnId, Armada.Server.WebSocket.WebSocketDeliveryScope turnScope, object payload)
         {
             if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null) return;
-            try { _WebSocketHub.BroadcastEvent("ask.tool", String.Empty, payload, CurrentTurnScope()); }
+            try { _WebSocketHub.BroadcastEvent("ask.tool", String.Empty, payload, turnScope); }
             catch (Exception ex) { _Logging.Debug(_Header + "ask.tool broadcast failed for turn " + turnId + ": " + ex.Message); }
         }
 
-        private void EmitThinking(string? turnId, string delta)
+        private void EmitThinking(string? turnId, Armada.Server.WebSocket.WebSocketDeliveryScope turnScope, string delta)
         {
             if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null || String.IsNullOrEmpty(delta)) return;
-            try { _WebSocketHub.BroadcastEvent("ask.thinking", String.Empty, new { turnId, delta }, CurrentTurnScope()); }
+            try { _WebSocketHub.BroadcastEvent("ask.thinking", String.Empty, new { turnId, delta }, turnScope); }
             catch (Exception ex) { _Logging.Debug(_Header + "ask.thinking broadcast failed for turn " + turnId + ": " + ex.Message); }
         }
 

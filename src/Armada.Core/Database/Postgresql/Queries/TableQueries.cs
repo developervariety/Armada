@@ -1,6 +1,7 @@
 namespace Armada.Core.Database.Postgresql.Queries
 {
     using System.Collections.Generic;
+    using Armada.Core.Database;
 
     /// <summary>
     /// Static class containing all CREATE TABLE and CREATE INDEX DDL statements for the Armada PostgreSQL schema.
@@ -1224,7 +1225,8 @@ $convert$;"),
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS preserved_run_output TEXT;"
                 ),
                 new SchemaMigration(127, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.PostgresqlStatements),
-                new SchemaMigration(128, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.PostgresqlStatements)
+                new SchemaMigration(128, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.PostgresqlStatements),
+                new SchemaMigration(129, "Persist saved Ask threads and durable turns", AskThreadSchema.PostgresqlStatements)
             };
         }
 

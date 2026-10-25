@@ -109,6 +109,7 @@ namespace Armada.Core.Database.Mysql
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MemoryProposals = new MemoryProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            AskThreads = new Armada.Core.Database.AskThreadMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             DataExpiry = new DataExpiryMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             PromptTemplates = new PromptTemplateMethods(_Stored);
@@ -183,6 +184,8 @@ namespace Armada.Core.Database.Mysql
                             await MemoryProposalSchema.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                         if (migration.Version == 108)
                             await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
+                        if (migration.Version == 118)
+                            await AskThreadSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                         await runner.ApplyAsync(migration, token).ConfigureAwait(false);
                         applied++;
                     }
@@ -714,7 +717,8 @@ namespace Armada.Core.Database.Mysql
                     TableQueries.MigrationPreservedRunOutputStatements
                 ),
                 new SchemaMigration(116, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.MysqlStatements),
-                new SchemaMigration(117, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.MysqlStatements)
+                new SchemaMigration(117, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.MysqlStatements),
+                new SchemaMigration(118, "Persist saved Ask threads and durable turns", AskThreadSchema.MysqlStatements)
             };
         }
 

@@ -11,6 +11,7 @@ namespace Armada.Server.WebSocket
     /// An event is delivered to the sessions that could read the record it describes: its owning
     /// user, the administrators of its tenant, and global administrators. An event with no known
     /// owner is delivered to global administrators only, so a missing owner can never widen delivery.
+    /// Private conversation scopes instead admit only their exact interactive owner.
     /// </summary>
     public sealed class WebSocketDeliveryScope
     {
@@ -36,15 +37,19 @@ namespace Armada.Server.WebSocket
         /// </summary>
         public bool IsAdminOnly { get; }
 
+        /// <summary>True when only the exact interactive owner may receive this event.</summary>
+        public bool IsInteractiveOwnerOnly { get; }
+
         #endregion
 
         #region Constructors-and-Factories
 
-        private WebSocketDeliveryScope(string? tenantId, string? userId, bool adminOnly)
+        private WebSocketDeliveryScope(string? tenantId, string? userId, bool adminOnly, bool interactiveOwnerOnly = false)
         {
             TenantId = String.IsNullOrWhiteSpace(tenantId) ? null : tenantId;
             UserId = String.IsNullOrWhiteSpace(userId) ? null : userId;
-            IsAdminOnly = adminOnly || TenantId == null;
+            IsAdminOnly = !interactiveOwnerOnly && (adminOnly || TenantId == null);
+            IsInteractiveOwnerOnly = interactiveOwnerOnly;
         }
 
         /// <summary>
@@ -59,6 +64,15 @@ namespace Armada.Server.WebSocket
             return new WebSocketDeliveryScope(tenantId, userId, false);
         }
 
+        /// <summary>Scope for a private conversation: no administrator or mission-session exception.</summary>
+        /// <param name="tenantId">Owning tenant.</param>
+        /// <param name="userId">Owning user.</param>
+        /// <returns>Exact interactive-owner scope; a missing owner reaches no session.</returns>
+        public static WebSocketDeliveryScope ForInteractiveOwner(string? tenantId, string? userId)
+        {
+            return new WebSocketDeliveryScope(tenantId, userId, false, true);
+        }
+
         #endregion
 
         #region Public-Methods
@@ -71,6 +85,10 @@ namespace Armada.Server.WebSocket
         public bool CanReceive(AuthContext? auth)
         {
             if (auth == null || !auth.IsAuthenticated) return false;
+            if (IsInteractiveOwnerOnly)
+                return TenantId != null && UserId != null && String.IsNullOrWhiteSpace(auth.MissionId)
+                    && String.Equals(TenantId, auth.TenantId, StringComparison.Ordinal)
+                    && String.Equals(UserId, auth.UserId, StringComparison.Ordinal);
             if (auth.IsAdmin) return true;
             if (IsAdminOnly) return false;
 

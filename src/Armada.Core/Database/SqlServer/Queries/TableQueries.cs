@@ -1,6 +1,7 @@
 namespace Armada.Core.Database.SqlServer.Queries
 {
     using System.Collections.Generic;
+    using Armada.Core.Database;
 
     /// <summary>
     /// Static class containing all CREATE TABLE and CREATE INDEX DDL statements for the Armada SQL Server schema.
@@ -1014,7 +1015,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('missions', 'preserved_run_output') IS NULL ALTER TABLE missions ADD preserved_run_output NVARCHAR(MAX);"
                 ),
                 new SchemaMigration(119, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.SqlServerStatements),
-                new SchemaMigration(120, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.SqlServerStatements)
+                new SchemaMigration(120, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.SqlServerStatements),
+                new SchemaMigration(121, "Persist saved Ask threads and durable turns", AskThreadSchema.SqlServerStatements)
             };
         }
 

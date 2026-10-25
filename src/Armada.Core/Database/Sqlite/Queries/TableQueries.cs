@@ -1,6 +1,7 @@
 namespace Armada.Core.Database.Sqlite.Queries
 {
     using System.Collections.Generic;
+    using Armada.Core.Database;
 
     /// <summary>
     /// Static class containing all CREATE TABLE and CREATE INDEX DDL statements for the Armada SQLite schema.
@@ -1675,7 +1676,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE missions ADD COLUMN preserved_run_output TEXT;"
                 ),
                 new SchemaMigration(123, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.SqliteStatements),
-                new SchemaMigration(124, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.SqliteStatements)
+                new SchemaMigration(124, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.SqliteStatements),
+                new SchemaMigration(125, "Persist saved Ask threads and durable turns", AskThreadSchema.SqliteStatements)
             };
         }
 

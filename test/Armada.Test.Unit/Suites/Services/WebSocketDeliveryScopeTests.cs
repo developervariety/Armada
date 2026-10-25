@@ -54,6 +54,31 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Private conversation events reach only the exact interactive owner", () =>
+            {
+                AuthContext owner = AuthContext.Authenticated("ten_a", "usr_a1", true, true, "Session");
+                AuthContext mission = AuthContext.Authenticated("ten_a", "usr_a1", true, true, "Session");
+                mission.MissionId = "msn_example";
+                WebSocketDeliveryScope scope = WebSocketDeliveryScope.ForInteractiveOwner("ten_a", "usr_a1");
+                AssertTrue(scope.CanReceive(owner), "exact human owner");
+                foreach (AuthContext refused in new[]
+                {
+                    new AuthContext(), mission,
+                    User("ten_a", "usr_a2"), User("ten_b", "usr_a1"),
+                    AuthContext.Authenticated("ten_a", "usr_admin", false, true, "Session"),
+                    AuthContext.Authenticated("default", "default", true, true, "ApiKey")
+                })
+                    AssertFalse(scope.CanReceive(refused), "role or mission identity cannot replace the exact human owner");
+                AssertFalse(WebSocketDeliveryScope.ForInteractiveOwner(null, "usr_a1").CanReceive(owner), "missing tenant");
+                AssertFalse(WebSocketDeliveryScope.ForInteractiveOwner("ten_a", null).CanReceive(owner), "missing user");
+                WebSocketReplayBuffer buffer = new WebSocketReplayBuffer(16, 1024 * 1024, "private-stream");
+                buffer.Append((stream, cursor) => "private turn", scope);
+                WebSocketReplayReadResult replay = buffer.ReadAfter("private-stream", 0);
+                AssertTrue(replay.Records[0].Scope.CanReceive(owner), "replay keeps the private scope");
+                AssertFalse(replay.Records[0].Scope.CanReceive(mission), "replay never admits the owner's mission session");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Replay records keep their scope and default to admin-only", () =>
             {
                 WebSocketReplayBuffer buffer = new WebSocketReplayBuffer(16, 1024 * 1024, "stream-scope");

@@ -1,0 +1,49 @@
+import type { AskThread } from '../../types/models';
+
+interface AskThreadShelfProps {
+  threads: AskThread[];
+  selectedId: string;
+  includeArchived: boolean;
+  loading: boolean;
+  t: (value: string) => string;
+  onSelect: (thread: AskThread) => void;
+  onCreate: () => void;
+  onRename: (thread: AskThread) => void;
+  onPin: (thread: AskThread) => void;
+  onArchive: (thread: AskThread) => void;
+  onToggleArchived: () => void;
+}
+
+export default function AskThreadShelf(props: AskThreadShelfProps) {
+  const { threads, selectedId, includeArchived, loading, t } = props;
+  return (
+    <aside className="ask-thread-shelf" aria-label={t('Saved conversations')}>
+      <div className="ask-thread-shelf-heading">
+        <strong>{t('Conversations')}</strong>
+        <button className="btn btn-sm" onClick={props.onCreate} disabled={loading}>{t('New')}</button>
+      </div>
+      <label className="ask-thread-archive-filter">
+        <input type="checkbox" checked={includeArchived} onChange={props.onToggleArchived} disabled={loading} />
+        {t('Show archived')}
+      </label>
+      {loading && <p className="text-dim" role="status">{t('Loading conversations…')}</p>}
+      {!loading && threads.length === 0 && <p className="text-dim">{t('No saved conversations yet.')}</p>}
+      <div className="ask-thread-list">
+        {threads.map((thread) => (
+          <article key={thread.id} className={thread.id === selectedId ? 'ask-thread-item selected' : 'ask-thread-item'}>
+            <button className="ask-thread-select" onClick={() => props.onSelect(thread)} disabled={loading}>
+              {thread.pinned && <span aria-label={t('Pinned')}>★ </span>}
+              <span>{thread.title}</span>
+              {thread.archived && <small>{t('Archived')}</small>}
+            </button>
+            <div className="ask-thread-actions">
+              <button className="icon-btn" aria-label={thread.pinned ? t('Unpin conversation') : t('Pin conversation')} title={thread.pinned ? t('Unpin') : t('Pin')} onClick={() => props.onPin(thread)} disabled={loading}>★</button>
+              <button className="icon-btn" aria-label={t('Rename conversation')} title={t('Rename')} onClick={() => props.onRename(thread)} disabled={loading}>✎</button>
+              <button className="icon-btn" aria-label={thread.archived ? t('Restore conversation') : t('Archive conversation')} title={thread.archived ? t('Restore') : t('Archive')} onClick={() => props.onArchive(thread)} disabled={loading}>{thread.archived ? '↩' : '⌑'}</button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </aside>
+  );
+}

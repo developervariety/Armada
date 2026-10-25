@@ -2656,6 +2656,62 @@ export interface CaptainChatResponse {
   thinking?: string | null;
 }
 
+/** A durable Ask Armada conversation owned by the signed-in user. */
+export interface AskThread {
+  id: string;
+  tenantId: string;
+  userId: string;
+  title: string;
+  captainId: string | null;
+  pinned: boolean;
+  archived: boolean;
+  createdUtc: string;
+  lastActivityUtc: string;
+  activeTurnId: string | null;
+}
+
+/** One durable user request and its stored captain response. */
+export interface AskTurn {
+  threadId: string;
+  requestId: string;
+  sequence: number;
+  captainId: string;
+  content: string;
+  showThinking: boolean;
+  state: 'Pending' | 'Running' | 'Completed' | 'Failed' | 'Uncertain';
+  response: CaptainChatResponse | null;
+  createdUtc: string;
+  completedUtc: string | null;
+}
+
+export interface AskThreadCreateRequest {
+  title?: string | null;
+  captainId?: string | null;
+}
+
+export interface AskThreadUpdateRequest {
+  setTitle?: boolean;
+  title?: string | null;
+  setCaptainId?: boolean;
+  captainId?: string | null;
+  setPinned?: boolean;
+  pinned?: boolean;
+  setArchived?: boolean;
+  archived?: boolean;
+}
+
+export interface AskTurnSendRequest {
+  requestId: string;
+  content: string;
+  showThinking: boolean;
+}
+
+export interface AskTurnStart {
+  statusCode: number;
+  turn: AskTurn | null;
+  message: string | null;
+}
+
 /** Request to build or refine a vessel's Model Context document. */
 export interface VesselBuildContextRequest {
   captainId: string;

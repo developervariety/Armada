@@ -179,6 +179,8 @@ namespace Armada.Core.Database.Sqlite
                                 await MemoryProposalSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                             if (migration.Version == 115)
                                 await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                            if (migration.Version == 125)
+                                await AskThreadSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];
@@ -400,6 +402,7 @@ namespace Armada.Core.Database.Sqlite
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             DataExpiry = new DataExpiryMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PromptTemplates = new PromptTemplateMethods(_Stored);

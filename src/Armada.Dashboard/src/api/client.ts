@@ -133,6 +133,12 @@ import type {
   TokenUsageSummaryQuery,
   CaptainChatRequest,
   CaptainChatResponse,
+  AskThread,
+  AskThreadCreateRequest,
+  AskThreadUpdateRequest,
+  AskTurn,
+  AskTurnSendRequest,
+  AskTurnStart,
   VesselBuildContextRequest,
   CoordinationRoom,
   CoordinationMessage,
@@ -1249,6 +1255,25 @@ export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery, opts?: Req
 /** A chat turn runs the captain's model, so it needs far longer than the default request timeout. */
 export const chatWithCaptain = (captainId: string, body: CaptainChatRequest, opts?: { signal?: AbortSignal }) =>
   post<CaptainChatResponse>(`/api/v1/captains/${encodeURIComponent(captainId)}/chat`, body, { timeout: 330000, signal: opts?.signal });
+
+// ==================== Saved Ask Threads ====================
+export const listAskThreads = (includeArchived = false) =>
+  listAllPages((pageNumber) => get<EnumerationResult<AskThread>>(`/api/v1/ask/threads?pageNumber=${pageNumber}&pageSize=${ALL_PAGES_SIZE}&includeArchived=${includeArchived}`));
+export const createAskThread = (data: AskThreadCreateRequest) =>
+  post<AskThread>('/api/v1/ask/threads', data);
+export const getAskThread = (id: string) =>
+  get<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`);
+export const updateAskThread = (id: string, data: AskThreadUpdateRequest) =>
+  put<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`, data);
+export const listAskTurns = (threadId: string, beforeSequence?: number, pageSize = 100) => {
+  const query = new URLSearchParams({ pageSize: String(pageSize) });
+  if (beforeSequence !== undefined) query.set('beforeSequence', String(beforeSequence));
+  return get<AskTurn[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/turns?${query.toString()}`);
+};
+export const sendAskTurn = (threadId: string, data: AskTurnSendRequest, opts?: { signal?: AbortSignal }) =>
+  post<AskTurnStart>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/turns`, data, { timeout: 330000, signal: opts?.signal });
+export const getAskTurn = (threadId: string, requestId: string) =>
+  get<AskTurn>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/turns/${encodeURIComponent(requestId)}`);
 
 /** Building a Model Context provisions a worktree and runs a captain over it; minutes, not seconds. */
 export const buildVesselContext = (vesselId: string, body: VesselBuildContextRequest) =>

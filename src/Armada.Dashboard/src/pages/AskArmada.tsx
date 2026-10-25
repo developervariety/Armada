@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { chatWithCaptain, getCaptainAskTools, listAllCaptains } from '../api/client';
-import type { Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
+import { chatWithCaptain, createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAllCaptains, listAskThreads, listAskTurns, sendAskTurn, updateAskThread } from '../api/client';
+import type { AskThread, Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import ErrorModal from '../components/shared/ErrorModal';
-import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CaptainChatPanel, { type ChatTurn } from '../components/shared/CaptainChatPanel';
 import { applyToolEvent } from '../components/shared/ChatToolChips';
 import { randomThinkingMessage } from '../components/askThinkingMessages';
 import { randomGreeting } from '../components/askGreetings';
+import AskThreadShelf from '../components/ask/AskThreadShelf';
+import { useEarlierAskTurns } from '../components/ask/useEarlierAskTurns';
+import { replaceAskTurn, toChatTurns } from '../components/ask/askThreadUtils';
 
 // Ask Armada is available with any captain.
 function isChattable(_captain: Captain): boolean {
@@ -35,8 +37,18 @@ export default function AskArmada() {
   const navigate = useNavigate();
   const { subscribe } = useWebSocket();
   const [captains, setCaptains] = useState<Captain[]>([]);
+  const [mode, setMode] = useState<'temporary' | 'saved'>('temporary');
   const [captainId, setCaptainId] = useState('');
+  const [threads, setThreads] = useState<AskThread[]>([]);
+  const [selectedThreadId, setSelectedThreadId] = useState('');
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const [threadsLoading, setThreadsLoading] = useState(true);
+  const [hasEarlierTurns, setHasEarlierTurns] = useState(false);
+  const [turnStatusNotice, setTurnStatusNotice] = useState('');
+  const [retryRequest, setRetryRequest] = useState<{ threadId: string; requestId: string; content: string; showThinking: boolean } | null>(null);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [temporaryTurns, setTemporaryTurns] = useState<ChatTurn[]>([]);
+  const [temporaryCaptainId, setTemporaryCaptainId] = useState('');
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -47,9 +59,28 @@ export default function AskArmada() {
   // A single random greeting chosen once per page load, shown large on the blank chat screen.
   const [greeting] = useState(() => randomGreeting());
   const [thinking, setThinking] = useState('');
-  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const toolsCache = useRef<Record<string, CaptainToolAccessResult>>({});
+  const selectedThreadIdRef = useRef(selectedThreadId);
+  const selectedThreadGeneration = useRef(0);
+  const earliestLoadedSequence = useRef<number | null>(null);
+  const { loadingEarlier, loadEarlierTurns } = useEarlierAskTurns({
+    selectionKey: `${mode}:${selectedThreadId}`,
+    enabled: mode === 'saved' && turns.length > 0,
+    selectedId: selectedThreadIdRef,
+    generation: selectedThreadGeneration,
+    earliestSequence: earliestLoadedSequence,
+    setTurns,
+    setHasEarlier: setHasEarlierTurns,
+    setError,
+    t,
+  });
+
+  useEffect(() => {
+    if (selectedThreadIdRef.current === selectedThreadId) return;
+    selectedThreadIdRef.current = selectedThreadId;
+    selectedThreadGeneration.current += 1;
+  }, [selectedThreadId]);
 
   // Rotate the "waiting" message every 4 seconds while a turn is in flight.
   useEffect(() => {
@@ -68,6 +99,116 @@ export default function AskArmada() {
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Failed to load captains.')));
   }, [t]);
+
+  useEffect(() => {
+    if (mode !== 'saved') { setThreadsLoading(false); return undefined; }
+    let active = true;
+    setThreadsLoading(true);
+    listAskThreads(includeArchived)
+      .then((result) => {
+        if (!active) return;
+        setThreads(result);
+        setSelectedThreadId((current) => result.some((thread) => thread.id === current)
+          ? current
+          : result[0]?.id ?? '');
+      })
+      .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : t('Failed to load conversations.')); })
+      .finally(() => { if (active) setThreadsLoading(false); });
+    return () => { active = false; };
+  }, [mode, includeArchived, t]);
+
+  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) || null;
+
+  useEffect(() => {
+    if (mode !== 'saved') return undefined;
+    if (!selectedThreadId) {
+      earliestLoadedSequence.current = null;
+      setTurns([]);
+      setHasEarlierTurns(false);
+      setTurnStatusNotice('');
+      return;
+    }
+    let active = true;
+    setTurns([]);
+    setTurnStatusNotice('');
+    Promise.all([getAskThread(selectedThreadId), listAskTurns(selectedThreadId, undefined, 100)])
+      .then(([thread, stored]) => {
+        if (!active) return;
+        setThreads((current) => current.map((item) => item.id === thread.id ? thread : item));
+        setCaptainId(thread.captainId ?? '');
+        earliestLoadedSequence.current = stored[0]?.sequence ?? null;
+        setTurns(toChatTurns(stored));
+        setHasEarlierTurns(stored.length >= 100);
+        if (thread.activeTurnId) {
+          getAskTurn(thread.id, thread.activeTurnId).then((turn) => {
+            if (!active) return;
+            setTurns((current) => replaceAskTurn(current, turn));
+            if (turn.state === 'Uncertain') setTurnStatusNotice(t('This turn may not have completed. Armada will not replay it. Start a new conversation to continue.'));
+            setBusy(turn.state === 'Pending' || turn.state === 'Running');
+          }).catch(() => { if (active) setTurnStatusNotice(t('Armada could not confirm the active turn. Do not resend it.')); });
+        }
+      })
+      .catch((err: unknown) => { if (active) setError(err instanceof Error ? err.message : t('Failed to load this conversation.')); });
+    return () => { active = false; };
+  }, [mode, selectedThreadId, threadsLoading, t]);
+
+  useEffect(() => {
+    const activeTurnId = selectedThread?.activeTurnId;
+    if (mode !== 'saved' || !selectedThread || !activeTurnId || !busy) return undefined;
+    let active = true;
+    const poll = async () => {
+      try {
+        const turn = await getAskTurn(selectedThread.id, activeTurnId);
+        if (!active) return;
+        setTurns((current) => replaceAskTurn(current, turn));
+        if (turn.state === 'Completed' || turn.state === 'Failed' || turn.state === 'Uncertain') {
+          const thread = await getAskThread(selectedThread.id);
+          if (active) {
+            setThreads((current) => current.map((item) => item.id === thread.id ? thread : item));
+            setBusy(false);
+            if (turn.state === 'Uncertain') setTurnStatusNotice(t('This turn may not have completed. Armada will not replay it. Start a new conversation to continue.'));
+          }
+        }
+      } catch {
+        if (active) setTurnStatusNotice(t('Armada could not confirm the active turn. Do not resend it.'));
+      }
+    };
+    const id = window.setInterval(() => { void poll(); }, 2000);
+    return () => { active = false; window.clearInterval(id); };
+  }, [mode, selectedThread, busy, t]);
+
+  async function createThread() {
+    try {
+      const captain = captainId || captains[0]?.id || null;
+      const created = await createAskThread({ captainId: captain });
+      setThreads((current) => [created, ...current.filter((thread) => thread.id !== created.id)]);
+      selectedThreadIdRef.current = created.id;
+      selectedThreadGeneration.current += 1;
+      setSelectedThreadId(created.id);
+      setCaptainId(created.captainId ?? '');
+      setError('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to create a conversation.'));
+    }
+  }
+
+  async function changeThread(thread: AskThread, patch: Parameters<typeof updateAskThread>[1]) {
+    try {
+      const updated = await updateAskThread(thread.id, patch);
+      const listing = await listAskThreads(includeArchived);
+      setThreads(listing);
+      if (!listing.some((item) => item.id === selectedThreadId)) setSelectedThreadId(listing[0]?.id ?? '');
+      if (updated.id === selectedThreadId) setCaptainId(updated.captainId ?? '');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to update the conversation.'));
+    }
+  }
+
+  async function renameThread(thread: AskThread) {
+    const title = window.prompt(t('Conversation name'), thread.title);
+    if (title == null || title.trim() === thread.title) return;
+    await changeThread(thread, { setTitle: true, title: title.trim() });
+  }
 
   // Detect whether the selected captain is connected to Armada over MCP so we can warn when it is not.
   useEffect(() => {
@@ -90,73 +231,68 @@ export default function AskArmada() {
   const armadaMcpMissing = tools != null && tools.armadaToolCount <= 0 && (tools.availabilityVerified || tools.mcpConnectionPlanned);
   const armadaMcpUnverified = tools != null && !tools.availabilityVerified && !tools.mcpConnectionPlanned;
 
-  // Replace the in-flight streaming assistant turn (the last one) via the updater.
+  function changeMode(next: 'temporary' | 'saved') {
+    if (next === mode || busy) return;
+    selectedThreadGeneration.current += 1;
+    if (mode === 'temporary') { setTemporaryTurns(turns); setTemporaryCaptainId(captainId); }
+    if (next === 'temporary') { setTurns(temporaryTurns); setCaptainId(temporaryCaptainId); setTurnStatusNotice(''); }
+    else setThreadsLoading(true);
+    setMode(next);
+  }
+
   function updateStreamingTurn(mutate: (turn: ChatTurn) => ChatTurn) {
     setTurns((current) => {
       const copy = [...current];
-      for (let i = copy.length - 1; i >= 0; i -= 1) {
-        if (copy[i].role === 'assistant' && copy[i].streaming) { copy[i] = mutate(copy[i]); break; }
+      for (let index = copy.length - 1; index >= 0; index -= 1) {
+        if (copy[index].role === 'assistant' && copy[index].streaming) { copy[index] = mutate(copy[index]); break; }
       }
       return copy;
     });
   }
 
-  async function send(message: string) {
+  async function sendTemporary(message: string) {
     const text = message.trim();
     if (!text || busy || !captainId) return;
     setInput('');
-
     const streaming = streamingEnabled;
-    // A turnId opts the request into live streaming; omit it for a plain request/response turn.
-    const turnId = streaming
-      ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2))
-      : undefined;
-    const history: CaptainChatMessage[] = turns
-      .filter((turn) => turn.role !== 'system')
+    const turnId = streaming ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)) : undefined;
+    const history: CaptainChatMessage[] = turns.filter((turn) => turn.role !== 'system')
       .map((turn) => ({ role: turn.role as 'user' | 'assistant', content: turn.text }));
     setTurns((current) => streaming
       ? [...current, { role: 'user', text }, { role: 'assistant', text: '', streaming: true }]
       : [...current, { role: 'user', text }]);
     setBusy(true);
-
     let unsubscribe: () => void = () => undefined;
-    if (streaming) {
-      unsubscribe = subscribe((msg: WebSocketMessage) => {
-        if (msg.type === 'ask.chunk') {
-          const data = msg.data as { turnId?: string; delta?: string } | undefined;
-          if (!data || data.turnId !== turnId || !data.delta) return;
-          updateStreamingTurn((turn) => ({ ...turn, text: turn.text + data.delta }));
-        } else if (msg.type === 'ask.tool') {
-          const d = msg.data as ({ turnId?: string } & Parameters<typeof applyToolEvent>[1]) | undefined;
-          if (!d || d.turnId !== turnId || !d.id) return;
-          updateStreamingTurn((turn) => ({ ...turn, tools: applyToolEvent(turn.tools, d) }));
-        } else if (msg.type === 'ask.thinking') {
-          const data = msg.data as { turnId?: string; delta?: string } | undefined;
-          if (!data || data.turnId !== turnId || !data.delta) return;
-          updateStreamingTurn((turn) => ({ ...turn, thinking: (turn.thinking ?? '') + data.delta }));
+    if (streaming) unsubscribe = subscribe((msg: WebSocketMessage) => {
+      const data = msg.data as { turnId?: string; delta?: string } | undefined;
+      if (data && data.turnId === turnId && data.delta && msg.type === 'ask.chunk') {
+        const delta = data.delta;
+        updateStreamingTurn((turn) => ({ ...turn, text: turn.text + delta }));
+      } else if (data && data.turnId === turnId && data.delta && msg.type === 'ask.thinking') {
+        const delta = data.delta;
+        updateStreamingTurn((turn) => ({ ...turn, thinking: (turn.thinking ?? '') + delta }));
+      } else if (msg.type === 'ask.tool') {
+        const tool = msg.data as ({ turnId?: string } & Parameters<typeof applyToolEvent>[1]) | undefined;
+        if (tool && tool.turnId === turnId && tool.id) {
+          const toolEvent = tool;
+          updateStreamingTurn((turn) => ({ ...turn, tools: applyToolEvent(turn.tools, toolEvent) }));
         }
-      });
-    }
-
-    // The controller lets the Stop button abort the request; the server then cancels the captain runtime.
+      }
+    });
     const controller = new AbortController();
     abortRef.current = controller;
-
     try {
       const response = await chatWithCaptain(captainId, { message: text, history, turnId, showThinking }, { signal: controller.signal });
       if (!response.success) {
         setError(response.error || t('The captain could not respond.'));
         setTurns((current) => current.filter((turn) => !(turn.role === 'assistant' && turn.streaming)).slice(0, -1));
       } else if (streaming) {
-        // Reconcile the streamed text with the authoritative final reply + metrics, keeping any tool activity
-        // and preferring the authoritative thinking when the server returned it.
         updateStreamingTurn((turn) => ({ ...turn, streaming: false, text: response.reply, metrics: response.metrics, model: response.model, thinking: response.thinking ?? turn.thinking }));
       } else {
         setTurns((current) => [...current, { role: 'assistant', text: response.reply, metrics: response.metrics, model: response.model, thinking: response.thinking ?? undefined }]);
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
-        // Stop pressed: keep whatever streamed so far and just clear the in-flight flag.
         if (streaming) updateStreamingTurn((turn) => ({ ...turn, streaming: false }));
       } else if (err instanceof Error && (err.name === 'NetworkError' || err.message === 'Request timed out')) {
         // A lost response does not prove the captain stopped. Keep received work and let the
@@ -178,17 +314,89 @@ export default function AskArmada() {
     }
   }
 
+  async function send(message: string, retry?: { threadId: string; requestId: string; content: string; showThinking: boolean }) {
+    if (mode === 'temporary') { await sendTemporary(message); return; }
+    const text = message.trim();
+    const threadId = retry?.threadId ?? selectedThreadId;
+    if (!text || text.length > 32000 || busy || !captainId || !threadId) return;
+    setInput('');
+    setRetryRequest(null);
+    setTurnStatusNotice('');
+
+    const streaming = streamingEnabled;
+    const requestId = retry?.requestId ?? (streaming
+      ? ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2))
+      : ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)));
+    const showTurnThinking = retry?.showThinking ?? showThinking;
+    if (retry) {
+      setTurns((current) => current.map((turn) => turn.id === `${requestId}:assistant` ? { ...turn, streaming: true } : turn));
+    } else {
+      setTurns((current) => [...current, { id: `${requestId}:user`, role: 'user', text }, { id: `${requestId}:assistant`, role: 'assistant', text: '', streaming: true }]);
+    }
+    setBusy(true);
+
+    let unsubscribe: () => void = () => undefined;
+    if (streaming) {
+      unsubscribe = subscribe((msg: WebSocketMessage) => {
+        if (msg.type === 'ask.chunk') {
+          const data = msg.data as { turnId?: string; delta?: string } | undefined;
+          if (!data || data.turnId !== requestId || !data.delta) return;
+          setTurns((current) => current.map((turn) => turn.id === `${requestId}:assistant` ? { ...turn, text: turn.text + data.delta! } : turn));
+        } else if (msg.type === 'ask.tool') {
+          const d = msg.data as ({ turnId?: string } & Parameters<typeof applyToolEvent>[1]) | undefined;
+          if (!d || d.turnId !== requestId || !d.id) return;
+          setTurns((current) => current.map((turn) => turn.id === `${requestId}:assistant` ? { ...turn, tools: applyToolEvent(turn.tools, d) } : turn));
+        } else if (msg.type === 'ask.thinking') {
+          const data = msg.data as { turnId?: string; delta?: string } | undefined;
+          if (!data || data.turnId !== requestId || !data.delta) return;
+          setTurns((current) => current.map((turn) => turn.id === `${requestId}:assistant` ? { ...turn, thinking: (turn.thinking ?? '') + data.delta! } : turn));
+        }
+      });
+    }
+
+    // The stable request id makes a manual retry safe after a lost HTTP response.
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let remainsActive = false;
+
+    try {
+      const result = await sendAskTurn(threadId, { requestId, content: text, showThinking: showTurnThinking }, { signal: controller.signal });
+      if (result.turn) {
+        setTurns((current) => replaceAskTurn(current, result.turn!));
+        setThreads((current) => current.map((thread) => thread.id === threadId ? { ...thread, activeTurnId: result.turn!.state === 'Running' || result.turn!.state === 'Pending' ? requestId : null } : thread));
+        remainsActive = result.turn.state === 'Running' || result.turn.state === 'Pending';
+        if (result.turn.state === 'Uncertain') setTurnStatusNotice(t('This turn may not have completed. Armada will not replay it. Start a new conversation to continue.'));
+      } else {
+        const message = result.message || t('The captain could not respond.');
+        setError(message);
+        setTurns((current) => current.map((turn) => turn.id === `${requestId}:assistant` ? { ...turn, text: message, streaming: false } : turn));
+      }
+    } catch (err: unknown) {
+      try {
+        const stored = await getAskTurn(threadId, requestId);
+        setTurns((current) => replaceAskTurn(current, stored));
+        remainsActive = stored.state === 'Running' || stored.state === 'Pending';
+        if (stored.state === 'Uncertain') setTurnStatusNotice(t('This turn may not have completed. Armada will not replay it. Start a new conversation to continue.'));
+      } catch {
+        const message = err instanceof Error ? err.message : t('Chat status is unknown.');
+        setRetryRequest({ threadId, requestId, content: text, showThinking: showTurnThinking });
+        setTurnStatusNotice(t('The request status could not be read. Retry with the same request id to avoid starting a duplicate turn.'));
+        if (!(err instanceof Error && err.name === 'AbortError')) setError(message);
+      }
+    } finally {
+      abortRef.current = null;
+      unsubscribe();
+      setBusy(remainsActive);
+      try {
+        const thread = await getAskThread(threadId);
+        setThreads((current) => current.map((item) => item.id === threadId ? thread : item));
+      } catch { /* the durable turn view remains available on the next reload */ }
+    }
+  }
+
   // Abort the in-flight turn. The dropped request cancels the captain runtime server-side.
   function stop() {
     abortRef.current?.abort();
-  }
-
-  // Reset the conversation to an empty state. History is client-side only, so clearing the turns is
-  // sufficient; also drop any transient thinking/error so the next question starts clean.
-  function clearConversation() {
-    setTurns([]);
-    setThinking('');
-    setError('');
   }
 
   return (
@@ -196,9 +404,13 @@ export default function AskArmada() {
       <div className="view-header">
         <div>
           <h2>{t('Ask Armada')}</h2>
-          <p className="text-dim view-subtitle">{t('Chat directly with a captain.')}</p>
+          <p className="text-dim view-subtitle">{mode === 'saved' ? t('Resume a saved conversation with its stored history.') : t('Chat directly with a captain. This temporary conversation stays in this browser session.')}</p>
         </div>
         <div className="ask-header-controls">
+          <div className="ask-mode-toggle" role="tablist" aria-label={t('Ask conversation mode')}>
+            <button role="tab" aria-selected={mode === 'temporary'} className={mode === 'temporary' ? 'active' : ''} onClick={() => changeMode('temporary')} disabled={busy}>{t('Temporary chat')}</button>
+            <button role="tab" aria-selected={mode === 'saved'} className={mode === 'saved' ? 'active' : ''} onClick={() => changeMode('saved')} disabled={busy}>{t('Saved conversations')}</button>
+          </div>
           <label className="ask-stream-toggle" title={t('Stream the reply token-by-token as it is produced')}>
             <input type="checkbox" checked={streamingEnabled} onChange={(e) => setStreamingEnabled(e.target.checked)} disabled={busy} />
             {t('Stream responses')}
@@ -209,7 +421,10 @@ export default function AskArmada() {
           </label>
           <label className="text-dim" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.8rem' }}>
             {t('Captain')}
-            <select value={captainId} onChange={(e) => setCaptainId(e.target.value)} disabled={busy}>
+            <select value={captainId} onChange={(e) => {
+              setCaptainId(e.target.value);
+              if (mode === 'saved' && selectedThread) void changeThread(selectedThread, { setCaptainId: true, captainId: e.target.value || null });
+            }} disabled={busy || (mode === 'saved' && !selectedThread)}>
               {captains.length === 0 && <option value="">{t('No captains available')}</option>}
               {captains.map((c) => (
                 <option key={c.id} value={c.id}>{c.name} ({c.model || c.runtime})</option>
@@ -221,12 +436,29 @@ export default function AskArmada() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
-      {captains.length === 0 ? (
-        <div className="card" style={{ padding: '1.5rem', textAlign: 'center' }}>
-          <p className="text-dim">{t('No captains are configured yet. Create a captain to Ask Armada.')}</p>
-        </div>
-      ) : (
+      <div className="ask-workspace">
+        {mode === 'saved' && <AskThreadShelf
+          threads={threads}
+          selectedId={selectedThreadId}
+          includeArchived={includeArchived}
+          loading={threadsLoading || busy}
+          t={t}
+          onSelect={(thread) => { selectedThreadIdRef.current = thread.id; selectedThreadGeneration.current += 1; setSelectedThreadId(thread.id); setCaptainId(thread.captainId ?? ''); }}
+          onCreate={() => { void createThread(); }}
+          onRename={(thread) => { void renameThread(thread); }}
+          onPin={(thread) => { void changeThread(thread, { setPinned: true, pinned: !thread.pinned }); }}
+          onArchive={(thread) => { void changeThread(thread, { setArchived: true, archived: !thread.archived }); }}
+          onToggleArchived={() => setIncludeArchived((value) => !value)}
+        />}
         <div className="ask-body">
+          {mode === 'saved' && selectedThread?.archived && <div className="text-dim" role="status">{t('This conversation is archived. Restore it to send another turn.')}</div>}
+          {mode === 'saved' && turnStatusNotice && <div className="ask-turn-status" role="status">{turnStatusNotice}</div>}
+          {mode === 'saved' && retryRequest && (
+            <div className="ask-turn-status" role="alert">
+              <span>{turnStatusNotice}</span>
+              <button className="btn btn-sm" disabled={busy} onClick={() => { void send(retryRequest.content, retryRequest); }}>{t('Retry same turn')}</button>
+            </div>
+          )}
           {toolsLoading && (
             <div className="text-dim" style={{ fontSize: '0.78rem', marginBottom: '0.6rem' }}>
               {t('Checking whether this captain is connected to Armada over MCP...')}
@@ -263,7 +495,21 @@ export default function AskArmada() {
             </div>
           )}
 
-          <CaptainChatPanel
+          {mode === 'saved' && hasEarlierTurns && (
+            <button className="btn btn-sm ask-load-earlier" onClick={() => { void loadEarlierTurns(); }} disabled={loadingEarlier || busy}>
+              {loadingEarlier ? t('Loading…') : t('Load earlier turns')}
+            </button>
+          )}
+          {captains.length === 0 ? (
+            <div className="card" style={{ padding: '1.5rem', textAlign: 'center' }}>
+              <p className="text-dim">{t('No captains are configured yet. Create a captain to Ask Armada.')}</p>
+            </div>
+          ) : mode === 'saved' && !selectedThread ? (
+            <div className="card" style={{ padding: '1.5rem', textAlign: 'center' }}>
+              <p className="text-dim">{t('Create a conversation to begin.')}</p>
+              <button className="btn btn-primary" onClick={() => { void createThread(); }} disabled={threadsLoading}>{t('New conversation')}</button>
+            </div>
+          ) : <CaptainChatPanel
             t={t}
             turns={turns}
             notice={selectedCaptain?.runtime === 'Codex' ? t('Codex responses cannot be streamed and will arrive upon completion.') : undefined}
@@ -279,31 +525,18 @@ export default function AskArmada() {
             onSend={() => send(input)}
             onStop={stop}
             busy={busy}
-            canSend={!busy && !!captainId && input.trim().length > 0}
+            canSend={!busy && !!captainId && (mode === 'temporary' || (!!selectedThread && !selectedThread.archived)) && input.trim().length > 0}
             canStop={busy}
             thinking={thinking}
             inputPlaceholder={t('Message the captain...')}
-            inputDisabled={!captainId}
-            onClear={() => setConfirmClearOpen(true)}
+            inputMaxLength={32000}
+            inputDisabled={!captainId || (mode === 'saved' && (!selectedThread || selectedThread.archived))}
+            onClear={mode === 'temporary' ? () => { setTemporaryTurns([]); setTurns([]); setThinking(''); setError(''); } : undefined}
             clearDisabled={busy || turns.length === 0}
             toolRuntimeLabel={selectedCaptain?.runtime || tools?.runtime || undefined}
-          />
+          />}
         </div>
-      )}
-
-      <ConfirmDialog
-        open={confirmClearOpen}
-        title={t('Clear Conversation')}
-        message={t('Clear this conversation? The messages shown here will be removed.')}
-        confirmLabel={t('Clear')}
-        cancelLabel={t('Cancel')}
-        danger
-        onConfirm={() => {
-          setConfirmClearOpen(false);
-          clearConversation();
-        }}
-        onCancel={() => setConfirmClearOpen(false)}
-      />
+      </div>
     </div>
   );
 }

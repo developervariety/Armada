@@ -28,6 +28,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Mission credentials cannot be exchanged for unrestricted sessions or start
   captain chat. Child MCP access also refuses mission-scoped callers.
+- Saved Ask conversations retain server-owned history, titles, captain choices,
+  pins and archive state. Owner-scoped storage preserves turn results and
+  metrics. Durable request claims prevent duplicate runtime launches and hold
+  uncertain interrupted turns. Existing chat routes and access rules remain.
 
 - Judge blocker extraction keeps complete command outcomes and excludes
   passing checks, source agreement and reproduction steps from findings.

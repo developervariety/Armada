@@ -292,6 +292,18 @@
 			"description": "Harbor job ID (hjob_ prefix) for job detail and stop requests."
 		},
 		{
+			"key": "askThreadId",
+			"value": "ath_example",
+			"type": "string",
+			"description": "Saved Ask conversation ID for thread and turn requests."
+		},
+		{
+			"key": "askRequestId",
+			"value": "ask_example_request",
+			"type": "string",
+			"description": "Stable request ID for an idempotent saved Ask turn."
+		},
+		{
 			"key": "typedDecisionName",
 			"value": "my_custom_decision",
 			"type": "string"
@@ -10910,6 +10922,81 @@
 							]
 						},
 						"description": "A lightweight conversational assistant that answers read-only questions about fleet state and returns suggested navigation links. Requires a global administrator."
+					}
+				},
+				{
+					"name": "List Saved Ask Threads",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ask/threads?pageNumber=1&pageSize=25&includeArchived=false",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "ask", "threads"],
+							"query": [
+								{"key": "pageNumber", "value": "1"},
+								{"key": "pageSize", "value": "25"},
+								{"key": "includeArchived", "value": "false"}
+							]
+						},
+						"description": "List saved Ask threads owned by the administrator."
+					}
+				},
+				{
+					"name": "Create Saved Ask Thread",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\n  \"title\": \"Fleet question\",\n  \"captainId\": \"{{captainId}}\"\n}"},
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads"]},
+						"description": "Create a durable Ask thread for the authenticated administrator."
+					}
+				},
+				{
+					"name": "Read Saved Ask Thread",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}"]},
+						"description": "Read one owned Ask thread."
+					}
+				},
+				{
+					"name": "Update Saved Ask Thread",
+					"request": {
+						"method": "PUT",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\n  \"setTitle\": true,\n  \"title\": \"Saved question\",\n  \"setPinned\": true,\n  \"pinned\": true\n}"},
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}"]},
+						"description": "Update a thread title, captain, pin or archive state."
+					}
+				},
+				{
+					"name": "List Saved Ask Turns",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/turns?pageSize=50", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "turns"], "query": [{"key": "pageSize", "value": "50"}]},
+						"description": "Read stored turns, ordered oldest first within the selected page."
+					}
+				},
+				{
+					"name": "Send Saved Ask Turn",
+					"request": {
+						"method": "POST",
+						"header": [{"key": "Content-Type", "value": "application/json"}],
+						"body": {"mode": "raw", "raw": "{\n  \"requestId\": \"{{askRequestId}}\",\n  \"content\": \"Which captains are stalled?\",\n  \"showThinking\": false\n}"},
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/turns", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "turns"]},
+						"description": "Send a saved-thread turn with a stable idempotency key."
+					}
+				},
+				{
+					"name": "Read Saved Ask Turn",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/turns/{{askRequestId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "turns", "{{askRequestId}}"]},
+						"description": "Read the stored result or state of one turn."
 					}
 				}
 			]
