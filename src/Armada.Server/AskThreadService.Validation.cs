@@ -11,6 +11,7 @@ namespace Armada.Server
         private static void RequireOwner(AuthContext caller)
         {
             if (caller == null || !caller.IsAuthenticated || !String.IsNullOrWhiteSpace(caller.MissionId)
+                || !String.IsNullOrWhiteSpace(caller.AskThreadId) || !String.IsNullOrWhiteSpace(caller.AskTurnId)
                 || String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId))
                 throw new UnauthorizedAccessException("Saved conversations require an authenticated human owner.");
         }

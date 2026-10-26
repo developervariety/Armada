@@ -55,6 +55,12 @@ namespace Armada.Core.Models
         /// </summary>
         public string? MissionId { get; set; } = null;
 
+        /// <summary>Saved Ask thread scope for a one-turn MCP credential.</summary>
+        public string? AskThreadId { get; set; } = null;
+
+        /// <summary>Saved Ask request scope for a one-turn MCP credential.</summary>
+        public string? AskTurnId { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

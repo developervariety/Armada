@@ -66,6 +66,28 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyMissionAttemptFactsByMissionAsync(CancellationToken token)
+        {
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            string tenant = "ten_mission_fact_" + suffix;
+            string otherTenant = "ten_other_mission_fact_" + suffix;
+            string missionId = "msn_exact_" + suffix;
+            DateTime startUtc = new DateTime(2034, 6, 7, 8, 9, 10, DateTimeKind.Utc);
+            await _Driver.MissionAttemptFacts.CreateAsync(NewFact(tenant, missionId, MissionAttemptFactTypeEnum.AttemptStarted, false, null, startUtc), token).ConfigureAwait(false);
+            await _Driver.MissionAttemptFacts.CreateAsync(NewFact(tenant, missionId, MissionAttemptFactTypeEnum.Restarted, false, null, startUtc.AddMinutes(1)), token).ConfigureAwait(false);
+            await _Driver.MissionAttemptFacts.CreateAsync(NewFact(tenant, missionId, MissionAttemptFactTypeEnum.Landed, false, null, startUtc.AddMinutes(2)), token).ConfigureAwait(false);
+            await _Driver.MissionAttemptFacts.CreateAsync(NewFact(otherTenant, missionId, MissionAttemptFactTypeEnum.Failed, false, null, startUtc.AddMinutes(3)), token).ConfigureAwait(false);
+            await _Driver.MissionAttemptFacts.CreateAsync(NewFact(tenant, "msn_unrelated_" + suffix, MissionAttemptFactTypeEnum.Failed, false, null, startUtc.AddMinutes(4)), token).ConfigureAwait(false);
+
+            ProductionFactPage<MissionAttemptFact> page = await _Driver.MissionAttemptFacts
+                .EnumerateByMissionAsync(tenant, missionId, 2, token).ConfigureAwait(false);
+            DatabaseAssert.Equal(2, page.Items.Count, "Mission query returns its bounded newest window");
+            DatabaseAssert.True(page.Truncated, "Mission query reports older matching facts beyond the limit");
+            DatabaseAssert.Equal(MissionAttemptFactTypeEnum.Restarted, page.Items[0].FactType, "Newest window returns in ascending creation order");
+            DatabaseAssert.Equal(MissionAttemptFactTypeEnum.Landed, page.Items[1].FactType, "Newest matching fact is retained");
+            DatabaseAssert.True(page.Items.All(item => item.TenantId == tenant && item.MissionId == missionId), "Mission query applies exact tenant and mission filters");
+        }
+
         internal async Task VerifyCheckRegressionLinksAsync(CancellationToken token)
         {
             CheckRun created = await _Driver.CheckRuns.CreateAsync(new CheckRun

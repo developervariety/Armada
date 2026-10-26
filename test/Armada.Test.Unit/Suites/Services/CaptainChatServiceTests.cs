@@ -514,7 +514,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         ReplayRuntimeFactory factory = new ReplayRuntimeFactory(logging, new[] { "reply" });
                         CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, settings, sessionTokens);
-                        AuthContext caller = AuthContext.Authenticated("tenant-cli", "user-cli", false, false, "Session");
+                        AuthContext caller = AuthContext.Authenticated("tenant-cli", "user-cli", true, true, "Session");
                         AuthContext scopedCaller = AuthContext.Authenticated("tenant-cli", "user-cli", true, true, "Session");
                         scopedCaller.MissionId = "msn_chat_scope";
                         AssertNull(CallerMcpToolAccessFactory.Create(scopedCaller, sessionTokens, settings.McpPort),
@@ -523,6 +523,16 @@ namespace Armada.Test.Unit.Suites.Services
                             new CaptainChatRequest { Message = "hello" }).ConfigureAwait(false);
                         AssertFalse(refused.Success, "mission callers cannot start conversational chat");
                         AssertNull(factory.LastRuntime, "scope refusal happens before creating a runtime");
+
+                        AuthContext nestedAskCaller = AuthContext.Authenticated("tenant-cli", "user-cli", true, true, "Session");
+                        nestedAskCaller.AskThreadId = "thread-cli";
+                        nestedAskCaller.AskTurnId = "turn-cli";
+                        AssertNull(CallerMcpToolAccessFactory.Create(nestedAskCaller, sessionTokens, settings.McpPort),
+                            "saved-turn callers cannot exchange their scope for an ordinary MCP token");
+                        CaptainChatResponse nestedAskRefused = await chat.ChatAsync(nestedAskCaller, captain.Id,
+                            new CaptainChatRequest { Message = "nested" }).ConfigureAwait(false);
+                        AssertFalse(nestedAskRefused.Success, "a saved-turn credential cannot start nested chat");
+                        AssertNull(factory.LastRuntime, "nested saved-turn chat is refused before runtime creation");
 
                         // The reply content is irrelevant here; the launched runtime records the isolation plan the
                         // chat turn built when StartAsync is called, so assert on that plan regardless of the reply.
@@ -541,6 +551,15 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertNotNull(validated);
                         AssertEqual("tenant-cli", validated!.TenantId, runtime + " token resolves to the caller's tenant");
                         AssertEqual("user-cli", validated.UserId, runtime + " token resolves to the caller's user");
+
+                        AskTurn savedTurn = new AskTurn { ThreadId = "thread-cli", RequestId = "reserved-turn-cli", CaptainId = captain.Id };
+                        await chat.ChatSavedAsync(caller, savedTurn,
+                            new CaptainChatRequest { Message = "saved message", TurnId = "untrusted-request-field" }).ConfigureAwait(false);
+                        CaptainLaunchIsolationPlan savedPlan = factory.LastRuntime!.ReceivedIsolationPlan!;
+                        AssertTrue(savedPlan.EnvironmentOverrides.TryGetValue(McpCredentialReference.ChatEnvironmentVariable, out string? savedCarried), runtime + " saved turn carries a scoped credential");
+                        AuthContext? savedScope = sessionTokens.ValidateToken(savedCarried!);
+                        AssertEqual("thread-cli", savedScope!.AskThreadId, runtime + " saved credential names its server-bound thread");
+                        AssertEqual("reserved-turn-cli", savedScope.AskTurnId, runtime + " saved credential uses the reserved turn, not the request field");
                     }
 
                     // A chat turn with no authenticated caller carries no token and reaches no MCP tool.

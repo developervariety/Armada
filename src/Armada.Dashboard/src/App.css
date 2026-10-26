@@ -7804,6 +7804,17 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .chat-stream-notice svg { color: var(--accent); flex-shrink: 0; }
 
 /* ── Ask Armada: full-height chat layout ── */
+.ask-action-section { display: grid; gap: 0.55rem; margin: 0 0 0.8rem; }
+.ask-action-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.ask-action-heading h3 { margin: 0; font-size: 0.9rem; }
+.ask-action-card { padding: 0.7rem; overflow-wrap: anywhere; }
+.ask-action-card-title { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+.ask-action-json { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow: auto; margin: 0.55rem 0; padding: 0.55rem; border-radius: var(--radius); background: var(--bg); font-size: 0.76rem; }
+.ask-action-buttons { display: flex; gap: 0.5rem; }
+.ask-action-error { color: var(--danger); margin: 0; }
+.ask-action-warning { color: var(--warning, #b7791f); margin-bottom: 0; }
+.ask-action-outcome { margin-bottom: 0; }
+@media (max-width: 700px) { .ask-action-card-title { align-items: flex-start; flex-direction: column; } }
 .ask-page {
     display: flex;
     flex-direction: column;

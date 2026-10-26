@@ -305,6 +305,9 @@ namespace Armada.Core
         /// <summary>Ask Armada conversation thread identifier prefix.</summary>
         public static readonly string AskThreadIdPrefix = "ath_";
 
+        /// <summary>Ask action proposal identifier prefix.</summary>
+        public static readonly string AskActionProposalIdPrefix = "aap_";
+
         /// <summary>
         /// Default data retention period in days for completed records.
         /// </summary>

@@ -191,6 +191,7 @@ namespace Armada.Server
         private TypedChangeQualityAdapter? _ChangeQualityAdapter;
         private TypedDispatchStalenessAdapter? _DispatchStalenessAdapter;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
+        private AskActionService _AskActions = null!;
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
         private IntentionalProcessStops _IntentionalStops = new IntentionalProcessStops();
@@ -298,6 +299,7 @@ namespace Armada.Server
                 warn: message => _Logging.Warn(_Header + message),
                 requesterKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 progressProbeAsync: IsBackgroundJobMakingProgressAsync);
+            _AskActions = new AskActionService(_Database, _LongRunningJobs, _Logging);
 
             // Initialize services
             // PR-fallback wiring: per-call factory selects the right platform CLI (gh / glab).
@@ -1420,7 +1422,7 @@ namespace Armada.Server
         /// </summary>
         private async Task<AuthContext> AuthenticateMcpRequestAsync(McpRequestCredentials credentials, CancellationToken token)
         {
-            return await _AuthenticationService.AuthenticateAsync(credentials.Authorization, credentials.SessionToken, credentials.ApiKey, token).ConfigureAwait(false);
+            return await _AuthenticationService.AuthenticateMcpAsync(credentials.Authorization, credentials.SessionToken, credentials.ApiKey, token).ConfigureAwait(false);
         }
 
         private async Task SeedSyntheticAdminAsync()
@@ -1750,6 +1752,7 @@ namespace Armada.Server
 
             new AskThreadRoutes(new AskThreadService(_Database, captainChat))
                 .Register(_App, authenticate, _AuthorizationService);
+            new AskActionRoutes(_AskActions).Register(_App, authenticate, _AuthorizationService);
         }
 
         private void InitializeDashboard()
@@ -2160,7 +2163,8 @@ namespace Armada.Server
                 contextRetrieval: _ContextRetrieval,
                 contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 missionService: _MissionService,
-                missionOperations: _MissionOperations);
+                missionOperations: _MissionOperations,
+                askActions: _AskActions);
 
         }
 

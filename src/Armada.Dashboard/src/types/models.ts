@@ -2712,6 +2712,21 @@ export interface AskTurnStart {
   message: string | null;
 }
 
+export interface AskActionWorkReference { kind: 'Mission' | 'Voyage' | 'Job'; id: string; }
+export interface AskActionProposal {
+  id: string; tenantId: string; userId: string; threadId: string; requestId: string;
+  toolName: string; argumentsJson: string; fingerprint: string;
+  state: 'Pending' | 'Executing' | 'Executed' | 'Failed' | 'Rejected' | 'Uncertain' | 'Expired';
+  createdUtc: string; expiresUtc: string; decidedUtc: string | null; completedUtc: string | null;
+  outcome: string | null; workReferences: AskActionWorkReference[];
+}
+export interface AskProposalDecision { statusCode: number; proposal: AskActionProposal | null; message: string | null; }
+export interface AskWorkReport {
+  kind: 'Mission' | 'Voyage' | 'Job'; id: string; title: string; status: string; deliveryState: string;
+  parentMissionId: string | null; rescueMissionId: string | null; producedWork: boolean;
+  delivered: boolean; summary: string; updatedUtc: string | null;
+}
+
 /** Request to build or refine a vessel's Model Context document. */
 export interface VesselBuildContextRequest {
   captainId: string;

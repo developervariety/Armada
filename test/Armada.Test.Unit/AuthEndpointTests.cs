@@ -1,7 +1,9 @@
 namespace Armada.Test.Unit
 {
     using System.Security.Cryptography;
+    using System.IO;
     using System.Net.Http;
+    using System.Text;
     using System.Text.Json;
     using Armada.Core;
     using Armada.Core.Database.Sqlite;
@@ -96,6 +98,53 @@ namespace Armada.Test.Unit
                 AssertEqual("ten_abc", ctx!.TenantId, "TenantId");
                 AssertEqual("usr_xyz", ctx.UserId, "UserId");
                 AssertTrue(ctx.IsAuthenticated, "IsAuthenticated");
+            });
+
+            await RunTest("Ask session tokens authenticate scope and reject altered or legacy claims", () =>
+            {
+                byte[] rootKey = RandomNumberGenerator.GetBytes(32);
+                string rootKeyBase64 = Convert.ToBase64String(rootKey);
+                SessionTokenService svc = new SessionTokenService(rootKeyBase64);
+                AuthenticateResult ask = svc.CreateAskTurnToken("ten_ask", "usr_ask", "thread_ask", "turn_ask");
+                AssertTrue(ask.Token!.StartsWith("ask1.", StringComparison.Ordinal), "Ask tokens use the authenticated format");
+                AuthContext? scope = svc.ValidateToken(ask.Token);
+                AssertNotNull(scope, "valid Ask token validates");
+                AssertTrue(scope!.IsAuthenticated);
+                AssertEqual("ten_ask", scope.TenantId);
+                AssertEqual("usr_ask", scope.UserId);
+                AssertEqual("thread_ask", scope.AskThreadId);
+                AssertEqual("turn_ask", scope.AskTurnId);
+                AssertNull(scope.MissionId);
+
+                byte[] tokenBytes = Convert.FromBase64String(ask.Token.Substring("ask1.".Length));
+                foreach (int index in new[] { 0, 12 + (tokenBytes.Length - 12 - 16) / 2, tokenBytes.Length - 1 })
+                {
+                    byte[] changed = (byte[])tokenBytes.Clone();
+                    changed[index] ^= 0x01;
+                    AuthContext? altered = svc.ValidateToken("ask1." + Convert.ToBase64String(changed));
+                    AssertNull(altered, "nonce, ciphertext, and tag changes must fail authentication");
+                }
+
+                AssertNull(svc.ValidateToken("ask1." + Convert.ToBase64String(tokenBytes, 0, tokenBytes.Length - 1)), "truncated Ask token is rejected");
+                AssertNull(svc.ValidateToken(ask.Token.Substring("ask1.".Length)), "stripping the Ask prefix cannot validate as a generic session");
+                SessionTokenService otherKey = new SessionTokenService(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
+                AssertNull(otherKey.ValidateToken(ask.Token), "Ask token is bound to its root key");
+
+                object legacyPayload = new
+                {
+                    TenantId = "ten_ask", UserId = "usr_ask", MissionId = (string?)null,
+                    AskThreadId = "thread_ask", AskTurnId = "turn_ask",
+                    ExpiresUtc = DateTime.UtcNow.AddHours(Constants.SessionTokenLifetimeHours)
+                };
+                string legacyAsk = EncryptLegacyForTest(rootKey, JsonSerializer.Serialize(legacyPayload));
+                AssertNull(svc.ValidateToken(legacyAsk), "legacy CBC data cannot authenticate Ask scope claims");
+
+                AuthContext? ordinary = svc.ValidateToken(svc.CreateToken("ten_legacy", "usr_legacy").Token!);
+                AssertNotNull(ordinary, "legacy ordinary token remains valid");
+                AssertNull(ordinary!.AskThreadId);
+                AuthContext? mission = svc.ValidateToken(svc.CreateMissionToken("ten_legacy", "usr_legacy", "mission_legacy").Token!);
+                AssertNotNull(mission, "legacy mission token remains valid");
+                AssertEqual("mission_legacy", mission!.MissionId);
             });
 
             await RunTest("SessionToken ValidateToken on expired token returns null", () =>
@@ -362,6 +411,27 @@ namespace Armada.Test.Unit
         }
 
         #region Private-Helpers
+
+        private static string EncryptLegacyForTest(byte[] key, string plaintext)
+        {
+            using (Aes aes = Aes.Create())
+            {
+                aes.Key = key;
+                aes.GenerateIV();
+                using (MemoryStream output = new MemoryStream())
+                {
+                    output.Write(aes.IV, 0, aes.IV.Length);
+                    using (ICryptoTransform encryptor = aes.CreateEncryptor())
+                    using (CryptoStream crypto = new CryptoStream(output, encryptor, CryptoStreamMode.Write))
+                    {
+                        byte[] bytes = Encoding.UTF8.GetBytes(plaintext);
+                        crypto.Write(bytes, 0, bytes.Length);
+                        crypto.FlushFinalBlock();
+                    }
+                    return Convert.ToBase64String(output.ToArray());
+                }
+            }
+        }
 
         private AuthenticationService CreateAuthService(
             SqliteDatabaseDriver db,

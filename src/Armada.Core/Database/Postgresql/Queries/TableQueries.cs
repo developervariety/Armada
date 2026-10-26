@@ -1226,7 +1226,8 @@ $convert$;"),
                 ),
                 new SchemaMigration(127, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.PostgresqlStatements),
                 new SchemaMigration(128, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.PostgresqlStatements),
-                new SchemaMigration(129, "Persist saved Ask threads and durable turns", AskThreadSchema.PostgresqlStatements)
+                new SchemaMigration(129, "Persist saved Ask threads and durable turns", AskThreadSchema.PostgresqlStatements),
+                new SchemaMigration(130, "Persist owner-scoped Ask action proposals", AskActionProposalSchema.PostgresqlStatements)
             };
         }
 

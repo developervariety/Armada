@@ -5,6 +5,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using SyslogLogging;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -56,6 +57,16 @@ namespace Armada.Core.Services
             string? apiKeyHeader,
             CancellationToken token = default)
         {
+            string? bearerCandidate = GetBearerCandidate(authorizationHeader);
+            bool hasAskFormat = SessionTokenService.HasAskTokenFormat(bearerCandidate)
+                || SessionTokenService.HasAskTokenFormat(sessionTokenHeader);
+            if (hasAskFormat)
+            {
+                AuthContext? askCredential = GetAskTurnCredential(bearerCandidate) ?? GetAskTurnCredential(sessionTokenHeader);
+                if (askCredential != null)
+                    return new AuthContext { AskThreadId = askCredential.AskThreadId, AskTurnId = askCredential.AskTurnId };
+                return new AuthContext();
+            }
             // 1. Check Bearer token (canonical auth path)
             if (!string.IsNullOrEmpty(authorizationHeader) && authorizationHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
@@ -100,6 +111,42 @@ namespace Armada.Core.Services
 
             // 4. Unauthenticated
             return new AuthContext();
+        }
+
+        /// <inheritdoc />
+        public async Task<AuthContext> AuthenticateMcpAsync(string? authorizationHeader, string? sessionTokenHeader, string? apiKeyHeader, CancellationToken token = default)
+        {
+            string? candidate = GetSessionCandidate(authorizationHeader, sessionTokenHeader);
+            AuthContext? scoped = String.IsNullOrWhiteSpace(candidate) ? null : _SessionTokenService.ValidateToken(candidate);
+            if (SessionTokenService.HasAskTokenFormat(candidate)
+                && (scoped == null || String.IsNullOrWhiteSpace(scoped.AskThreadId) || String.IsNullOrWhiteSpace(scoped.AskTurnId)))
+                return new AuthContext();
+            if (scoped != null && (!String.IsNullOrWhiteSpace(scoped.AskThreadId) || !String.IsNullOrWhiteSpace(scoped.AskTurnId)))
+            {
+                if (String.IsNullOrWhiteSpace(scoped.AskThreadId) || String.IsNullOrWhiteSpace(scoped.AskTurnId)
+                    || String.IsNullOrWhiteSpace(scoped.TenantId) || String.IsNullOrWhiteSpace(scoped.UserId)) return new AuthContext();
+                try
+                {
+                    UserMaster? user = await _Database.Users.ReadByIdAsync(scoped.UserId, token).ConfigureAwait(false);
+                    if (user == null || !user.Active || user.TenantId != scoped.TenantId) return new AuthContext();
+                    TenantMetadata? tenant = await _Database.Tenants.ReadAsync(scoped.TenantId, token).ConfigureAwait(false);
+                    if (tenant == null || !tenant.Active) return new AuthContext();
+                    AskThread? thread = await _Database.AskThreads.ReadAsync(scoped.TenantId, scoped.UserId, scoped.AskThreadId, token).ConfigureAwait(false);
+                    if (thread == null || thread.ActiveTurnId != scoped.AskTurnId) return new AuthContext();
+                    AskTurn? turn = await _Database.AskThreads.ReadTurnAsync(scoped.TenantId, scoped.UserId, scoped.AskThreadId, scoped.AskTurnId, token).ConfigureAwait(false);
+                    if (turn == null || turn.State != AskTurnStateEnum.Running || turn.ThreadId != thread.Id || turn.RequestId != thread.ActiveTurnId) return new AuthContext();
+                    scoped.IsAdmin = user.IsAdmin;
+                    scoped.IsTenantAdmin = user.IsAdmin || user.IsTenantAdmin;
+                    scoped.PrincipalDisplay = user.Email;
+                    return scoped;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "saved-turn MCP authentication failed: " + ex.Message);
+                    return new AuthContext();
+                }
+            }
+            return await AuthenticateAsync(authorizationHeader, sessionTokenHeader, apiKeyHeader, token).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
@@ -206,6 +253,25 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "session token authentication failed: " + ex.Message);
                 return null;
             }
+        }
+
+        private AuthContext? GetAskTurnCredential(string? candidate)
+        {
+            AuthContext? context = String.IsNullOrWhiteSpace(candidate) ? null : _SessionTokenService.ValidateToken(candidate);
+            return context != null && (!String.IsNullOrWhiteSpace(context.AskThreadId) || !String.IsNullOrWhiteSpace(context.AskTurnId)) ? context : null;
+        }
+
+        private static string? GetBearerCandidate(string? authorizationHeader)
+        {
+            if (String.IsNullOrWhiteSpace(authorizationHeader) || !authorizationHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return null;
+            return authorizationHeader.Substring(7).Trim();
+        }
+
+        private static string? GetSessionCandidate(string? authorizationHeader, string? sessionTokenHeader)
+        {
+            if (!String.IsNullOrWhiteSpace(authorizationHeader) && authorizationHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                return authorizationHeader.Substring(7).Trim();
+            return sessionTokenHeader;
         }
 
         #endregion

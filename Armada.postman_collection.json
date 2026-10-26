@@ -307,6 +307,16 @@
 			"key": "typedDecisionName",
 			"value": "my_custom_decision",
 			"type": "string"
+		},
+		{
+			"key": "askProposalId",
+			"value": "aap_example",
+			"type": "string"
+		},
+		{
+			"key": "askProposalFingerprint",
+			"value": "reviewed-proposal-fingerprint",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -10997,6 +11007,116 @@
 						"header": [],
 						"url": {"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/turns/{{askRequestId}}", "host": ["{{baseUrl}}"], "path": ["api", "v1", "ask", "threads", "{{askThreadId}}", "turns", "{{askRequestId}}"]},
 						"description": "Read the stored result or state of one turn."
+					}
+				},
+				{
+					"name": "List Saved Ask Proposals",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/proposals",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ask",
+								"threads",
+								"{{askThreadId}}",
+								"proposals"
+							]
+						},
+						"description": "Read current exact-owner action proposals."
+					}
+				},
+				{
+					"name": "Read Saved Ask Work",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/work",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ask",
+								"threads",
+								"{{askThreadId}}",
+								"work"
+							]
+						},
+						"description": "Read fresh observations of exact linked work; completion is separate from delivery."
+					}
+				},
+				{
+					"name": "Approve Saved Ask Proposal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/proposals/{{askProposalId}}/approve",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ask",
+								"threads",
+								"{{askThreadId}}",
+								"proposals",
+								"{{askProposalId}}",
+								"approve"
+							]
+						},
+						"description": "Approve the exact reviewed action once under current human authority.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fingerprint\": \"{{askProposalFingerprint}}\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Reject Saved Ask Proposal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/proposals/{{askProposalId}}/reject",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ask",
+								"threads",
+								"{{askThreadId}}",
+								"proposals",
+								"{{askProposalId}}",
+								"reject"
+							]
+						},
+						"description": "Reject the exact reviewed action without invoking its tool.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fingerprint\": \"{{askProposalFingerprint}}\"\n}"
+						}
 					}
 				}
 			]

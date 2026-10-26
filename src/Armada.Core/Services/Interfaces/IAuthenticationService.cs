@@ -17,6 +17,17 @@ namespace Armada.Core.Services.Interfaces
         /// <returns>AuthContext (may be unauthenticated if no valid credentials found).</returns>
         Task<AuthContext> AuthenticateAsync(string? authorizationHeader, string? sessionTokenHeader, string? apiKeyHeader, CancellationToken token = default);
 
+        /// <summary>Authenticate MCP calls, including a validated saved Ask turn credential.</summary>
+        /// <param name="authorizationHeader">Authorization header value.</param>
+        /// <param name="sessionTokenHeader">X-Token header value.</param>
+        /// <param name="apiKeyHeader">X-Api-Key header value.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The authenticated caller, or an unauthenticated context.</returns>
+        Task<AuthContext> AuthenticateMcpAsync(string? authorizationHeader, string? sessionTokenHeader, string? apiKeyHeader, CancellationToken token = default)
+        {
+            return AuthenticateAsync(authorizationHeader, sessionTokenHeader, apiKeyHeader, token);
+        }
+
         /// <summary>
         /// Authenticate with email and password credentials.
         /// </summary>

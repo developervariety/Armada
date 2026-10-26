@@ -24,5 +24,13 @@ namespace Armada.Core.Database.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>Facts in ascending creation order and a truncation flag.</returns>
         Task<ProductionFactPage<MissionAttemptFact>> EnumerateAsync(ProductionFactQuery query, CancellationToken token = default);
+
+        /// <summary>Read the newest facts for one exact tenant and mission.</summary>
+        /// <param name="tenantId">Exact tenant identifier.</param>
+        /// <param name="missionId">Exact mission identifier.</param>
+        /// <param name="limit">Maximum rows to return, clamped to [1, 1000].</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The newest bounded set, in ascending creation time and identifier order, with a truncation flag.</returns>
+        Task<ProductionFactPage<MissionAttemptFact>> EnumerateByMissionAsync(string tenantId, string missionId, int limit = 1000, CancellationToken token = default);
     }
 }

@@ -13,7 +13,7 @@ namespace Armada.Core.Services
     /// AES-256-CBC encrypted, containing TenantId + UserId + ExpiresUtc.
     /// No server-side storage needed.
     /// </summary>
-    public class SessionTokenService : ISessionTokenService
+    public partial class SessionTokenService : ISessionTokenService
     {
         #region Private-Members
 
@@ -57,7 +57,15 @@ namespace Armada.Core.Services
             return CreateTokenCore(tenantId, userId, missionId);
         }
 
-        private AuthenticateResult CreateTokenCore(string tenantId, string userId, string? missionId)
+        /// <inheritdoc />
+        public AuthenticateResult CreateAskTurnToken(string tenantId, string userId, string threadId, string turnId)
+        {
+            if (String.IsNullOrEmpty(threadId)) throw new ArgumentNullException(nameof(threadId));
+            if (String.IsNullOrEmpty(turnId)) throw new ArgumentNullException(nameof(turnId));
+            return CreateAskTurnTokenCore(tenantId, userId, threadId, turnId);
+        }
+
+        private AuthenticateResult CreateTokenCore(string tenantId, string userId, string? missionId, string? askThreadId = null, string? askTurnId = null)
         {
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
@@ -69,6 +77,8 @@ namespace Armada.Core.Services
                 TenantId = tenantId,
                 UserId = userId,
                 MissionId = missionId,
+                AskThreadId = askThreadId,
+                AskTurnId = askTurnId,
                 ExpiresUtc = expiresUtc
             };
 
@@ -87,6 +97,8 @@ namespace Armada.Core.Services
         public AuthContext? ValidateToken(string encryptedToken)
         {
             if (string.IsNullOrEmpty(encryptedToken)) return null;
+            if (encryptedToken.StartsWith(AskTokenPrefix, StringComparison.Ordinal))
+                return ValidateAskTurnToken(encryptedToken);
 
             try
             {
@@ -95,6 +107,15 @@ namespace Armada.Core.Services
                 if (payload == null) return null;
                 if (string.IsNullOrEmpty(payload.TenantId) || string.IsNullOrEmpty(payload.UserId)) return null;
                 if (payload.ExpiresUtc <= DateTime.UtcNow) return null;
+
+                // Legacy CBC tokens cannot prove the integrity of Ask scope claims. New Ask
+                // credentials use the authenticated ask1 format and never reach this branch.
+                if (!String.IsNullOrWhiteSpace(payload.AskThreadId) || !String.IsNullOrWhiteSpace(payload.AskTurnId)) return null;
+
+                string? askThreadId = String.IsNullOrEmpty(payload.AskThreadId) ? null : payload.AskThreadId;
+                string? askTurnId = String.IsNullOrEmpty(payload.AskTurnId) ? null : payload.AskTurnId;
+                string? missionId = String.IsNullOrEmpty(payload.MissionId) ? null : payload.MissionId;
+                if ((askThreadId == null) != (askTurnId == null) || (missionId != null && askThreadId != null)) return null;
 
                 return new AuthContext
                 {
@@ -106,7 +127,9 @@ namespace Armada.Core.Services
                     AuthMethod = "Session",
                     CredentialId = null,
                     PrincipalDisplay = payload.UserId,
-                    MissionId = String.IsNullOrEmpty(payload.MissionId) ? null : payload.MissionId
+                    MissionId = missionId,
+                    AskThreadId = askThreadId,
+                    AskTurnId = askTurnId
                 };
             }
             catch
@@ -180,6 +203,8 @@ namespace Armada.Core.Services
             public string? TenantId { get; set; }
             public string? UserId { get; set; }
             public string? MissionId { get; set; }
+            public string? AskThreadId { get; set; }
+            public string? AskTurnId { get; set; }
             public DateTime ExpiresUtc { get; set; }
         }
 

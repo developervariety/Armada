@@ -57,8 +57,8 @@ know the result. Transport failure is not permission to submit the same text
 under a new identifier.
 
 The fork does not import upstream CLI permission overrides, automatic approval,
-retention pruning or bulk thread deletion with this feature. MCP tool access
-continues to use the captain chat service's current caller scope. Saved threads
+retention pruning or bulk thread deletion with this feature. Temporary chat MCP access uses the captain chat service's current caller scope.
+Saved turns use a separate turn-bound MCP credential and the manual approval gate. Saved threads
 do not change dispatch, landing, rescue or deployment authority.
 
 A send body has `requestId`, `content` and `showThinking`. It does not accept
@@ -77,3 +77,59 @@ Thread updates use presence flags (`setTitle`, `setCaptainId`, `setPinned`,
 null captain clears it. Absent flags leave fields unchanged. Thread lists return
 an enumeration result. Turn lists return a bounded array in ascending sequence
 order, using the exclusive `beforeSequence` cursor for older pages.
+
+## Proposed actions and work
+
+A saved turn uses an authenticated, encrypted credential bound to its owner,
+thread and active request. Ordinary REST and WebSocket authentication reject this
+credential. MCP rechecks the active user, tenant, administrator role and running
+turn on every request. Its explicit catalog contains read tools and supported
+mission and objective actions. Unsupported tools are unavailable in saved chat.
+Temporary chat keeps its current caller access.
+
+Supported changes become proposals. The stored proposal includes the exact tool,
+normalized full record identifiers, canonical arguments and an owner-bound
+fingerprint. Arguments are limited to 32,000 characters. Protected values are
+refused before proposal storage. The service stores bounded outcome summaries
+and typed work identifiers, not raw tool results.
+
+The human owner reviews the tool and arguments, then approves or rejects the
+proposal. Approval sends its fingerprint. The server rechecks current authority
+and the fingerprint, claims the pending proposal, and invokes the original
+registered handler under that human identity. The existing dispatch, check,
+landing and rescue rules still apply. Proposals expire after 30 minutes. There
+is no automatic approval or automatic follow-up captain turn.
+
+An executing proposal cannot execute again. If a process stops or a handler
+throws before a result is confirmed, the proposal remains fenced and reads as
+uncertain. A repeated decision never invokes the handler again. The operator
+must inspect the existing work before making a separate new proposal.
+
+An accepted background job is stored as an exact work reference. Reading the
+proposal observes the existing job journal and records its known terminal
+result. Missing or lost jobs remain uncertain. Observation never starts another
+job. This does not guarantee recovery of an unrecorded dispatch association.
+
+Work reports read current records by the exact returned identifiers. They do not
+search titles or infer work from model text. Produced work and failed landing
+remain visible as separate outcomes. Mission delivery requires a current-attempt
+`Landed` fact and a complete mission. Old landing facts do not prove a later
+restart or retry delivered. Rescue children have their own cards and do not mark
+their parent delivered. Voyage completion has no aggregate delivery claim. Recent
+check statuses are observations, not a replacement for readiness.
+
+The API lists the newest 200 proposals and bounds a work response to 200 cards.
+These views retain stored history and do not purge it. The API routes are:
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/api/v1/ask/threads/{id}/proposals` | Read owned proposals and observe accepted jobs. |
+| POST | `/api/v1/ask/threads/{id}/proposals/{proposalId}/approve` | Approve the reviewed fingerprint. |
+| POST | `/api/v1/ask/threads/{id}/proposals/{proposalId}/reject` | Reject the reviewed fingerprint. |
+| GET | `/api/v1/ask/threads/{id}/work` | Read current work observations. |
+
+Decision bodies contain `fingerprint`. Responses contain `statusCode`, `proposal`
+and `message`. A successful response can have an informational message. HTTP 409
+names an expired, conflicting or uncertain decision; it is not permission to
+repeat a side effect. Global administrators still cannot decide another user's
+conversation proposals.

@@ -134,6 +134,9 @@ import type {
   CaptainChatRequest,
   CaptainChatResponse,
   AskThread,
+  AskActionProposal,
+  AskProposalDecision,
+  AskWorkReport,
   AskThreadCreateRequest,
   AskThreadUpdateRequest,
   AskTurn,
@@ -1274,6 +1277,10 @@ export const sendAskTurn = (threadId: string, data: AskTurnSendRequest, opts?: {
   post<AskTurnStart>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/turns`, data, { timeout: 330000, signal: opts?.signal });
 export const getAskTurn = (threadId: string, requestId: string) =>
   get<AskTurn>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/turns/${encodeURIComponent(requestId)}`);
+export const listAskProposals = (threadId: string) => get<AskActionProposal[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/proposals`);
+export const decideAskProposal = (threadId: string, proposalId: string, decision: 'approve' | 'reject', fingerprint: string) =>
+  post<AskProposalDecision>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/proposals/${encodeURIComponent(proposalId)}/${decision}`, { fingerprint });
+export const listAskWorkReports = (threadId: string) => get<AskWorkReport[]>(`/api/v1/ask/threads/${encodeURIComponent(threadId)}/work`);
 
 /** Building a Model Context provisions a worktree and runs a captain over it; minutes, not seconds. */
 export const buildVesselContext = (vesselId: string, body: VesselBuildContextRequest) =>

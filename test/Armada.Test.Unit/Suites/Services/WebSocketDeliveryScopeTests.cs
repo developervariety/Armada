@@ -59,11 +59,14 @@ namespace Armada.Test.Unit.Suites.Services
                 AuthContext owner = AuthContext.Authenticated("ten_a", "usr_a1", true, true, "Session");
                 AuthContext mission = AuthContext.Authenticated("ten_a", "usr_a1", true, true, "Session");
                 mission.MissionId = "msn_example";
+                AuthContext ask = AuthContext.Authenticated("ten_a", "usr_a1", true, true, "Session");
+                ask.AskThreadId = "ask_thread";
+                ask.AskTurnId = "request_id";
                 WebSocketDeliveryScope scope = WebSocketDeliveryScope.ForInteractiveOwner("ten_a", "usr_a1");
                 AssertTrue(scope.CanReceive(owner), "exact human owner");
                 foreach (AuthContext refused in new[]
                 {
-                    new AuthContext(), mission,
+                    new AuthContext(), mission, ask,
                     User("ten_a", "usr_a2"), User("ten_b", "usr_a1"),
                     AuthContext.Authenticated("ten_a", "usr_admin", false, true, "Session"),
                     AuthContext.Authenticated("default", "default", true, true, "ApiKey")

@@ -68,7 +68,9 @@ Both versions offer saved Ask conversations. The fork keeps the current chat
 routes and administrator access rule. Saved threads belong to one tenant and
 user, build model context from stored turns, and retain a durable request fence
 so a retry cannot launch the same turn twice. Interrupted turns remain explicit
-and block replacement. See [saved conversations](docs/ASK_CONVERSATIONS.md).
+and block replacement. Saved-turn MCP access proposes supported changes for exact
+human approval. Durable execution claims prevent replay, and work cards use recorded
+landing and rescue facts. See [saved conversations](docs/ASK_CONVERSATIONS.md).
 
 Both versions use salted PBKDF2-HMAC-SHA256 password storage. The fork keeps
 the SHA-256 API input and upgrades legacy rows with conditional password-only

@@ -56,7 +56,7 @@ namespace Armada.Server
                     Message = turn.Content, TurnId = turn.RequestId, ShowThinking = turn.ShowThinking,
                     History = BuildHistory(history)
                 };
-                CaptainChatResponse response = await _Chat.ChatSavedAsync(caller, turn.CaptainId, chatRequest, token).ConfigureAwait(false);
+                CaptainChatResponse response = await _Chat.ChatSavedAsync(caller, turn, chatRequest, token).ConfigureAwait(false);
                 // The HTTP client disconnecting must not discard a result already returned by the runtime.
                 bool stored = await _Database.AskThreads.CompleteTurnAsync(caller.TenantId!, caller.UserId!, turn.ThreadId, turn.RequestId, response, CancellationToken.None).ConfigureAwait(false);
                 if (!stored) throw new InvalidOperationException("The runtime ended but its saved result could not be confirmed. The turn remains fenced.");

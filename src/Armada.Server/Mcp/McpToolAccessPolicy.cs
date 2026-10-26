@@ -129,6 +129,7 @@ namespace Armada.Server.Mcp
         {
             if (caller == null || !caller.IsAuthenticated) return false;
             if (String.IsNullOrEmpty(toolName)) return false;
+            if (AskToolPolicy.HasScope(caller)) return AskToolPolicy.IsAllowed(caller, toolName);
             if (!String.IsNullOrEmpty(caller.MissionId))
                 return _CallerScopedTools.Contains(toolName) || _MissionReadTools.Contains(toolName);
             if (caller.IsAdmin) return true;

@@ -87,6 +87,7 @@ namespace Armada.Server.WebSocket
             if (auth == null || !auth.IsAuthenticated) return false;
             if (IsInteractiveOwnerOnly)
                 return TenantId != null && UserId != null && String.IsNullOrWhiteSpace(auth.MissionId)
+                    && String.IsNullOrWhiteSpace(auth.AskThreadId) && String.IsNullOrWhiteSpace(auth.AskTurnId)
                     && String.Equals(TenantId, auth.TenantId, StringComparison.Ordinal)
                     && String.Equals(UserId, auth.UserId, StringComparison.Ordinal);
             if (auth.IsAdmin) return true;

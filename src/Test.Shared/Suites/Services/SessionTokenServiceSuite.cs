@@ -102,6 +102,22 @@ namespace Test.Shared.Suites.Services
                 AssertNull(user!.MissionId, "A user token names no mission");
             }));
 
+            cases.Add(Case("ask_turn_token_keeps_exact_thread_turn_scope", "CreateAskTurnToken KeepsThreadAndTurnSeparate", TestTags.Positive, () =>
+            {
+                SessionTokenService svc = new SessionTokenService();
+                AuthContext? ask = svc.ValidateToken(svc.CreateAskTurnToken("ten_abc", "usr_xyz", "ask_thread", "request_123").Token!);
+                AssertNotNull(ask);
+                AssertEqual("ask_thread", ask!.AskThreadId);
+                AssertEqual("request_123", ask.AskTurnId);
+                AssertNull(ask.MissionId);
+                AuthContext? ordinary = svc.ValidateToken(svc.CreateToken("ten_abc", "usr_xyz").Token!);
+                AssertNull(ordinary!.AskThreadId);
+                AssertNull(ordinary.AskTurnId);
+                AuthContext? mission = svc.ValidateToken(svc.CreateMissionToken("ten_abc", "usr_xyz", "msn_example").Token!);
+                AssertNull(mission!.AskThreadId);
+                AssertNull(mission.AskTurnId);
+            }));
+
             cases.Add(Case("validate_token_null_token_returns_null", "ValidateToken NullToken ReturnsNull", TestTags.Negative, () =>
             {
                 SessionTokenService svc = new SessionTokenService();

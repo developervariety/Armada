@@ -694,6 +694,84 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(observedAudit.Succeeded);
             }).ConfigureAwait(false);
 
+            await RunTest("SavedAskAuditOmitsArgumentsAndOrdinaryAuditPreservesThem", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                const string savedAskKey = "saved-ask-audit-key";
+                server.Authenticator = (credentials, token) =>
+                {
+                    if (credentials.ApiKey == savedAskKey)
+                    {
+                        AuthContext ask = AuthContext.Authenticated("default", "default", true, true, "Session");
+                        ask.AskThreadId = "ask_thread_test";
+                        ask.AskTurnId = "request_test";
+                        return Task.FromResult(ask);
+                    }
+                    if (credentials.ApiKey == TestApiKey)
+                        return Task.FromResult(AuthContext.Authenticated("default", "default", true, true, "ApiKey"));
+                    return Task.FromResult(new AuthContext());
+                };
+
+                List<McpToolCallAudit> audits = new List<McpToolCallAudit>();
+                server.RequireToolCallAudit = true;
+                server.ToolCallAuditSink = (audit, token) =>
+                {
+                    audits.Add(audit);
+                    return Task.CompletedTask;
+                };
+                bool failNextCall = false;
+                string failureDetail = "diagnostic-" + Guid.NewGuid().ToString("N");
+                server.RegisterTool(
+                    "armada_audit_probe",
+                    "Check scoped transport audit behavior",
+                    new { type = "object" },
+                    args =>
+                    {
+                        if (failNextCall) throw new InvalidOperationException(failureDetail);
+                        return Task.FromResult((object)new { Status = "ok" });
+                    });
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+                string protectedValue = "private-" + Guid.NewGuid().ToString("N");
+                await SendAuditProbeAsync(client, 1, savedAskKey, protectedValue).ConfigureAwait(false);
+                AssertEqual(2, audits.Count, "required audit records the start and outcome");
+                AssertEqual("armada_audit_probe", audits[0].ToolName);
+                AssertEqual("Started", audits[0].Phase);
+                AssertFalse(audits[0].Succeeded);
+                AssertNull(audits[0].ArgumentsJson, "saved Ask start audit omits arguments");
+                AssertEqual("armada_audit_probe", audits[1].ToolName);
+                AssertEqual("Succeeded", audits[1].Phase);
+                AssertTrue(audits[1].Succeeded);
+                AssertNull(audits[1].ArgumentsJson, "saved Ask outcome audit omits arguments");
+
+                string ordinaryValue = "ordinary-" + Guid.NewGuid().ToString("N");
+                await SendAuditProbeAsync(client, 2, TestApiKey, ordinaryValue).ConfigureAwait(false);
+                AssertEqual(4, audits.Count);
+                AssertEqual("Started", audits[2].Phase);
+                AssertNotNull(audits[2].ArgumentsJson, "ordinary authenticated start audit keeps arguments");
+                AssertContains(ordinaryValue, audits[2].ArgumentsJson!);
+                AssertEqual("Succeeded", audits[3].Phase);
+                AssertTrue(audits[3].Succeeded);
+                AssertNotNull(audits[3].ArgumentsJson, "ordinary authenticated outcome audit keeps arguments");
+                AssertContains(ordinaryValue, audits[3].ArgumentsJson!);
+
+                failNextCall = true;
+                await SendAuditProbeAsync(client, 3, savedAskKey, protectedValue).ConfigureAwait(false);
+                AssertEqual(6, audits.Count);
+                McpToolCallAudit failed = audits[5];
+                AssertEqual("armada_audit_probe", failed.ToolName);
+                AssertEqual("Failed", failed.Phase);
+                AssertFalse(failed.Succeeded);
+                AssertNull(failed.ArgumentsJson, "saved Ask failure audit omits arguments");
+                AssertNotNull(failed.Error, "the failed outcome remains visible in the audit");
+                AssertFalse(failed.Error!.Contains(failureDetail, StringComparison.Ordinal), "saved Ask failure audit does not copy the raw exception detail");
+            }).ConfigureAwait(false);
+
             await RunTest("ErrorEnvelopeResult_IsFlaggedAndAuditedAsFailed", async () =>
             {
                 AuditedToolCall call = await CallAuditedToolAsync(
@@ -810,6 +888,17 @@ namespace Armada.Test.Unit.Suites.Services
             };
             call.Response = await CallToolAsync(client, 1, "armada_result", null).ConfigureAwait(false);
             return call;
+        }
+
+        private static async Task SendAuditProbeAsync(HttpClient client, int id, string apiKey, string password)
+        {
+            using HttpRequestMessage request = CreateRequest(
+                "/mcp",
+                id,
+                "tools/call",
+                new { name = "armada_audit_probe", arguments = new { password } },
+                apiKey: apiKey);
+            await ReadRpcAsync(await client.SendAsync(request).ConfigureAwait(false)).ConfigureAwait(false);
         }
 
         private sealed class AuditedToolCall

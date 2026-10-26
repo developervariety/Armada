@@ -66,10 +66,15 @@ namespace Armada.Server.Routes
 
                 // Try header-based auth first
                 AuthContext headerCtx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!String.IsNullOrWhiteSpace(headerCtx.AskThreadId) || !String.IsNullOrWhiteSpace(headerCtx.AskTurnId))
+                {
+                    req.Http.Response.StatusCode = 403;
+                    return (object)new AuthenticateResult { Success = false };
+                }
                 if (headerCtx.IsAuthenticated)
                 {
                     // A mission credential cannot be exchanged for an unrestricted user session.
-                    if (!String.IsNullOrWhiteSpace(headerCtx.MissionId))
+                    if (!String.IsNullOrWhiteSpace(headerCtx.MissionId) || !String.IsNullOrWhiteSpace(headerCtx.AskThreadId) || !String.IsNullOrWhiteSpace(headerCtx.AskTurnId))
                     {
                         req.Http.Response.StatusCode = 403;
                         return (object)new AuthenticateResult { Success = false };

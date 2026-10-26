@@ -122,10 +122,10 @@ namespace Armada.Server
         /// <returns>The assistant reply and its timing statistics.</returns>
         public Task<CaptainChatResponse> ChatAsync(AuthContext? caller, string captainId, CaptainChatRequest request, CancellationToken token = default)
         {
-            return ChatWithScopeAsync(caller, captainId, request, null, token);
+            return ChatWithScopeAsync(caller, captainId, request, null, null, token);
         }
 
-        private async Task<CaptainChatResponse> ChatWithScopeAsync(AuthContext? caller, string captainId, CaptainChatRequest request, Armada.Server.WebSocket.WebSocketDeliveryScope? liveScope, CancellationToken token)
+        private async Task<CaptainChatResponse> ChatWithScopeAsync(AuthContext? caller, string captainId, CaptainChatRequest request, Armada.Server.WebSocket.WebSocketDeliveryScope? liveScope, AskTurn? savedTurn, CancellationToken token)
         {
             Armada.Server.WebSocket.WebSocketDeliveryScope turnScope = liveScope ?? (caller == null || !caller.IsAuthenticated
                 ? Armada.Server.WebSocket.WebSocketDeliveryScope.AdminOnly
@@ -136,6 +136,7 @@ namespace Armada.Server
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.Message)) return Fail("A message is required.");
             if (!String.IsNullOrWhiteSpace(caller?.MissionId)) return Fail("Mission credentials cannot start captain chat.");
+            if (!String.IsNullOrWhiteSpace(caller?.AskThreadId) || !String.IsNullOrWhiteSpace(caller?.AskTurnId)) return Fail("Saved-turn credentials cannot start nested captain chat.");
 
             Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
             if (captain == null) return Fail("Captain not found.");
@@ -170,7 +171,9 @@ namespace Armada.Server
                 // environment. A CLI runtime carries the token in its scoped MCP configuration by variable
                 // name; an API-endpoint runtime carries the same token in-process. A turn with no
                 // authenticated caller carries no token and reaches no MCP tool.
-                CallerMcpToolAccess? callerMcpAccess = CreateCallerMcpToolAccess(caller);
+                CallerMcpToolAccess? callerMcpAccess = savedTurn == null
+                    ? CreateCallerMcpToolAccess(caller)
+                    : CallerMcpToolAccessFactory.CreateForAskTurn(caller, savedTurn.ThreadId, savedTurn.RequestId, _SessionTokens, _Settings.McpPort, _Logging);
                 McpCredentialReference chatCredential = callerMcpAccess != null
                     ? McpCredentialReference.ForChat(callerMcpAccess.SessionToken)
                     : McpCredentialReference.ChatUnauthenticated;
@@ -235,7 +238,7 @@ namespace Armada.Server
                 string? reportedModel = null;
                 string? claudeFinalReply = null;
                 string? runtimeFailure = null;
-                string? turnId = request.TurnId;
+                string? turnId = savedTurn?.RequestId ?? request.TurnId;
                 ChatToolActivityTracker activityTracker = new ChatToolActivityTracker();
 
                 runtime.OnStdoutReceived += (pid, line) =>
@@ -581,6 +584,7 @@ namespace Armada.Server
         /// <returns>Caller-bound access, or null when none may be issued.</returns>
         private CallerMcpToolAccess? CreateCallerMcpToolAccess(AuthContext? caller)
         {
+            if (caller != null && (!String.IsNullOrWhiteSpace(caller.AskThreadId) || !String.IsNullOrWhiteSpace(caller.AskTurnId))) return null;
             return CallerMcpToolAccessFactory.Create(caller, _SessionTokens, _Settings.McpPort, _Logging);
         }
 

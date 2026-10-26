@@ -172,6 +172,9 @@ namespace Armada.Core.Database
         /// <summary>Saved Ask threads and durable turns.</summary>
         public IAskThreadMethods AskThreads { get; protected set; } = null!;
 
+        /// <summary>Durable Ask action proposal operations.</summary>
+        public virtual IAskActionProposalMethods AskActionProposals { get; protected set; } = null!;
+
         /// <summary>
         /// Append-only lane state transitions used by production metrics.
         /// </summary>

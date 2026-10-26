@@ -54,6 +54,10 @@ namespace Armada.Core.Database.SqlServer
                 { "ask_threads.last_activity_utc", StoredTimestampEnum.Timestamp },
                 { "ask_turns.created_utc", StoredTimestampEnum.Timestamp },
                 { "ask_turns.completed_utc", StoredTimestampEnum.Timestamp },
+                { "ask_action_proposals.created_utc", StoredTimestampEnum.Timestamp },
+                { "ask_action_proposals.expires_utc", StoredTimestampEnum.Timestamp },
+                { "ask_action_proposals.decided_utc", StoredTimestampEnum.Timestamp },
+                { "ask_action_proposals.completed_utc", StoredTimestampEnum.Timestamp },
                 { "harbor_jobs.completed_utc", StoredTimestampEnum.Timestamp },
                 { "harbor_jobs.created_utc", StoredTimestampEnum.Timestamp },
                 { "harbor_jobs.last_update_utc", StoredTimestampEnum.Timestamp },
@@ -147,6 +151,7 @@ namespace Armada.Core.Database.SqlServer
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             DataExpiry = new DataExpiryMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             PromptTemplates = new PromptTemplateMethods(_Stored);
@@ -226,6 +231,8 @@ namespace Armada.Core.Database.SqlServer
                                 await JudgeFollowUpHandledItemSchema.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                             if (migration.Version == 121)
                                 await AskThreadSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
+                            if (migration.Version == 122)
+                                await AskActionProposalSchema.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];

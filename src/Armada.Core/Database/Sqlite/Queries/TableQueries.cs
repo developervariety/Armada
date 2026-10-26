@@ -1677,7 +1677,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(123, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.SqliteStatements),
                 new SchemaMigration(124, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.SqliteStatements),
-                new SchemaMigration(125, "Persist saved Ask threads and durable turns", AskThreadSchema.SqliteStatements)
+                new SchemaMigration(125, "Persist saved Ask threads and durable turns", AskThreadSchema.SqliteStatements),
+                new SchemaMigration(126, "Persist owner-scoped Ask action proposals", AskActionProposalSchema.SqliteStatements)
             };
         }
 

@@ -10,6 +10,7 @@ import { applyToolEvent } from '../components/shared/ChatToolChips';
 import { randomThinkingMessage } from '../components/askThinkingMessages';
 import { randomGreeting } from '../components/askGreetings';
 import AskThreadShelf from '../components/ask/AskThreadShelf';
+import AskActionCards from '../components/ask/AskActionCards';
 import { useEarlierAskTurns } from '../components/ask/useEarlierAskTurns';
 import { replaceAskTurn, toChatTurns } from '../components/ask/askThreadUtils';
 
@@ -453,6 +454,7 @@ export default function AskArmada() {
         <div className="ask-body">
           {mode === 'saved' && selectedThread?.archived && <div className="text-dim" role="status">{t('This conversation is archived. Restore it to send another turn.')}</div>}
           {mode === 'saved' && turnStatusNotice && <div className="ask-turn-status" role="status">{turnStatusNotice}</div>}
+          {mode === 'saved' && selectedThread && <AskActionCards key={selectedThread.id} threadId={selectedThread.id} busy={busy} t={t} />}
           {mode === 'saved' && retryRequest && (
             <div className="ask-turn-status" role="alert">
               <span>{turnStatusNotice}</span>

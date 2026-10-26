@@ -26,6 +26,7 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public bool IsAuthorized(AuthContext ctx, string method, string path)
         {
+            if (ctx != null && (!String.IsNullOrWhiteSpace(ctx.AskThreadId) || !String.IsNullOrWhiteSpace(ctx.AskTurnId))) return false;
             // Mission identity constrains REST writes at this boundary while the underlying services remain
             // available to trusted internal workflows that preserve owner roles.
             if (ctx != null && !String.IsNullOrWhiteSpace(ctx.MissionId)

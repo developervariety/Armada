@@ -60,6 +60,7 @@ namespace Armada.Server.Mcp
         /// <param name="missionService">Optional mission service enabling armada_review_hold and armada_handoff_hold.</param>
         /// <param name="captainAdministration">Shared captain stop-all and deletion service. When null, one is built from <paramref name="admiral"/> and the supplied session coordinators.</param>
         /// <param name="missionOperations">Shared mission and voyage operations (cancel, purge, restart). When null, one is built from <paramref name="admiral"/>, <paramref name="settings"/> and <paramref name="dockService"/> that writes no events.</param>
+        /// <param name="askActions">Optional saved-chat proposal gate. Standalone tools keep their ordinary behavior.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -111,10 +112,12 @@ namespace Armada.Server.Mcp
             Func<string?>? contextParticipantKeyProvider = null,
             Armada.Core.Services.Interfaces.IMissionService? missionService = null,
             CaptainAdministrationService? captainAdministration = null,
-            MissionOperations? missionOperations = null)
+            MissionOperations? missionOperations = null,
+            AskActionService? askActions = null)
         {
             // Every tool's abbreviated id arguments resolve at this one seam before the tool runs.
             register = McpAbbreviatedIdArguments.Wrap(register, database);
+            if (askActions != null) register = askActions.Wrap(register);
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             missionOperations = missionOperations ?? new MissionOperations(
                 database,

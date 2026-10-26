@@ -36,5 +36,14 @@ namespace Armada.Core.Services.Interfaces
         {
             return CreateToken(tenantId, userId);
         }
+
+        /// <summary>Create a credential scoped to one saved Ask turn.</summary>
+        /// <param name="tenantId">Tenant ID.</param><param name="userId">Owner user ID.</param>
+        /// <param name="threadId">Saved thread ID.</param><param name="turnId">Reserved request ID.</param>
+        /// <returns>The issued token.</returns>
+        AuthenticateResult CreateAskTurnToken(string tenantId, string userId, string threadId, string turnId)
+        {
+            throw new System.NotSupportedException("This token service cannot issue saved-turn credentials.");
+        }
     }
 }

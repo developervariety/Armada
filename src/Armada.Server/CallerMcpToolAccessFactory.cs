@@ -29,7 +29,7 @@ namespace Armada.Server
         public static CallerMcpToolAccess? Create(AuthContext? caller, ISessionTokenService? sessionTokens, int mcpPort, LoggingModule? logging = null)
         {
             if (caller == null || !caller.IsAuthenticated) return null;
-            if (!String.IsNullOrWhiteSpace(caller.MissionId)) return null;
+            if (!String.IsNullOrWhiteSpace(caller.MissionId) || !String.IsNullOrWhiteSpace(caller.AskThreadId) || !String.IsNullOrWhiteSpace(caller.AskTurnId)) return null;
             if (String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId)) return null;
             if (sessionTokens == null || mcpPort <= 0) return null;
 
@@ -40,6 +40,30 @@ namespace Armada.Server
                 return null;
             }
 
+            return new CallerMcpToolAccess(ArmadaMcpConfigBuilder.GetMcpUrl(mcpPort), issued.Token!);
+        }
+
+        /// <summary>Build MCP access scoped to one reserved saved Ask turn.</summary>
+        /// <param name="caller">Authenticated human admin caller.</param>
+        /// <param name="threadId">Saved thread ID.</param>
+        /// <param name="turnId">Reserved turn request ID.</param>
+        /// <param name="sessionTokens">Token service that supports Ask scope.</param>
+        /// <param name="mcpPort">Armada MCP port.</param>
+        /// <param name="logging">Optional logging module.</param>
+        /// <returns>Saved-turn access, or null when it cannot be issued safely.</returns>
+        public static CallerMcpToolAccess? CreateForAskTurn(AuthContext? caller, string threadId, string turnId, ISessionTokenService? sessionTokens, int mcpPort, LoggingModule? logging = null)
+        {
+            if (caller == null || !caller.IsAuthenticated || !caller.IsAdmin || String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId)) return null;
+            if (!String.IsNullOrWhiteSpace(caller.MissionId) || !String.IsNullOrWhiteSpace(caller.AskThreadId) || !String.IsNullOrWhiteSpace(caller.AskTurnId)) return null;
+            if (String.IsNullOrWhiteSpace(threadId) || String.IsNullOrWhiteSpace(turnId) || sessionTokens == null || mcpPort <= 0) return null;
+            AuthenticateResult issued;
+            try { issued = sessionTokens.CreateAskTurnToken(caller.TenantId!, caller.UserId!, threadId, turnId); }
+            catch (NotSupportedException) { return null; }
+            if (String.IsNullOrWhiteSpace(issued.Token))
+            {
+                logging?.Warn("[CallerMcpToolAccessFactory] no saved-turn token was issued; no Armada MCP tools are available");
+                return null;
+            }
             return new CallerMcpToolAccess(ArmadaMcpConfigBuilder.GetMcpUrl(mcpPort), issued.Token!);
         }
 

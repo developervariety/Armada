@@ -454,7 +454,11 @@ namespace Armada.Server.Mcp
             if (sink == null) return;
             try
             {
-                string? argumentsJson = arguments?.GetRawText();
+                // Saved-action arguments are screened and recorded by the proposal gate. The transport audit
+                // retains the tool outcome without copying values the gate can refuse as protected.
+                AuthContext? auditCaller = McpCallerContext.Current;
+                bool savedTurn = auditCaller != null && AskToolPolicy.HasScope(auditCaller);
+                string? argumentsJson = savedTurn ? null : arguments?.GetRawText();
                 if (argumentsJson != null && argumentsJson.Length > 8192)
                     argumentsJson = argumentsJson.Substring(0, 8192);
                 McpToolCallAudit audit = new McpToolCallAudit
@@ -464,7 +468,7 @@ namespace Armada.Server.Mcp
                     ArgumentsJson = argumentsJson,
                     Phase = phase,
                     Succeeded = succeeded,
-                    Error = error,
+                    Error = savedTurn && error != null ? "Saved-turn tool call failed." : error,
                     CompletedUtc = DateTime.UtcNow
                 };
                 await sink(audit, cancellationToken).ConfigureAwait(false);

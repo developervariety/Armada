@@ -7,6 +7,7 @@ namespace Test.Shared.Suites.Services
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -129,6 +130,36 @@ namespace Test.Shared.Suites.Services
                     AuthContext ctx = await svc.AuthenticateAsync(null, "garbage-session-token", null);
 
                     AssertFalse(ctx.IsAuthenticated, "Should not be authenticated with garbage session token");
+                }
+            }));
+
+            cases.Add(CaseAsync("ask_turn_credential_denied_by_rest_auth_but_valid_for_active_mcp_turn", "AskTurnCredential IsMcpOnlyAndRequiresActiveOwnedTurn", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    AuthFixtureResult entities = await CreateTestEntitiesAsync(db);
+                    SessionTokenService tokens = new SessionTokenService();
+                    string threadId = "ask_thread_test";
+                    AskThread thread = await db.AskThreads.CreateAsync(new AskThread { Id = threadId, TenantId = entities.TenantId, UserId = entities.UserId });
+                    AskTurn turn = new AskTurn { ThreadId = thread.Id, RequestId = "request_test", CaptainId = "cpt_test", Content = "question" };
+                    AskTurnReservation reserved = await db.AskThreads.TryReserveTurnAsync(entities.TenantId, entities.UserId, turn);
+                    AssertEqual(AskTurnReservationResultEnum.Created, reserved.Result);
+                    AssertTrue(await db.AskThreads.MarkRunningAsync(entities.TenantId, entities.UserId, thread.Id, turn.RequestId));
+                    string savedToken = tokens.CreateAskTurnToken(entities.TenantId, entities.UserId, thread.Id, turn.RequestId).Token!;
+                    AuthenticationService service = CreateService(db, tokens, "admin-key");
+                    AuthContext bearer = await service.AuthenticateAsync("Bearer " + savedToken, null, "admin-key");
+                    AuthContext header = await service.AuthenticateAsync(null, savedToken, "admin-key");
+                    AssertFalse(bearer.IsAuthenticated, "A saved-turn bearer token cannot authenticate REST, even with an admin API key fallback");
+                    AssertFalse(header.IsAuthenticated, "A saved-turn X-Token cannot authenticate REST, even with an admin API key fallback");
+                    AssertNotNull(bearer.AskTurnId, "The refused scope remains identifiable to block token exchange");
+                    AuthContext mcp = await service.AuthenticateMcpAsync("Bearer " + savedToken, null, null);
+                    AssertTrue(mcp.IsAuthenticated, "The active exact owner turn authenticates to MCP");
+                    AssertEqual(entities.UserId, mcp.UserId);
+                    AssertFalse(mcp.IsAdmin, "MCP scope uses current database role values");
+                    AssertTrue(await db.AskThreads.CompleteTurnAsync(entities.TenantId, entities.UserId, thread.Id, turn.RequestId, new CaptainChatResponse { Reply = "done" }));
+                    AuthContext finished = await service.AuthenticateMcpAsync(null, savedToken, null);
+                    AssertFalse(finished.IsAuthenticated, "A completed turn cannot keep its MCP credential active");
                 }
             }));
 

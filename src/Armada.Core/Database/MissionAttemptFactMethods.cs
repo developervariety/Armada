@@ -12,7 +12,7 @@ namespace Armada.Core.Database
     /// <summary>
     /// Provider-neutral implementation of append-only mission attempt facts.
     /// </summary>
-    public sealed class MissionAttemptFactMethods : IMissionAttemptFactMethods
+    public sealed partial class MissionAttemptFactMethods : IMissionAttemptFactMethods
     {
         private const string _Columns = "id, tenant_id, user_id, mission_id, voyage_id, vessel_id, root_mission_id, parent_mission_id, fact_type, is_rescue, reason_code, created_utc";
         private readonly Func<DbConnection> _ConnectionFactory;

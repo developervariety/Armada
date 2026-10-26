@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Saved Ask conversations propose supported actions for exact human approval.
+  Turn-bound authenticated credentials, current authorization and durable claims
+  fence execution. Work reports separate job completion, produced work, landing
+  evidence and rescue lineage.
+
 - Cursor final reports preserve complete message boundaries when the terminal
   text matches their flattened aggregate. Text chunks and distinct final replies
   retain their original content; report completeness checks stay strict.
