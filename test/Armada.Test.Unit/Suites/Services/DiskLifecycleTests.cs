@@ -393,6 +393,26 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(events[0].Message!.Contains(failing, StringComparison.Ordinal), "The event names the kept file");
                     AssertEqual(1, notes.Posts.Count, "One board note is posted");
                     AssertTrue(notes.Posts[0].Contains("kept locally", StringComparison.Ordinal), "The note says the file is kept: " + notes.Posts[0]);
+
+                    File.WriteAllText(layout.Settings.Archive.CredentialsFile, "accessKeyId=exampleaccess\nsecretAccessKey=examplesecret\n");
+                    using (HttpClient receiptClient = new HttpClient(new StubHttpMessageHandler(HttpStatusCode.InternalServerError,
+                        "<Error><Code>InternalError</Code><Message>PRIVATE_RESPONSE</Message></Error>",
+                        new Dictionary<string, string[]> { { "x-amz-request-id", new[] { "retained-request-42" } } })))
+                    {
+                        service.ArchiveSinkFactory = settings => new S3ArchiveSink(settings, receiptClient);
+                        notes.Posts.Clear();
+                        DiskLifecycleReport failed = await service.ReconcileAsync().ConfigureAwait(false);
+                        AssertTrue(File.Exists(failing), "HTTP500 keeps the unverified local file");
+                        AssertTrue(failed.ArchiveFailures > 0);
+                        AssertTrue(failed.Actions.Any(action => action.Path == failing && action.Reason.Contains("request_id=retained-request-42", StringComparison.Ordinal)),
+                            "the action retains the provider support receipt");
+                        List<ArmadaEvent> receipts = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
+                        AssertTrue(receipts.Any(item => item.Message!.Contains("request_id=retained-request-42", StringComparison.Ordinal)),
+                            "the durable failure event retains the provider support receipt");
+                        AssertTrue(notes.Posts.Any(note => note.Contains("request_id=retained-request-42", StringComparison.Ordinal)),
+                            "the failure note retains the provider support receipt");
+                        AssertFalse(notes.Posts.Any(note => note.Contains("PRIVATE_RESPONSE", StringComparison.Ordinal)));
+                    }
                 }
                 finally
                 {
