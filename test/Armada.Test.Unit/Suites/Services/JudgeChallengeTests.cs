@@ -130,6 +130,36 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, JudgeChallenge.ExtractFindings(null, out bool _).Count, "no review, no findings");
             });
 
+            await RunTest("Outside-scope notes and instruction proposals do not become revision findings", () =>
+            {
+                string review = String.Join("\n", new[]
+                {
+                    "## Completeness", "- Required native evidence is NOT MET.",
+                    "## Correctness", "**Blocking: required review evidence is missing.**",
+                    "Remaining inconsistencies are outside the allowed edit scope:",
+                    "- The old sample still names the previous constructor.",
+                    "- The guide has an unsupported legacy option.",
+                    "- The examples require an unrelated package.",
+                    "- The historical note contradicts the current naming.",
+                    "- The old table lacks the new entry.",
+                    "- Blocking: the required artifact is absent.",
+                    "- Acceptance criterion 2 is NOT MET.",
+                    "[CLAUDE.MD-PROPOSAL]", "Preserve the remaining instructions.",
+                    "[/CLAUDE.MD-PROPOSAL]",
+                    "## Verdict", "[ARMADA:VERDICT] NEEDS_REVISION"
+                });
+                List<string> findings = JudgeChallenge.ExtractFindings(review, out bool complete);
+                string joined = String.Join("\n", findings);
+                AssertTrue(complete, "the complete review fits the findings bound");
+                AssertEqual(4, findings.Count, "only the two explicit blockers and two unmet criteria require revision");
+                AssertContains("required review evidence is missing", joined, "the actual correctness defect remains");
+                AssertContains("required artifact is absent", joined, "an explicit blocker overrides the outside-scope lead-in");
+                AssertContains("criterion 2 is NOT MET", joined, "an unmet criterion overrides that lead-in");
+                AssertFalse(joined.Contains("Preserve the remaining instructions", StringComparison.Ordinal), "instruction proposals are not correctness findings");
+                foreach (string advisory in new[] { "old sample", "legacy option", "unrelated package", "historical note", "old table" })
+                    AssertFalse(joined.Contains(advisory, StringComparison.Ordinal), "outside-scope observation stays advisory: " + advisory);
+            });
+
             await RunTest("Items under a lead-in that reports agreement are not findings, and every blocking and NOT MET item still is", () =>
             {
                 string review = String.Join("\n", new[]
