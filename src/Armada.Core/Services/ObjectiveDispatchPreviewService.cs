@@ -2153,6 +2153,13 @@ namespace Armada.Core.Services
         {
             WorkflowProfile? profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, null, token).ConfigureAwait(false);
             List<string> declared = WorkflowGateInputs.Normalize(profile?.GateInputPaths);
+            List<ObjectiveGateInputSources> mappings = objective.Preparation?.GateInputSources ?? new List<ObjectiveGateInputSources>();
+            string? mappingError = WorkflowGateInputs.ValidateSources(mappings);
+            if (mappingError != null)
+            {
+                AddIssue(result, "gate_input_sources_invalid", "brief", ReadinessSeverityEnum.Error, mappingError, null);
+                return;
+            }
             if (declared.Count == 0) return;
 
             List<string> excluded = WorkflowGateInputs.FindExcluded(declared, objective.RolloutConstraints, objective.NonGoals);
@@ -2170,10 +2177,26 @@ namespace Armada.Core.Services
                 planTexts.Add(description.Description);
             }
             List<string> plannedPaths = WorkflowGateInputs.FindPlannedPaths(planTexts);
-            string plannedNote = plannedPaths.Count == 0
+            bool concretePlan = plannedPaths.Count > 0 && plannedPaths.All(path => !path.Contains('*') && !path.Contains('?') && !path.EndsWith("/", StringComparison.Ordinal));
+            Dictionary<string, List<string>> affectedSources = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (ObjectiveGateInputSources mapping in mappings)
+            {
+                string input = WorkflowGateInputs.Normalize(new[] { mapping.InputPath })[0];
+                if (!inScope.Contains(input, StringComparer.OrdinalIgnoreCase)) continue;
+                List<string> affected = WorkflowGateInputs.FindMappedSources(mapping, plannedPaths);
+                // Without concrete plan paths, a mapping cannot establish that an input is unaffected.
+                if (concretePlan && affected.Count == 0) inScope.RemoveAll(path => String.Equals(path, input, StringComparison.OrdinalIgnoreCase));
+                else affectedSources[input] = affected.Count > 0 ? affected : WorkflowGateInputs.Normalize(mapping.SourcePaths);
+            }
+            if (inScope.Count == 0) return;
+            List<string> dependencyNotes = affectedSources.Select(pair => String.Join(", ", pair.Value) + " -> " + pair.Key).ToList();
+            string mappedNote = dependencyNotes.Count == 0 ? String.Empty
+                : " Declared input-to-source dependencies: " + String.Join("; ", dependencyNotes) + ".";
+            bool unknownDependencies = inScope.Any(input => !affectedSources.ContainsKey(input));
+            string plannedNote = !unknownDependencies ? mappedNote : mappedNote + (plannedPaths.Count == 0
                 ? " No planned file paths have been supplied; the Architect must establish which inputs the change can affect."
                 : " Paths named in supplied mission descriptions (may include references or exclusions): " + String.Join(", ", plannedPaths)
-                    + ". The workflow profile does not declare which planned paths affect each input; confirm that relation before assigning input edits.";
+                    + ". The preparation does not declare which planned paths affect each input without a mapping; confirm that relation before assigning input edits.");
 
             bool architectPlans = result.EffectivePipelineStages.Any(stage => PersonaCatalog.Matches(stage, PersonaCatalog.Architect));
             if (architectPlans)

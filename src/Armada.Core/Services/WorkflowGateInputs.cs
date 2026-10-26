@@ -208,7 +208,7 @@ namespace Armada.Core.Services
             return planTexts.Where(text => !String.IsNullOrWhiteSpace(text))
                 .SelectMany(text => PathTokens(text!))
                 .Where(path => Validate(new[] { path }) == null)
-                .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxEntries).ToList();
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         /// <summary>
