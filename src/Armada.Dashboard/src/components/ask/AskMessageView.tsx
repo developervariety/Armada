@@ -6,6 +6,7 @@ import ChatToolChips from '../shared/ChatToolChips';
 import { formatTurnDuration as formatDuration, toolCallsToEvents } from '../../lib/askFormat';
 import { askTurnStatistics } from '../../lib/chatMetrics';
 import ChatMetricsInfo from '../shared/ChatMetricsInfo';
+import CopyButton from '../shared/CopyButton';
 import AskConfirmCard from './AskConfirmCard';
 import CliPermissionCard from '../cliPermissions/CliPermissionCard';
 
@@ -39,6 +40,10 @@ export default function AskMessageView({ message, proposal, captainName, proposa
   const kind = String(message.kind || 'Text');
   const role = String(message.role || 'Assistant');
   const text = message.contentText ?? '';
+  // Icon-only copy of a response's raw text (the shared button flashes a green check and falls back off https).
+  const copy = text.trim() ? (
+    <CopyButton text={text} className="copy-btn ask-msg-copy" title={t('Copy this response to the clipboard.')} />
+  ) : null;
   const when = message.createdUtc ? (
     <time className="ask-msg-time" dateTime={message.createdUtc} title={formatDateTime(message.createdUtc)}>
       {formatRelativeTime(message.createdUtc)}
@@ -82,6 +87,7 @@ export default function AskMessageView({ message, proposal, captainName, proposa
           <span className="ask-msg-result-icon" aria-hidden="true">&#9889;</span>
           <span className="ask-msg-label">{t('Action result')}</span>
           {when}
+          {copy}
         </div>
         {text && <Markdown>{text}</Markdown>}
         {proposal && <AskConfirmCard proposal={proposal} onApprove={onApprove} onReject={onReject} busy={proposalBusy} compact />}
@@ -98,6 +104,7 @@ export default function AskMessageView({ message, proposal, captainName, proposa
           <div className="ask-milestone-head">
             <span className="ask-msg-label">{t('Progress update')}</span>
             {when}
+            {copy}
             {onShowWork && (
               <button type="button" className="ask-link-btn ask-milestone-link" onClick={onShowWork} title={t('Scroll to the live card for this work, which shows its current status.')}>
                 {t('Show live card')}
@@ -117,6 +124,7 @@ export default function AskMessageView({ message, proposal, captainName, proposa
         <div className="ask-msg-summary-head">
           <span className="ask-msg-label">{t('Conversation summary')}</span>
           {when}
+          {copy}
         </div>
         <Markdown>{text}</Markdown>
       </article>
@@ -181,6 +189,7 @@ export default function AskMessageView({ message, proposal, captainName, proposa
           {message.durationMs != null && <span title={t('How long the captain took to produce this reply.')}>{formatDuration(message.durationMs)}</span>}
           {stats.length > 0 && <ChatMetricsInfo rows={stats} />}
           {when}
+          {copy}
         </div>
         {message.thinkingText && message.thinkingText.trim() && (
           <details className="chat-thinking">

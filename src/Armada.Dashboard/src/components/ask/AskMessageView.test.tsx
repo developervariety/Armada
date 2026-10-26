@@ -226,3 +226,21 @@ describe('AskMessageList with work reports', () => {
     expect(container.querySelector('.ask-report-tag')).toBeNull();
   });
 });
+
+describe('AskMessageView copy button', () => {
+  it('each captain reply has an icon-only copy button that copies the raw text and flashes the copied state', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<AskMessageView {...handlers} captainName="Ada" message={reply({ contentText: '**Fleet** is idle.' })} />);
+    const button = screen.getByRole('button', { name: 'Copy this response to the clipboard.' });
+    expect(button.textContent).toBe('');
+    fireEvent.click(button);
+    expect(writeText).toHaveBeenCalledWith('**Fleet** is idle.');
+    await vi.waitFor(() => expect(button.className).toContain('copied'));
+  });
+
+  it('a user message and an empty reply have no copy button', () => {
+    render(<AskMessageView {...handlers} message={reply({ role: 'User', toolCalls: [] })} />);
+    expect(screen.queryByRole('button', { name: 'Copy this response to the clipboard.' })).toBeNull();
+  });
+});

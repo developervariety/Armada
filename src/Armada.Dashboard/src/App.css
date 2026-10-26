@@ -8728,6 +8728,8 @@ tr.row-muted td { opacity: 0.72; }
 }
 .ask-thinking-text { margin-top: 0.3rem; font-size: 0.8rem; white-space: pre-wrap; color: var(--text-dim); }
 .ask-msg-assistant .chat-thinking summary { font-size: 0.72rem; cursor: pointer; }
+/* Icon-only copy on each response, pinned to the right of its header row. */
+.ask-msg-copy { align-self: center; margin-left: auto; }
 .ask-waiting { align-self: flex-start; }
 .ask-msg-result-head, .ask-msg-summary-head, .ask-msg-error-head, .ask-milestone-head {
     display: flex;
