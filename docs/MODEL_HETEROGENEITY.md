@@ -393,6 +393,13 @@ classification is built to be amended:
 Every escalation records: which profile and revision failed, in which persona, at what (observed failure and
 suspected cause), which captain finished the work, and whether that captain kept or replaced the prior work.
 
+In the stage outcomes this is the escalated attempt's outcome (`Disposition` `Escalated`): its captain, runtime and
+model, persona, observed failure and suspected cause, the captain the work went to (`NextCaptainId`) and the commit it
+left on the branch (`CommitHash`). When the mission completes, Armada links it to the finishing attempt
+(`FinishedByOutcomeId`, `FinishedByCaptainId`) and sets `PriorWorkKept`: true when the escalated commit is an ancestor
+of the finished commit, false when it is not (the work was replaced), null when either commit or the repository could
+not be read. Keeping is judged by ancestry only: a captain that keeps the history but reverts the changes counts as kept.
+
 ### The scorecard
 
 One scorecard per (profile, persona), optionally per vessel, over a rolling window (default: last 30 days or last 50

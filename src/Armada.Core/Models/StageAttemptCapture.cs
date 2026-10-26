@@ -72,6 +72,16 @@ namespace Armada.Core.Models
         /// </summary>
         public DateTime EndedUtc { get; set; } = DateTime.UtcNow;
 
+        /// <summary>
+        /// When the exit escalated the mission to another captain: that captain, or null.
+        /// </summary>
+        public string? EscalatedToCaptainId { get; set; } = null;
+
+        /// <summary>
+        /// When the exit escalated the mission: the commit the attempt left on the branch, or null when unknown.
+        /// </summary>
+        public string? EscalatedCommit { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

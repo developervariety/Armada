@@ -113,6 +113,13 @@ namespace Armada.Core.Services
                     AND completed_utc < @cutoff;",
                     cutoffStr, token).ConfigureAwait(false);
 
+                // Delete the stage outcomes of the missions just removed (and of any mission removed before outcomes were
+                // cleaned up with it); they hold no data that outlives the mission.
+                totalDeleted += await ExecuteDeleteAsync(conn,
+                    @"DELETE FROM stage_outcomes
+                    WHERE mission_id NOT IN (SELECT id FROM missions);",
+                    cutoffStr, token).ConfigureAwait(false);
+
                 // Delete old read signals
                 totalDeleted += await ExecuteDeleteAsync(conn,
                     @"DELETE FROM signals

@@ -829,7 +829,12 @@ namespace Armada.Core.Database.Mysql
                     @"CREATE INDEX idx_stage_outcomes_tenant_ended ON stage_outcomes(tenant_id, ended_utc);",
                     @"CREATE INDEX idx_stage_outcomes_captain_ended ON stage_outcomes(captain_id, ended_utc);",
                     @"CREATE INDEX idx_stage_outcomes_cause ON stage_outcomes(suspected_cause, ended_utc);",
-                    @"CREATE INDEX idx_failure_cause_rules_tenant_priority ON failure_cause_rules(tenant_id, priority);")
+                    @"CREATE INDEX idx_failure_cause_rules_tenant_priority ON failure_cause_rules(tenant_id, priority);"),
+                new SchemaMigration(93, "Add commit_hash, finished_by_outcome_id, finished_by_captain_id and prior_work_kept to stage_outcomes (the escalation record: which captain finished an escalated attempt and whether it kept or replaced its work)",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN commit_hash VARCHAR(64) NULL;",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN finished_by_outcome_id VARCHAR(64) NULL;",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN finished_by_captain_id VARCHAR(64) NULL;",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN prior_work_kept TINYINT(1) NULL;")
 
 
             };

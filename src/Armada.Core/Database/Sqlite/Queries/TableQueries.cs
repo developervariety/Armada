@@ -2139,7 +2139,12 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_stage_outcomes_tenant_ended ON stage_outcomes(tenant_id, ended_utc);",
                     @"CREATE INDEX IF NOT EXISTS idx_stage_outcomes_captain_ended ON stage_outcomes(captain_id, ended_utc);",
                     @"CREATE INDEX IF NOT EXISTS idx_stage_outcomes_cause ON stage_outcomes(suspected_cause, ended_utc);",
-                    @"CREATE INDEX IF NOT EXISTS idx_failure_cause_rules_tenant_priority ON failure_cause_rules(tenant_id, priority);")
+                    @"CREATE INDEX IF NOT EXISTS idx_failure_cause_rules_tenant_priority ON failure_cause_rules(tenant_id, priority);"),
+                new SchemaMigration(93, "Add commit_hash, finished_by_outcome_id, finished_by_captain_id and prior_work_kept to stage_outcomes (the escalation record: which captain finished an escalated attempt and whether it kept or replaced its work)",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN commit_hash TEXT;",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN finished_by_outcome_id TEXT;",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN finished_by_captain_id TEXT;",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN prior_work_kept INTEGER;")
 
 
 
