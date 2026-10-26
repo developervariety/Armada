@@ -79,10 +79,13 @@ namespace Armada.Test.Unit.Suites.Services
                 await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
                 AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, false, "UnitTest");
 
+                Fleet targetFleet = new Fleet { TenantId = tenantId, UserId = userId, Name = "Selected target fleet" };
+                await testDb.Driver.Fleets.CreateAsync(targetFleet).ConfigureAwait(false);
                 Vessel vessel = new Vessel
                 {
                     TenantId = tenantId,
                     UserId = userId,
+                    FleetId = targetFleet.Id,
                     Name = "Incident Link Vessel",
                     RepoUrl = "file:///tmp/incident-link.git",
                     LocalPath = Path.GetTempPath(),
@@ -137,6 +140,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(linked.IncidentIds.Contains(incident.Id), "The incident link itself is recorded.");
                 AssertTrue(linked.VesselIds.Contains(vessel.Id), "Delivery context (vessel) is still carried.");
+                AssertTrue(linked.FleetIds.Contains(targetFleet.Id), "same-target incident links retain legitimate fleet enrichment");
                 AssertEqual(0, linked.VoyageIds.Count, "The incident's voyage must not become the objective's dispatch lineage.");
                 AssertEqual(0, linked.MissionIds.Count, "The incident's mission must not become the objective's dispatch lineage.");
 

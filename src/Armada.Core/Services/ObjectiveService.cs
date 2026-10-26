@@ -1466,10 +1466,10 @@ namespace Armada.Core.Services
             AddIfMissing(objective.DeploymentIds, incident.RollbackDeploymentId);
             AddIfMissing(objective.ReleaseIds, incident.ReleaseId);
             if (objective.VesselIds.Count == 0)
-            {
                 AddIfMissing(objective.VesselIds, incident.VesselId);
+            if (!String.IsNullOrWhiteSpace(incident.VesselId)
+                && objective.VesselIds.Contains(incident.VesselId, StringComparer.OrdinalIgnoreCase))
                 await AppendFleetForVesselAsync(auth, objective, incident.VesselId, token).ConfigureAwait(false);
-            }
             return await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);
         }
 
