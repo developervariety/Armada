@@ -134,6 +134,7 @@ namespace Armada.Core.Services
         private IDockService _Docks;
         private IPlaybookService _Playbooks;
         private IEscalationService? _Escalation;
+        private readonly StageOutcomeService _StageOutcomes;
         private bool _RetryDispatchNeeded = false;
 
         #endregion
@@ -170,6 +171,7 @@ namespace Armada.Core.Services
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Playbooks = new PlaybookService(_Database, _Logging);
             _Escalation = escalation;
+            _StageOutcomes = new StageOutcomeService(_Database, _Logging);
         }
 
         #endregion
@@ -907,17 +909,21 @@ namespace Armada.Core.Services
 
             // While this runs (it can verify the stage for many minutes) the health check leaves the process alone.
             _ExitsInProgress.AddOrUpdate(processId, 1, (_, count) => count + 1);
+            StageAttemptCapture capture = new StageAttemptCapture { MissionId = missionId, ExitCode = exitInfo.ExitCode, RuntimeFailureKind = exitInfo.FailureKind };
             try
             {
-                await HandleProcessExitCoreAsync(processId, exitInfo, captainId, missionId, token).ConfigureAwait(false);
+                await HandleProcessExitCoreAsync(processId, exitInfo, captainId, missionId, capture, token).ConfigureAwait(false);
             }
             finally
             {
                 if (_ExitsInProgress.AddOrUpdate(processId, 0, (_, count) => count - 1) <= 0) _ExitsInProgress.TryRemove(processId, out _);
+                // One outcome per claimed exit, recorded after Armada has acted on it so the disposition is known.
+                if (capture.Claimed && !token.IsCancellationRequested)
+                    await _StageOutcomes.RecordAttemptAsync(capture, token).ConfigureAwait(false);
             }
         }
 
-        private async Task HandleProcessExitCoreAsync(int processId, RuntimeExitInfo exitInfo, string captainId, string missionId, CancellationToken token)
+        private async Task HandleProcessExitCoreAsync(int processId, RuntimeExitInfo exitInfo, string captainId, string missionId, StageAttemptCapture capture, CancellationToken token)
         {
             int? exitCode = exitInfo.ExitCode;
 
@@ -999,6 +1005,14 @@ namespace Armada.Core.Services
                 return;
             }
 
+            capture.Claimed = true;
+            capture.Captain = captain;
+            capture.StatusBefore = mission.Status;
+            capture.OutputRepairAttemptsBefore = mission.OutputRepairAttempts;
+            capture.RedispatchAttemptsBefore = mission.RedispatchAttempts;
+            capture.StartedUtc = mission.StartedUtc;
+            capture.DockId = mission.DockId;
+            capture.EndedUtc = DateTime.UtcNow;
             mission.ProcessId = null;
 
             await EmitEventAsync("captain.process_exited",
@@ -1031,6 +1045,7 @@ namespace Armada.Core.Services
                 {
                     StageCheckResult check = await _Missions.CheckStageWorkAsync(mission, captain, token).ConfigureAwait(false);
                     await RecordStageCheckAsync(mission, captain, check, token).ConfigureAwait(false);
+                    capture.StageCheck = check;
                     string? checkFailure = check.FailureMessage;
                     if (checkFailure != null)
                     {

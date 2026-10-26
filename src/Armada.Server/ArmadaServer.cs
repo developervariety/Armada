@@ -160,6 +160,7 @@ namespace Armada.Server
         private VesselReadinessService _VesselReadinessService = null!;
         private Armada.Core.Services.Health.VesselHealthService _VesselHealthService = null!;
         private DeploymentEnvironmentService _EnvironmentService = null!;
+        private StageOutcomeService _StageOutcomeService = null!;
         private CheckRunService _CheckRunService = null!;
         private ObjectiveService _ObjectiveService = null!;
         private ReleaseService _ReleaseService = null!;
@@ -375,6 +376,10 @@ namespace Armada.Server
 
             await _EnvironmentService.SeedDefaultsAsync().ConfigureAwait(false);
             _Logging.Debug(_Header + "deployment environment seeding completed");
+
+            _StageOutcomeService = new StageOutcomeService(_Database, _Logging);
+            await _StageOutcomeService.EnsureBuiltInRulesAsync().ConfigureAwait(false);
+            _Logging.Debug(_Header + "failure-cause rule seeding completed");
 
             // Fleet actions: runner (owned here, started below) and service; seed built-ins into every tenant.
             FleetActionSeedService fleetActionSeeder = new FleetActionSeedService(_Database, _Logging);

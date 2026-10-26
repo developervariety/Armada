@@ -255,6 +255,16 @@ namespace Armada.Core
         public static readonly string CliPermissionRuleIdPrefix = "cpl_";
 
         /// <summary>
+        /// ID prefix for stage outcomes (one stage attempt with its provenance and suspected cause).
+        /// </summary>
+        public static readonly string StageOutcomeIdPrefix = "sto_";
+
+        /// <summary>
+        /// ID prefix for failure-cause rules (map an attempt's signals to a suspected cause).
+        /// </summary>
+        public static readonly string FailureCauseRuleIdPrefix = "fcr_";
+
+        /// <summary>
         /// ID prefix for push notification devices (a mobile app installation registered for push).
         /// </summary>
         public static readonly string PushDeviceIdPrefix = "pdv_";

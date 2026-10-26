@@ -421,6 +421,24 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Stage outcome methods (one row per stage attempt).
+        /// </summary>
+        public IStageOutcomeMethods StageOutcomes
+        {
+            get => _StageOutcomes;
+            protected set => _StageOutcomes = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
+        /// Failure-cause rule methods.
+        /// </summary>
+        public IFailureCauseRuleMethods FailureCauseRules
+        {
+            get => _FailureCauseRules;
+            protected set => _FailureCauseRules = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
         /// Push notification device methods.
         /// </summary>
         public IPushDeviceMethods PushDevices
@@ -568,6 +586,8 @@ namespace Armada.Core.Database
         private IAskTrackedWorkMethods _AskTrackedWork = null!;
         private ICliPermissionRequestMethods _CliPermissionRequests = null!;
         private ICliPermissionRuleMethods _CliPermissionRules = null!;
+        private IStageOutcomeMethods _StageOutcomes = null!;
+        private IFailureCauseRuleMethods _FailureCauseRules = null!;
         private IPushDeviceMethods _PushDevices = null!;
         private IHarborJobMethods _HarborJobs = null!;
         private IHarborLinkSampleMethods _HarborLinkSamples = null!;

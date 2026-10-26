@@ -74,6 +74,8 @@ namespace Armada.Core.Database.Mysql
             AskTrackedWork = new AskTrackedWorkMethods(_ConnectionString);
             CliPermissionRequests = new CliPermissionRequestMethods(_ConnectionString);
             CliPermissionRules = new CliPermissionRuleMethods(_ConnectionString);
+            StageOutcomes = new StageOutcomeMethods(_ConnectionString);
+            FailureCauseRules = new FailureCauseRuleMethods(_ConnectionString);
             PushDevices = new PushDeviceMethods(_ConnectionString);
             HarborJobs = new HarborJobMethods(_ConnectionString);
             HarborLinkSamples = new HarborLinkSampleMethods(_ConnectionString);
@@ -757,7 +759,77 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE missions ADD COLUMN is_rescue TINYINT(1) NOT NULL DEFAULT 0;"),
                 new SchemaMigration(91, "Add rework_round and rework_escalated to missions so rework state is not read from titles",
                     @"ALTER TABLE missions ADD COLUMN rework_round INT NOT NULL DEFAULT 0;",
-                    @"ALTER TABLE missions ADD COLUMN rework_escalated TINYINT(1) NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN rework_escalated TINYINT(1) NOT NULL DEFAULT 0;"),
+                new SchemaMigration(92, "Add stage_outcomes (one row per stage attempt with provenance, disposition and suspected cause) and failure_cause_rules (amendable rules that map an attempt's signals to a suspected cause)",
+                    @"CREATE TABLE IF NOT EXISTS stage_outcomes (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id VARCHAR(64),
+                        user_id VARCHAR(64),
+                        mission_id VARCHAR(64) NOT NULL,
+                        voyage_id VARCHAR(64),
+                        vessel_id VARCHAR(64),
+                        captain_id VARCHAR(64),
+                        captain_name VARCHAR(512),
+                        persona VARCHAR(64),
+                        attempt INT NOT NULL,
+                        rework_round INT NOT NULL,
+                        runtime VARCHAR(64),
+                        model VARCHAR(512),
+                        model_provider VARCHAR(64),
+                        model_endpoint_id VARCHAR(64),
+                        harbor_id VARCHAR(64),
+                        context_tokens INT,
+                        temperature DOUBLE,
+                        top_p DOUBLE,
+                        tools_enabled TINYINT(1),
+                        mcp_tools_enabled TINYINT(1),
+                        reasoning_effort VARCHAR(64),
+                        runtime_version VARCHAR(512),
+                        model_digest VARCHAR(512),
+                        prompt_version VARCHAR(512),
+                        armada_version VARCHAR(64),
+                        exit_code INT,
+                        runtime_failure_kind VARCHAR(64),
+                        stage_check_status VARCHAR(64),
+                        stage_check_reason VARCHAR(64),
+                        disposition VARCHAR(64) NOT NULL,
+                        failure_kind VARCHAR(64),
+                        failure_reason LONGTEXT,
+                        judge_verdict VARCHAR(64),
+                        reviewed_mission_id VARCHAR(64),
+                        next_captain_id VARCHAR(64),
+                        suspected_cause VARCHAR(64) NOT NULL,
+                        cause_source VARCHAR(64) NOT NULL,
+                        cause_rule_id VARCHAR(64),
+                        cause_note LONGTEXT,
+                        classified_by_user_id VARCHAR(64),
+                        classified_utc DATETIME(6),
+                        is_evaluation TINYINT(1) NOT NULL,
+                        started_utc DATETIME(6),
+                        ended_utc DATETIME(6) NOT NULL,
+                        duration_ms BIGINT,
+                        created_utc DATETIME(6) NOT NULL,
+                        last_update_utc DATETIME(6) NOT NULL
+                    );",
+                    @"CREATE TABLE IF NOT EXISTS failure_cause_rules (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id VARCHAR(64),
+                        name VARCHAR(512) NOT NULL,
+                        description LONGTEXT,
+                        priority INT NOT NULL,
+                        enabled TINYINT(1) NOT NULL,
+                        is_built_in TINYINT(1) NOT NULL,
+                        match_json LONGTEXT NOT NULL,
+                        cause VARCHAR(64) NOT NULL,
+                        created_by_user_id VARCHAR(64),
+                        created_utc DATETIME(6) NOT NULL,
+                        last_update_utc DATETIME(6) NOT NULL
+                    );",
+                    @"CREATE INDEX idx_stage_outcomes_mission ON stage_outcomes(mission_id);",
+                    @"CREATE INDEX idx_stage_outcomes_tenant_ended ON stage_outcomes(tenant_id, ended_utc);",
+                    @"CREATE INDEX idx_stage_outcomes_captain_ended ON stage_outcomes(captain_id, ended_utc);",
+                    @"CREATE INDEX idx_stage_outcomes_cause ON stage_outcomes(suspected_cause, ended_utc);",
+                    @"CREATE INDEX idx_failure_cause_rules_tenant_priority ON failure_cause_rules(tenant_id, priority);")
 
 
             };

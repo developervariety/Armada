@@ -80,6 +80,8 @@ namespace Armada.Core.Database.SqlServer
             AskTrackedWork = new AskTrackedWorkMethods(this, _Settings, _Logging);
             CliPermissionRequests = new CliPermissionRequestMethods(this, _Settings, _Logging);
             CliPermissionRules = new CliPermissionRuleMethods(this, _Settings, _Logging);
+            StageOutcomes = new StageOutcomeMethods(this, _Settings, _Logging);
+            FailureCauseRules = new FailureCauseRuleMethods(this, _Settings, _Logging);
             PushDevices = new PushDeviceMethods(this, _Settings, _Logging);
             HarborJobs = new HarborJobMethods(this, _Settings, _Logging);
             HarborLinkSamples = new HarborLinkSampleMethods(this, _Settings, _Logging);
