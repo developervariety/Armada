@@ -18,14 +18,14 @@ namespace Armada.Core.Services
                 && String.Equals(mission.VesselId, barrier.VesselId, StringComparison.Ordinal);
         }
 
-        private async Task<bool> PrepareIntegrationBarrierAssignmentAsync(
+        private async Task<string?> PrepareIntegrationBarrierAssignmentAsync(
             Mission mission, Vessel vessel, CancellationToken token)
         {
             if (mission.IntegrationBarrierInvalid || mission.IntegrationBarrier == null)
             {
                 await HoldForAssignmentAsync(mission, IntegrationBarrierUnverifiable, mission.Id,
                     "The integration barrier record is missing or invalid. The mission will not start until an operator repairs it.", token).ConfigureAwait(false);
-                return false;
+                return null;
             }
 
             MissionIntegrationBarrier barrier = mission.IntegrationBarrier;
@@ -36,7 +36,7 @@ namespace Armada.Core.Services
             {
                 await HoldForAssignmentAsync(mission, IntegrationBarrierUnverifiable, mission.Id,
                     "The accepted integration barrier does not match this mission. The mission will not start until an operator repairs it.", token).ConfigureAwait(false);
-                return false;
+                return null;
             }
 
             Voyage? voyage = String.IsNullOrWhiteSpace(mission.VoyageId)
@@ -47,17 +47,15 @@ namespace Armada.Core.Services
             {
                 await HoldForAssignmentAsync(mission, IntegrationBarrierUnverifiable, mission.VesselId,
                     "The integration barrier requires LocalMerge or MergeQueue so every branch can land before integration. The configured landing mode does not prove that.", token).ConfigureAwait(false);
-                return false;
+                return null;
             }
 
             string? targetSha = await ResolveIntegrationTargetShaAsync(mission, vessel, token).ConfigureAwait(false);
-            if (String.IsNullOrWhiteSpace(targetSha)) return false;
+            if (String.IsNullOrWhiteSpace(targetSha)) return null;
 
-            if (!await CheckIntegrationBarrierMembersAsync(mission, vessel, barrier, targetSha!, token).ConfigureAwait(false)) return false;
+            if (!await CheckIntegrationBarrierMembersAsync(mission, vessel, barrier, targetSha!, token).ConfigureAwait(false)) return null;
 
-            mission.BranchName = null;
-            mission.StartFromRef = targetSha;
-            return true;
+            return targetSha;
         }
 
     }

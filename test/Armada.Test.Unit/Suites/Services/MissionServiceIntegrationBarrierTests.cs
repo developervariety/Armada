@@ -33,6 +33,10 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("UnlandedMember_HoldsBeforeProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.Complete, false, false)).ConfigureAwait(false);
             await RunTest("LandedMember_UsesFreshTargetForProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.Complete, true, true)).ConfigureAwait(false);
             await RunTest("CaptainHarborOwnedRoute_HoldsAfterReadinessBeforeProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.Complete, true, false, false, true)).ConfigureAwait(false);
+            await RunTest("RetainedBarrierRootBranch_WithActiveDock_PreservesBranchAndPinnedStart", () =>
+                RunAssignmentCaseAsync(MissionStatusEnum.Complete, true, true, retainedRootBranch: true, activeMatchingDock: true)).ConfigureAwait(false);
+            await RunTest("RetainedBarrierRootBranch_WithoutActiveDock_Holds", () =>
+                RunAssignmentCaseAsync(MissionStatusEnum.Complete, true, false, retainedRootBranch: true)).ConfigureAwait(false);
             await RunTest("AcceptedRescue_IsRecordedAndWaitsForFreshTargetPass", () => RunRescueCaseAsync(false)).ConfigureAwait(false);
             await RunTest("CurrentRescue_RevalidatesEveryLineageOwner", () => RunRescueCaseAsync(true)).ConfigureAwait(false);
         }
@@ -45,7 +49,6 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
                 settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
-                settings.ModelTier.ReservedHighTierSlots = 0;
                 settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada-barrier-rescue-" + key);
                 settings.LandingMode = LandingModeEnum.LocalMerge;
                 Vessel vessel = new Vessel("barrier-rescue-vessel-" + key, "https://github.com/test/barrier.git");
@@ -137,11 +140,13 @@ namespace Armada.Test.Unit.Suites.Services
                 git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/main"] = NewTargetSha;
                 AssertTrue(await missions.TryAssignAsync(stored, vessel).ConfigureAwait(false),
                     "the next pass proves the rescue against a newly resolved target and proceeds");
-                AssertEqual(NewTargetSha, stored.StartFromRef, "the second pass uses the post-rescue target SHA");
+                Mission assigned = (await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false))!;
+                AssertEqual(NewTargetSha, assigned.StartFromRef, "the second pass uses the post-rescue target SHA");
             }
         }
 
-        private async Task RunAssignmentCaseAsync(MissionStatusEnum memberStatus, bool landed, bool expectAssignment, bool preparing = false, bool harborOwnedCaptainRoute = false)
+        private async Task RunAssignmentCaseAsync(MissionStatusEnum memberStatus, bool landed, bool expectAssignment,
+            bool preparing = false, bool harborOwnedCaptainRoute = false, bool retainedRootBranch = false, bool activeMatchingDock = false)
         {
             using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
             {
@@ -149,7 +154,6 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
                 settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
-                settings.ModelTier.ReservedHighTierSlots = 0;
                 settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada-integration-barrier-" + key);
                 settings.LandingMode = LandingModeEnum.LocalMerge;
                 Vessel vessel = new Vessel("barrier-vessel-" + key, "https://github.com/test/barrier.git");
@@ -157,6 +161,18 @@ namespace Armada.Test.Unit.Suites.Services
                 vessel.DefaultBranch = "main";
                 vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                 Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("barrier voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                Mission? architect = null;
+                if (retainedRootBranch)
+                {
+                    architect = new Mission("Architect", "Prepared the integration root.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Architect",
+                        Status = MissionStatusEnum.WorkProduced
+                    };
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+                }
 
                 Mission root = new Mission("Alpha [Worker]", "Branch output.")
                 {
@@ -171,13 +187,16 @@ namespace Armada.Test.Unit.Suites.Services
 
                 Mission integration = new Mission("Integrate [Worker]", "Combine all branches.")
                 {
-                    BranchName = "stale-parallel-branch",
-                    StartFromRef = "old-planner-ref"
+                    StartFromRef = retainedRootBranch ? SourceSha : "old-planner-ref"
                 };
+                if (architect != null) integration.DependsOnMissionId = architect.Id;
+                integration.BranchName = retainedRootBranch
+                    ? "armada/captain-a/" + integration.Id
+                    : "stale-parallel-branch";
                 MissionIntegrationBarrier integrationBarrier = new MissionIntegrationBarrier
                 {
                     Phase = preparing ? MissionIntegrationBarrierPhaseEnum.Preparing : MissionIntegrationBarrierPhaseEnum.Accepted,
-                    ArchitectMissionId = "architect-accepted",
+                    ArchitectMissionId = architect?.Id ?? "architect-accepted",
                     PlanHash = "plan-hash",
                     IntegrationMissionId = integration.Id,
                     VesselId = vessel.Id,
@@ -206,6 +225,13 @@ namespace Armada.Test.Unit.Suites.Services
                 integration = await testDb.Driver.Missions.CreateAsync(integration).ConfigureAwait(false);
 
                 StubGitService git = new StubGitService { RevisionCommitShaResult = TargetSha };
+                git.RevisionCommitShas[vessel.LocalPath + "|stale-parallel-branch"] = null;
+                git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/stale-parallel-branch"] = null;
+                if (retainedRootBranch)
+                {
+                    git.RevisionCommitShas[vessel.LocalPath + "|" + integration.BranchName] = SourceSha;
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/" + integration.BranchName] = SourceSha;
+                }
                 git.AncestorResults[SourceSha + "|" + TargetSha] = landed;
                 git.AncestorResults["origin-anchor|" + TargetSha] = landed;
                 LoggingModule logging = new LoggingModule();
@@ -221,6 +247,17 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 FleetRoutingSettings.ApplyTierTo(captain);
                 await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                if (activeMatchingDock)
+                {
+                    Dock retained = new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId,
+                        BranchName = integration.BranchName,
+                        WorktreePath = Path.Combine(settings.DocksDirectory, "retained-" + integration.Id),
+                        Active = true
+                    };
+                    await testDb.Driver.Docks.CreateAsync(retained).ConfigureAwait(false);
+                }
                 if (harborOwnedCaptainRoute)
                 {
                     settings.Harbor.MissionRoutes = new System.Collections.Generic.List<HarborMissionRoute>
@@ -244,11 +281,24 @@ namespace Armada.Test.Unit.Suites.Services
                     + ", failure=" + (integration.FailureReason ?? "(none)"));
                 if (expectAssignment)
                 {
-                    AssertEqual(TargetSha, integration.StartFromRef, "integration starts from the freshly resolved target tip");
-                    AssertFalse(String.Equals("stale-parallel-branch", integration.BranchName, StringComparison.Ordinal),
-                        "integration gets its own branch instead of reusing one branch's work");
-                    AssertTrue(git.RevisionCommitShaCalls.Exists(call => call.EndsWith("|" + TargetSha, StringComparison.Ordinal)),
-                        "dock preparation resolves the captured target SHA as its start point");
+                    if (retainedRootBranch)
+                    {
+                        AssertEqual("armada/captain-a/" + integration.Id, integration.BranchName,
+                            "the barrier root continues its saved branch");
+                        AssertEqual(SourceSha, integration.StartFromRef,
+                            "the barrier root retains its pinned original start commit");
+                    }
+                    else
+                    {
+                        AssertEqual(TargetSha, integration.StartFromRef, "integration starts from the freshly resolved target tip");
+                        AssertFalse(String.Equals("stale-parallel-branch", integration.BranchName, StringComparison.Ordinal),
+                            "integration gets its own branch instead of reusing one branch's work");
+                    }
+                    AssertTrue(git.RevisionCommitShaCalls.Exists(call => call.EndsWith("|" + (retainedRootBranch
+                            ? "refs/heads/main" : TargetSha), StringComparison.Ordinal)),
+                        retainedRootBranch
+                            ? "barrier readiness resolves the current target while the dock continues the saved branch"
+                            : "dock preparation resolves the captured target SHA as its start point");
                     AssertTrue(git.WorktreeCalls.Count > 0, "a fully landed barrier reaches dock provisioning");
                 }
                 else
@@ -258,9 +308,23 @@ namespace Armada.Test.Unit.Suites.Services
                     string expectedReason = preparing || !landed || harborOwnedCaptainRoute
                         ? "integration_barrier_unverifiable"
                         : "integration_barrier_waiting";
-                    string expectedEntity = preparing ? integration.Id : harborOwnedCaptainRoute ? vessel.Id : root.Id;
+                    if (retainedRootBranch && !activeMatchingDock)
+                    {
+                        expectedReason = MissionAssignmentHold.RootContinuationDockMissing;
+                    }
+                    string expectedEntity = preparing ? integration.Id
+                        : harborOwnedCaptainRoute ? vessel.Id
+                        : retainedRootBranch ? integration.BranchName!
+                        : root.Id;
                     AssertEqual(expectedReason, held.AssignmentHoldReason, "the barrier records the precise readiness hold");
                     AssertEqual(expectedEntity, held.AssignmentHoldEntityId, "the hold names the barrier or exact blocked branch");
+                    if (retainedRootBranch)
+                    {
+                        AssertEqual("armada/captain-a/" + integration.Id, held.BranchName,
+                            "a committed barrier root branch remains stored while the mission waits");
+                        AssertEqual(SourceSha, held.StartFromRef,
+                            "the barrier root's pinned start commit remains stored while the mission waits");
+                    }
                 }
             }
         }

@@ -695,9 +695,11 @@ namespace Armada.Core.Services
             // Captured for the stage-base check after provisioning: a stage must be cut from the
             // commit its predecessor actually produced, and proving that needs the hash here.
             string? upstreamCommitHash = null;
+            string? integrationTargetSha = null;
             if (HasIntegrationBarrierRecord(mission))
             {
-                if (!await PrepareIntegrationBarrierAssignmentAsync(mission, vessel, token).ConfigureAwait(false)) return false;
+                integrationTargetSha = await PrepareIntegrationBarrierAssignmentAsync(mission, vessel, token).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(integrationTargetSha)) return false;
                 dependencyIsCrossVessel = false;
                 dependencyBranchName = null;
                 upstreamCommitHash = null;
@@ -1125,8 +1127,10 @@ namespace Armada.Core.Services
             HarborMissionRoute? checkoutRoute = HarborMissionRouting.ResolveConfigured(_Settings.Harbor, captain, mission);
             bool harborOwnedCheckout = checkoutRoute?.CheckoutMode == HarborCheckoutModeEnum.HarborOwned;
             bool preserveReassignedRootBranch = false;
+            // A barrier's dependency names its planner. Its own saved integration branch
+            // uses the root continuation proof instead of inheriting that planner's branch.
             if (persistedHarborAttempt == null
-                && String.IsNullOrEmpty(mission.DependsOnMissionId)
+                && (String.IsNullOrEmpty(mission.DependsOnMissionId) || integrationTargetSha != null)
                 && !String.IsNullOrEmpty(mission.BranchName))
             {
                 bool activeDockAuthorizes = await HasActiveDockForBranchAsync(mission.VesselId!, vessel.TenantId, mission.BranchName!, token).ConfigureAwait(false);
@@ -1172,6 +1176,7 @@ namespace Armada.Core.Services
             // branch. Branch-retention on a later failure/revert keys on this same combined flag.
             bool preserveHarborAttemptBranch = persistedHarborAttempt != null;
             bool preserveSavedBranch = preserveInheritedBranch || preserveReassignedRootBranch || preserveHarborAttemptBranch;
+            if (integrationTargetSha != null && !preserveSavedBranch) mission.StartFromRef = integrationTargetSha;
             string branchName = preserveHarborAttemptBranch
                 ? persistedHarborAttempt!.BranchName
                 : preserveSavedBranch

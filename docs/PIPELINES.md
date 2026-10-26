@@ -193,8 +193,10 @@ multiple terminal paths is held for review instead of selecting one path.
 
 Integration waits until every accepted branch is `Complete` and its source
 commit is proved present on the vessel's current landing target. `WorkProduced`
-and an open pull request do not satisfy this rule. Integration starts from the
+and an open pull request do not satisfy this rule. A fresh integration starts from the
 captured target commit, with no inherited branch from one parallel mission.
+Verified retries keep their own integration branch and pinned start commit.
+Missing continuation evidence holds the mission instead of replacing its work.
 This path requires provable local `LocalMerge` or `MergeQueue` landing.
 An unavailable repository, uncertain ancestry or Harbor-owned checkout holds
 integration with a named reason. It does not fall back to another host.
