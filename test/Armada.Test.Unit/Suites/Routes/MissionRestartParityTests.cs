@@ -3,6 +3,11 @@ namespace Armada.Test.Unit.Suites.Routes
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.IO;
+    using System.Diagnostics;
+    using SyslogLogging;
+    using Armada.Test.Unit.Suites.Services;
+    using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
     using System.Net.Http;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -151,6 +156,8 @@ namespace Armada.Test.Unit.Suites.Routes
                         AssertContains("no_op_completion_detected", revision.FailureReason ?? String.Empty, surface + ": the earlier failure is kept");
                         AssertEqual(1, harness.EventTypes().Count(type => type == "voyage.reopened:" + chain.Voyage.Id),
                             surface + ": one voyage.reopened event: " + String.Join(",", harness.EventTypes()));
+                        await VerifyRestartAssignmentFromPreservedCommitAsync(harness, surface).ConfigureAwait(false);
+
                     }
                 }
             }).ConfigureAwait(false);
@@ -211,6 +218,109 @@ namespace Armada.Test.Unit.Suites.Routes
                     }
                 }
             }).ConfigureAwait(false);
+        }
+
+        private async Task VerifyRestartAssignmentFromPreservedCommitAsync(SurfaceParityHarness harness, string surface)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "armada-restart-anchor-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                string source = Path.Combine(root, "source");
+                string bare = Path.Combine(root, "vessel.git");
+                GitServiceTests.SeedTemplateRepository(source);
+                string defaultBranch = (await RunGitAsync(source, "symbolic-ref", "--short", "HEAD").ConfigureAwait(false)).Trim();
+                string defaultHead = (await RunGitAsync(source, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                await RunGitAsync(source, "config", "user.name", "Armada test").ConfigureAwait(false);
+                await RunGitAsync(source, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                await RunGitAsync(source, "checkout", "-b", "produced-fixture").ConfigureAwait(false);
+                await File.WriteAllTextAsync(Path.Combine(source, "produced.txt"), "Verified upstream work").ConfigureAwait(false);
+                await RunGitAsync(source, "add", "produced.txt").ConfigureAwait(false);
+                await RunGitAsync(source, "commit", "-m", "Produce upstream work").ConfigureAwait(false);
+                string producedHead = (await RunGitAsync(source, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                await RunGitAsync(root, "clone", "--bare", source, bare).ConfigureAwait(false);
+                await RunGitAsync(source, "checkout", defaultBranch).ConfigureAwait(false);
+                await RunGitAsync(source, "branch", "-D", "produced-fixture").ConfigureAwait(false);
+                await RunGitAsync(bare, "symbolic-ref", "HEAD", "refs/heads/" + defaultBranch).ConfigureAwait(false);
+
+                UpstreamFailureChain chain = await SeedUpstreamFailureChainAsync(harness, surface + "-real", producedHead).ConfigureAwait(false);
+                Vessel vessel = (await harness.Driver.Vessels.ReadAsync(chain.FailedStage.VesselId!).ConfigureAwait(false))!;
+                vessel.RepoUrl = source;
+                vessel.LocalPath = bare;
+                vessel.DefaultBranch = defaultBranch;
+                vessel.WorkingDirectory = Path.Combine(root, "working");
+                await harness.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                chain.Producer.CommitHash = producedHead;
+                chain.Producer.Status = MissionStatusEnum.Complete;
+                await harness.Driver.Missions.UpdateAsync(chain.Producer).ConfigureAwait(false);
+                await RunGitAsync(bare, "update-ref", "refs/armada/missions/" + chain.Producer.Id, producedHead).ConfigureAwait(false);
+                await RunGitAsync(bare, "update-ref", "refs/armada-preserved/" + chain.Producer.BranchName, producedHead).ConfigureAwait(false);
+                await RunGitAsync(bare, "branch", "-D", "produced-fixture").ConfigureAwait(false);
+
+                Dock priorDock = await harness.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                {
+                    TenantId = vessel.TenantId, UserId = vessel.UserId, Active = false,
+                    BranchName = chain.Producer.BranchName,
+                    WorktreePath = Path.Combine(root, "removed", vessel.Name)
+                }).ConfigureAwait(false);
+                chain.Producer.DockId = priorDock.Id;
+                await harness.Driver.Missions.UpdateAsync(chain.Producer).ConfigureAwait(false);
+                AssertFalse(Directory.Exists(priorDock.WorktreePath), "The original checkout is absent.");
+
+                SurfaceReply restart = await RestartAsync(harness, surface, chain.FailedStage.Id).ConfigureAwait(false);
+                AssertFalse(restart.Refused, "The original failed stage restarts through " + surface);
+                Mission pending = (await harness.Driver.Missions.ReadAsync(chain.FailedStage.Id).ConfigureAwait(false))!;
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                GitService git = new GitService(logging);
+                DockService docks = new DockService(logging, harness.Driver, harness.Settings, git);
+                CaptainService captains = new CaptainService(logging, harness.Driver, harness.Settings, git, docks);
+                int launches = 0;
+                captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(Int32.MaxValue - 20); };
+                MissionService missions = new MissionService(logging, harness.Driver, harness.Settings, docks, captains,
+                    git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(harness.Settings));
+                Captain captain = await harness.Driver.Captains.CreateAsync(new Captain("restart-real-" + surface)
+                {
+                    TenantId = vessel.TenantId, UserId = vessel.UserId, Model = "claude-opus-5",
+                    AllowedPersonas = "[\"Worker\"]"
+                }).ConfigureAwait(false);
+                AssertTrue(await missions.AssignToCaptainAsync(pending, captain).ConfigureAwait(false),
+                    "A restarted dependent must reconstruct its missing branch from verified work, not the default branch.");
+                await missions.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
+                Mission assigned = (await harness.Driver.Missions.ReadAsync(pending.Id).ConfigureAwait(false))!;
+                Dock current = (await harness.Driver.Docks.ReadAsync(assigned.DockId!).ConfigureAwait(false))!;
+                AssertEqual(producedHead, (await RunGitAsync(current.WorktreePath!, "rev-parse", "HEAD").ConfigureAwait(false)).Trim());
+                AssertTrue(File.Exists(Path.Combine(current.WorktreePath!, "produced.txt")));
+                AssertEqual(producedHead, assigned.StartFromRef, "The immutable restart base survives persistence and handoff.");
+                AssertEqual(defaultHead, (await RunGitAsync(bare, "rev-parse", "refs/heads/" + defaultBranch).ConfigureAwait(false)).Trim());
+                AssertFalse((await harness.Driver.Docks.ReadAsync(priorDock.Id).ConfigureAwait(false))!.Active);
+                AssertEqual(1, launches, "Only the reconstructed exact source launches.");
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                {
+                    foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                        File.SetAttributes(file, FileAttributes.Normal);
+                    Directory.Delete(root, true);
+                }
+            }
+        }
+
+        private static async Task<string> RunGitAsync(string directory, params string[] arguments)
+        {
+            ProcessStartInfo start = new ProcessStartInfo("git")
+            { WorkingDirectory = directory, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (string argument in arguments) start.ArgumentList.Add(argument);
+            using Process process = new Process { StartInfo = start };
+            process.Start();
+            Task<string> output = process.StandardOutput.ReadToEndAsync();
+            Task<string> error = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync().ConfigureAwait(false);
+            string stdout = await output.ConfigureAwait(false);
+            string stderr = await error.ConfigureAwait(false);
+            if (process.ExitCode != 0) throw new InvalidOperationException("Git fixture failed: " + stderr.Trim());
+            return stdout;
         }
 
         private const string _ProducedCommit = "0123456789abcdef0123456789abcdef01234567";
