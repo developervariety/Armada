@@ -284,9 +284,8 @@ namespace Armada.Test.Unit.Suites.Routes
                     TenantId = vessel.TenantId, UserId = vessel.UserId, Model = "claude-opus-5",
                     AllowedPersonas = "[\"Worker\"]"
                 }).ConfigureAwait(false);
-                AssertTrue(await missions.AssignToCaptainAsync(pending, captain).ConfigureAwait(false),
+                AssertTrue(await missions.TryAssignAsync(pending, vessel).ConfigureAwait(false),
                     "A restarted dependent must reconstruct its missing branch from verified work, not the default branch.");
-                await missions.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
                 Mission assigned = (await harness.Driver.Missions.ReadAsync(pending.Id).ConfigureAwait(false))!;
                 Dock current = (await harness.Driver.Docks.ReadAsync(assigned.DockId!).ConfigureAwait(false))!;
                 AssertEqual(producedHead, (await RunGitAsync(current.WorktreePath!, "rev-parse", "HEAD").ConfigureAwait(false)).Trim());
