@@ -20,6 +20,15 @@ upstream integrations and excludes changes already present at that baseline.
 - Archive uploads and verification retry transient server or transport failures within a bounded operation. Failed uploads are checked before another PUT; successful uploads retry verification only.
 
 - Completed report-only work can reach its configured pending Judge when that review is its sole outstanding criterion. Unfinished current work and unavailable review still block.
+- Local POSIX server publish fails when Dashboard deployment fails and no
+  Dashboard is available. It continues only when an existing Dashboard remains.
+  Dashboard copies are staged before replacement, with rollback on install failure.
+
+- The Voyages list shares table controls and saves optional column visibility.
+  Server paging, status filters, row actions and selection remain page-owned.
+- Home dashboard refresh failures show named read errors and a Retry button
+  beside the last available data. Partial failures retain voyage labels.
+  Chat, log and protocol frames do not start unrelated home-page reloads.
 
 - Integration Check reuse requires a captured native execution-context receipt, exact quoted command text and current profile/environment/budget identity. Unproven or changed context runs its Check again.
 

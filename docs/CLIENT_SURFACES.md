@@ -58,3 +58,12 @@ The REST API has no host-storage or cleanup-history feed. The MCP
 operator contract. A backup download creates and verifies a backup; it is not a
 backup-age or restore-readiness status endpoint. Clients do not infer these
 missing measurements from health, job state or an empty result.
+
+## Voyage table controls
+
+The Voyages list keeps paging and status filtering on the server. Its shared
+table displays the returned order and total count. The column chooser saves
+optional column visibility in the current browser. Identity and action columns
+remain visible. Column visibility does not change the server query, row
+selection or the caller's authority. Refresh results use the latest request;
+a slower old response cannot replace the current page.

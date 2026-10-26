@@ -82,6 +82,10 @@ caller's scoped records and separates an unavailable endpoint from an empty job
 list. The [client surface map](docs/CLIENT_SURFACES.md) identifies the REST,
 Dashboard, Helm and MCP entry points and their availability boundaries.
 
+The Voyages list uses shared table controls with saved optional columns. Server
+paging, status filtering and fork voyage actions keep their existing rules.
+Other list pages retain their own table layouts.
+
 Both versions use salted PBKDF2-HMAC-SHA256 password storage. The fork keeps
 the SHA-256 API input and upgrades legacy rows with conditional password-only
 writes, so a concurrent password reset is preserved.
@@ -718,6 +722,11 @@ dashboard-deploy scripts honor `--insecure`. Prefer not to pass the flag each
 time: set `NODE_TLS_REJECT_UNAUTHORIZED=0` (`set` on Windows, `export` on
 Linux/macOS) in your shell, or run `npm config set strict-ssl false` once.
 
+Local server publish requires an available Dashboard. If Dashboard deployment
+fails, publish continues with a warning only if `~/.armada/dashboard/index.html`
+still exists.
+Without that file, publish returns a failure.
+
 ---
 
 ## MCP Integration
@@ -783,6 +792,9 @@ The Admiral server exposes REST routes under `/api/v1/*`, serves the dashboard f
 
 Dashboard reads retry a dropped connection up to twice within the request's
 deadline. The deadline includes response-body reads. Writes are not retried.
+The home dashboard keeps its last data after a failed refresh and shows each
+failed read with a Retry button. Chat and log streams do not reload the home
+dashboard. Relevant record changes and reconnects refresh it.
 Ask Armada retains questions and partial replies after a connection failure
 and marks the result as unconfirmed, so the operator can check before resending.
 
