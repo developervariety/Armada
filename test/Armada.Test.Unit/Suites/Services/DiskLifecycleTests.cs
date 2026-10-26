@@ -404,8 +404,9 @@ namespace Armada.Test.Unit.Suites.Services
                         DiskLifecycleReport failed = await service.ReconcileAsync().ConfigureAwait(false);
                         AssertTrue(File.Exists(failing), "HTTP500 keeps the unverified local file");
                         AssertTrue(failed.ArchiveFailures > 0);
-                        AssertTrue(failed.Actions.Any(action => action.Path == failing && action.Reason.Contains("request_id=retained-request-42", StringComparison.Ordinal)),
-                            "the action retains the provider support receipt");
+                        AssertTrue(failed.Actions.Any(action => action.Path == failing && action.Disposition == "skipped"
+                            && action.Reason.Contains("upload_failed", StringComparison.Ordinal)),
+                            "the action retains the existing failure-code contract");
                         List<ArmadaEvent> receipts = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
                         AssertTrue(receipts.Any(item => item.Message!.Contains("request_id=retained-request-42", StringComparison.Ordinal)),
                             "the durable failure event retains the provider support receipt");
