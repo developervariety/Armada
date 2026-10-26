@@ -398,9 +398,21 @@ namespace Test.Shared.Suites.Services
             {
                 PosixPublishResult result = RunPosixPublishScenario(createServer: true, dashboardDeploySucceeds: true, existingDashboard: false, useRealDashboardDeploy: true, nodeAvailable: false);
 
-                AssertEqual(0, result.ExitCode, "the committed dashboard should deploy when Node is unavailable");
+                AssertEqual(0, result.ExitCode, "the committed dashboard should deploy when Node is unavailable. Output: " + result.Output);
                 AssertEqual("assets/app.js=dist-asset\nindex.html=dist-index", result.DashboardContent, "the complete committed dist tree should deploy");
                 AssertEqual(2, result.PublishRuns, "the committed dashboard path should also release its lock for the next deploy");
+            }, skip: OperatingSystem.IsWindows(), skipReason: "POSIX shell behavior is covered on Linux and macOS."));
+
+            cases.Add(Case("posix_dashboard_deploy_rejects_concurrent_build_before_build_starts", "POSIX Dashboard Deploy Rejects Concurrent Build Before Build Starts", TestTags.Negative, () =>
+            {
+                ConcurrentDashboardDeployResult result = RunConcurrentDashboardDeployScenario();
+
+                AssertTrue(result.SecondExitCode != 0, "the second dashboard deploy should be refused while the first owns the lock");
+                AssertContains("Another dashboard deploy is active", result.SecondOutput, "the refusal should identify the active deploy");
+                AssertEqual(0, result.FirstExitCode, "the first dashboard deploy should complete after its build is released");
+                AssertEqual(1, result.BuildCount, "the refused deploy should not start a second dashboard build");
+                AssertEqual("first-build", result.DashboardContent, "the first deploy should install its complete output after the lock is released");
+                AssertFalse(result.LockExists, "the completed deploy should release its lock");
             }, skip: OperatingSystem.IsWindows(), skipReason: "POSIX shell behavior is covered on Linux and macOS."));
 
             cases.Add(Case("status_health_route_uses_product_version_constant", "Status Health Route Uses ProductVersion Constant", TestTags.Positive, () =>
@@ -587,7 +599,7 @@ namespace Test.Shared.Suites.Services
                     }
                     if (!nodeAvailable)
                     {
-                        string[] commands = { "dirname", "mktemp", "mkdir", "cp", "rm", "mv", "rmdir", "chmod" };
+                        string[] commands = { "bash", "dirname", "mktemp", "mkdir", "cp", "rm", "mv", "rmdir", "chmod" };
                         foreach (string command in commands)
                         {
                             string? commandPath = FindExecutable(command);
@@ -726,6 +738,144 @@ namespace Test.Shared.Suites.Services
                 entries.Add(relative + "=" + File.ReadAllText(file));
             }
             return String.Join("\n", entries);
+        }
+
+        private static ConcurrentDashboardDeployResult RunConcurrentDashboardDeployScenario()
+        {
+            string repoRoot = FindRepositoryRoot();
+            string tempRoot = TestTemp.NewDirectory("dashboard-deploy-concurrent");
+            string tempRepo = Path.Combine(tempRoot, "repo");
+            string home = Path.Combine(tempRoot, "home");
+            string tools = Path.Combine(tempRoot, "tools");
+            string temp = Path.Combine(tempRoot, "tmp");
+            string scripts = Path.Combine(tempRepo, "scripts", "common");
+            string project = Path.Combine(tempRepo, "src", "Armada.Dashboard");
+            Directory.CreateDirectory(scripts);
+            Directory.CreateDirectory(home);
+            Directory.CreateDirectory(tools);
+            Directory.CreateDirectory(temp);
+            Directory.CreateDirectory(Path.Combine(project, "node_modules"));
+
+            Process? first = null;
+            string releasePath = Path.Combine(tempRoot, "release-first-build");
+            string startedPath = Path.Combine(tempRoot, "first-build-started");
+            string npmLog = Path.Combine(tempRoot, "npm-runs.log");
+            string dashboardDirectory = Path.Combine(home, ".armada", "dashboard");
+            try
+            {
+                CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "common", "deploy-dashboard.sh"));
+                CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "common", "resolve-insecure.sh"));
+                File.WriteAllText(Path.Combine(project, "package.json"), "{}");
+                string nodePath = Path.Combine(tools, "node");
+                File.WriteAllText(nodePath, "#!/bin/bash\nexit 0\n");
+                File.SetUnixFileMode(nodePath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                string npmPath = Path.Combine(tools, "npm");
+                File.WriteAllText(npmPath,
+                    "#!/bin/bash\n" +
+                    "set -eu\n" +
+                    "printf '%s\\n' \"$DASHBOARD_BUILD_NAME\" >> \"$NPM_LOG\"\n" +
+                    "if [ \"$DASHBOARD_BUILD_NAME\" = first-build ]; then\n" +
+                    "  : > \"$BUILD_STARTED\"\n" +
+                    "  while [ ! -f \"$BUILD_RELEASE\" ]; do sleep 0.02; done\n" +
+                    "fi\n" +
+                    "[ \"${1:-}\" = run ] || exit 2\n" +
+                    "shift\n" +
+                    "[ \"${1:-}\" = build ] || exit 2\n" +
+                    "shift\n" +
+                    "while [ \"$#\" -gt 0 ]; do\n" +
+                    "  if [ \"$1\" = --outDir ]; then shift; output=\"$1\"; break; fi\n" +
+                    "  shift\n" +
+                    "done\n" +
+                    "[ -n \"${output:-}\" ] || exit 3\n" +
+                    "mkdir -p \"$output\"\n" +
+                    "printf '%s' \"$DASHBOARD_BUILD_NAME\" > \"$output/index.html\"\n");
+                File.SetUnixFileMode(npmPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+                ProcessStartInfo firstInfo = CreateDashboardDeployStartInfo(scripts, home, tools, temp);
+                firstInfo.Environment["DASHBOARD_BUILD_NAME"] = "first-build";
+                firstInfo.Environment["BUILD_STARTED"] = startedPath;
+                firstInfo.Environment["BUILD_RELEASE"] = releasePath;
+                firstInfo.Environment["NPM_LOG"] = npmLog;
+                first = new Process { StartInfo = firstInfo };
+                first.Start();
+
+                DateTime waitUntilUtc = DateTime.UtcNow.AddSeconds(10);
+                while (!File.Exists(startedPath) && DateTime.UtcNow < waitUntilUtc) Thread.Sleep(20);
+                if (!File.Exists(startedPath)) throw new Exception("The first dashboard build did not reach the held build step.");
+
+                ProcessStartInfo secondInfo = CreateDashboardDeployStartInfo(scripts, home, tools, temp);
+                secondInfo.Environment["DASHBOARD_BUILD_NAME"] = "second-build";
+                secondInfo.Environment["BUILD_STARTED"] = startedPath;
+                secondInfo.Environment["BUILD_RELEASE"] = releasePath;
+                secondInfo.Environment["NPM_LOG"] = npmLog;
+                using (Process second = new Process { StartInfo = secondInfo })
+                {
+                    second.Start();
+                    string secondOutput = second.StandardOutput.ReadToEnd() + second.StandardError.ReadToEnd();
+                    second.WaitForExit();
+
+                    File.WriteAllText(releasePath, "release");
+                    string firstOutput = first.StandardOutput.ReadToEnd() + first.StandardError.ReadToEnd();
+                    first.WaitForExit();
+
+                    string dashboardContent = ReadDashboardSnapshot(dashboardDirectory);
+                    int buildCount = File.Exists(npmLog) ? File.ReadAllLines(npmLog).Length : 0;
+                    bool lockExists = Directory.Exists(Path.Combine(home, ".armada", ".dashboard-deploy.lock"));
+                    return new ConcurrentDashboardDeployResult(second.ExitCode, secondOutput, first.ExitCode, firstOutput, buildCount, dashboardContent, lockExists);
+                }
+            }
+            finally
+            {
+                File.WriteAllText(releasePath, "release");
+                if (first != null)
+                {
+                    if (!first.HasExited)
+                    {
+                        if (!first.WaitForExit(10000)) first.Kill(entireProcessTree: true);
+                    }
+                    first.Dispose();
+                }
+                TestTemp.TryDelete(tempRoot);
+            }
+        }
+
+        private static ProcessStartInfo CreateDashboardDeployStartInfo(string scriptsDirectory, string home, string tools, string temp)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "/bin/bash",
+                WorkingDirectory = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(scriptsDirectory)!))!,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            startInfo.ArgumentList.Add(Path.Combine(scriptsDirectory, "deploy-dashboard.sh"));
+            startInfo.Environment["HOME"] = home;
+            startInfo.Environment["PATH"] = tools + Path.PathSeparator + (Environment.GetEnvironmentVariable("PATH") ?? String.Empty);
+            startInfo.Environment["TMPDIR"] = temp;
+            return startInfo;
+        }
+
+        private sealed class ConcurrentDashboardDeployResult
+        {
+            public ConcurrentDashboardDeployResult(int secondExitCode, string secondOutput, int firstExitCode, string firstOutput, int buildCount, string dashboardContent, bool lockExists)
+            {
+                SecondExitCode = secondExitCode;
+                SecondOutput = secondOutput;
+                FirstExitCode = firstExitCode;
+                FirstOutput = firstOutput;
+                BuildCount = buildCount;
+                DashboardContent = dashboardContent;
+                LockExists = lockExists;
+            }
+
+            public int SecondExitCode { get; }
+            public string SecondOutput { get; }
+            public int FirstExitCode { get; }
+            public string FirstOutput { get; }
+            public int BuildCount { get; }
+            public string DashboardContent { get; }
+            public bool LockExists { get; }
         }
 
         private static string? FindExecutable(string name)

@@ -56,6 +56,13 @@ if [ ! -f "${DASHBOARD_DIR}/package.json" ]; then
     exit 1
 fi
 
+if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
+    echo "ERROR: Another dashboard deploy is active (${LOCK_DIR})." >&2
+    exit 1
+fi
+LOCK_OWNED=1
+printf 'pid=%s\n' "$$" > "${LOCK_DIR}/owner"
+
 if ! command -v node >/dev/null 2>&1; then
     if [ ! -f "${DIST_DIR}/index.html" ]; then
         echo "ERROR: Node.js is not installed and ${DIST_DIR}/index.html is missing."
@@ -93,13 +100,6 @@ if [ ! -f "${STAGE_DIR}/index.html" ]; then
     echo "ERROR: Staged dashboard does not contain index.html." >&2
     exit 1
 fi
-
-if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-    echo "ERROR: Another dashboard deploy is active (${LOCK_DIR})." >&2
-    exit 1
-fi
-LOCK_OWNED=1
-printf 'pid=%s\n' "$$" > "${LOCK_DIR}/owner"
 
 echo "[deploy-dashboard] Deploying dashboard to ${TARGET_DIR}"
 if [ -e "${TARGET_DIR}" ] || [ -L "${TARGET_DIR}" ]; then
