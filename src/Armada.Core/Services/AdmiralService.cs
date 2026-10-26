@@ -4094,31 +4094,7 @@ namespace Armada.Core.Services
                 captainId: captain.Id, missionId: mission.Id,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
 
-            // A pending retry still owns its continuation. Release the failed captain without
-            // destroying the active dock that authorizes the saved branch on reassignment.
-            string? retainedDockId = mission.DockId ?? captain.CurrentDockId;
-            if (!String.IsNullOrEmpty(retainedDockId))
-            {
-                Dock? retainedDock = await _Database.Docks.ReadAsync(retainedDockId, token).ConfigureAwait(false);
-                if (retainedDock != null && retainedDock.Active
-                    && retainedDock.VesselId == mission.VesselId
-                    && OwnershipPolicy.SameTenant(retainedDock.TenantId, mission.TenantId)
-                    && OwnershipPolicy.UserOfRecord(retainedDock.UserId) == OwnershipPolicy.UserOfRecord(mission.UserId)
-                    && retainedDock.BranchName == mission.BranchName
-                    && retainedDock.CaptainId == captain.Id)
-                {
-                    retainedDock.CaptainId = null;
-                    retainedDock.LastUpdateUtc = DateTime.UtcNow;
-                    await _Database.Docks.UpdateAsync(retainedDock, token).ConfigureAwait(false);
-                    mission.DockId = retainedDock.Id;
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                }
-                else if (mission.DockId != null)
-                {
-                    mission.DockId = null;
-                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                }
-            }
+            await RetainRetryDockAsync(captain, mission, token).ConfigureAwait(false);
             bool isCreditAuthFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason);
             bool shouldQuarantine = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) || isCreditAuthFailure;
             if (shouldQuarantine)
@@ -4150,6 +4126,35 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "mission " + missionId + " requeued but has no vessel id; relying on health-check retry sweep");
                 _RetryDispatchNeeded = true;
+            }
+        }
+
+        // A pending retry still owns its continuation. Release the failed captain without
+        // destroying the active dock that authorizes the saved branch on reassignment.
+        private async Task RetainRetryDockAsync(Captain captain, Mission mission, CancellationToken token)
+        {
+            string? retainedDockId = mission.DockId ?? captain.CurrentDockId;
+            if (!String.IsNullOrEmpty(retainedDockId))
+            {
+                Dock? retainedDock = await _Database.Docks.ReadAsync(retainedDockId, token).ConfigureAwait(false);
+                if (retainedDock != null && retainedDock.Active
+                    && retainedDock.VesselId == mission.VesselId
+                    && OwnershipPolicy.SameTenant(retainedDock.TenantId, mission.TenantId)
+                    && OwnershipPolicy.UserOfRecord(retainedDock.UserId) == OwnershipPolicy.UserOfRecord(mission.UserId)
+                    && retainedDock.BranchName == mission.BranchName
+                    && retainedDock.CaptainId == captain.Id)
+                {
+                    retainedDock.CaptainId = null;
+                    retainedDock.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Docks.UpdateAsync(retainedDock, token).ConfigureAwait(false);
+                    mission.DockId = retainedDock.Id;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
+                else if (mission.DockId != null)
+                {
+                    mission.DockId = null;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
             }
         }
 
@@ -4414,7 +4419,6 @@ namespace Armada.Core.Services
             mission.AssignmentState = MissionAssignmentStateEnum.Pending;
             mission.FailureReason = failureReason;
             mission.CaptainId = null;
-            mission.DockId = null;
             mission.ProcessId = null;
             mission.StartedUtc = null;
             mission.CompletedUtc = null;
@@ -4428,9 +4432,9 @@ namespace Armada.Core.Services
                 entityType: "mission", entityId: mission.Id, captainId: captain.Id, missionId: mission.Id,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
 
-            // Reclaim the dock, then bench the affected captain so the immediate re-dispatch cannot reselect it.
-            // Walking past same-provider siblings this way converges on a compatible peer.
-            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+            // Keep retry authority while benching the affected captain; terminal exhaustion above
+            // still reclaims its dock through the ordinary terminal path.
+            await RetainRetryDockAsync(captain, mission, token).ConfigureAwait(false);
             await _CaptainQuarantine.QuarantineAsync(captain, benchReason, benchUntilUtc, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "captain " + captain.Id + " quarantined after " + label + " on mission " + missionId);
 

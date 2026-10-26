@@ -121,6 +121,7 @@ namespace Armada.Test.Unit.Suites.Services
                         string foreignDirectory = Path.Combine(rootDir, "foreign");
                         Directory.CreateDirectory(foreignDirectory);
                         await File.WriteAllTextAsync(Path.Combine(foreignDirectory, "keep.txt"), "foreign work").ConfigureAwait(false);
+                        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                         Directory.CreateSymbolicLink(path, Path.Combine(rootDir, "absent-foreign"));
                         bool linkRefused = false;
                         try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
