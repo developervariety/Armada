@@ -2329,6 +2329,29 @@ namespace Armada.Test.Unit.Suites.Services
                         ExitCode = 0
                     }).ConfigureAwait(false);
 
+                    CheckRun adoptedBuild = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VoyageId = voyage.Id, Label = "Build", Type = CheckRunTypeEnum.Build,
+                        Status = CheckRunStatusEnum.Passed, Command = "dotnet build", CommitHash = reviewedCommit,
+                        SatisfiedBy = new CheckRunSatisfiedBy
+                        {
+                            MissionId = worker.Id, Label = "build", CommitHash = reviewedCommit
+                        }
+                    }).ConfigureAwait(false);
+
+                    CheckRun customSlop = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VoyageId = voyage.Id, Label = "Local style", Type = CheckRunTypeEnum.Slop,
+                        Status = CheckRunStatusEnum.Passed, Command = "local-style-audit", CommitHash = reviewedCommit
+                    }).ConfigureAwait(false);
+
+                    CheckRun nativeSlop = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VoyageId = voyage.Id, Label = "Slop", Type = CheckRunTypeEnum.Slop,
+                        Status = CheckRunStatusEnum.Pending, Command = "armada slop-classifier (native, reviewed diff)",
+                        CommitHash = reviewedCommit
+                    }).ConfigureAwait(false);
+
                     string firstDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
                     string secondDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
                     string workerDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
@@ -2343,6 +2366,20 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("Independent UnitTest Check `" + passing.Id + "`", evidenceBrief, "the passing Check is named by id");
                         AssertContains("passed at commit `" + reviewedCommit + "`", evidenceBrief, "the section names the commit the Check measured");
                         AssertContains("run only focused tests", evidenceBrief, "a measured commit asks only for focused tests");
+                        AssertContains(nativeSlop.Id, evidenceBrief, "the Judge receives the exact native Slop Check identity");
+                        AssertContains("Slop", evidenceBrief, "the native classifier type is named");
+                        AssertContains("Pending", evidenceBrief, "a pending native gate is not reported green");
+                        AssertContains("armada_enumerate entityType=checks", evidenceBrief, "the launch snapshot names the mission-accessible current receipt lookup");
+                        AssertFalse(evidenceBrief.Contains("get_check_run", StringComparison.Ordinal), "the Judge is not directed to an operator-only tool");
+                        AssertContains("not a substitute", evidenceBrief, "a separate local tool cannot replace a native gate");
+                        AssertContains("Snapshot only", evidenceBrief, "a launch-time snapshot does not claim current results");
+                        AssertContains(adoptedBuild.Id, evidenceBrief, "an adopted Build receipt is named");
+                        AssertContains("this Check ran no command", evidenceBrief, "adoption is not described as another execution");
+                        string customLine = evidenceBrief.Split('\n').Single(line => line.Contains(customSlop.Id, StringComparison.Ordinal));
+                        AssertFalse(customLine.Contains("native reviewed-diff classifier", StringComparison.Ordinal), "a custom Slop command is not mislabeled as the native classifier");
+
+
+
 
                         // The Worker committed again: the green now measures an older commit than the one under review.
                         worker.CommitHash = newerCommit;

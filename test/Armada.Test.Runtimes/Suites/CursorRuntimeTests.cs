@@ -392,21 +392,30 @@ namespace Armada.Test.Runtimes.Suites
                     foreach (var sample in new[]
                     {
                         (Messages: new[] { new[] { "I will check both." }, new[] { "[ARMADA:STATUS] Testing" }, new[] { "## Coverage ", report.Substring("## Coverage ".Length) } },
-                            Partial: false, Result: "I will check both.[ARMADA:STATUS] Testing" + report,
+                            Partial: false, Metadata: 0, Result: "I will check both.[ARMADA:STATUS] Testing" + report,
                             Expected: "I will check both.\n\n[ARMADA:STATUS] Testing\n\n" + report, Complete: (bool?)true),
-                        (Messages: new[] { new[] { "prefix## Coverage ", report.Substring("## Coverage ".Length) } },
-                            Partial: false, Result: "prefix" + report, Expected: "prefix" + report, Complete: (bool?)false),
+                        (Messages: new[] { new[] { "I will check both." }, new[] { "[ARMADA:STATUS] Testing" }, new[] { report } },
+                            Partial: false, Metadata: 1, Result: "I will check both.[ARMADA:STATUS] Testing" + report,
+                            Expected: "I will check both.\n\n[ARMADA:STATUS] Testing\n\n" + report, Complete: (bool?)true),
                         (Messages: new[] { new[] { "head" }, new[] { "ing" } },
-                            Partial: true, Result: "heading", Expected: "heading", Complete: (bool?)null),
+                            Partial: true, Metadata: 1, Result: "heading", Expected: "heading", Complete: (bool?)null),
+                        (Messages: new[] { new[] { "head" }, new[] { "ing" } },
+                            Partial: false, Metadata: 2, Result: "heading", Expected: "heading", Complete: (bool?)null),
+                        (Messages: new[] { new[] { "prefix## Coverage ", report.Substring("## Coverage ".Length) } },
+                            Partial: false, Metadata: 0, Result: "prefix" + report, Expected: "prefix" + report, Complete: (bool?)false),
+                        (Messages: new[] { new[] { "head" }, new[] { "ing" } },
+                            Partial: true, Metadata: 0, Result: "heading", Expected: "heading", Complete: (bool?)null),
                         (Messages: new[] { new[] { "earlier progress" }, new[] { "later progress" } },
-                            Partial: false, Result: "authoritative answer", Expected: "authoritative answer", Complete: (bool?)null)
+                            Partial: false, Metadata: 0, Result: "authoritative answer", Expected: "authoritative answer", Complete: (bool?)null)
                     })
                     {
                         File.Delete(finalPath);
                         List<string> events = sample.Messages.Select((parts, index) => JsonSerializer.Serialize(new
                         {
                             type = "assistant",
-                            timestamp_ms = sample.Partial ? (long?)(index + 1) : null,
+                            timestamp_ms = sample.Partial || sample.Metadata != 0 ? (long?)(index + 1) : null,
+                            model_call_id = sample.Metadata == 1 ? (object)"whole-model-call" : sample.Metadata == 2 ? (object)17 : null,
+                            subtype = sample.Partial && sample.Metadata != 0 ? "delta" : null,
                             message = new { role = "assistant", content = parts.Select(text => new { type = "text", text }).ToArray() }
                         })).ToList();
                         events.Add(JsonSerializer.Serialize(new { type = "result", subtype = "success", is_error = false, result = sample.Result }));

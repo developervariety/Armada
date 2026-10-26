@@ -78,7 +78,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_dispatch",
-                "Dispatch a new voyage with missions to a vessel. Link objectiveId for non-trivial work so the objective/backlog item carries scope and evidence lineage. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Code-index context packs are attached by default when available; set codeContextMode to off to opt out or force to require generation. Each mission may use preferredModel with a complexity tier: low, mid, or high.",
+                "Dispatch a new voyage with missions to a vessel. Each mission requires a non-empty title and description; objective context is appended to that task description. Link objectiveId for non-trivial work so the objective/backlog item carries scope and evidence lineage. Each mission may include an optional prestagedFiles array of {sourcePath, destPath} entries; the Admiral copies sourcePath (absolute, on the Admiral host) into destPath (relative, inside the dock worktree) after the dock is created and before the captain spawns. Code-index context packs are attached by default when available; set codeContextMode to off to opt out or force to require generation. Each mission may use preferredModel with a complexity tier: low, mid, or high.",
                 new
                 {
                     type = "object",
@@ -95,8 +95,8 @@ namespace Armada.Server.Mcp.Tools
                                 type = "object",
                                 properties = new
                                 {
-                                    title = new { type = "string" },
-                                    description = new { type = "string" },
+                                    title = new { type = "string", minLength = 1 },
+                                    description = new { type = "string", minLength = 1, description = "Required task instructions; linked objective context is appended after validation." },
                                     prestagedFiles = new
                                     {
                                         type = "array",
@@ -136,7 +136,8 @@ namespace Armada.Server.Mcp.Tools
                                             required = new[] { "playbookId", "deliveryMode" }
                                         }
                                     }
-                                }
+                                },
+                                required = new[] { "title", "description" }
                             }
                         },
                         codeContextMode = new { type = "string", description = "Code context mode for this dispatch: auto (default), off, or force. Mission-level codeContextMode overrides this value." },

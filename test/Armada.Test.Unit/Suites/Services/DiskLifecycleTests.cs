@@ -399,7 +399,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "<Error><Code>InternalError</Code><Message>PRIVATE_RESPONSE</Message></Error>",
                         new Dictionary<string, string[]> { { "x-amz-request-id", new[] { "retained-request-42" } } })))
                     {
-                        service.ArchiveSinkFactory = settings => new S3ArchiveSink(settings, receiptClient);
+                        service.ArchiveSinkFactory = settings => new S3ArchiveSink(settings, receiptClient, retryDelay: (delay, token) => Task.CompletedTask);
                         notes.Posts.Clear();
                         DiskLifecycleReport failed = await service.ReconcileAsync().ConfigureAwait(false);
                         AssertTrue(File.Exists(failing), "HTTP500 keeps the unverified local file");
@@ -420,6 +420,155 @@ namespace Armada.Test.Unit.Suites.Services
                     Cleanup(layout);
                 }
             }).ConfigureAwait(false);
+
+            foreach (string recovery in new[] { "put-recovers", "ambiguous-put", "head-recovers", "put-exhausted", "head-exhausted", "put-forbidden", "verify-checksum", "retry-after", "cancel-backoff", "budget-backoff" })
+            {
+                await RunTest("S3 archive retry preserves verification and request identity: " + recovery, async () =>
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Layout layout = CreateLayout();
+                        try
+                        {
+                            string file = CreateRetentionFile(Path.Combine(layout.Settings.LogDirectory, "missions"), "msn_retry.log", DateTime.UtcNow.AddDays(-40));
+                            byte[] expected = await File.ReadAllBytesAsync(file).ConfigureAwait(false);
+                            string sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(expected)).ToLowerInvariant();
+                            string md5 = Convert.ToBase64String(System.Security.Cryptography.MD5.HashData(expected));
+                            DiskLifecycleService service = CreateArchivingService(testDb, layout, new FakeArchiveSink());
+                            layout.Settings.DiskLifecycle.Enabled = true;
+                            layout.Settings.DiskLifecycle.DryRun = false;
+                            File.WriteAllText(layout.Settings.Archive.CredentialsFile, "accessKeyId=exampleaccess\nsecretAccessKey=examplesecret\n");
+                            Dictionary<string, byte[]> stored = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                            Dictionary<string, string> hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+                            HashSet<HttpRequestMessage> requests = new HashSet<HttpRequestMessage>();
+                            HashSet<HttpContent> contents = new HashSet<HttpContent>();
+                            HashSet<string> signatures = new HashSet<string>(StringComparer.Ordinal);
+                            List<System.IO.Stream> streams = new List<System.IO.Stream>();
+                            int puts = 0;
+                            int headsAfterPut = 0;
+                            int targetHeads = 0;
+                            int clocks = 0;
+                            List<TimeSpan> delays = new List<TimeSpan>();
+                            using (CancellationTokenSource caller = new CancellationTokenSource())
+                            using (HttpClient http = new HttpClient(new StubHttpMessageHandler(async (request, token) =>
+                            {
+                                string path = request.RequestUri!.AbsolutePath;
+                                bool target = path.EndsWith("/msn_retry.log", StringComparison.Ordinal);
+                                if (request.Method == HttpMethod.Put)
+                                {
+                                    System.IO.Stream stream = await request.Content!.ReadAsStreamAsync(token).ConfigureAwait(false);
+                                    using (MemoryStream body = new MemoryStream())
+                                    {
+                                        await stream.CopyToAsync(body, token).ConfigureAwait(false);
+                                        byte[] data = body.ToArray();
+                                        if (target)
+                                        {
+                                            puts++;
+                                            AssertTrue(data.SequenceEqual(expected), "every PUT reopens and sends the entire original file");
+                                            AssertEqual(md5, Convert.ToBase64String(request.Content.Headers.ContentMD5!), "each fresh content keeps its MD5");
+                                            AssertEqual(sha, request.Headers.GetValues(S3ArchiveSink.Sha256MetadataHeader).Single(), "each request keeps the expected SHA");
+                                            AssertEqual((long)expected.Length, request.Content.Headers.ContentLength!.Value, "each request keeps the length");
+                                            requests.Add(request); contents.Add(request.Content); streams.Add(stream);
+                                            signatures.Add(request.Headers.GetValues("Authorization").Single());
+                                        }
+                                        bool fails = target && (recovery is "put-exhausted" or "put-forbidden" or "retry-after"
+                                            || recovery is "put-recovers" or "ambiguous-put" or "cancel-backoff" or "budget-backoff" && puts == 1);
+                                        if (!fails || recovery == "ambiguous-put")
+                                        {
+                                            stored[path] = data;
+                                            hashes[path] = request.Headers.GetValues(S3ArchiveSink.Sha256MetadataHeader).Single();
+                                        }
+                                        if (fails)
+                                        {
+                                            HttpStatusCode status = recovery == "put-forbidden" ? HttpStatusCode.Forbidden
+                                                : recovery == "retry-after" ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.InternalServerError;
+                                            HttpResponseMessage failure = new HttpResponseMessage(status) { Content = new StringContent("<Error><Code>InternalError</Code><Message>PRIVATE_RESPONSE</Message></Error>") };
+                                            failure.Headers.TryAddWithoutValidation("x-amz-request-id", "retry-" + puts);
+                                            if (recovery == "retry-after") failure.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromHours(1));
+                                            return failure;
+                                        }
+                                        return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(String.Empty) };
+                                    }
+                                }
+                                if (request.Method == HttpMethod.Head)
+                                {
+                                    if (target) targetHeads++;
+                                    if (!stored.ContainsKey(path)) return new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent(String.Empty) };
+                                    if (target)
+                                    {
+                                        headsAfterPut++;
+                                        if (recovery == "head-exhausted" || recovery == "head-recovers" && headsAfterPut == 1)
+                                            return new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("<Error><Code>InternalError</Code></Error>") };
+                                    }
+                                    HttpResponseMessage head = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Array.Empty<byte>()) };
+                                    head.Content.Headers.ContentLength = stored[path].LongLength;
+                                    head.Headers.TryAddWithoutValidation(S3ArchiveSink.Sha256MetadataHeader, target && recovery == "verify-checksum" ? new string('0', 64) : hashes[path]);
+                                    return head;
+                                }
+                                throw new InvalidOperationException("Unexpected archive request method");
+                            })))
+                            {
+                                if (recovery == "budget-backoff") http.Timeout = TimeSpan.FromSeconds(2);
+                                S3ArchiveSink sink = new S3ArchiveSink(layout.Settings.Archive, http,
+                                    () => new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(++clocks),
+                                    (delay, token) =>
+                                    {
+                                        AssertTrue(streams.All(stream => !stream.CanRead), "PUT streams close before any retry backoff");
+                                        delays.Add(delay);
+                                        if (recovery == "budget-backoff") return Task.Delay(Timeout.InfiniteTimeSpan, token);
+                                        if (recovery == "cancel-backoff") caller.Cancel();
+                                        token.ThrowIfCancellationRequested();
+                                        return Task.CompletedTask;
+                                    });
+                                service.ArchiveSinkFactory = settings => sink;
+                                if (recovery == "budget-backoff")
+                                {
+                                    ArchivePutResult expired = await sink.PutFileAsync("raw/msn_retry.log", file, sha, caller.Token).ConfigureAwait(false);
+                                    AssertFalse(expired.Verified, "operation budget cannot verify an unfinished upload");
+                                    AssertEqual("upload_failed", expired.FailureCode, "budget expiry retains the upload failure");
+                                    AssertFalse(caller.IsCancellationRequested, "operation expiry is separate from caller cancellation");
+                                    AssertEqual(1, puts, "operation expiry prevents another PUT");
+                                    AssertEqual(0, targetHeads, "operation expiry prevents a verification request");
+                                    AssertTrue(File.Exists(file), "the operation budget keeps the unverified source");
+                                    return;
+                                }
+                                if (recovery == "cancel-backoff")
+                                {
+                                    bool cancelled = false;
+                                    try { await sink.PutFileAsync("raw/msn_retry.log", file, sha, caller.Token).ConfigureAwait(false); }
+                                    catch (OperationCanceledException) when (caller.IsCancellationRequested) { cancelled = true; }
+                                    AssertTrue(cancelled, "caller cancellation propagates during backoff");
+                                    AssertEqual(1, puts, "cancellation prevents a second upload");
+                                    AssertTrue(File.Exists(file), "cancellation retains the unverified source");
+                                    return;
+                                }
+                                DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
+                                bool success = recovery is "put-recovers" or "ambiguous-put" or "head-recovers";
+                                AssertEqual(!success, File.Exists(file), "only verified archive bytes permit release: " + recovery);
+                                AssertEqual(success ? 0 : 1, report.ArchiveFailures, "the report preserves the final verification outcome: " + recovery);
+                                AssertEqual(recovery == "put-recovers" ? 2 : recovery == "put-exhausted" ? 3 : 1, puts, "PUT attempts stay bounded and successful or ambiguous stored uploads are not repeated: " + recovery);
+                                AssertEqual(puts, requests.Count, "each PUT has a fresh request");
+                                AssertEqual(puts, contents.Count, "each PUT has fresh content");
+                                AssertEqual(puts, signatures.Count, "each PUT is signed with the advancing request clock");
+                                AssertTrue(streams.All(stream => !stream.CanRead), "request streams are disposed before the pass completes");
+                                int expectedDelays = recovery is "put-exhausted" or "head-exhausted" ? 2
+                                    : recovery is "put-recovers" or "ambiguous-put" or "head-recovers" ? 1 : 0;
+                                AssertEqual(expectedDelays, delays.Count, "backoff occurs only for bounded transient recovery");
+                                for (int i = 0; i < delays.Count; i++) AssertEqual(TimeSpan.FromSeconds(Math.Pow(2, i)), delays[i], "backoff increases between attempts");
+                                if (recovery == "head-recovers") AssertEqual(2, headsAfterPut, "verification retries HEAD without another PUT");
+                                if (recovery == "head-exhausted") AssertEqual(3, headsAfterPut, "verification exhaustion is bounded");
+                                if (recovery == "put-exhausted")
+                                {
+                                    List<ArmadaEvent> failures = await testDb.Driver.Events.EnumerateByTypeAsync("disk_lifecycle.archive_failed", 10).ConfigureAwait(false);
+                                    AssertTrue(failures.Any(evt => evt.Message!.Contains("request_id=retry-3", StringComparison.Ordinal)), "exhaustion retains the last provider support receipt");
+                                    AssertFalse(failures.Any(evt => evt.Message!.Contains("PRIVATE_RESPONSE", StringComparison.Ordinal)), "provider message bodies remain private");
+                                }
+                            }
+                        }
+                        finally { Cleanup(layout); }
+                    }
+                }).ConfigureAwait(false);
+            }
 
             await RunTest("A read-back cap stops the run after the first cap, keeps the rest locally, and reports one cap event and one board note", async () =>
             {
@@ -1398,6 +1547,13 @@ namespace Armada.Test.Unit.Suites.Services
             private readonly HttpStatusCode _Status;
             private readonly string _Body;
             private readonly Dictionary<string, string[]>? _Headers;
+            private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? _Responder;
+
+            public StubHttpMessageHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> responder)
+            {
+                _Responder = responder;
+                _Body = String.Empty;
+            }
 
             public StubHttpMessageHandler(HttpStatusCode status, string body, Dictionary<string, string[]>? headers = null)
             {
@@ -1408,6 +1564,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             {
+                if (_Responder != null) return _Responder(request, cancellationToken);
                 HttpResponseMessage response = new HttpResponseMessage(_Status)
                 {
                     Content = new StringContent(_Body)

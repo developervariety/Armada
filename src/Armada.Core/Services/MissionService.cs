@@ -3109,14 +3109,14 @@ namespace Armada.Core.Services
                 await RaiseBlockedQuestionForOwnerAsync(mission, blockedQuestion, token).ConfigureAwait(false);
             }
 
-            // A report-only Worker that ends COMPLETE while its own report states that its acceptance criteria
-            // are not met did not finish its report (ReportIncompleteResult). Every reviewer stage after it could
-            // only confirm that, so the stage fails here with the captain's statement and the reviewer stages
-            // are cancelled instead of run.
+            // Current-stage work must be complete before review. A criterion that explicitly awaits
+            // the configured downstream Judge remains that Judge's obligation, not a reason to cancel it.
             bool failedForIncompleteReport = false;
+            string? incompleteStatement = null;
             if (!failedForScopeViolation && !failedForBlockedResult && mission.IsReadOnlyMode
-                && String.Equals(mission.Persona ?? "Worker", "Worker", StringComparison.Ordinal)
-                && ReportIncompleteResult.TryRead(mission.AgentOutput, out string incompleteStatement))
+                && String.Equals(mission.Persona ?? "Worker", "Worker", StringComparison.Ordinal))
+                incompleteStatement = await ReadIncompleteReportStatementAsync(mission, token).ConfigureAwait(false);
+            if (incompleteStatement != null)
             {
                 failedForIncompleteReport = true;
                 mission.Status = MissionStatusEnum.Failed;
@@ -6413,7 +6413,7 @@ namespace Armada.Core.Services
                     .ReadAllAsync(_Database, mission.TenantId, queries, token).ConfigureAwait(false);
                 List<CheckRun> laneChecks = VoyageLanes.ChecksForLaneOf(mission, voyageMissions, checks.Values);
                 CheckRun? passing = JudgeCheckEvidence.FindPassingUnitTest(laneChecks, reviewedCommit);
-                return JudgeCheckEvidence.BuildSection(passing, reviewedCommit);
+                return JudgeCheckEvidence.BuildSection(passing, reviewedCommit, laneChecks);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {

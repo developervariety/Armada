@@ -542,8 +542,20 @@ the latest record of each Check:
   test evidence and runs only focused tests for the changed code, with each
   command and its result. It runs the full suite instead when the diff changes
   test infrastructure or build configuration.
-- Otherwise the section says no passing UnitTest Check is recorded for that
-  commit, and the Judge runs the full test suite in the foreground.
+- Otherwise the section says no passing UnitTest Check was recorded when the
+  brief was written. The Judge reads current Check receipts before repeating
+  work, and runs the full suite in the foreground if no current passing receipt
+  covers that commit.
+
+The section also lists the exact-commit lane Check ids, types, sources and
+statuses. Native Slop identity uses the native classifier command rule; a custom
+Slop command is not labelled native. An adopted result names the earlier gate
+and mission and says that this Check ran no command. The snapshot directs a
+captain to `armada_enumerate entityType=checks` for its voyage or standalone
+mission, with `includeTestOutput=false`. Every result page must be read and the
+Check id, commit, type, source and status matched. Pending, failed or unavailable
+proof remains unresolved. A separate local tool does not replace a required
+native Check or add a requirement absent from the workflow or acceptance criteria.
 
 A Judge re-run in place, for example after its Checks resolve, gets a new brief
 and so reads the current Check state. The Judge template's

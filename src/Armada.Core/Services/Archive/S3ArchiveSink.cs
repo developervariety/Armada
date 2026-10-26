@@ -50,6 +50,10 @@ namespace Armada.Core.Services.Archive
         private readonly ArchiveSettings _Settings;
         private readonly HttpClient _Http;
         private readonly Func<DateTime> _Clock;
+        private readonly Func<TimeSpan, CancellationToken, Task> _RetryDelay;
+        private const int _MaxAttempts = 3;
+        private static readonly TimeSpan _MaximumOperationTime = TimeSpan.FromMinutes(30);
+        private static readonly TimeSpan _MaximumRetryDelay = TimeSpan.FromSeconds(30);
 
         #endregion
 
@@ -61,11 +65,14 @@ namespace Armada.Core.Services.Archive
         /// <param name="settings">Archive settings; endpoint, bucket and credentials file must be set.</param>
         /// <param name="http">HTTP client; a shared client is used when null.</param>
         /// <param name="clock">UTC clock used to sign requests; the system clock when null.</param>
-        public S3ArchiveSink(ArchiveSettings settings, HttpClient? http = null, Func<DateTime>? clock = null)
+        /// <param name="retryDelay">Cancellation-aware backoff; normal task delay when null.</param>
+        public S3ArchiveSink(ArchiveSettings settings, HttpClient? http = null, Func<DateTime>? clock = null,
+            Func<TimeSpan, CancellationToken, Task>? retryDelay = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Http = http ?? _SharedClient;
             _Clock = clock ?? (() => DateTime.UtcNow);
+            _RetryDelay = retryDelay ?? ((delay, token) => Task.Delay(delay, token));
         }
 
         #endregion
@@ -106,17 +113,16 @@ namespace Armada.Core.Services.Archive
                 return ArchivePutResult.Failed(key, "credentials_missing", ex.Message);
             }
 
-            try
+            using (CancellationTokenSource operation = CreateOperationCancellation(token))
             {
-                return await HeadAndCompareAsync(key, bytes, sha256.ToLowerInvariant(), credentials, token).ConfigureAwait(false);
-            }
-            catch (HttpRequestException ex)
-            {
-                return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: " + ex.Message);
-            }
-            catch (TaskCanceledException ex) when (!token.IsCancellationRequested)
-            {
-                return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back in time: " + ex.Message);
+                try
+                {
+                    return await HeadAndCompareAsync(key, bytes, sha256.ToLowerInvariant(), credentials, operation.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                {
+                    return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be verified within the operation budget");
+                }
             }
         }
 
@@ -229,86 +235,162 @@ namespace Armada.Core.Services.Archive
             string contentType, CancellationToken token)
         {
             Credentials credentials;
-            try
-            {
-                credentials = ReadCredentials();
-            }
-            catch (InvalidOperationException ex)
-            {
-                return ArchivePutResult.Failed(key, "credentials_missing", ex.Message);
-            }
+            try { credentials = ReadCredentials(); }
+            catch (InvalidOperationException ex) { return ArchivePutResult.Failed(key, "credentials_missing", ex.Message); }
 
-            string? etag;
-            try
+            ArchivePutResult? lastFailure = null;
+            using (CancellationTokenSource operation = CreateOperationCancellation(token))
             {
-                Dictionary<string, string> extra = new Dictionary<string, string>(StringComparer.Ordinal)
+                try
                 {
-                    { Sha256MetadataHeader, sha256 }
-                };
-                using (HttpRequestMessage request = BuildRequest(HttpMethod.Put, key, null, credentials, sha256, extra))
-                {
-                    HttpContent content = contentFactory();
-                    content.Headers.ContentLength = bytes;
-                    content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-                    content.Headers.ContentMD5 = Convert.FromBase64String(md5);
-                    request.Content = content;
-                    using (HttpResponseMessage response = await _Http.SendAsync(request, token).ConfigureAwait(false))
+                    for (int attempt = 1; attempt <= _MaxAttempts; attempt++)
                     {
-                        if (!response.IsSuccessStatusCode)
+                        operation.Token.ThrowIfCancellationRequested();
+                        bool uploaded = false;
+                        bool transient = false;
+                        string? etag = null;
+                        TimeSpan? retryAfter = null;
+                        try
                         {
-                            string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
-                            string code = ErrorCode(body);
-                            string failure = code.Contains("SHA256", StringComparison.OrdinalIgnoreCase) ? "sha256_mismatch"
-                                : code.Contains("BadDigest", StringComparison.OrdinalIgnoreCase) ? "md5_mismatch" : "upload_failed";
-                            return ArchivePutResult.Failed(key, failure, "upload of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body));
+                            Dictionary<string, string> extra = new Dictionary<string, string>(StringComparer.Ordinal) { { Sha256MetadataHeader, sha256 } };
+                            using (HttpRequestMessage request = BuildRequest(HttpMethod.Put, key, null, credentials, sha256, extra))
+                            {
+                                HttpContent content = contentFactory();
+                                content.Headers.ContentLength = bytes;
+                                content.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+                                content.Headers.ContentMD5 = Convert.FromBase64String(md5);
+                                request.Content = content;
+                                using (HttpResponseMessage response = await _Http.SendAsync(request, operation.Token).ConfigureAwait(false))
+                                {
+                                    if (response.IsSuccessStatusCode)
+                                    {
+                                        uploaded = true;
+                                        etag = response.Headers.ETag?.Tag?.Trim('"');
+                                    }
+                                    else
+                                    {
+                                        string body = await response.Content.ReadAsStringAsync(operation.Token).ConfigureAwait(false);
+                                        string code = ErrorCode(body);
+                                        string failure = code.Contains("SHA256", StringComparison.OrdinalIgnoreCase) ? "sha256_mismatch"
+                                            : code.Contains("BadDigest", StringComparison.OrdinalIgnoreCase) ? "md5_mismatch" : "upload_failed";
+                                        lastFailure = ArchivePutResult.Failed(key, failure, "upload of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body));
+                                        transient = failure == "upload_failed" && IsTransient(response.StatusCode);
+                                        retryAfter = ReadRetryAfter(response);
+                                    }
+                                }
+                            }
                         }
-                        etag = response.Headers.ETag?.Tag?.Trim('"');
+                        catch (HttpRequestException ex)
+                        {
+                            lastFailure = ArchivePutResult.Failed(key, "upload_failed", "upload of '" + key + "' failed: " + ex.Message);
+                            transient = true;
+                        }
+
+                        if (uploaded)
+                        {
+                            // A successful PUT is never repeated to repair a transient verification failure.
+                            ArchivePutResult verified = await HeadAndCompareAsync(key, bytes, sha256, credentials, operation.Token).ConfigureAwait(false);
+                            if (verified.Verified) verified.ETag = etag;
+                            return verified;
+                        }
+                        if (!transient || attempt == _MaxAttempts) return lastFailure!;
+                        if (!await DelayRetryAsync(attempt, retryAfter, operation.Token).ConfigureAwait(false)) return lastFailure!;
+
+                        // A failed response can follow a committed upload. Verify before making another version.
+                        ArchivePutResult stored = await HeadAndCompareAsync(key, bytes, sha256, credentials, operation.Token).ConfigureAwait(false);
+                        if (stored.Verified) return stored;
+                        if (stored.FailureCode == ArchivePutResult.CapExceededCode || stored.FailureCode == "sha256_mismatch" || stored.FailureCode == "size_mismatch") return stored;
+                        if (stored.FailureCode != "not_found")
+                            return ArchivePutResult.Failed(key, "upload_failed", lastFailure!.FailureMessage + "; " + stored.FailureMessage);
                     }
                 }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                {
+                    return lastFailure ?? ArchivePutResult.Failed(key, "upload_failed", "upload of '" + key + "' exceeded its operation budget");
+                }
             }
-            catch (HttpRequestException ex)
-            {
-                return ArchivePutResult.Failed(key, "upload_failed", "upload of '" + key + "' failed: " + ex.Message);
-            }
-            catch (TaskCanceledException ex) when (!token.IsCancellationRequested)
-            {
-                return ArchivePutResult.Failed(key, "upload_failed", "upload of '" + key + "' timed out: " + ex.Message);
-            }
-
-            // Read the stored object back: the store must hold exactly the bytes and the hash sent.
-            ArchivePutResult verified = await HeadAndCompareAsync(key, bytes, sha256, credentials, token).ConfigureAwait(false);
-            if (verified.Verified) verified.ETag = etag;
-            return verified;
+            return lastFailure!;
         }
 
         private async Task<ArchivePutResult> HeadAndCompareAsync(string key, long bytes, string sha256, Credentials credentials, CancellationToken token)
         {
-            using (HttpRequestMessage head = BuildRequest(HttpMethod.Head, key, null, credentials, _EmptySha256, null))
-            using (HttpResponseMessage response = await _Http.SendAsync(head, token).ConfigureAwait(false))
+            ArchivePutResult? lastFailure = null;
+            for (int attempt = 1; attempt <= _MaxAttempts; attempt++)
             {
-                if (response.StatusCode == HttpStatusCode.NotFound)
-                    return ArchivePutResult.Failed(key, "not_found", "no stored object '" + key + "'");
-                if (!response.IsSuccessStatusCode)
+                bool transient = false;
+                TimeSpan? retryAfter = null;
+                try
                 {
-                    // A download/transaction cap returns 403 with a body that names the cap. That is a
-                    // whole-store condition, not a fault of this object, so it is reported with its own
-                    // code and the caller stops verifying the rest of the run. An auth or signature 403,
-                    // which does not name a cap, stays a per-object verify failure.
-                    string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
-                    if (response.StatusCode == HttpStatusCode.Forbidden && IsCapExceeded(body))
-                        return ArchivePutResult.Failed(key, ArchivePutResult.CapExceededCode,
-                            "stored object '" + key + "' read-back refused: the object store download or transaction cap is exceeded (HTTP 403 " + FailureDetails(response, body) + ")");
-                    return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body));
+                    using (HttpRequestMessage head = BuildRequest(HttpMethod.Head, key, null, credentials, _EmptySha256, null))
+                    using (HttpResponseMessage response = await _Http.SendAsync(head, token).ConfigureAwait(false))
+                    {
+                        if (response.StatusCode == HttpStatusCode.NotFound)
+                            return ArchivePutResult.Failed(key, "not_found", "no stored object '" + key + "'");
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                            if (response.StatusCode == HttpStatusCode.Forbidden && IsCapExceeded(body))
+                                return ArchivePutResult.Failed(key, ArchivePutResult.CapExceededCode,
+                                    "stored object '" + key + "' read-back refused: the object store download or transaction cap is exceeded (HTTP 403 " + FailureDetails(response, body) + ")");
+                            lastFailure = ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body));
+                            transient = IsTransient(response.StatusCode);
+                            retryAfter = ReadRetryAfter(response);
+                        }
+                        else
+                        {
+                            long stored = response.Content.Headers.ContentLength ?? -1;
+                            if (stored != bytes)
+                                return ArchivePutResult.Failed(key, "size_mismatch", "stored object '" + key + "' is " + stored + " bytes, local content is " + bytes);
+                            string storedSha = response.Headers.TryGetValues(Sha256MetadataHeader, out IEnumerable<string>? values) ? values.FirstOrDefault() ?? String.Empty : String.Empty;
+                            if (!String.Equals(storedSha, sha256, StringComparison.OrdinalIgnoreCase))
+                                return ArchivePutResult.Failed(key, "sha256_mismatch", "stored object '" + key + "' records SHA-256 '" + storedSha + "', local content is " + sha256);
+                            return new ArchivePutResult { Key = key, Verified = true, Bytes = bytes, Sha256 = sha256 };
+                        }
+                    }
                 }
-                long stored = response.Content.Headers.ContentLength ?? -1;
-                if (stored != bytes)
-                    return ArchivePutResult.Failed(key, "size_mismatch", "stored object '" + key + "' is " + stored + " bytes, local content is " + bytes);
-                string storedSha = response.Headers.TryGetValues(Sha256MetadataHeader, out IEnumerable<string>? values) ? values.FirstOrDefault() ?? String.Empty : String.Empty;
-                if (!String.Equals(storedSha, sha256, StringComparison.OrdinalIgnoreCase))
-                    return ArchivePutResult.Failed(key, "sha256_mismatch", "stored object '" + key + "' records SHA-256 '" + storedSha + "', local content is " + sha256);
+                catch (HttpRequestException ex)
+                {
+                    lastFailure = ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: " + ex.Message);
+                    transient = true;
+                }
+                if (!transient || attempt == _MaxAttempts) return lastFailure!;
+                if (!await DelayRetryAsync(attempt, retryAfter, token).ConfigureAwait(false)) return lastFailure!;
             }
+            return lastFailure!;
+        }
 
-            return new ArchivePutResult { Key = key, Verified = true, Bytes = bytes, Sha256 = sha256 };
+        private CancellationTokenSource CreateOperationCancellation(CancellationToken token)
+        {
+            CancellationTokenSource operation = CancellationTokenSource.CreateLinkedTokenSource(token);
+            TimeSpan limit = _Http.Timeout > TimeSpan.Zero && _Http.Timeout < _MaximumOperationTime ? _Http.Timeout : _MaximumOperationTime;
+            operation.CancelAfter(limit);
+            return operation;
+        }
+
+        private static bool IsTransient(HttpStatusCode status)
+        {
+            return status == HttpStatusCode.InternalServerError || status == HttpStatusCode.BadGateway
+                || status == HttpStatusCode.ServiceUnavailable || status == HttpStatusCode.GatewayTimeout
+                || status == HttpStatusCode.TooManyRequests;
+        }
+
+        private TimeSpan? ReadRetryAfter(HttpResponseMessage response)
+        {
+            RetryConditionHeaderValue? retry = response.Headers.RetryAfter;
+            if (retry?.Delta != null) return retry.Delta.Value;
+            if (retry?.Date != null) return retry.Date.Value.UtcDateTime - _Clock();
+            return null;
+        }
+
+        private async Task<bool> DelayRetryAsync(int attempt, TimeSpan? retryAfter, CancellationToken token)
+        {
+            TimeSpan delay = TimeSpan.FromSeconds(Math.Pow(2, attempt - 1));
+            if (retryAfter.HasValue && retryAfter.Value > delay) delay = retryAfter.Value;
+            // A long provider cooldown defers the object to a later pass, never retries too early.
+            if (delay > _MaximumRetryDelay) return false;
+            await _RetryDelay(delay, token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            return true;
         }
 
         private HttpRequestMessage BuildRequest(HttpMethod method, string? key, SortedDictionary<string, string>? query, Credentials credentials,

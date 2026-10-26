@@ -15,6 +15,16 @@ upstream integrations and excludes changes already present at that baseline.
   plans. Parallel branches use a durable integration barrier with fixed accepted
   membership, verified rescue identity and proof of landing on the current target.
 
+- Dispatch tool schemas require a task title and description, matching runtime validation before objective context is appended.
+
+- Judge briefs name exact-commit native Check identities and statuses, distinguish adopted evidence, and direct reviewers to current receipts before repeating work.
+- Cursor whole-message flush metadata preserves report boundaries while partial and mismatched aggregates keep the terminal text unchanged.
+
+- Review finding extraction leaves outside-scope observations and instruction proposals out of revision work. Explicit blockers and unmet criteria remain findings.
+
+- Archive uploads and verification retry transient server or transport failures within a bounded operation. Failed uploads are checked before another PUT; successful uploads retry verification only.
+
+- Completed report-only work can reach its configured pending Judge when that review is its sole outstanding criterion. Unfinished current work and unavailable review still block.
 - Local POSIX server publish fails when Dashboard deployment fails and no
   Dashboard is available. It continues only when an existing Dashboard remains.
   Dashboard copies are staged before replacement, with rollback on install failure.

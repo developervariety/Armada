@@ -130,6 +130,55 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, JudgeChallenge.ExtractFindings(null, out bool _).Count, "no review, no findings");
             });
 
+            await RunTest("Outside-scope notes and instruction proposals do not become revision findings", () =>
+            {
+                string review = String.Join("\n", new[]
+                {
+                    "## Completeness", "- Required native evidence is NOT MET.",
+                    "## Correctness", "**Blocking: required review evidence is missing.**",
+                    "Remaining inconsistencies are outside the allowed edit scope:",
+                    "- The old sample still names the previous constructor.",
+                    "- The guide has an unsupported legacy option.",
+                    "- The examples require an unrelated package.",
+                    "- The historical note contradicts the current naming.",
+                    "- The old table lacks the new entry.",
+                    "- Blocking: the required artifact is absent.",
+                    "- Acceptance criterion 2 is NOT MET.",
+                    "[CLAUDE.MD-PROPOSAL]", "Preserve the remaining instructions.",
+                    "[/CLAUDE.MD-PROPOSAL]",
+                    "## Verdict", "[ARMADA:VERDICT] NEEDS_REVISION"
+                });
+                List<string> findings = JudgeChallenge.ExtractFindings(review, out bool complete);
+                string joined = String.Join("\n", findings);
+                AssertTrue(complete, "the complete review fits the findings bound");
+                AssertEqual(4, findings.Count, "only the two explicit blockers and two unmet criteria require revision");
+                AssertContains("required review evidence is missing", joined, "the actual correctness defect remains");
+                AssertContains("required artifact is absent", joined, "an explicit blocker overrides the outside-scope lead-in");
+                AssertContains("criterion 2 is NOT MET", joined, "an unmet criterion overrides that lead-in");
+                AssertFalse(joined.Contains("Preserve the remaining instructions", StringComparison.Ordinal), "instruction proposals are not correctness findings");
+                foreach (string advisory in new[] { "old sample", "legacy option", "unrelated package", "historical note", "old table" })
+                    AssertFalse(joined.Contains(advisory, StringComparison.Ordinal), "outside-scope observation stays advisory: " + advisory);
+
+                foreach (string lead in new[] { "Changes introduced by this patch outside the allowed edit scope:", "These defects are not outside the allowed scope:" })
+                {
+                    string violation = "## Correctness\n" + lead + "\n- src/Guard.cs:10 removes the safety guard.\n## Verdict\n[ARMADA:VERDICT] NEEDS_REVISION";
+                    AssertContains("removes the safety guard", String.Join("\n", JudgeChallenge.ExtractFindings(violation, out _)), "scope violations and negated scope labels remain findings");
+                }
+                string afterProposal = "## Correctness\n[CLAUDE.MD-PROPOSAL]\nPreserve the existing instructions.\n[/CLAUDE.MD-PROPOSAL]\nThe new reader is incorrect because it drops the final record.\n## Verdict\n[ARMADA:VERDICT] NEEDS_REVISION";
+                AssertContains("drops the final record", String.Join("\n", JudgeChallenge.ExtractFindings(afterProposal, out _)), "closing a proposal restores the surrounding correctness context");
+                string openProposal = "## Correctness\n[CLAUDE.MD-PROPOSAL]\nPreserve the existing instructions.\n## Examples\nPreserve these examples.\n## Tests\nThe new reader is incorrect because it drops the final record.\n## Verdict\nRequired revision: fix the reader.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                string afterOpenProposal = String.Join("\n", JudgeChallenge.ExtractFindings(openProposal, out _));
+                AssertContains("drops the final record", afterOpenProposal, "a peer review section ends an unclosed instruction proposal");
+                AssertContains("Required revision: fix the reader", afterOpenProposal, "the later verdict keeps its required work");
+                AssertFalse(afterOpenProposal.Contains("Preserve these examples", StringComparison.Ordinal), "an arbitrary proposal heading does not introduce findings");
+                string completeProposal = "## Correctness\n[CLAUDE.MD-PROPOSAL]\n## Tests\n- Add tests for the sample runner.\n[/CLAUDE.MD-PROPOSAL]\nThe new reader is incorrect because it drops the final record.\n## Verdict\n[ARMADA:VERDICT] NEEDS_REVISION";
+                string afterCompleteProposal = String.Join("\n", JudgeChallenge.ExtractFindings(completeProposal, out _));
+                AssertFalse(afterCompleteProposal.Contains("Add tests for the sample runner", StringComparison.Ordinal), "a matched proposal keeps its own recognized headings inside the proposal");
+                AssertContains("drops the final record", afterCompleteProposal, "the matched proposal restores review context after its close");
+
+
+            });
+
             await RunTest("Items under a lead-in that reports agreement are not findings, and every blocking and NOT MET item still is", () =>
             {
                 string review = String.Join("\n", new[]
