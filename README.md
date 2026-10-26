@@ -82,6 +82,10 @@ caller's scoped records and separates an unavailable endpoint from an empty job
 list. The [client surface map](docs/CLIENT_SURFACES.md) identifies the REST,
 Dashboard, Helm and MCP entry points and their availability boundaries.
 
+The Voyages list uses shared table controls with saved optional columns. Server
+paging, status filtering and fork voyage actions keep their existing rules.
+Other list pages retain their own table layouts.
+
 Both versions use salted PBKDF2-HMAC-SHA256 password storage. The fork keeps
 the SHA-256 API input and upgrades legacy rows with conditional password-only
 writes, so a concurrent password reset is preserved.

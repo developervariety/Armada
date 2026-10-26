@@ -2,15 +2,13 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listVoyages, cancelVoyage, purgeVoyage, getVoyageMissionSummary } from '../api/client';
 import type { Voyage } from '../types/models';
-import Pagination from '../components/shared/Pagination';
+import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import CopyButton from '../components/shared/CopyButton';
-import RefreshButton from '../components/shared/RefreshButton';
-import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLoadError } from '../lib/useLoadError';
 import { useLatestRequest } from '../lib/useLatestRequest';
@@ -75,6 +73,22 @@ export default function Voyages() {
   useEffect(() => { load(); }, [load]);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('voyages', load);
+
+  const columns: DataTableColumn<Voyage>[] = [
+    { key: 'title', label: t('Title'), required: true, render: v => <strong className="truncate-text" title={v.title}>{v.title}</strong>, cellClassName: 'truncate-cell' },
+    { key: 'id', label: t('ID'), required: true, render: v => <span className="id-display"><span className="id-value" title={v.id}>{v.id}</span><CopyButton text={v.id} onClick={e => e.stopPropagation()} /></span>, cellClassName: 'mono text-dim table-id-cell' },
+    { key: 'status', label: t('Status'), render: v => <StatusBadge status={v.status} /> },
+    { key: 'autoPush', label: t('Auto Push'), defaultHidden: true, render: v => v.autoPush != null ? (v.autoPush ? t('Yes') : t('No')) : '-' },
+    { key: 'autoCreatePullRequests', label: t('Auto Create PRs'), defaultHidden: true, render: v => v.autoCreatePullRequests != null ? (v.autoCreatePullRequests ? t('Yes') : t('No')) : '-' },
+    { key: 'landingMode', label: t('Landing Mode'), render: v => v.landingMode || '-' },
+    { key: 'actions', label: t('Actions'), fixed: true, className: 'text-right', render: v => <span onClick={e => e.stopPropagation()}><ActionMenu id={`voyage-${v.id}`} items={[
+      { label: 'View Detail', onClick: () => navigate(`/voyages/${v.id}`) },
+      { label: 'View Status', onClick: () => handleViewStatus(v.id) },
+      { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Voyage: {{title}}', { title: v.title }), data: v }) },
+      { label: 'Cancel', danger: true, onClick: () => handleCancel(v.id, v.title) },
+      { label: 'Purge', danger: true, onClick: () => handlePurge(v.id, v.title) },
+    ]} /></span> },
+  ];
 
   // Actions
   function handleCancel(id: string, title: string) {
@@ -153,8 +167,6 @@ export default function Voyages() {
                 {t('Cancel Selected')} ({table.selected.length})
               </button>
             )}
-            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
-            <RefreshButton onRefresh={load} title="Refresh voyage data" />
             <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ {t('Voyage')}</button>
           </>
         )}
@@ -183,66 +195,16 @@ export default function Voyages() {
         </select>
       </div>
 
-      {loading && voyages.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
-      {!loading && voyages.length === 0 && <p className="text-dim">{statusFilter ? t('No voyages match the current filters.') : t('No voyages found.')}</p>}
-
-      {voyages.length > 0 && (
-        <>
-          <Pagination pageNumber={pageNumber} pageSize={pageSize} totalPages={totalPages}
-            totalRecords={totalRecords}
-            onPageChange={p => setPageNumber(p)} onPageSizeChange={s => { setPageSize(s); setPageNumber(1); }} />
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th className="col-checkbox">
-                    <input type="checkbox" checked={table.allSelected} onChange={e => e.target.checked ? table.selectAll() : table.clearSelection()} title={t('Select all voyages')} />
-                  </th>
-                  <th>{t('Title')}</th>
-                  <th>{t('ID')}</th>
-                  <th>{t('Status')}</th>
-                  <th>{t('Auto Push')}</th>
-                  <th>{t('Auto Create PRs')}</th>
-                  <th>{t('Landing Mode')}</th>
-                  <th className="text-right">{t('Actions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {voyages.map(v => (
-                  <tr key={v.id} className="clickable" onClick={() => setViewRecord(v as unknown as Record<string, unknown>)}>
-                    <td className="col-checkbox" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={table.selected.includes(v.id)} onChange={() => table.toggleSelect(v.id)} title={t('Select this voyage')} />
-                    </td>
-                    <td className="truncate-cell" title={v.title}>
-                      <strong className="truncate-text">{v.title}</strong>
-                    </td>
-                    <td className="mono text-dim table-id-cell">
-                      <span className="id-display">
-                        <span className="id-value" title={v.id}>{v.id}</span>
-                        <CopyButton text={v.id} onClick={e => e.stopPropagation()} />
-                      </span>
-                    </td>
-                    <td><StatusBadge status={v.status} /></td>
-                    <td>{v.autoPush != null ? (v.autoPush ? t('Yes') : t('No')) : '-'}</td>
-                    <td>{v.autoCreatePullRequests != null ? (v.autoCreatePullRequests ? t('Yes') : t('No')) : '-'}</td>
-                    <td className="text-dim">{v.landingMode || '-'}</td>
-                    <td className="text-right" onClick={e => e.stopPropagation()}>
-                      <ActionMenu id={`voyage-${v.id}`} items={[
-                        { label: 'View Detail', onClick: () => navigate(`/voyages/${v.id}`) },
-                        { label: 'View Status', onClick: () => handleViewStatus(v.id) },
-                        { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Voyage: ${v.title}`, data: v }) },
-                        { label: 'Cancel', danger: true, onClick: () => handleCancel(v.id, v.title) },
-                        { label: 'Purge', danger: true, onClick: () => handlePurge(v.id, v.title) },
-                      ]} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      <DataTable tableKey="voyages" columns={columns} rows={voyages} rowKey={v => v.id}
+        onRowClick={v => setViewRecord(v as unknown as Record<string, unknown>)}
+        pagination={{ pageNumber, pageSize, totalPages, totalRecords, onPageChange: setPageNumber,
+          onPageSizeChange: size => { setPageSize(size); setPageNumber(1); } }}
+        autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }} onRefresh={load} refreshTitle="Refresh voyage data"
+        selection={{ isSelected: v => table.selected.includes(v.id), onToggle: v => table.toggleSelect(v.id),
+          allSelected: table.allSelected, onToggleAll: checked => checked ? table.selectAll() : table.clearSelection(),
+          selectAllLabel: t('Select all voyages'), rowLabel: () => t('Select this voyage') }}
+        emptyMessage={t('No voyages match the current filters.')}
+        placeholder={voyages.length === 0 ? <p className="text-dim">{loading ? t('Loading...') : statusFilter ? t('No voyages match the current filters.') : t('No voyages found.')}</p> : undefined} />
     </div>
   );
 }
