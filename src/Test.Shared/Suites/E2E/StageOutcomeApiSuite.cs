@@ -431,6 +431,178 @@ namespace Test.Shared.Suites.E2E
                 }
             }));
 
+            cases.Add(CaseAsync("rest_and_mcp_filter_contract", "Every outcome filter excludes a known nonmatching row over REST and MCP; date boundaries and paging are exact", async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                E2ETenantUser user = await E2ETenantUser.CreateAsync(fx.AuthClient, "sfc-user", false).ConfigureAwait(false);
+                DateTime ended = new DateTime(2026, 10, 15, 12, 0, 0, DateTimeKind.Utc);
+                StageOutcome wanted = await SeedAsync(fx, user.TenantId, o =>
+                {
+                    o.MissionId = "msn_filter_wanted"; o.VoyageId = "vyg_filter_wanted"; o.VesselId = "vsl_filter_wanted";
+                    o.CaptainId = "cpt_filter_wanted"; o.Persona = "Judge"; o.Model = "FilterModel";
+                    o.SuspectedCause = FailureCauseEnum.Protocol; o.CauseSource = FailureCauseSourceEnum.Manual;
+                    o.Disposition = StageDispositionEnum.Relaunched; o.IsEvaluation = true; o.EndedUtc = ended;
+                }).ConfigureAwait(false);
+                StageOutcome other = await SeedAsync(fx, user.TenantId, o =>
+                {
+                    o.Model = "OtherModel"; o.EndedUtc = ended.AddHours(-1);
+                }).ConfigureAwait(false);
+                using HttpClient rest = user.CreateClient(fx.BaseUrl);
+                using McpToolClient mcp = Mcp(fx, user);
+                await mcp.InitializeAsync().ConfigureAwait(false);
+                EnumerationResult<StageOutcome> baseline = await GetAsync<EnumerationResult<StageOutcome>>(rest, "/api/v1/stage-outcomes").ConfigureAwait(false);
+                AssertEqual(2, (int)baseline.TotalRecords, "both fixtures are visible before filters");
+                AssertEqual(wanted.Id, baseline.Objects[0].Id, "newest first");
+                AssertEqual(other.Id, baseline.Objects[1].Id, "older row present");
+                foreach (KeyValuePair<string, string> filter in new Dictionary<string, string>
+                {
+                    ["missionId"] = wanted.MissionId, ["voyageId"] = wanted.VoyageId!, ["vesselId"] = wanted.VesselId!,
+                    ["captainId"] = wanted.CaptainId!, ["persona"] = "judge", ["model"] = "filtermodel",
+                    ["suspectedCause"] = "Protocol", ["causeSource"] = "Manual", ["disposition"] = "Relaunched"
+                })
+                {
+                    EnumerationResult<StageOutcome> page = await GetAsync<EnumerationResult<StageOutcome>>(rest, "/api/v1/stage-outcomes?" + filter.Key + "=" + Uri.EscapeDataString(filter.Value)).ConfigureAwait(false);
+                    AssertEqual(1, (int)page.TotalRecords, "REST " + filter.Key + " total");
+                    AssertEqual(wanted.Id, page.Objects.Single().Id, "REST " + filter.Key);
+                    EnumerationResult<StageOutcome> toolPage = await OkAsync<EnumerationResult<StageOutcome>>(mcp, "list_stage_outcomes", new Dictionary<string, object> { [filter.Key] = filter.Value }).ConfigureAwait(false);
+                    AssertEqual(1, (int)toolPage.TotalRecords, "MCP " + filter.Key + " total");
+                    AssertEqual(wanted.Id, toolPage.Objects.Single().Id, "MCP " + filter.Key);
+                }
+                foreach (bool evaluation in new[] { true, false })
+                {
+                    string expectedId = evaluation ? wanted.Id : other.Id;
+                    EnumerationResult<StageOutcome> page = await GetAsync<EnumerationResult<StageOutcome>>(rest, "/api/v1/stage-outcomes?isEvaluation=" + evaluation.ToString().ToLowerInvariant()).ConfigureAwait(false);
+                    AssertEqual(expectedId, page.Objects.Single().Id, "REST boolean filter");
+                    EnumerationResult<StageOutcome> toolPage = await OkAsync<EnumerationResult<StageOutcome>>(mcp, "list_stage_outcomes", new { isEvaluation = evaluation }).ConfigureAwait(false);
+                    AssertEqual(expectedId, toolPage.Objects.Single().Id, "MCP boolean filter");
+                }
+                EnumerationResult<StageOutcome> from = await GetAsync<EnumerationResult<StageOutcome>>(rest, "/api/v1/stage-outcomes?fromUtc=2026-10-15T12:00:00Z").ConfigureAwait(false);
+                AssertEqual(wanted.Id, from.Objects.Single().Id, "inclusive from boundary");
+                EnumerationResult<StageOutcome> to = await OkAsync<EnumerationResult<StageOutcome>>(mcp, "list_stage_outcomes", new { toUtc = "2026-10-15T12:00:00Z" }).ConfigureAwait(false);
+                AssertEqual(other.Id, to.Objects.Single().Id, "exclusive to boundary");
+                EnumerationResult<StageOutcome> second = await GetAsync<EnumerationResult<StageOutcome>>(rest, "/api/v1/stage-outcomes?pageNumber=2&pageSize=1").ConfigureAwait(false);
+                AssertEqual(other.Id, second.Objects.Single().Id, "second page");
+                AssertEqual(2, second.TotalPages);
+                EnumerationResult<StageOutcome> empty = await OkAsync<EnumerationResult<StageOutcome>>(mcp, "list_stage_outcomes", new { missionId = wanted.MissionId, persona = "Worker" }).ConfigureAwait(false);
+                AssertEqual(0, (int)empty.TotalRecords, "filters combine with AND");
+                AssertEqual(0, empty.Objects.Count, "successful empty page, not an error");
+            }));
+
+            cases.Add(CaseAsync("rest_rule_deserialization_and_rejected_updates", "Rule defaults and explicit overrides survive deserialization; rejected updates leave the stored rule intact", async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                E2ETenantUser user = await E2ETenantUser.CreateAsync(fx.AuthClient, "srd-user", false).ConfigureAwait(false);
+                using HttpClient client = user.CreateClient(fx.BaseUrl);
+
+                // Omitted optional fields inherit the model defaults through the real HTTP deserializer.
+                using HttpResponseMessage response = await client.PostAsync("/api/v1/failure-cause-rules", JsonHelper.ToJsonContent(new
+                {
+                    Name = "  Deserialized defaults  ",
+                    Match = new { FailureKinds = new[] { "Timeout" } }
+                })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, response);
+                FailureCauseRule original = await JsonHelper.DeserializeAsync<FailureCauseRule>(response).ConfigureAwait(false);
+                AssertEqual("Deserialized defaults", original.Name);
+                AssertEqual(100, original.Priority, "omitted priority");
+                AssertTrue(original.Enabled, "omitted enabled");
+                AssertEqual(FailureCauseEnum.Unknown, original.Cause, "omitted cause inherits Unknown");
+                AssertNull(original.Description, "omitted description");
+                AssertNull(original.Match.TextPattern, "omitted regex");
+                AssertEqual(0, original.Match.Personas.Count, "omitted criteria lists");
+                AssertEqual(user.TenantId, original.TenantId, "omitted tenant is caller's tenant");
+
+                // Null lists and blank optional strings must not become criteria or crash classification.
+                using HttpResponseMessage update = await client.PutAsync("/api/v1/failure-cause-rules/" + original.Id, JsonHelper.ToJsonContent(new
+                {
+                    Name = original.Name, Priority = 0, Enabled = false, Cause = "Context", Description = "  ",
+                    Match = new { FailureKinds = new[] { "Timeout" }, Personas = (string[]?)null, Runtimes = (string[]?)null, TextPattern = "  " }
+                })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.OK, update);
+                FailureCauseRule stored = await GetAsync<FailureCauseRule>(client, "/api/v1/failure-cause-rules/" + original.Id).ConfigureAwait(false);
+                AssertEqual(0, stored.Priority, "explicit zero overrides priority default");
+                AssertFalse(stored.Enabled, "explicit false overrides enabled default");
+                AssertEqual(FailureCauseEnum.Context, stored.Cause);
+                AssertNull(stored.Description, "blank description normalized");
+                AssertNull(stored.Match.TextPattern, "blank regex normalized");
+                AssertEqual(0, stored.Match.Personas.Count, "null personas normalized");
+                AssertEqual(0, stored.Match.Runtimes.Count, "null runtimes normalized");
+
+                foreach (object invalid in new object[]
+                {
+                    new { Name = original.Name, Cause = "Protocol", Match = new { } },
+                    new { Name = original.Name, Cause = "None", Match = new { FailureKinds = new[] { "Timeout" } } },
+                    new { Name = original.Name, Cause = "Protocol", Match = new { TextPattern = "[" } },
+                    new { Name = new string('n', 201), Cause = "Protocol", Match = new { FailureKinds = new[] { "Timeout" } } },
+                    new { Name = original.Name, Cause = "Protocol", Match = (object?)null }
+                })
+                {
+                    using HttpResponseMessage rejected = await client.PutAsync("/api/v1/failure-cause-rules/" + original.Id, JsonHelper.ToJsonContent(invalid)).ConfigureAwait(false);
+                    AssertStatusCode(HttpStatusCode.BadRequest, rejected, "invalid replacement");
+                    FailureCauseRule unchanged = await GetAsync<FailureCauseRule>(client, "/api/v1/failure-cause-rules/" + original.Id).ConfigureAwait(false);
+                    AssertEqual(stored.Name, unchanged.Name, "rejected name not saved");
+                    AssertEqual(stored.Cause, unchanged.Cause, "rejected cause not saved");
+                    AssertEqual(stored.Priority, unchanged.Priority, "rejected defaults not saved");
+                    AssertFalse(unchanged.Enabled, "rejected enabled default not saved");
+                    AssertEqual(MissionFailureKindEnum.Timeout, unchanged.Match.FailureKinds.Single(), "rejected match not saved");
+                    AssertNull(unchanged.Match.TextPattern, "bad regex not saved");
+                }
+
+                await AssertBadRuleAsync(client, new { Name = "Null match", Cause = "Protocol", Match = (object?)null }, "criterion").ConfigureAwait(false);
+                foreach (string pattern in new[] { "", "  " })
+                    await AssertBadRuleAsync(client, new { Name = "Blank pattern", Cause = "Protocol", Match = new { TextPattern = pattern } }, "criterion").ConfigureAwait(false);
+                foreach (string name in new[] { "", "  " })
+                    await AssertBadRuleAsync(client, new { Name = name, Cause = "Protocol", Match = new { FailureKinds = new[] { "Timeout" } } }, "Name").ConfigureAwait(false);
+
+                EnumerationResult<FailureCauseRule> rules = await GetAsync<EnumerationResult<FailureCauseRule>>(client, "/api/v1/failure-cause-rules?pageSize=1000").ConfigureAwait(false);
+                AssertEqual(1, rules.Objects.Count(r => r.TenantId == user.TenantId), "invalid creates stored nothing");
+                AssertStatusCode(HttpStatusCode.NoContent, await client.DeleteAsync("/api/v1/failure-cause-rules/" + original.Id).ConfigureAwait(false));
+            }));
+
+            cases.Add(CaseAsync("mcp_validation_and_missing_ids", "MCP rejects every required invalid rule case and missing IDs without mutating stored rules", async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                E2ETenantUser user = await E2ETenantUser.CreateAsync(fx.AuthClient, "smv-user", false).ConfigureAwait(false);
+                using McpToolClient client = Mcp(fx, user);
+                await client.InitializeAsync().ConfigureAwait(false);
+                FailureCauseRule original = await OkAsync<FailureCauseRule>(client, "create_failure_cause_rule", new
+                {
+                    name = "MCP validation anchor", cause = "Protocol", match = new { failureKinds = new[] { "Timeout" } }
+                }).ConfigureAwait(false);
+                AssertEqual(100, original.Priority, "MCP omitted priority");
+                AssertTrue(original.Enabled, "MCP omitted enabled");
+
+                foreach (object invalid in new object[]
+                {
+                    new { name = "No criteria", cause = "Protocol", match = new { } },
+                    new { name = "None cause", cause = "None", match = new { failureKinds = new[] { "Timeout" } } },
+                    new { name = "Bad regex", cause = "Protocol", match = new { textPattern = "[" } },
+                    new { name = new string('n', 201), cause = "Protocol", match = new { failureKinds = new[] { "Timeout" } } }
+                })
+                    await ErrorAsync(client, "create_failure_cause_rule", invalid, McpToolErrorCodeEnum.InvalidArgument).ConfigureAwait(false);
+
+                await ErrorAsync(client, "update_failure_cause_rule", new { ruleId = original.Id, match = new { } }, McpToolErrorCodeEnum.InvalidArgument).ConfigureAwait(false);
+                await ErrorAsync(client, "update_failure_cause_rule", new { ruleId = original.Id, cause = "None" }, McpToolErrorCodeEnum.InvalidArgument).ConfigureAwait(false);
+                FailureCauseRule unchanged = await OkAsync<FailureCauseRule>(client, "get_failure_cause_rule", new { ruleId = original.Id }).ConfigureAwait(false);
+                AssertEqual(original.Name, unchanged.Name);
+                AssertEqual(original.Cause, unchanged.Cause, "rejected MCP cause not saved");
+                AssertEqual(MissionFailureKindEnum.Timeout, unchanged.Match.FailureKinds.Single(), "rejected MCP match not saved");
+
+                FailureCauseRule overridden = await OkAsync<FailureCauseRule>(client, "update_failure_cause_rule", new { ruleId = original.Id, priority = 0, enabled = false }).ConfigureAwait(false);
+                AssertEqual(0, overridden.Priority, "MCP explicit zero");
+                AssertFalse(overridden.Enabled, "MCP explicit false");
+                AssertEqual(original.Cause, overridden.Cause, "MCP omitted cause preserved");
+                foreach (string tool in new[] { "get_stage_outcome", "classify_stage_outcome", "draft_failure_cause_rule" })
+                    await ErrorAsync(client, tool, new { outcomeId = "sto_missing", cause = "Protocol" }, McpToolErrorCodeEnum.NotFound).ConfigureAwait(false);
+                foreach (string tool in new[] { "get_failure_cause_rule", "update_failure_cause_rule", "delete_failure_cause_rule" })
+                    await ErrorAsync(client, tool, new { ruleId = "fcr_missing", enabled = false }, McpToolErrorCodeEnum.NotFound).ConfigureAwait(false);
+
+                EnumerationResult<FailureCauseRule> rules = await OkAsync<EnumerationResult<FailureCauseRule>>(client, "list_failure_cause_rules", new { pageSize = 1000 }).ConfigureAwait(false);
+                AssertEqual(1, rules.Objects.Count(r => r.TenantId == user.TenantId), "invalid MCP creates stored nothing");
+                McpToolCallResult deleted = await client.CallToolResultAsync("delete_failure_cause_rule", JsonHelper.Serialize(new { ruleId = original.Id })).ConfigureAwait(false);
+                AssertFalse(deleted.IsError, deleted.Text);
+                await ErrorAsync(client, "get_failure_cause_rule", new { ruleId = original.Id }, McpToolErrorCodeEnum.NotFound).ConfigureAwait(false);
+            }));
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Stage outcomes and failure-cause rules API", cases: cases);
         }
 

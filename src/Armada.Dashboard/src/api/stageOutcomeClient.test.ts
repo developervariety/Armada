@@ -132,6 +132,27 @@ describe('failure-cause rule client', () => {
     await expect(createFailureCauseRule({ name: 'x', cause: 'Protocol', match: {} })).rejects.toThrow('Match must set at least one criterion.');
   });
 
+  it.each([
+    ['reclassify', () => reclassifyStageOutcomes(), '/api/v1/stage-outcomes/reclassify', 'POST'],
+    ['global rule update', () => updateFailureCauseRule('fcr_global', { name: 'Global', cause: 'Protocol', match: { failureKinds: ['Timeout'] } }), '/api/v1/failure-cause-rules/fcr_global', 'PUT'],
+    ['global rule delete', () => deleteFailureCauseRule('fcr_global'), '/api/v1/failure-cause-rules/fcr_global', 'DELETE'],
+  ] as const)('surfaces forbidden %s responses', async (_name, action, path, method) => {
+    // Attach the fetch recorder before the action and verify the denied request was actually sent.
+    const fetchMock = stub(403, { Error: 'Forbidden', Message: 'Only an admin can perform this action.' });
+    await expect(action()).rejects.toThrow('Only an admin can perform this action.');
+    const [url, init] = onlyCallArgs(fetchMock);
+    expect(new URL(url, 'http://localhost').pathname).toBe(path);
+    expect(init.method).toBe(method);
+  });
+
+  it('rejects a failed list response instead of treating it as an empty page', async () => {
+    const fetchMock = stub(500, { Error: 'InternalError', Message: 'Outcome storage unavailable.' });
+    await expect(listStageOutcomes()).rejects.toThrow('Outcome storage unavailable.');
+    const [url, init] = onlyCallArgs(fetchMock);
+    expect(new URL(url, 'http://localhost').pathname).toBe('/api/v1/stage-outcomes');
+    expect(init.method).toBe('GET');
+  });
+
   it('gets, updates and deletes by id', async () => {
     let fetchMock = stub(200, RULE);
     await getFailureCauseRule('fcr_1');
