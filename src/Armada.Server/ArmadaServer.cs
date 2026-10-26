@@ -33,7 +33,7 @@ namespace Armada.Server
     /// Routes, MCP tools, WebSocket commands, agent lifecycle, and mission landing
     /// are each handled by dedicated classes — this class wires them together.
     /// </summary>
-    public class ArmadaServer
+    public partial class ArmadaServer
     {
         #region Public-Members
 
@@ -1011,6 +1011,7 @@ namespace Armada.Server
 
             _RemoteTunnel.OnHandleRequest = HandleRemoteTunnelRequestAsync;
 
+            await InitializeFleetActionsAsync().ConfigureAwait(false);
             RegisterRoutes();
             InitializeDashboard();
 
@@ -1142,6 +1143,8 @@ namespace Armada.Server
             // run marker current then, so a growth toward the OOM killer is logged before the kill.
             AdmiralMemoryWatch memoryWatch = new AdmiralMemoryWatch(_Logging, _InFlightRequests, BeatRunMarker);
             _MemoryWatchTask = memoryWatch.RunAsync(_TokenSource.Token);
+
+            StartFleetActionLoop();
 
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
@@ -1338,6 +1341,7 @@ namespace Armada.Server
                     _SettingsWatcher?.Dispose();
                     _SettingsWatcher = null;
                 });
+                RunStopStep("saved mission action stop", StopFleetActionLoop);
                 _AgentLifecycle?.SetPreserveHarborJobsOnShutdown(true);
                 // Kill agent subprocesses so none survive as orphans after the Admiral exits.
                 // Harbor jobs are detached by the lifecycle handler and remain fenced for recovery.
@@ -1759,6 +1763,8 @@ namespace Armada.Server
             new AskThreadRoutes(new AskThreadService(_Database, captainChat))
                 .Register(_App, authenticate, _AuthorizationService);
             new AskActionRoutes(_AskActions).Register(_App, authenticate, _AuthorizationService);
+
+            new FleetActionRoutes(_FleetActions).Register(_App, authenticate, _AuthorizationService);
         }
 
         private void InitializeDashboard()

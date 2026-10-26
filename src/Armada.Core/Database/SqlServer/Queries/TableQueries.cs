@@ -1017,7 +1017,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(119, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.SqlServerStatements),
                 new SchemaMigration(120, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.SqlServerStatements),
                 new SchemaMigration(121, "Persist saved Ask threads and durable turns", AskThreadSchema.SqlServerStatements),
-                new SchemaMigration(122, "Persist owner-scoped Ask action proposals", AskActionProposalSchema.SqlServerStatements)
+                new SchemaMigration(122, "Persist owner-scoped Ask action proposals", AskActionProposalSchema.SqlServerStatements),
+                new SchemaMigration(123, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.SqlServerStatements)
             };
         }
 

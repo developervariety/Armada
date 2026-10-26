@@ -25,7 +25,7 @@ describe('navConfig', () => {
     const present = [
       '/', '/ask', '/inbox', '/planning', '/dispatch', '/missions',
       '/delivery', '/vessels', '/captains', '/configuration', '/activity',
-      '/jobs', '/api-explorer', '/server', '/notifications', '/code-index',
+      '/jobs', '/api-explorer', '/server', '/notifications', '/code-index', '/mission-actions',
       // Fork-only addition; see the file comment.
       '/chatroom',
     ];
@@ -34,7 +34,7 @@ describe('navConfig', () => {
     }
     // The consolidated destinations plus Chatroom, Notifications history,
     // and Code Index; admin lives as tabs under Settings.
-    expect(commands).toHaveLength(17);
+    expect(commands).toHaveLength(18);
   });
 
   it('no longer surfaces the folded-away pages as nav items', () => {

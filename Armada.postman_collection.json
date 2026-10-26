@@ -323,6 +323,18 @@
 			"value": "",
 			"type": "string",
 			"description": "Existing checkout returned by local checkout discovery."
+		},
+		{
+			"key": "fleetActionId",
+			"value": ""
+		},
+		{
+			"key": "fleetActionRunId",
+			"value": ""
+		},
+		{
+			"key": "fleetActionRequestId",
+			"value": "reviewed-request-1"
 		}
 	],
 	"item": [
@@ -12743,6 +12755,227 @@
 							]
 						},
 						"description": "Confirms that an orphaned Harbor runner process stopped after the operator verifies the exact job revision, enrollment generation, process ID and start time. Requires a global administrator. This recovery route is available when Harbor linking is disabled."
+					}
+				}
+			]
+		},
+		{
+			"name": "Mission Actions",
+			"description": "Saved Mission actions use existing voyage dispatch and cancellation. Set a new fleetActionRequestId for new intent; keep the same ID when retrying an unknown response. Uncertain targets cannot be retried automatically.",
+			"item": [
+				{
+					"name": "List Mission Actions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-actions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-actions"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped."
+					}
+				},
+				{
+					"name": "Create Mission Action",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-actions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-actions"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Review repository\",\n  \"promptTemplate\": \"Review {vesselName} ({vesselId}) and report findings.\",\n  \"pipelineId\": null,\n  \"concurrency\": 1,\n  \"active\": true\n}"
+						}
+					}
+				},
+				{
+					"name": "Get Mission Action",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-actions/{{fleetActionId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-actions",
+								"{{fleetActionId}}"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped."
+					}
+				},
+				{
+					"name": "Update Mission Action",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-actions/{{fleetActionId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-actions",
+								"{{fleetActionId}}"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Review repository\",\n  \"promptTemplate\": \"Review {vesselName} ({vesselId}) and report findings.\",\n  \"pipelineId\": null,\n  \"concurrency\": 1,\n  \"active\": true\n}"
+						}
+					}
+				},
+				{
+					"name": "Delete Mission Action",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-actions/{{fleetActionId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-actions",
+								"{{fleetActionId}}"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped."
+					}
+				},
+				{
+					"name": "Start Mission Action Run",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-actions/{{fleetActionId}}/run",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-actions",
+								"{{fleetActionId}}",
+								"run"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"requestId\": \"{{fleetActionRequestId}}\",\n  \"vesselIds\": [\n    \"{{vesselId}}\"\n  ]\n}"
+						}
+					}
+				},
+				{
+					"name": "List Mission Action Runs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-action-runs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-action-runs"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped."
+					}
+				},
+				{
+					"name": "Get Mission Action Run",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-action-runs/{{fleetActionRunId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-action-runs",
+								"{{fleetActionRunId}}"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped."
+					}
+				},
+				{
+					"name": "Cancel Mission Action Run",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/fleet-action-runs/{{fleetActionRunId}}/cancel",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"fleet-action-runs",
+								"{{fleetActionRunId}}",
+								"cancel"
+							]
+						},
+						"description": "Requires current unscoped global administrator operator authority. Definitions and runs are exact-owner scoped.",
+						"body": {
+							"mode": "raw",
+							"raw": "{}"
+						}
 					}
 				}
 			]

@@ -102,6 +102,45 @@ export interface Fleet {
   lastUpdateUtc: string;
 }
 
+export type FleetActionTargetStatus = 'Pending' | 'Dispatching' | 'Running' | 'Completed' | 'WorkProduced' | 'Delivered' | 'Failed' | 'Skipped' | 'Cancelled' | 'Uncertain';
+export type FleetActionRunStatus = 'Pending' | 'Running' | 'Completed' | 'PartiallyCompleted' | 'Failed' | 'Cancelled' | 'Uncertain';
+
+export interface FleetAction {
+  id: string; tenantId: string; userId: string; name: string; active: boolean; kind: 'Mission';
+  promptTemplate: string; pipelineId: string | null; concurrency: number; createdUtc: string; lastUpdateUtc: string;
+}
+
+export interface FleetActionUpsertRequest {
+  name: string; promptTemplate: string; pipelineId?: string | null; concurrency: number; active: boolean;
+}
+
+export interface FleetActionRunRequest { requestId: string; vesselIds: string[]; }
+
+export interface FleetActionTargetSnapshot {
+  targetId: string; vesselId: string; vesselTenantIdSnapshot: string | null; vesselUserIdSnapshot: string | null;
+  vesselNameSnapshot: string; renderedPrompt: string; resolvedPipelineId: string | null; resolvedPipelineHash: string | null;
+}
+
+export interface FleetActionSnapshot {
+  actionName: string; actionKind: 'Mission'; promptTemplate: string; pipelineId: string | null; concurrency: number;
+  targets: FleetActionTargetSnapshot[];
+}
+
+export interface FleetActionTargetState {
+  targetId: string; status: FleetActionTargetStatus; voyageId: string | null; cancelRequested: boolean;
+  reason: string | null; error: string | null; dispatchStartedUtc: string | null; startedUtc: string | null;
+  completedUtc: string | null; lastUpdateUtc: string;
+}
+
+export interface FleetActionRunState {
+  status: FleetActionRunStatus; startedUtc: string | null; completedUtc: string | null; targetStates: FleetActionTargetState[];
+}
+
+export interface FleetActionRun {
+  id: string; tenantId: string; userId: string; actionId: string; requestId: string; requestFingerprint: string;
+  revision: number; snapshot: FleetActionSnapshot; state: FleetActionRunState;
+}
+
 export interface Vessel {
   id: string;
   tenantId: string | null;

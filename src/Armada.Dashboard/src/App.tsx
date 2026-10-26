@@ -15,6 +15,7 @@ const Fleets = lazy(() => import('./pages/Fleets'));
 const Vessels = lazy(() => import('./pages/Vessels'));
 const Captains = lazy(() => import('./pages/Captains'));
 const Missions = lazy(() => import('./pages/Missions'));
+const MissionActions = lazy(() => import('./pages/MissionActions'));
 const Voyages = lazy(() => import('./pages/Voyages'));
 const Events = lazy(() => import('./pages/Events'));
 const MergeQueue = lazy(() => import('./pages/MergeQueue'));
@@ -127,6 +128,7 @@ export default function App() {
                       <Route path="captains/:id" element={<CaptainDetail />} />
 
                       <Route path="missions" element={<MissionsHub />} />
+                      <Route path="mission-actions" element={<MissionActions />} />
                       <Route path="missions/:id" element={<MissionDetail />} />
 
                       <Route path="voyages" element={<Navigate to="/missions?tab=voyages" replace />} />

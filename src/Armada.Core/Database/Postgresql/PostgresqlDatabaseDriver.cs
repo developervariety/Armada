@@ -278,6 +278,7 @@ namespace Armada.Core.Database.Postgresql
                         _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
 
                     // The stored column forms the binder writes must match the migrated schema before any write.
+                    await FleetActionSchema.EnsureAsync(conn, null, DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
                     await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
                 }
             }
@@ -425,6 +426,8 @@ namespace Armada.Core.Database.Postgresql
             MemoryProposals = new MemoryProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            FleetActions = new Armada.Core.Database.FleetActionMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             DataExpiry = new DataExpiryMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             PromptTemplates = new PromptTemplateMethods(_Stored);

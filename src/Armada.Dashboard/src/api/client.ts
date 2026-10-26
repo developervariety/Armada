@@ -9,6 +9,10 @@ import type {
   Credential,
   EnumerationResult,
   Fleet,
+  FleetAction,
+  FleetActionRun,
+  FleetActionRunRequest,
+  FleetActionUpsertRequest,
   Vessel,
   LocalCheckoutDiscovery,
   ImportCheckoutRequest,
@@ -666,6 +670,16 @@ export const createFleet = (data: Partial<Fleet>) => post<Fleet>('/api/v1/fleets
 export const updateFleet = (id: string, data: Partial<Fleet>) => put<Fleet>(`/api/v1/fleets/${id}`, data);
 export const deleteFleet = (id: string) => del<void>(`/api/v1/fleets/${id}`);
 export const deleteFleetsBatch = (ids: string[]) => post<BatchDeleteResult>('/api/v1/fleets/delete/multiple', { Ids: ids });
+
+// ==================== Saved Mission Actions ====================
+export const listFleetActions = () => get<FleetAction[]>('/api/v1/fleet-actions');
+export const createFleetAction = (data: FleetActionUpsertRequest) => post<FleetAction>('/api/v1/fleet-actions', data);
+export const updateFleetAction = (id: string, data: FleetActionUpsertRequest) => put<FleetAction>(`/api/v1/fleet-actions/${encodeURIComponent(id)}`, data);
+export const deleteFleetAction = (id: string) => del<void>(`/api/v1/fleet-actions/${encodeURIComponent(id)}`);
+export const startFleetActionRun = (id: string, data: FleetActionRunRequest) => post<FleetActionRun>(`/api/v1/fleet-actions/${encodeURIComponent(id)}/run`, data);
+export const listFleetActionRuns = () => get<FleetActionRun[]>('/api/v1/fleet-action-runs');
+export const getFleetActionRun = (id: string) => get<FleetActionRun>(`/api/v1/fleet-action-runs/${encodeURIComponent(id)}`);
+export const cancelFleetActionRun = (id: string) => post<FleetActionRun>(`/api/v1/fleet-action-runs/${encodeURIComponent(id)}/cancel`, {});
 
 // ==================== Vessels ====================
 export const listVessels = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

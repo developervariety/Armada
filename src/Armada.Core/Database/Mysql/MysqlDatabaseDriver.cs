@@ -111,6 +111,8 @@ namespace Armada.Core.Database.Mysql
             MemoryProposals = new MemoryProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            FleetActions = new Armada.Core.Database.FleetActionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             DataExpiry = new DataExpiryMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             PromptTemplates = new PromptTemplateMethods(_Stored);
@@ -199,6 +201,7 @@ namespace Armada.Core.Database.Mysql
                         _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
 
                     // The stored column forms the binder writes must match the migrated schema before any write.
+                    await FleetActionSchema.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                     await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                 }
             }
@@ -722,7 +725,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(116, "Persist fenced Harbor job recovery identity", HarborJobRecoveryPersistence.MysqlStatements),
                 new SchemaMigration(117, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.MysqlStatements),
                 new SchemaMigration(118, "Persist saved Ask threads and durable turns", AskThreadSchema.MysqlStatements),
-                new SchemaMigration(119, "Persist owner-scoped Ask action proposals", AskActionProposalSchema.MysqlStatements)
+                new SchemaMigration(119, "Persist owner-scoped Ask action proposals", AskActionProposalSchema.MysqlStatements),
+                new SchemaMigration(120, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.MysqlStatements)
             };
         }
 

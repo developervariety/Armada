@@ -72,6 +72,11 @@ and block replacement. Saved-turn MCP access proposes supported changes for exac
 human approval. Durable execution claims prevent replay, and work cards use recorded
 landing and rescue facts. See [saved conversations](docs/ASK_CONVERSATIONS.md).
 
+Both versions offer saved Fleet Actions. The fork supports [Mission actions](docs/FLEET_ACTIONS.md)
+through its existing dispatch, checks and landing rules. Definitions and run
+snapshots belong to one operator. Durable claims prevent repeated dispatch,
+and an unknown dispatch outcome stays blocked from automatic retry.
+
 Both versions use salted PBKDF2-HMAC-SHA256 password storage. The fork keeps
 the SHA-256 API input and upgrades legacy rows with conditional password-only
 writes, so a concurrent password reset is preserved.

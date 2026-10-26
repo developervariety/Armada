@@ -175,6 +175,12 @@ namespace Armada.Core.Database
         /// <summary>Durable Ask action proposal operations.</summary>
         public virtual IAskActionProposalMethods AskActionProposals { get; protected set; } = null!;
 
+        /// <summary>Owner-scoped mission action definition operations.</summary>
+        public virtual IFleetActionMethods FleetActions { get; protected set; } = null!;
+
+        /// <summary>Owner-scoped durable mission action run operations.</summary>
+        public virtual IFleetActionRunMethods FleetActionRuns { get; protected set; } = null!;
+
         /// <summary>
         /// Append-only lane state transitions used by production metrics.
         /// </summary>

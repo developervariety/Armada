@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Global administrators can save Mission actions, select vessels, and follow
+  durable run outcomes through REST and the Dashboard. Immutable inputs,
+  current authorization and revision claims prevent duplicate dispatch.
+  Cancellation uses the existing voyage operations; unknown work stays blocked.
+
 - Global administrators can discover and import existing local checkouts from
   configured folders through the Dashboard, REST and MCP. Import validates
   paths and current ownership, registers the local source, and preserves the

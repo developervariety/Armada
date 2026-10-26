@@ -230,6 +230,7 @@ namespace Armada.Core.Database.Sqlite
                         _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
 
                     // The stored column forms the binder writes must match the migrated schema before any write.
+                    await FleetActionSchema.EnsureAsync(conn, null, DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                     await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                 }
             }
@@ -404,7 +405,9 @@ namespace Armada.Core.Database.Sqlite
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
-            AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+                    AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+                    FleetActions = new Armada.Core.Database.FleetActionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+                    FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             DataExpiry = new DataExpiryMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PromptTemplates = new PromptTemplateMethods(_Stored);

@@ -58,6 +58,12 @@ namespace Armada.Core.Database.SqlServer
                 { "ask_action_proposals.expires_utc", StoredTimestampEnum.Timestamp },
                 { "ask_action_proposals.decided_utc", StoredTimestampEnum.Timestamp },
                 { "ask_action_proposals.completed_utc", StoredTimestampEnum.Timestamp },
+                { "fleet_actions.created_utc", StoredTimestampEnum.Timestamp },
+                { "fleet_actions.last_update_utc", StoredTimestampEnum.Timestamp },
+                { "fleet_action_runs.created_utc", StoredTimestampEnum.Timestamp },
+                { "fleet_action_runs.started_utc", StoredTimestampEnum.Timestamp },
+                { "fleet_action_runs.completed_utc", StoredTimestampEnum.Timestamp },
+                { "fleet_action_runs.last_update_utc", StoredTimestampEnum.Timestamp },
                 { "harbor_jobs.completed_utc", StoredTimestampEnum.Timestamp },
                 { "harbor_jobs.created_utc", StoredTimestampEnum.Timestamp },
                 { "harbor_jobs.last_update_utc", StoredTimestampEnum.Timestamp },
@@ -152,6 +158,8 @@ namespace Armada.Core.Database.SqlServer
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            FleetActions = new Armada.Core.Database.FleetActionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             DataExpiry = new DataExpiryMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             PromptTemplates = new PromptTemplateMethods(_Stored);
@@ -274,6 +282,7 @@ namespace Armada.Core.Database.SqlServer
                         _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
 
                     // The stored column forms the binder writes must match the migrated schema before any write.
+                    await FleetActionSchema.EnsureAsync(conn, null, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                     await StoredBinderSchemaGuard.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                 }
             }

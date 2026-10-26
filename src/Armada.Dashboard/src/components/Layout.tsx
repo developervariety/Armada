@@ -167,8 +167,10 @@ export default function Layout() {
               if (item.to === '/admin/credentials') return true;
               return false;
             }),
-          }
+        }
     )
+    .map((section) => ({ ...section, items: section.items.filter((item) => item.to !== '/mission-actions' || isAdmin) }))
+    .filter((section) => section.items.length > 0)
     .filter((section) => section.key !== 'security' || section.items.length > 0);
 
   const isSectionActive = useCallback(

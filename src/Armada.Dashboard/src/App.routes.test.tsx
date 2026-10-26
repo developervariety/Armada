@@ -19,6 +19,7 @@ vi.mock('./pages/Notifications', () => ({ default: () => <div>notifications page
 vi.mock('./pages/CodeIndex', () => ({ default: () => <div>code index page</div> }));
 vi.mock('./pages/Activity', () => ({ default: () => <div>activity page</div> }));
 vi.mock('./pages/Dashboard', () => ({ default: () => <div>home page</div> }));
+vi.mock('./pages/MissionActions', () => ({ default: () => <div>mission actions page</div> }));
 
 function LocationProbe() {
   const location = useLocation();
@@ -52,6 +53,12 @@ describe('App routes', () => {
     renderAt('/code-index');
     expect(await screen.findByText('code index page')).toBeInTheDocument();
     expect(screen.getByTestId('location')).toHaveTextContent('/code-index');
+  });
+
+  it('opens the saved mission actions route', async () => {
+    renderAt('/mission-actions');
+    expect(await screen.findByText('mission actions page')).toBeInTheDocument();
+    expect(screen.getByTestId('location')).toHaveTextContent('/mission-actions');
   });
 
   it('redirects token usage links to the tokens activity source', async () => {
