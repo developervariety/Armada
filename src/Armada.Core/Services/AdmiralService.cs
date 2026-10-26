@@ -2126,6 +2126,7 @@ namespace Armada.Core.Services
             bool isAlive = false;
             int exitCode = -1;
             bool processGone = false;
+            RuntimeProcessExitEvidence? observedExitEvidence = null;
             if (ProcessSupervisor.IsTrackedProcessAlive(processId.Value))
             {
                 isAlive = true;
@@ -2166,6 +2167,7 @@ namespace Armada.Core.Services
             {
                 if (OnIsProcessExitHandled != null && OnIsProcessExitHandled(processId.Value)) return;
                 RuntimeProcessExitEvidence? evidence = ProcessSupervisor.GetRuntimeExitEvidence(processId.Value, captain.ProcessStartedUtc);
+                observedExitEvidence = evidence;
                 if (evidence != null)
                 {
                     if (evidence.TryGetOutcome(out int? effectiveExitCode, out bool captureFailed))
@@ -2173,6 +2175,7 @@ namespace Armada.Core.Services
                         if (captureFailed)
                         {
                             await HandleProcessExitAsync(processId.Value, effectiveExitCode, captain.Id, captain.CurrentMissionId!, token).ConfigureAwait(false);
+                            ProcessSupervisor.ReleaseRuntimeExitEvidence(processId.Value, evidence);
                             return;
                         }
                         exitCode = effectiveExitCode ?? -1;
@@ -2227,6 +2230,7 @@ namespace Armada.Core.Services
                         captainId: captain.Id, missionId: missionId,
                         vesselId: currentMission.VesselId, voyageId: currentMission.VoyageId, token: token).ConfigureAwait(false);
                     await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                    if (observedExitEvidence != null) ProcessSupervisor.ReleaseRuntimeExitEvidence(processId.Value, observedExitEvidence);
                     return;
                 }
 
@@ -2254,6 +2258,7 @@ namespace Armada.Core.Services
                     string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, captain.Runtime, token).ConfigureAwait(false);
                     await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, RuntimeFailureClassifier.Classify(exitCode, failureReason), token).ConfigureAwait(false);
                 }
+                if (observedExitEvidence != null) ProcessSupervisor.ReleaseRuntimeExitEvidence(processId.Value, observedExitEvidence);
             }
             else
             {

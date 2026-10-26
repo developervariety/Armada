@@ -101,7 +101,8 @@ namespace Armada.Server
             int exitCode = job.State == HarborJobStateEnum.Exited && job.ExitCode.HasValue ? job.ExitCode.Value : -1;
             try
             {
-                await HandleAgentProcessExitedAsync(processId, exitCode, captain!.Id, mission.Id, null, stateOwner, true).ConfigureAwait(false);
+                RuntimeProcessExitEvidence? exitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId);
+                await HandleAgentProcessExitedAsync(processId, exitCode, captain!.Id, mission.Id, null, stateOwner, true, exitEvidence).ConfigureAwait(false);
                 return true;
             }
             catch (Exception ex)

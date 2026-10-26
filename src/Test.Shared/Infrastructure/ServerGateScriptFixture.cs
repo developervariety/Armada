@@ -36,7 +36,8 @@ namespace Test.Shared.Infrastructure
                 #!/bin/bash
                 printf 'git %s\n' "$*" >> "$FIXTURE_CALLS"
                 case "$1" in
-                  update-index|diff|push|fetch|checkout|clean) exit 0 ;;
+                  update-index|diff|push|fetch|clean) exit 0 ;;
+                  checkout) mkdir -p scripts/common; cp "$FIXTURE_ROOT/runner" scripts/common/run-tests.sh; chmod 700 scripts/common/run-tests.sh ;;
                   rev-parse) printf '%040d\n' 1 ;;
                   log) printf 'fixture subject\n' ;;
                   init) dest="${!#}"; mkdir -p "$dest"; case "$*" in *--bare*) ;; *) mkdir -p "$dest/.git" ;; esac ;;
@@ -57,6 +58,10 @@ namespace Test.Shared.Infrastructure
                 count=$((count+1)); printf '%s\n' "$count" > "$FIXTURE_ROOT/df-count"
                 held=no; [ ! -d "$FIXTURE_ROOT/host.lock" ] || held=yes
                 printf 'df %s held=%s args=%s\n' "$count" "$held" "$*" >> "$FIXTURE_CALLS"
+                if [ "$count" -gt 1 ]; then
+                  if flock -n "$FIXTURE_ROOT/scratch/gate.lock" true; then scratch_lock=free; else scratch_lock=held; fi
+                  printf 'df-scratch-lock=%s\n' "$scratch_lock" >> "$FIXTURE_CALLS"
+                fi
                 case "$FIXTURE_SCENARIO" in
                   invalid) printf 'not filesystem data\n'; exit 0 ;;
                   df-error) exit 1 ;;
@@ -70,6 +75,11 @@ namespace Test.Shared.Infrastructure
                 #!/bin/bash
                 printf 'dotnet %s\n' "$*" >> "$FIXTURE_CALLS"
                 case "$1" in --version) printf '10.0.fixture\n';; build) printf 'Build succeeded.\n';; build-server) exit 0;; *) exit 96;; esac
+                """);
+            WriteExecutable(root, "runner", """
+                #!/bin/bash
+                printf 'tests\n' >> "$FIXTURE_CALLS"
+                printf 'RESULT: PASS\n'
                 """);
             string sibling = Path.Combine(root, "foreign-proof");
             File.WriteAllText(sibling, "foreign evidence");
@@ -131,11 +141,12 @@ namespace Test.Shared.Infrastructure
                 }
                 else
                 {
-                    AssertTrue(text.Contains("disk admission", StringComparison.OrdinalIgnoreCase), "refusal names the infrastructure admission failure");
-                    AssertTrue(!recorded.Contains("git fetch", StringComparison.Ordinal) && !recorded.Contains("dotnet build src/Armada.sln", StringComparison.Ordinal) && !recorded.Contains("tests\n", StringComparison.Ordinal), "no checkout, build or tests after refusal");
+                    AssertTrue(!recorded.Contains("git fetch", StringComparison.Ordinal) && !recorded.Contains("dotnet build src/Armada.sln", StringComparison.Ordinal) && !recorded.Contains("tests\n", StringComparison.Ordinal), "no checkout, build or tests after refusal\n" + text + "\n" + recorded);
+                    AssertTrue(text.Contains("disk admission", StringComparison.OrdinalIgnoreCase), "refusal names the infrastructure admission failure\n" + text + "\n" + recorded);
                     bool afterPush = scenario is "low-after" or "caller-lock";
                     AssertEqual(afterPush, recorded.Contains("git push", StringComparison.Ordinal), "only the admitted second check may follow a push");
-                    if (afterPush) AssertTrue(recorded.Contains("df 2 held=yes", StringComparison.Ordinal), "space is rechecked under the host lock");
+                    if (afterPush) AssertTrue(recorded.Contains("df 2 held=yes", StringComparison.Ordinal)
+                        && recorded.Contains("df-scratch-lock=held", StringComparison.Ordinal), "space is rechecked under the host and scratch locks");
                     if (scenario == "low-before") AssertTrue(recorded.Contains("args=-Pk " + root + "\n", StringComparison.Ordinal), "absent scratch checks its nearest existing ancestor");
                     if (tempSentinel != null) AssertEqual("owned but not admitted", File.ReadAllText(tempSentinel), "refused run preserves temp sentinel");
                     if (logSentinel != null) AssertEqual("prior proof", File.ReadAllText(logSentinel), "refused run preserves prior logs");

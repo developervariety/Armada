@@ -47,7 +47,8 @@ namespace Armada.Core
             if (!_RuntimeExits.TryGetValue(processId, out RuntimeProcessExitEvidence? evidence)) return null;
             if (processId > SyntheticProcessIdFloor) return evidence; // Unique, monotonic Harbor identity.
             return evidence.LaunchStartUtc == GetRecordedLaunchStartUtc(processId)
-                && (!expectedLaunchStartUtc.HasValue || evidence.LaunchStartUtc == expectedLaunchStartUtc)
+                && (!expectedLaunchStartUtc.HasValue || (evidence.LaunchStartUtc.HasValue
+                    && evidence.LaunchStartUtc.Value.Ticks / 10 == expectedLaunchStartUtc.Value.Ticks / 10))
                 ? evidence : null;
         }
 

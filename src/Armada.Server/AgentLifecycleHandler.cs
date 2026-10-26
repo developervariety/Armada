@@ -2075,7 +2075,7 @@ namespace Armada.Server
             {
                 try
                 {
-                    await HandleAgentProcessExitedAsync(processId, exitCode, capturedCaptainId, capturedMissionId, providerError, errorStateOwner).ConfigureAwait(false);
+                    await HandleAgentProcessExitedAsync(processId, exitCode, capturedCaptainId, capturedMissionId, providerError, errorStateOwner, deliveredExitEvidence: exitEvidence).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -2102,7 +2102,9 @@ namespace Armada.Server
                 CloseProviderErrorSource(capturedProviderError.StateOwner);
             else if (_ProcessStateOwners.TryGetValue(processId, out long mappedStateOwner))
                 CloseProviderErrorSource(mappedStateOwner);
-            await HandleAgentProcessExitedAsync(processId, exitCode, captainId, missionId, capturedProviderError?.Error, errorStateOwner).ConfigureAwait(false);
+            RuntimeProcessExitEvidence? exitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId);
+            await HandleAgentProcessExitedAsync(processId, exitCode, captainId, missionId, capturedProviderError?.Error, errorStateOwner,
+                deliveredExitEvidence: exitEvidence).ConfigureAwait(false);
         }
 
         private async Task HandleAgentProcessExitedAsync(
@@ -2112,18 +2114,23 @@ namespace Armada.Server
             string missionId,
             RuntimeProviderError? providerError,
             long? expectedStateOwner,
-            bool harborDeliveryLockHeld = false)
+            bool harborDeliveryLockHeld = false,
+            RuntimeProcessExitEvidence? deliveredExitEvidence = null)
         {
             IDisposable? completionLock = null;
             if (!harborDeliveryLockHeld && _HarborProcessIds.TryGetValue(processId, out string? harborJobId))
                 completionLock = await _HarborCompletionDeliveryLocks.AcquireAsync(harborJobId, CancellationToken.None).ConfigureAwait(false);
+            if (RejectStaleProcessExit(processId, expectedStateOwner))
+            {
+                completionLock?.Dispose();
+                return;
+            }
             _InFlightProcessExits[processId] = 0;
             TaskCompletionSource<bool>? completion = _HarborProcessIds.ContainsKey(processId)
                 ? _ProcessExitCompletions.GetOrAdd(
                     processId,
                     _ => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously))
                 : null;
-            RuntimeProcessExitEvidence? deliveredExitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId);
             bool handled = false;
             try
             {
@@ -2146,7 +2153,9 @@ namespace Armada.Server
 
                 // Record completion only after owner-scoped cleanup, and before releasing the in-flight marker,
                 // so the health check can see neither only after the exit is fully handled.
-                if (handled || completion == null)
+                if (handled && deliveredExitEvidence != null)
+                    ProcessSupervisor.ReleaseRuntimeExitEvidence(processId, deliveredExitEvidence);
+                if (handled)
                     _HandledProcessExits[processId] = DateTime.UtcNow;
                 else
                     _HandledProcessExits.TryRemove(processId, out _);
@@ -2159,8 +2168,6 @@ namespace Armada.Server
                         completion.TrySetException(new InvalidOperationException("harbor_lifecycle_completion_failed"));
                 }
                 _HarborProcessIds.TryRemove(processId, out _);
-                if (handled && deliveredExitEvidence != null)
-                    ProcessSupervisor.ReleaseRuntimeExitEvidence(processId, deliveredExitEvidence);
                 completionLock?.Dispose();
             }
         }
@@ -2217,8 +2224,8 @@ namespace Armada.Server
 
             CloseProviderErrorSource(expectedStateOwner.Value);
             RemoveProviderErrorsForOwner(expectedStateOwner.Value);
-            _Logging.Info(_Header + "ignoring stale process exit callback for process " + processId + " from launch owner " + expectedStateOwner.Value
-                + "; current owner is " + currentStateOwner);
+            RuntimeExitDiagnostics.Try(() => _Logging.Info(_Header + "ignoring stale process exit callback for process " + processId + " from launch owner " + expectedStateOwner.Value
+                + "; current owner is " + currentStateOwner));
             return true;
         }
 

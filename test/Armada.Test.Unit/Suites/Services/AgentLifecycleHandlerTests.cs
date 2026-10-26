@@ -510,6 +510,31 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Runtime exit evidence matches stored microseconds and cannot cross a native launch identity", () =>
+            {
+                const int processId = 4347;
+                DateTime started = new DateTime(2026, 10, 25, 12, 0, 0, DateTimeKind.Utc).AddTicks(7);
+                Armada.Core.ProcessSupervisor.RecordLaunchedProcess(processId, started);
+                Armada.Core.RuntimeProcessExitEvidence first = Armada.Core.ProcessSupervisor.TrackRuntimeExit(processId);
+                try
+                {
+                    DateTime stored = new DateTime(started.Ticks - started.Ticks % 10, DateTimeKind.Utc);
+                    AssertTrue(Object.ReferenceEquals(first, Armada.Core.ProcessSupervisor.GetRuntimeExitEvidence(processId, stored)),
+                        "database microsecond storage does not discard a genuine trusted outcome");
+                    AssertTrue(Armada.Core.ProcessSupervisor.GetRuntimeExitEvidence(processId, stored.AddTicks(10)) == null,
+                        "a different persisted start cannot inherit evidence");
+                    Armada.Core.ProcessSupervisor.RecordLaunchedProcess(processId, started.AddSeconds(1));
+                    AssertTrue(Armada.Core.ProcessSupervisor.GetRuntimeExitEvidence(processId) == null, "replacement native identity rejects old evidence");
+                    Armada.Core.RuntimeProcessExitEvidence next = Armada.Core.ProcessSupervisor.TrackRuntimeExit(processId);
+                    first.Complete(74, true);
+                    Armada.Core.ProcessSupervisor.ReleaseRuntimeExitEvidence(processId, first);
+                    AssertTrue(Object.ReferenceEquals(next, Armada.Core.ProcessSupervisor.GetRuntimeExitEvidence(processId)),
+                        "late cleanup of an old launch cannot remove its replacement");
+                    AssertFalse(next.TryGetOutcome(out _, out _), "late old completion cannot finalize a new launch");
+                }
+                finally { Armada.Core.ProcessSupervisor.ForgetLaunchedProcess(processId); }
+            });
+
             await RunTest("A failed native exit delivery remains retryable and retains trusted failure evidence", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
