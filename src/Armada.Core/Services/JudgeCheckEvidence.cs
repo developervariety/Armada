@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Text;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
@@ -64,8 +65,9 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="passing">The passing UnitTest Check, or null.</param>
         /// <param name="reviewedCommit">The commit under review, or null when none is recorded.</param>
+        /// <param name="checks">Current lane Check records; omitted for a lookup that did not succeed.</param>
         /// <returns>The section text, ending with a newline.</returns>
-        public static string BuildSection(CheckRun? passing, string? reviewedCommit)
+        public static string BuildSection(CheckRun? passing, string? reviewedCommit, IEnumerable<CheckRun>? checks = null)
         {
             string? commit = String.IsNullOrWhiteSpace(reviewedCommit) ? null : reviewedCommit.Trim();
             if (passing != null && commit != null)
@@ -74,13 +76,39 @@ namespace Armada.Core.Services
                 return Heading + "\n" +
                     "Independent UnitTest Check `" + passing.Id + "` (" + label + ") passed at commit `" + commit + "`, the commit under review. " +
                     "Cite this Check by id as your test evidence and run only focused tests for the code the diff changes, giving each " +
-                    "command and its result. Run the full test suite instead when the diff changes test infrastructure or build configuration.\n";
+                    "command and its result. Run the full test suite instead when the diff changes test infrastructure or build configuration.\n"
+                    + BuildSnapshot(checks, commit);
             }
 
             return Heading + "\n" +
                 "No passing independent UnitTest Check is recorded for " +
                 (commit == null ? "the commit under review" : "commit `" + commit + "`, the commit under review,") +
-                " when this brief was written. Run the full test suite in the FOREGROUND as your test evidence.\n";
+                " when this brief was written. Read current Check receipts before repeating work. Run the full test suite in the FOREGROUND as your test evidence if no current passing UnitTest receipt covers this commit.\n"
+                + BuildSnapshot(checks, commit);
+        }
+
+        private static string BuildSnapshot(IEnumerable<CheckRun>? checks, string? commit)
+        {
+            StringBuilder section = new StringBuilder();
+            section.Append("Snapshot only: Checks can complete after this brief was written. Before claiming required evidence is missing or failed, read current receipts with armada_enumerate entityType=checks and this voyageId (or missionId for a standalone mission), includeTestOutput=false. Read every result page and match the Check ID, reviewed commit, type, source and current status. Pending, failed or unavailable evidence remains unresolved.\n");
+            section.Append("A separate local tool is not a substitute for a required native Check. It adds a requirement only when the actual workflow or acceptance criteria require it.\n");
+            if (checks == null || commit == null) return section.ToString();
+            foreach (CheckRun run in CheckRunGateRules.SelectLatestPerCheck(checks)
+                .Where(run => CheckRunGateRules.ParticipatesInRealSignalGate(run) && CheckRunGateRules.SameCommit(run.CommitHash, commit))
+                .OrderBy(run => run.Type).ThenBy(run => run.Id, StringComparer.Ordinal))
+            {
+                section.Append("- Check `").Append(run.Id).Append("`: ").Append(run.Type)
+                    .Append(", source ").Append(run.Source).Append(", status ").Append(run.Status)
+                    .Append(", commit `").Append(run.CommitHash).Append('`');
+                if (run.Source == CheckRunSourceEnum.Armada && CheckRunGateRules.IsNativeSlopRun(run))
+                    section.Append("; Armada native reviewed-diff classifier");
+                if (run.SatisfiedBy != null)
+                    section.Append("; adopted ").Append(run.SatisfiedBy.Kind).Append(" evidence from mission `")
+                        .Append(run.SatisfiedBy.MissionId).Append("`, commit `").Append(run.SatisfiedBy.CommitHash)
+                        .Append("`; this Check ran no command");
+                section.Append(".\n");
+            }
+            return section.ToString();
         }
 
         #endregion

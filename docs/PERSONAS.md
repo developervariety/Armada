@@ -138,6 +138,11 @@ read too literally, a limit the report already states, or a check that has not
 finished. The challenge round tests each blocking finding before a rescue is
 spent on it. It is off by default (`enabled: false`) and hot-reloads.
 
+Remaining or pre-existing observations explicitly outside the allowed edit scope
+are advisory. Explicit Blocking and NOT MET items remain findings. Instruction
+proposals do not become correctness findings. A closing proposal marker restores
+the review section; an unclosed proposal ends at the next peer review heading.
+
 When the round is enabled and a Judge mission fails with `Judge verdict:
 NEEDS_REVISION`, autonomous recovery numbers the review's blocking findings with
 the same extraction the rescue brief uses, and dispatches one `Challenger`

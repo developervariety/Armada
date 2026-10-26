@@ -411,7 +411,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_BadVesselId_ReturnsStructuredCodeReasonAction", async () =>
+            await RunTest("Dispatch_TaskSchemaMatchesRuntimeAndBadVesselReturnsStructuredCodeReasonAction", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {

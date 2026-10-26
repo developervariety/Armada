@@ -6403,7 +6403,7 @@ namespace Armada.Core.Services
                     .ReadAllAsync(_Database, mission.TenantId, queries, token).ConfigureAwait(false);
                 List<CheckRun> laneChecks = VoyageLanes.ChecksForLaneOf(mission, voyageMissions, checks.Values);
                 CheckRun? passing = JudgeCheckEvidence.FindPassingUnitTest(laneChecks, reviewedCommit);
-                return JudgeCheckEvidence.BuildSection(passing, reviewedCommit);
+                return JudgeCheckEvidence.BuildSection(passing, reviewedCommit, laneChecks);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {

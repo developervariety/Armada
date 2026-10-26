@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Dispatch tool schemas require a task title and description, matching runtime validation before objective context is appended.
+
 - Judge briefs name exact-commit native Check identities and statuses, distinguish adopted evidence, and direct reviewers to current receipts before repeating work.
 - Cursor whole-message flush metadata preserves report boundaries while partial and mismatched aggregates keep the terminal text unchanged.
 

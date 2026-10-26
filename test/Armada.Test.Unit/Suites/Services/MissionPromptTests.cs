@@ -2339,6 +2339,12 @@ namespace Armada.Test.Unit.Suites.Services
                         }
                     }).ConfigureAwait(false);
 
+                    CheckRun customSlop = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VoyageId = voyage.Id, Label = "Local style", Type = CheckRunTypeEnum.Slop,
+                        Status = CheckRunStatusEnum.Passed, Command = "local-style-audit", CommitHash = reviewedCommit
+                    }).ConfigureAwait(false);
+
                     CheckRun nativeSlop = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
                     {
                         VoyageId = voyage.Id, Label = "Slop", Type = CheckRunTypeEnum.Slop,
@@ -2369,6 +2375,9 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("Snapshot only", evidenceBrief, "a launch-time snapshot does not claim current results");
                         AssertContains(adoptedBuild.Id, evidenceBrief, "an adopted Build receipt is named");
                         AssertContains("this Check ran no command", evidenceBrief, "adoption is not described as another execution");
+                        string customLine = evidenceBrief.Split('\n').Single(line => line.Contains(customSlop.Id, StringComparison.Ordinal));
+                        AssertFalse(customLine.Contains("native reviewed-diff classifier", StringComparison.Ordinal), "a custom Slop command is not mislabeled as the native classifier");
+
 
 
 
