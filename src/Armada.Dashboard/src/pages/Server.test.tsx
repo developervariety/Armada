@@ -4,7 +4,7 @@ import Server from './Server';
 import { getSettings, updateSettings } from '../api/client';
 
 vi.mock('../api/client', () => ({
-  getHealth: vi.fn().mockResolvedValue({ status: 'healthy', uptime: '1m', version: 'test', ports: { admiral: 7890, mcp: 7891, webSocket: 7892 } }),
+  getHealth: vi.fn().mockResolvedValue({ status: 'healthy', uptime: '1m', version: 'test', ports: { admiral: 7890, mcp: 7891 } }),
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
   stopServer: vi.fn(),
@@ -49,6 +49,13 @@ describe('Server settings drafts', () => {
     vi.mocked(updateSettings).mockReset();
   });
   afterEach(() => vi.useRealTimers());
+
+  it('shows the shared API port for WebSocket from the actual health contract', async () => {
+    vi.mocked(getSettings).mockResolvedValue(saved(4) as never);
+    render(<Server />);
+    await waitFor(() => expect(maxCaptainsInput()).toHaveValue(4));
+    expect(screen.getByText('WebSocket Port').parentElement?.querySelector('.mono')).toHaveTextContent('7890');
+  });
 
   it('keeps an unsaved edit when the auto-refresh reloads settings', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

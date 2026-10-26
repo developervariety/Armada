@@ -10,6 +10,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- The Server area shows Harbor jobs through the existing owner-scoped read API.
+  Runner and active-job filters retain bounded reads. Unavailable endpoints,
+  empty results, uncertain work and confirmed stops have separate states.
+
 - Global administrators can save Mission actions, select vessels, and follow
   durable run outcomes through REST and the Dashboard. Immutable inputs,
   current authorization and revision claims prevent duplicate dispatch.

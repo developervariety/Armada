@@ -77,6 +77,11 @@ through its existing dispatch, checks and landing rules. Definitions and run
 snapshots belong to one operator. Durable claims prevent repeated dispatch,
 and an unknown dispatch outcome stays blocked from automatic retry.
 
+The fork's Server area includes a read-only Harbor jobs view. It uses the current
+caller's scoped records and separates an unavailable endpoint from an empty job
+list. The [client surface map](docs/CLIENT_SURFACES.md) identifies the REST,
+Dashboard, Helm and MCP entry points and their availability boundaries.
+
 Both versions use salted PBKDF2-HMAC-SHA256 password storage. The fork keeps
 the SHA-256 API input and upgrades legacy rows with conditional password-only
 writes, so a concurrent password reset is preserved.

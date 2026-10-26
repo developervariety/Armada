@@ -34,7 +34,6 @@ interface HealthInfo {
   ports: {
     admiral: number;
     mcp: number;
-    webSocket: number;
   };
   remoteTunnel?: RemoteTunnelStatus;
 }
@@ -584,8 +583,8 @@ export default function Server() {
     {
       key: 'websocket-port',
       label: 'WebSocket Port',
-      help: 'Port currently serving the Armada WebSocket endpoint.',
-      value: String(health?.ports?.webSocket || '-'),
+      help: 'WebSocket uses the Admiral API port when enabled.',
+      value: String(health?.ports?.admiral || '-'),
     },
     {
       key: 'tunnel-state',

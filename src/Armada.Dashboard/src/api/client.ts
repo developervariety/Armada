@@ -135,6 +135,8 @@ import type {
   Skill,
   LongRunningJob,
   LongRunningJobList,
+  HarborJobsQuery,
+  HarborJobsResponse,
   TokenUsageSummaryResult,
   TokenUsageSummaryQuery,
   CaptainChatRequest,
@@ -1259,6 +1261,17 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 // ==================== Background Jobs ====================
 export const listJobs = () => get<LongRunningJobList>('/api/v1/jobs');
 export const getJob = (id: string) => get<LongRunningJob>(`/api/v1/jobs/${encodeURIComponent(id)}`);
+
+// ==================== Harbor Jobs (read only) ====================
+export const getHarborJobs = (params: HarborJobsQuery = {}) => {
+  const search = new URLSearchParams();
+  const runnerId = params.runnerId?.trim();
+  if (runnerId) search.set('runnerId', runnerId);
+  if (params.activeOnly !== undefined) search.set('activeOnly', String(params.activeOnly));
+  if (params.limit !== undefined) search.set('limit', String(Math.max(1, Math.min(1000, Math.trunc(params.limit) || 100))));
+  const query = search.toString();
+  return get<HarborJobsResponse>(`/api/v1/harbor-runners/jobs${query ? `?${query}` : ''}`);
+};
 
 /** Bucketed token-usage summary used by the Activity token-usage view. */
 export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery, opts?: RequestOptions) => {

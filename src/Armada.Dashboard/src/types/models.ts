@@ -2619,6 +2619,15 @@ export interface LongRunningJobList {
   unreadableJournalRecords: number;
 }
 
+export type HarborJobState = 'Pending' | 'Running' | 'Stopping' | 'Exited' | 'Failed' | 'Lost' | 'Uncertain';
+export interface HarborJob {
+  jobId: string; runnerId: string; state: HarborJobState; missionId: string | null; captainId: string | null;
+  exitCode: number | null; failureReason: string | null; stopRequested: boolean; stopConfirmed: boolean;
+  createdUtc: string; lastUpdateUtc: string; completedUtc: string | null;
+}
+export interface HarborJobsResponse { jobs: HarborJob[]; }
+export interface HarborJobsQuery { runnerId?: string; activeOnly?: boolean; limit?: number; }
+
 /** One time bucket of the token-usage summary. Bucket totals carry a single cachedTokens figure;
  *  the per-model breakdown splits it into cacheReadTokens and cacheWriteTokens. */
 export interface TokenUsageBucket {
