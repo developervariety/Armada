@@ -446,6 +446,7 @@ namespace Armada.Test.Unit.Suites.Services
                             List<System.IO.Stream> streams = new List<System.IO.Stream>();
                             int puts = 0;
                             int headsAfterPut = 0;
+                            int targetHeads = 0;
                             int clocks = 0;
                             List<TimeSpan> delays = new List<TimeSpan>();
                             using (CancellationTokenSource caller = new CancellationTokenSource())
@@ -491,6 +492,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 }
                                 if (request.Method == HttpMethod.Head)
                                 {
+                                    if (target) targetHeads++;
                                     if (!stored.ContainsKey(path)) return new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent(String.Empty) };
                                     if (target)
                                     {
@@ -526,7 +528,7 @@ namespace Armada.Test.Unit.Suites.Services
                                     AssertEqual("upload_failed", expired.FailureCode, "budget expiry retains the upload failure");
                                     AssertFalse(caller.IsCancellationRequested, "operation expiry is separate from caller cancellation");
                                     AssertEqual(1, puts, "operation expiry prevents another PUT");
-                                    AssertEqual(0, headsAfterPut, "operation expiry prevents a verification request");
+                                    AssertEqual(0, targetHeads, "operation expiry prevents a verification request");
                                     AssertTrue(File.Exists(file), "the operation budget keeps the unverified source");
                                     return;
                                 }
