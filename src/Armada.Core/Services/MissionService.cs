@@ -686,6 +686,7 @@ namespace Armada.Core.Services
             // mission must always start on a fresh branch in its own vessel.
             bool dependencyIsCrossVessel = false;
             string? dependencyBranchName = null;
+            bool dependencyHasSameOwner = false;
 
             // Captured for the stage-base check after provisioning: a stage must be cut from the
             // commit its predecessor actually produced, and proving that needs the hash here.
@@ -720,6 +721,8 @@ namespace Armada.Core.Services
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
                 upstreamCommitHash = dependency.CommitHash;
                 dependencyBranchName = dependency.BranchName;
+                dependencyHasSameOwner = OwnershipPolicy.SameTenant(mission.TenantId, dependency.TenantId)
+                    && String.Equals(OwnershipPolicy.UserOfRecord(mission.UserId), OwnershipPolicy.UserOfRecord(dependency.UserId), StringComparison.Ordinal);
 
                 if (!IsDependencySatisfyingStatus(dependency.Status))
                 {
@@ -1171,7 +1174,13 @@ namespace Armada.Core.Services
             // requested commit. An unresolvable ref fails the mission by name; it never falls back to
             // the default branch, because a captain working on the wrong base reads as a captain
             // defect two stages later.
-            if (!harborOwnedCheckout && !preserveSavedBranch
+            // A restarted dependent captured this exact same-owner predecessor commit. Handoff
+            // can restore the old branch name even after its ref and checkout are gone, so resolve
+            // the captured base before provision is allowed to create that branch.
+            bool restoreCapturedUpstreamBase = preserveInheritedBranch && dependencyHasSameOwner
+                && !String.IsNullOrWhiteSpace(upstreamCommitHash)
+                && String.Equals(mission.StartFromRef?.Trim(), upstreamCommitHash, StringComparison.OrdinalIgnoreCase);
+            if (!harborOwnedCheckout && (!preserveSavedBranch || restoreCapturedUpstreamBase)
                 && !String.IsNullOrWhiteSpace(mission.StartFromRef))
             {
                 resolvedStartCommit = await _Docks.PrepareBranchFromRefAsync(vessel, branchName, mission.StartFromRef!.Trim(), token).ConfigureAwait(false);

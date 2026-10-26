@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Restarted dependent stages retain the verified upstream commit and can restore a missing inherited branch from that commit before checkout provisioning.
+
 - Incident recovery requires newer Check evidence after detection or an operator status decision. Cancellation supersedes only known automatic incidents, and stale lifecycle writes cannot overwrite a newer snapshot. Explicit blank Check links reach the incident update handler.
 
 - Require patched PKCS dependency versions for both supported .NET targets through the shared SQL client dependency graph.
