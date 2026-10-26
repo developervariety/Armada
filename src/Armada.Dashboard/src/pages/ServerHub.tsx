@@ -9,6 +9,7 @@ const Doctor = lazy(() => import('./Doctor'));
 const Tenants = lazy(() => import('./admin/Tenants'));
 const Users = lazy(() => import('./admin/Users'));
 const Credentials = lazy(() => import('./admin/Credentials'));
+const HarborJobs = lazy(() => import('../components/harbor/HarborJobsPanel'));
 
 function panel(node: ReactNode): ReactNode {
   return <Suspense fallback={<p className="text-dim" style={{ padding: '1rem' }}>Loading...</p>}>{node}</Suspense>;
@@ -32,6 +33,7 @@ export default function ServerHub() {
     { key: 'tenants', label: 'Tenants', hidden: !isAdmin, render: () => panel(<Tenants />) },
     { key: 'users', label: 'Users', hidden: !admin, render: () => panel(<Users />) },
     { key: 'credentials', label: 'Credentials', hidden: !admin, render: () => panel(<Credentials />) },
+    { key: 'harbor-jobs', label: 'Harbor jobs', render: () => panel(<HarborJobs />) },
   ];
 
   return <Tabs tabs={tabs} defaultTabKey="server" ariaLabel="Settings sections" />;

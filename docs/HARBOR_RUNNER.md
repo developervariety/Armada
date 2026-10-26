@@ -129,3 +129,20 @@ proof after a host failure keeps the job fenced.
 Published job state and output are not removed automatically. Archive and verify completed
 job directories before a manual cleanup. Keep every pending, running or
 uncertain job directory until its writer and Admiral result are accounted for.
+
+## Dashboard job inspection
+
+The Server area's **Harbor jobs** tab reads the caller's visible jobs. Filter by
+runner ID and active state, then refresh the bounded list. This is a job view,
+not an inventory of enrolled runners or their current connectivity.
+
+The REST list exists only when Harbor and WebSocket transport are enabled. An
+unavailable endpoint has a separate display from a successful empty list.
+Authentication and permission failures remain errors. `Uncertain` is unresolved;
+a terminal job state alone does not confirm that a remote process stopped.
+`StopConfirmed` records that separate fact. The panel adds no job-control or
+enrollment operation.
+
+The MCP read tools can still read durable jobs when their service exists and
+Harbor transport is disabled. See the [client surface map](CLIENT_SURFACES.md)
+for the REST, Dashboard, Helm and MCP boundaries.

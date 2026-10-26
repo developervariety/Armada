@@ -12,6 +12,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Queued server gates create build temp only after lock admission. Refused gates leave the current holder's build servers and temp files intact.
 
+- The Server area shows Harbor jobs through the existing owner-scoped read API.
+  Runner and active-job filters retain bounded reads. Unavailable endpoints,
+  empty results, uncertain work and confirmed stops have separate states.
+
 - Global administrators can save Mission actions, select vessels, and follow
   durable run outcomes through REST and the Dashboard. Immutable inputs,
   current authorization and revision claims prevent duplicate dispatch.
