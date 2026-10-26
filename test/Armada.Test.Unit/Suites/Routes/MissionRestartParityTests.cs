@@ -351,9 +351,23 @@ namespace Armada.Test.Unit.Suites.Routes
                         });
                     if (boundary == "retained-job") chain.FailedStage.HarborJobId = "retained-job";
                     if (boundary == "retained-attempt") chain.Producer.DockProvisionAttemptId = "retained-attempt";
-                    if (boundary == "foreign-tenant") chain.Producer.TenantId = "other-tenant";
-                    if (boundary == "foreign-user") chain.Producer.UserId = "other-user";
-                    if (boundary == "cross-vessel") chain.Producer.VesselId = "other-vessel";
+                    if (boundary == "foreign-tenant")
+                    {
+                        TenantMetadata tenant = await harness.Driver.Tenants.CreateAsync(new TenantMetadata("restart-foreign-" + surface)).ConfigureAwait(false);
+                        UserMaster user = await harness.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "restart-foreign-" + surface + "@armada.test", "password")).ConfigureAwait(false);
+                        chain.Producer.TenantId = tenant.Id;
+                        chain.Producer.UserId = user.Id;
+                    }
+                    if (boundary == "foreign-user")
+                    {
+                        UserMaster user = await harness.Driver.Users.CreateAsync(new UserMaster(Armada.Core.Constants.DefaultTenantId, "restart-other-" + surface + "@armada.test", "password")).ConfigureAwait(false);
+                        chain.Producer.UserId = user.Id;
+                    }
+                    if (boundary == "cross-vessel")
+                    {
+                        Vessel other = await harness.Driver.Vessels.CreateAsync(new Vessel("restart-other-" + surface, "https://github.com/test/other.git")).ConfigureAwait(false);
+                        chain.Producer.VesselId = other.Id;
+                    }
                     await harness.Driver.Missions.UpdateAsync(chain.Producer).ConfigureAwait(false);
                     await harness.Driver.Missions.UpdateAsync(chain.FailedStage).ConfigureAwait(false);
                     SurfaceReply reply = await RestartAsync(harness, surface, chain.FailedStage.Id).ConfigureAwait(false);

@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using Armada.Core.Authorization;
     using System.Collections.Generic;
     using System.Text.Json;
     using SyslogLogging;
