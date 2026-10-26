@@ -36,6 +36,63 @@ namespace Armada.Test.Unit.Suites.Routes
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("MissionDiff_LiveFallbackIncludesNetTrackedWorkingTreeChanges_OnEverySurface", async () =>
+            {
+                using SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false);
+                string work = Path.Combine(harness.Settings.DocksDirectory, "live-diff");
+                Directory.CreateDirectory(work);
+                foreach (string name in new[] { "staged.txt", "unstaged.txt", "committed.txt" })
+                    File.WriteAllText(Path.Combine(work, name), "base line\n");
+                await TestGit.InitializeAsync(work).ConfigureAwait(false);
+                await TestGit.RunAsync(work, "checkout", "-b", "feature/live-diff").ConfigureAwait(false);
+                LoggingModule logging = new();
+                logging.Settings.EnableConsole = false;
+                GitService real = new(logging);
+                harness.Git.DiffReader = real;
+                Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("Live diff fixture", "https://example.invalid/live-diff.git")
+                {
+                    TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                    LocalPath = work, DefaultBranch = "main"
+                }).ConfigureAwait(false);
+                Dock dock = await harness.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                {
+                    TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                    WorktreePath = work, BranchName = "feature/live-diff", Active = true
+                }).ConfigureAwait(false);
+                Mission mission = await harness.Driver.Missions.CreateAsync(new Mission("Live tracked diff")
+                {
+                    TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                    VesselId = vessel.Id, DockId = dock.Id, BranchName = dock.BranchName,
+                    Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                File.WriteAllText(Path.Combine(work, "staged.txt"), "STAGED_EDIT_MARKER\n");
+                await TestGit.RunAsync(work, "add", "staged.txt").ConfigureAwait(false);
+                File.WriteAllText(Path.Combine(work, "unstaged.txt"), "UNSTAGED_EDIT_MARKER\n");
+                File.WriteAllText(Path.Combine(work, "private-untracked.txt"), "UNTRACKED_PRIVATE_MARKER\n");
+                AssertEqual(String.Empty, await real.DiffAsync(work).ConfigureAwait(false),
+                    "the frozen branch comparison has no committed changes yet");
+                foreach (bool committed in new[] { false, true })
+                {
+                    if (committed)
+                    {
+                        File.WriteAllText(Path.Combine(work, "committed.txt"), "COMMITTED_EDIT_MARKER\n");
+                        await TestGit.RunAsync(work, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                            "-c", "commit.gpgsign=false", "commit", "--only", "committed.txt", "-m", "Committed mission change").ConfigureAwait(false);
+                        string frozen = await real.DiffAsync(work).ConfigureAwait(false);
+                        AssertContains("COMMITTED_EDIT_MARKER", frozen, "landing comparison retains committed work");
+                        AssertFalse(frozen.Contains("STAGED_EDIT_MARKER", StringComparison.Ordinal), "landing comparison excludes index/worktree state");
+                    }
+                    foreach (SurfaceReply reply in await ReadDiffAsync(harness, mission.Id).ConfigureAwait(false))
+                    {
+                        AssertFalse(reply.Refused, "the owned live worktree is readable: " + reply);
+                        AssertContains("STAGED_EDIT_MARKER", reply.Body, "tracked staged edits appear: " + reply);
+                        AssertContains("UNSTAGED_EDIT_MARKER", reply.Body, "tracked unstaged edits appear: " + reply);
+                        if (committed) AssertContains("COMMITTED_EDIT_MARKER", reply.Body, "committed mission changes remain visible: " + reply);
+                        AssertFalse(reply.Body.Contains("UNTRACKED_PRIVATE_MARKER", StringComparison.Ordinal), "untracked private files stay outside the diff");
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("MissionDiff_OnlyAStoredSnapshot_IsReturnedOnEverySurface", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))

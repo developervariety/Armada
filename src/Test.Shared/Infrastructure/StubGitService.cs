@@ -43,6 +43,9 @@ namespace Test.Shared.Infrastructure
         public bool IsPrMergedResult { get; set; } = true;
         public string CreatePrResult { get; set; } = "https://github.com/test/repo/pull/1";
         public string DiffResult { get; set; } = "";
+        /// <summary>Optional real Git reader for public-surface repository integration tests.</summary>
+        public IGitService? DiffReader { get; set; }
+
         public string RepositoryHeadRefResult { get; set; } = "refs/heads/main";
         public string? CurrentBranchResult { get; set; } = "main";
         public bool IsWorkingDirectoryCleanResult { get; set; } = true;
@@ -316,7 +319,7 @@ namespace Test.Shared.Infrastructure
         {
             if (ShouldThrowOnDiff) throw new InvalidOperationException("Simulated diff failure");
             DiffCalls.Add(worktreePath);
-            return Task.FromResult(DiffResult);
+            return DiffReader == null ? Task.FromResult(DiffResult) : DiffReader.DiffAsync(worktreePath, baseBranch, token);
         }
 
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
