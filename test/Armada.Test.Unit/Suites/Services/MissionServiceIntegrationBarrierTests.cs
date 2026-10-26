@@ -31,6 +31,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("WorkProducedMember_HoldsBeforeProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.WorkProduced, true, false)).ConfigureAwait(false);
             await RunTest("UnlandedMember_HoldsBeforeProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.Complete, false, false)).ConfigureAwait(false);
             await RunTest("LandedMember_UsesFreshTargetForProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.Complete, true, true)).ConfigureAwait(false);
+            await RunTest("CaptainHarborOwnedRoute_HoldsAfterReadinessBeforeProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.Complete, true, false, false, true)).ConfigureAwait(false);
             await RunTest("AcceptedRescue_IsRecordedAndWaitsForFreshTargetPass", () => RunRescueCaseAsync(false)).ConfigureAwait(false);
             await RunTest("CurrentRescue_RevalidatesEveryLineageOwner", () => RunRescueCaseAsync(true)).ConfigureAwait(false);
         }
@@ -131,7 +132,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private async Task RunAssignmentCaseAsync(MissionStatusEnum memberStatus, bool landed, bool expectAssignment, bool preparing = false)
+        private async Task RunAssignmentCaseAsync(MissionStatusEnum memberStatus, bool landed, bool expectAssignment, bool preparing = false, bool harborOwnedCaptainRoute = false)
         {
             using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
             {
@@ -205,6 +206,17 @@ namespace Armada.Test.Unit.Suites.Services
                     State = CaptainStateEnum.Idle
                 };
                 await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                if (harborOwnedCaptainRoute)
+                {
+                    settings.Harbor.MissionRoutes = new System.Collections.Generic.List<HarborMissionRoute>
+                    {
+                        new HarborMissionRoute
+                        {
+                            CaptainId = captain.Id,
+                            CheckoutMode = HarborCheckoutModeEnum.HarborOwned
+                        }
+                    };
+                }
                 MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains,
                     git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                 Directory.CreateDirectory(Path.GetDirectoryName(vessel.LocalPath!)!);
@@ -224,10 +236,10 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     AssertEqual(0, git.WorktreeCalls.Count, "an unready barrier never provisions a dock");
                     Mission held = (await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false))!;
-                    string expectedReason = preparing || !landed
+                    string expectedReason = preparing || !landed || harborOwnedCaptainRoute
                         ? "integration_barrier_unverifiable"
                         : "integration_barrier_waiting";
-                    string expectedEntity = preparing ? integration.Id : root.Id;
+                    string expectedEntity = preparing ? integration.Id : harborOwnedCaptainRoute ? vessel.Id : root.Id;
                     AssertEqual(expectedReason, held.AssignmentHoldReason, "the barrier records the precise readiness hold");
                     AssertEqual(expectedEntity, held.AssignmentHoldEntityId, "the hold names the barrier or exact blocked branch");
                 }

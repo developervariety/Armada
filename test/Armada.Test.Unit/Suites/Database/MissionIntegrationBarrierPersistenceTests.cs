@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Database
     using System.Text.Json;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
