@@ -43,6 +43,7 @@ namespace Armada.Core.Harbor
                 HarborGitOperationEnum.IsWorkingDirectoryClean => false,
                 HarborGitOperationEnum.HasUncommittedTrackedChanges => false,
                 HarborGitOperationEnum.Diff => false,
+                HarborGitOperationEnum.DiffWorkingTree => false,
                 HarborGitOperationEnum.GetHeadCommitHash => false,
                 HarborGitOperationEnum.GetConflictedFiles => false,
                 HarborGitOperationEnum.GetRevisionSha => false,

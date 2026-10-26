@@ -35,6 +35,7 @@ namespace Test.Shared.Infrastructure
         public List<string> PullFastForwardOnlyCalls { get; } = new List<string>();
         public List<string> PruneWorktreeCalls { get; } = new List<string>();
         public List<string> DiffCalls { get; } = new List<string>();
+        public List<string> LiveDiffCalls { get; } = new List<string>();
         public List<string> RepositoryHeadCalls { get; } = new List<string>();
         public List<string> OperationCalls { get; } = new List<string>();
 
@@ -43,6 +44,9 @@ namespace Test.Shared.Infrastructure
         public bool IsPrMergedResult { get; set; } = true;
         public string CreatePrResult { get; set; } = "https://github.com/test/repo/pull/1";
         public string DiffResult { get; set; } = "";
+        /// <summary>Optional real Git reader for public-surface repository integration tests.</summary>
+        public IGitService? DiffReader { get; set; }
+
         public string RepositoryHeadRefResult { get; set; } = "refs/heads/main";
         public string? CurrentBranchResult { get; set; } = "main";
         public bool IsWorkingDirectoryCleanResult { get; set; } = true;
@@ -316,7 +320,14 @@ namespace Test.Shared.Infrastructure
         {
             if (ShouldThrowOnDiff) throw new InvalidOperationException("Simulated diff failure");
             DiffCalls.Add(worktreePath);
-            return Task.FromResult(DiffResult);
+            return DiffReader == null ? Task.FromResult(DiffResult) : DiffReader.DiffAsync(worktreePath, baseBranch, token);
+        }
+
+        public Task<string> DiffWorkingTreeAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            if (ShouldThrowOnDiff) throw new InvalidOperationException("Simulated live diff failure");
+            LiveDiffCalls.Add(worktreePath);
+            return DiffReader == null ? Task.FromResult(DiffResult) : DiffReader.DiffWorkingTreeAsync(worktreePath, baseBranch, token);
         }
 
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)

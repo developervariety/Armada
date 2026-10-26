@@ -119,12 +119,16 @@ namespace Armada.Server
 
             try
             {
-                string diff = await git.DiffAsync(workingDirectory, baseBranch, token).ConfigureAwait(false);
+                string diff = await git.DiffWorkingTreeAsync(workingDirectory, baseBranch, token).ConfigureAwait(false);
                 return MissionDiffResult.Found(mission.Id, dock.BranchName ?? "", diff);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (NotSupportedException)
+            {
+                return MissionDiffResult.NotAvailable(mission.Id, "Live worktree diff is unavailable");
             }
             catch (Exception) when (dock.HostCheckout != null)
             {

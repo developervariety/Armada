@@ -1521,6 +1521,10 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(diff.Contains("README.md", StringComparison.Ordinal), "Diff should include the changed file");
                     AssertTrue(diff.Contains("orphan change", StringComparison.Ordinal), "Diff should include the orphan-branch change");
+                    await File.AppendAllTextAsync(Path.Combine(rootDir, "README.md"), "live orphan edit\n").ConfigureAwait(false);
+                    string live = await service.DiffWorkingTreeAsync(rootDir, "main").ConfigureAwait(false);
+                    AssertContains("orphan change", live, "live fallback preserves unrelated committed changes");
+                    AssertContains("live orphan edit", live, "live unrelated-history comparison includes tracked edits");
                 }
                 finally
                 {
@@ -1555,6 +1559,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertNull(diff, "An unresolvable base must not produce a working-tree diff as the branch change");
                     AssertNotNull(error, "The branch-diff failure must surface to the caller");
+                    await AssertThrowsAsync<InvalidOperationException>(
+                        () => service.DiffWorkingTreeAsync(rootDir, "no-such-base")).ConfigureAwait(false);
                 }
                 finally
                 {

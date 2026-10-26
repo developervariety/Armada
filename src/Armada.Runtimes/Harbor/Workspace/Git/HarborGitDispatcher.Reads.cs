@@ -26,6 +26,8 @@ namespace Armada.Runtimes.Harbor.Workspace.Git
                     return await FlagAsync(git.HasUncommittedTrackedChangesAsync(selectedPath, token)).ConfigureAwait(false);
                 case HarborGitOperationEnum.Diff:
                     return await TextAsync(git.DiffAsync(selectedPath, String.IsNullOrWhiteSpace(request.BaseBranch) ? "main" : RequiredRevision(request.BaseBranch), token)).ConfigureAwait(false);
+                case HarborGitOperationEnum.DiffWorkingTree:
+                    return await TextAsync(git.DiffWorkingTreeAsync(selectedPath, String.IsNullOrWhiteSpace(request.BaseBranch) ? "main" : RequiredRevision(request.BaseBranch), token)).ConfigureAwait(false);
                 case HarborGitOperationEnum.GetHeadCommitHash:
                     return await NullableTextAsync(git.GetHeadCommitHashAsync(selectedPath, token)).ConfigureAwait(false);
                 case HarborGitOperationEnum.GetConflictedFiles:
