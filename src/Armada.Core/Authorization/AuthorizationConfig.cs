@@ -68,6 +68,7 @@ namespace Armada.Core.Authorization
             // Fleet status aggregates every tenant's captains, missions, voyages and signals, so only a
             // global administrator may read it, like the WebSocket status snapshot. Health stays open above.
             if (path == "/api/v1/status" || path == "/api/v1/status/") return PermissionLevel.AdminOnly;
+            if (path == "/api/v1/vessels/local-checkouts" || path == "/api/v1/vessels/import-checkout") return PermissionLevel.AdminOnly;
             if (path.StartsWith("/api/v1/server")) return PermissionLevel.AdminOnly;
             if (path.StartsWith("/api/v1/settings")) return PermissionLevel.AdminOnly;
             // These routes manage global decision settings and subscription account credentials.

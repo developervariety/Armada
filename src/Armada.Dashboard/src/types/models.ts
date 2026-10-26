@@ -137,6 +137,28 @@ export interface Vessel {
   lastUpdateUtc: string;
 }
 
+export interface LocalCheckoutCandidate {
+  checkoutPath: string;
+  suggestedName: string;
+  originUrl: string | null;
+  defaultBranch: string;
+  existingVesselId: string | null;
+}
+
+export interface LocalCheckoutDiscovery {
+  configured: boolean;
+  roots: string[];
+  candidates: LocalCheckoutCandidate[];
+  errors: string[];
+  truncated: boolean;
+}
+
+export interface ImportCheckoutRequest {
+  checkoutPath: string;
+  name: string;
+  fleetId?: string;
+}
+
 export interface CodeIndexStatus {
   vesselId: string;
   vesselName: string;

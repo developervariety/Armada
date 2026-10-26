@@ -10,6 +10,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Global administrators can discover and import existing local checkouts from
+  configured folders through the Dashboard, REST and MCP. Import validates
+  paths and current ownership, registers the local source, and preserves the
+  external checkout when the vessel is removed.
+
 - Saved Ask conversations propose supported actions for exact human approval.
   Turn-bound authenticated credentials, current authorization and durable claims
   fence execution. Work reports separate job completion, produced work, landing

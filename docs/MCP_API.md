@@ -1860,3 +1860,14 @@ Legacy Routing order, a verdict per captain naming the layer that decided it
 (eligibility, routes, or usage), model groups, capacity reading, and chosen
 captain for a saved or draft policy with settings write permission. No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
+
+### Local checkout import
+
+`armada_discover_vessel_checkouts` lists direct child checkouts under configured
+`vesselImport.allowedRoots`. `armada_import_vessel_checkout` accepts
+`checkoutPath`, `name`, and optional `fleetId`. Both require current unscoped
+global administrator authority. Mission and saved Ask credentials cannot use
+these tools. Import registers an external working tree and leaves its Git
+references unchanged. A missing import service or an unconfigured import
+request returns the named `Unavailable` error. See
+[Local checkout import](VESSEL_CHECKOUT_IMPORT.md) for path and ownership rules.

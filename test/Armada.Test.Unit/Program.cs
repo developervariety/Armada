@@ -204,6 +204,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MissionReviewDiffTests());
             runner.AddSuite(new CaptainBenchPersistenceTests());
             runner.AddSuite(new McpVesselToolsTests());
+            runner.AddSuite(new VesselCheckoutImportServiceTests());
             runner.AddSuite(new McpCreateOwnershipTests());
             runner.AddSuite(new WebSocketCreateOwnershipTests());
             runner.AddSuite(new SessionLogParityTests());

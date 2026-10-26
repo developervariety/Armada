@@ -32,6 +32,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/captains/cpt_example/stop"));
             });
 
+            await RunTest("LocalVesselCheckoutRoutes AreAdminOnly WithoutChangingVesselWrites", () =>
+            {
+                foreach (string method in new[] { "GET", "POST", "PUT", "DELETE" })
+                {
+                    AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel(method, "/api/v1/vessels/local-checkouts"));
+                    AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel(method, "/api/v1/vessels/import-checkout"));
+                }
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/vessels"));
+            });
+
             // --- Shared assets: personas and pipelines are tenant-owned, prompt templates are global ---
 
             await RunTest("Personas GET IsAuthenticated", () =>

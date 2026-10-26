@@ -220,6 +220,8 @@ namespace Armada.Test.Unit.Suites.Services
                             new UnavailableCallCase("armada_typed_decision_eval", "{}", "Unavailable: typed decision evaluation"),
                             new UnavailableCallCase("armada_harbor_jobs", "{}", "Unavailable: Harbor jobs"),
                             new UnavailableCallCase("armada_harbor_job_stop", "{\"jobId\":\"hjob_demo\"}", "Unavailable: Harbor jobs"),
+                            new UnavailableCallCase("armada_discover_vessel_checkouts", "{}", "Unavailable: local checkout import"),
+                            new UnavailableCallCase("armada_import_vessel_checkout", "{\"checkoutPath\":\"/tmp/checkout\",\"name\":\"Checkout\"}", "Unavailable: local checkout import"),
                             new UnavailableCallCase("armada_stop_server", "{}", "Unavailable: server shutdown")
                         };
                         string[] requests = calls.Select((call, index) => CreateToolCallRequest(index + 1, call.Name, call.ArgumentsJson)).ToArray();

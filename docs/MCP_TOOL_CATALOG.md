@@ -48,9 +48,13 @@ shows only critical items).
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_get_fleet`, `armada_get_vessel` |
-| Write | `armada_create_fleet`, `armada_update_fleet`, `armada_add_vessel`, `armada_update_vessel`, `armada_update_vessel_context` |
+| Read | `armada_get_fleet`, `armada_get_vessel`, `armada_discover_vessel_checkouts` |
+| Write | `armada_create_fleet`, `armada_update_fleet`, `armada_add_vessel`, `armada_update_vessel`, `armada_update_vessel_context`, `armada_import_vessel_checkout` |
 | Destructive | `armada_delete_fleet`, `armada_delete_fleets`, `armada_delete_vessel`, `armada_delete_vessels` |
+
+Local checkout discovery and import require an unscoped global administrator.
+Only configured direct child checkouts can be imported. Import leaves the
+checkout and Git references unchanged. See [Local checkout import](VESSEL_CHECKOUT_IMPORT.md).
 
 ### 8.3 Captains
 
