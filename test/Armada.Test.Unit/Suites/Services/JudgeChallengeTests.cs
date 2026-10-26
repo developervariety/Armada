@@ -158,6 +158,14 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(joined.Contains("Preserve the remaining instructions", StringComparison.Ordinal), "instruction proposals are not correctness findings");
                 foreach (string advisory in new[] { "old sample", "legacy option", "unrelated package", "historical note", "old table" })
                     AssertFalse(joined.Contains(advisory, StringComparison.Ordinal), "outside-scope observation stays advisory: " + advisory);
+
+                foreach (string lead in new[] { "Changes introduced by this patch outside the allowed edit scope:", "These defects are not outside the allowed scope:" })
+                {
+                    string violation = "## Correctness\n" + lead + "\n- src/Guard.cs:10 removes the safety guard.\n## Verdict\n[ARMADA:VERDICT] NEEDS_REVISION";
+                    AssertContains("removes the safety guard", String.Join("\n", JudgeChallenge.ExtractFindings(violation, out _)), "scope violations and negated scope labels remain findings");
+                }
+                string afterProposal = "## Correctness\n[CLAUDE.MD-PROPOSAL]\nPreserve the existing instructions.\n[/CLAUDE.MD-PROPOSAL]\nThe new reader is incorrect because it drops the final record.\n## Verdict\n[ARMADA:VERDICT] NEEDS_REVISION";
+                AssertContains("drops the final record", String.Join("\n", JudgeChallenge.ExtractFindings(afterProposal, out _)), "closing a proposal restores the surrounding correctness context");
             });
 
             await RunTest("Items under a lead-in that reports agreement are not findings, and every blocking and NOT MET item still is", () =>

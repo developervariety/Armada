@@ -66,7 +66,7 @@ namespace Armada.Core.Services
         // that labels minor or follow-up items introduces lesser items, which a rescue does not fix.
         private static readonly Regex _LesserLeadIn = new Regex(
             @"\b(?:minor|nits?|nitpicks?|follow-?ups?|non-?blocking|not\s+(?:a\s+)?blockers?|cosmetic|optional|lesser)\b"
-            + @"|\b(?:outside|out\s+of)\s+(?:the\s+)?(?:allowed\s+)?(?:edit\s+)?scope\b",
+            + @"|\A(?:remaining|pre-existing)\s+(?:inconsistencies|observations|notes)\s+(?:are|remain)\s+outside\s+(?:the\s+)?allowed\s+(?:edit\s+)?scope:\z",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _RequiredLeadIn = new Regex(
@@ -255,17 +255,43 @@ namespace Armada.Core.Services
             string leadIn = String.Empty;
             string paragraphLead = String.Empty;
             int protectedHeadingDepth = 0;
+            bool inProposal = false;
+            string priorSection = String.Empty;
+            int priorHeadingDepth = 0;
             for (int i = 0; i < lines.Length; i++)
             {
                 string raw = lines[i].Trim();
-                if (String.Equals(raw, "[CLAUDE.MD-PROPOSAL]", StringComparison.OrdinalIgnoreCase)
-                    || String.Equals(raw, "[/CLAUDE.MD-PROPOSAL]", StringComparison.OrdinalIgnoreCase))
+                if (String.Equals(raw, "[CLAUDE.MD-PROPOSAL]", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!inProposal)
+                    {
+                        priorSection = section;
+                        priorHeadingDepth = protectedHeadingDepth;
+                    }
+                    inProposal = true;
                     section = String.Empty;
                     leadIn = String.Empty;
                     paragraphLead = String.Empty;
                     protectedHeadingDepth = 0;
                     continue;
+                }
+                if (String.Equals(raw, "[/CLAUDE.MD-PROPOSAL]", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (inProposal)
+                    {
+                        section = priorSection;
+                        protectedHeadingDepth = priorHeadingDepth;
+                    }
+                    inProposal = false;
+                    leadIn = String.Empty;
+                    paragraphLead = String.Empty;
+                    continue;
+                }
+                if (inProposal)
+                {
+                    section = String.Empty;
+                    leadIn = String.Empty;
+                    paragraphLead = String.Empty;
                 }
                 string boldSection = BoldLineSection(raw);
                 if (boldSection.Length > 0)
