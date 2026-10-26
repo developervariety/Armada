@@ -2221,6 +2221,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A completed Research report waits for its actual downstream Judge without waiving unfinished work", async () =>
+            {
+                foreach (string scenario in new[] { "pending-review", "unfinished-work", "unrelated-review", "cancelled-review" })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        BlockedStageRig rig = await BlockedStageRig.CreateAsync(this, testDb, "Worker", MissionModeEnum.Research, withJudgeStage: true).ConfigureAwait(false);
+                        if (scenario == "unrelated-review")
+                        {
+                            rig.JudgeStage!.DependsOnMissionId = null;
+                            await testDb.Driver.Missions.UpdateAsync(rig.JudgeStage).ConfigureAwait(false);
+                        }
+                        if (scenario == "cancelled-review")
+                        {
+                            rig.JudgeStage!.Status = MissionStatusEnum.Cancelled;
+                            await testDb.Driver.Missions.UpdateAsync(rig.JudgeStage).ConfigureAwait(false);
+                        }
+                        await rig.RunCaptainAsync(
+                            "## Research report",
+                            scenario == "unfinished-work" ? "Acceptance criterion 2 is NOT MET because the required matrix is incomplete." : "The required matrix and source study are complete.",
+                            "Acceptance criteria 1 and 2 are MET; criterion 3 is NOT MET because the Judge review is still pending.",
+                            "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
+
+                        Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
+                        Mission judge = (await testDb.Driver.Missions.ReadAsync(rig.JudgeStage!.Id).ConfigureAwait(false))!;
+                        Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
+                        if (scenario == "pending-review")
+                        {
+                            AssertTrue(worker.Status is MissionStatusEnum.WorkProduced or MissionStatusEnum.Complete, "completed current-stage work reaches review: " + worker.FailureReason);
+                            AssertTrue(judge.Status is MissionStatusEnum.Pending or MissionStatusEnum.Assigned, "the actual downstream Judge remains eligible to decide its obligation");
+                            AssertTrue(voyage.Status != VoyageStatusEnum.Failed, "pending review cannot fail its own voyage");
+                        }
+                        else
+                        {
+                            AssertEqual(MissionStatusEnum.Failed, worker.Status, "unmet work or an unavailable reviewer still blocks: " + scenario);
+                            AssertTrue(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "the incomplete report keeps its named reason");
+                            AssertEqual(MissionStatusEnum.Cancelled, judge.Status, "a blocked report cannot advance the reviewer");
+                        }
+                    }
+                }
+            });
+
             await RunTest("A report that meets its criteria, or an Implementation Worker that says criteria are not met, still completes and hands off", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
