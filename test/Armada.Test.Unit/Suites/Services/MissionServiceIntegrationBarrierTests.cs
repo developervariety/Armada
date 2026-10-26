@@ -13,6 +13,7 @@ namespace Armada.Test.Unit.Suites.Services
     using SyslogLogging;
     using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
     using StubGitService = global::Test.Shared.Infrastructure.StubGitService;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     /// <summary>Tests public assignment behavior for versioned Architect integration barriers.</summary>
     public sealed class MissionServiceIntegrationBarrierTests : TestSuite
@@ -42,6 +43,8 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string key = Guid.NewGuid().ToString("N");
                 ArmadaSettings settings = new ArmadaSettings();
+                settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
+                settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
                 settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada-barrier-rescue-" + key);
                 settings.LandingMode = LandingModeEnum.LocalMerge;
                 Vessel vessel = new Vessel("barrier-rescue-vessel-" + key, "https://github.com/test/barrier.git");
@@ -90,6 +93,7 @@ namespace Armada.Test.Unit.Suites.Services
                 captains.OnLaunchAgent = (_, _, _) => Task.FromResult(64010);
                 Captain captain = new Captain("barrier-rescue-captain-" + key)
                 { Model = "claude-opus-5", AllowedPersonas = "[\"Worker\"]", State = CaptainStateEnum.Idle };
+                FleetRoutingSettings.ApplyTierTo(captain);
                 await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
                 MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains,
                     git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
@@ -105,9 +109,13 @@ namespace Armada.Test.Unit.Suites.Services
 
                 if (corruptAcceptedRescue)
                 {
+                    TenantMetadata foreignTenant = await testDb.Driver.Tenants.CreateAsync(
+                        new TenantMetadata("barrier-cross-owner-" + key)).ConfigureAwait(false);
+                    UserMaster foreignUser = await testDb.Driver.Users.CreateAsync(
+                        new UserMaster(foreignTenant.Id, "barrier-cross-owner-" + key + "@example.test", "test-password")).ConfigureAwait(false);
                     Mission bridge = new Mission("Cross-owner bridge", "Invalid lineage hop.")
                     {
-                        VesselId = vessel.Id, VoyageId = voyage.Id, TenantId = "other-tenant", Persona = "Worker",
+                        VesselId = vessel.Id, VoyageId = voyage.Id, TenantId = foreignTenant.Id, UserId = foreignUser.Id, Persona = "Worker",
                         Status = MissionStatusEnum.Complete, DependsOnMissionId = failed.Id
                     };
                     bridge = await testDb.Driver.Missions.CreateAsync(bridge).ConfigureAwait(false);
@@ -138,6 +146,8 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 string key = Guid.NewGuid().ToString("N");
                 ArmadaSettings settings = new ArmadaSettings();
+                settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
+                settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
                 settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada-integration-barrier-" + key);
                 settings.LandingMode = LandingModeEnum.LocalMerge;
                 Vessel vessel = new Vessel("barrier-vessel-" + key, "https://github.com/test/barrier.git");
@@ -172,7 +182,9 @@ namespace Armada.Test.Unit.Suites.Services
                     VoyageId = voyage.Id,
                     OriginVoyageId = voyage.Id,
                     ExpectedBranchCount = 1,
-                    Members = new System.Collections.Generic.List<MissionIntegrationBarrierMember>
+                    Members = preparing
+                        ? new System.Collections.Generic.List<MissionIntegrationBarrierMember>()
+                        : new System.Collections.Generic.List<MissionIntegrationBarrierMember>
                     {
                         new MissionIntegrationBarrierMember
                         {
@@ -205,6 +217,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AllowedPersonas = "[\"Worker\"]",
                     State = CaptainStateEnum.Idle
                 };
+                FleetRoutingSettings.ApplyTierTo(captain);
                 await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
                 if (harborOwnedCaptainRoute)
                 {

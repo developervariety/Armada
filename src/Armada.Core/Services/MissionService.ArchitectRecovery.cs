@@ -153,6 +153,7 @@ namespace Armada.Core.Services
                         throw new ArchitectRecoveryUnsafeException("a stored slice brief differs from the plan");
                     found.Add(matches.SingleOrDefault());
                 }
+                ValidateBarrierSliceTitlesBeforeRepair(rows, found, parsed);
                 Mission firstTemplate = found[0]!;
                 ValidateStartedArchitectTemplate(rows, firstTemplate, parsed[0], new HashSet<string>(StringComparer.Ordinal));
                 for (int index = 1; index < found.Count; index++)
