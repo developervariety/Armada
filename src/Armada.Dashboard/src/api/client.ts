@@ -10,6 +10,8 @@ import type {
   EnumerationResult,
   Fleet,
   Vessel,
+  LocalCheckoutDiscovery,
+  ImportCheckoutRequest,
   CodeIndexStatus,
   CodeSearchRequest,
   CodeSearchResponse,
@@ -685,6 +687,8 @@ export const exploreCodeGraph = (vesselId: string, query: string, maxDepth = 2, 
 export const listAllVessels = (filters?: ListFilters) =>
   listAllPages((pageNumber) => listVessels({ pageNumber, pageSize: ALL_PAGES_SIZE, filters }));
 export const getVessel = (id: string) => get<Vessel>(`/api/v1/vessels/${id}`);
+export const getVesselLocalCheckouts = () => get<LocalCheckoutDiscovery>('/api/v1/vessels/local-checkouts');
+export const importVesselCheckout = (data: ImportCheckoutRequest) => post<Vessel>('/api/v1/vessels/import-checkout', data);
 export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/vessels', data);
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
 /** Update only the context fields; the full PUT replaces every field the body omits. */

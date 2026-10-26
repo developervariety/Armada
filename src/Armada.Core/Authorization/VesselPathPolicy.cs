@@ -1,7 +1,9 @@
 namespace Armada.Core.Authorization
 {
     using System;
+    using System.IO;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// The one rule for vessel fields that name a place on the server's own disk.
@@ -57,6 +59,75 @@ namespace Armada.Core.Authorization
             }
 
             return null;
+        }
+
+        /// <summary>Validate one configured checkout root and return its canonical path.</summary>
+        /// <param name="root">Configured checkout root.</param>
+        /// <param name="canonicalRoot">Canonical root when valid; otherwise empty.</param>
+        /// <returns>Null when the root exists and has no symlink or reparse-point ancestor.</returns>
+        public static string? ValidateCheckoutRoot(string? root, out string canonicalRoot)
+        {
+            canonicalRoot = String.Empty;
+            if (String.IsNullOrWhiteSpace(root)) return "A checkout root is empty.";
+            try
+            {
+                if (!Path.IsPathFullyQualified(root)) return "A checkout root must be an absolute path.";
+                canonicalRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+                if (!Directory.Exists(canonicalRoot)) return "A checkout root does not exist or cannot be read.";
+                if (ContainsReparsePoint(canonicalRoot)) return "A checkout root has a symlink or reparse-point path.";
+                return null;
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException
+                || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                canonicalRoot = String.Empty;
+                return "A checkout root is invalid or inaccessible.";
+            }
+        }
+
+        /// <summary>Validate a direct-child checkout under a configured root.</summary>
+        /// <param name="root">Configured checkout root.</param>
+        /// <param name="checkoutPath">Requested checkout path.</param>
+        /// <param name="canonicalRoot">Canonical root when valid; otherwise empty.</param>
+        /// <param name="canonicalCheckoutPath">Canonical checkout when valid; otherwise empty.</param>
+        /// <returns>Null when the existing checkout is a safe direct child of the root.</returns>
+        public static string? ValidateCheckoutPath(
+            string? root,
+            string? checkoutPath,
+            out string canonicalRoot,
+            out string canonicalCheckoutPath)
+        {
+            canonicalCheckoutPath = String.Empty;
+            string? rootError = ValidateCheckoutRoot(root, out canonicalRoot);
+            if (rootError != null) return rootError;
+            if (String.IsNullOrWhiteSpace(checkoutPath)) return "A checkout path is required.";
+            try
+            {
+                if (!Path.IsPathFullyQualified(checkoutPath)) return "A checkout path must be absolute.";
+                canonicalCheckoutPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(checkoutPath));
+                if (!PathContainment.IsWithin(canonicalRoot, canonicalCheckoutPath)
+                    || PathEquals(canonicalRoot, canonicalCheckoutPath))
+                    return "A checkout path must be a direct child of its configured root.";
+                DirectoryInfo? parent = Directory.GetParent(canonicalCheckoutPath);
+                if (parent == null || !PathEquals(Path.TrimEndingDirectorySeparator(parent.FullName), canonicalRoot))
+                    return "A checkout path must be a direct child of its configured root.";
+                if (!Directory.Exists(canonicalCheckoutPath)) return "A checkout path does not exist or cannot be read.";
+                if (ContainsReparsePoint(canonicalCheckoutPath)) return "A checkout path has a symlink or reparse-point path.";
+                string metadataPath = Path.Combine(canonicalCheckoutPath, ".git");
+                if (File.Exists(metadataPath) || Directory.Exists(metadataPath))
+                {
+                    FileAttributes attributes = File.GetAttributes(metadataPath);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        return "A checkout has symlinked Git metadata.";
+                }
+                return null;
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException
+                || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                canonicalCheckoutPath = String.Empty;
+                return "A checkout path is invalid or inaccessible.";
+            }
         }
 
         /// <summary>
@@ -150,6 +221,32 @@ namespace Armada.Core.Authorization
             }
 
             return null;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static bool ContainsReparsePoint(string path)
+        {
+            string? current = path;
+            while (!String.IsNullOrEmpty(current))
+            {
+                FileAttributes attributes = File.GetAttributes(current);
+                if ((attributes & FileAttributes.ReparsePoint) != 0) return true;
+                DirectoryInfo? parent = Directory.GetParent(current);
+                if (parent == null) break;
+                current = parent.FullName;
+            }
+            return false;
+        }
+
+        private static bool PathEquals(string left, string right)
+        {
+            StringComparison comparison = OperatingSystem.IsWindows()
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            return String.Equals(Path.TrimEndingDirectorySeparator(left), Path.TrimEndingDirectorySeparator(right), comparison);
         }
 
         #endregion

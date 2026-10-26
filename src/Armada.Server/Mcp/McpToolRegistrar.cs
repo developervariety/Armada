@@ -61,6 +61,7 @@ namespace Armada.Server.Mcp
         /// <param name="captainAdministration">Shared captain stop-all and deletion service. When null, one is built from <paramref name="admiral"/> and the supplied session coordinators.</param>
         /// <param name="missionOperations">Shared mission and voyage operations (cancel, purge, restart). When null, one is built from <paramref name="admiral"/>, <paramref name="settings"/> and <paramref name="dockService"/> that writes no events.</param>
         /// <param name="askActions">Optional saved-chat proposal gate. Standalone tools keep their ordinary behavior.</param>
+        /// <param name="vesselCheckoutImportService">Optional local checkout service; its discovery and import tools remain registered with named unavailable results when absent.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -113,7 +114,8 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.Interfaces.IMissionService? missionService = null,
             CaptainAdministrationService? captainAdministration = null,
             MissionOperations? missionOperations = null,
-            AskActionService? askActions = null)
+            AskActionService? askActions = null,
+            VesselCheckoutImportService? vesselCheckoutImportService = null)
         {
             // Every tool's abbreviated id arguments resolve at this one seam before the tool runs.
             register = McpAbbreviatedIdArguments.Wrap(register, database);
@@ -133,6 +135,7 @@ namespace Armada.Server.Mcp
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService, missionOperations);
+            McpVesselCheckoutTools.Register(register, vesselCheckoutImportService);
             McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService, dispatchStalenessAdapter, missionOperations);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, statusTransitions, missionOperations, longRunningJobs);
 

@@ -317,6 +317,12 @@
 			"key": "askProposalFingerprint",
 			"value": "reviewed-proposal-fingerprint",
 			"type": "string"
+		},
+		{
+			"key": "vesselCheckoutPath",
+			"value": "",
+			"type": "string",
+			"description": "Existing checkout returned by local checkout discovery."
 		}
 	],
 	"item": [
@@ -2751,6 +2757,55 @@
 							]
 						},
 						"description": "Merges one landing-repository branch into another by fast-forward or explicit merge commit. Strategy is FastForward or MergeCommit. Never pushes and never rewrites the target. Requires a tenant administrator."
+					}
+				},
+				{
+					"name": "Discover Local Checkouts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/vessels/local-checkouts",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"vessels",
+								"local-checkouts"
+							]
+						},
+						"description": "Requires a human global administrator. Lists bounded non-bare checkouts from configured import roots with duplicate, root-error and truncation information."
+					}
+				},
+				{
+					"name": "Import Local Checkout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/vessels/import-checkout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"vessels",
+								"import-checkout"
+							]
+						},
+						"description": "Requires a human global administrator. Revalidates the configured-root checkout and registers its local source and working directory. The external checkout remains when the vessel is removed.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"checkoutPath\": \"{{vesselCheckoutPath}}\",\n  \"name\": \"example-repo\",\n  \"fleetId\": \"{{fleetId}}\"\n}"
+						}
 					}
 				}
 			]

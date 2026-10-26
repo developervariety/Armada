@@ -5,6 +5,7 @@ import type { Fleet, Vessel, Pipeline } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import BuildContextModal from '../components/vessels/BuildContextModal';
+import CheckoutImport from '../components/vessels/CheckoutImport';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -21,6 +22,7 @@ import { useNotifications } from '../context/NotificationContext';
 import { buildVesselDuplicatePayload } from '../lib/duplicates';
 import { useResourceTable } from '../lib/useResourceTable';
 import { useLoadError } from '../lib/useLoadError';
+import { useAuth } from '../context/AuthContext';
 
 interface VesselForm {
   name: string;
@@ -57,6 +59,7 @@ export default function Vessels() {
   const navigate = useNavigate();
   const { t } = useLocale();
   const { pushToast } = useNotifications();
+  const { isAdmin } = useAuth();
 
 
   // Landing-mode metadata: a short self-describing label and a full explanation of what each mode does to
@@ -303,6 +306,11 @@ export default function Vessels() {
                 {t('Delete Selected')} ({table.selected.length})
               </button>
             )}
+            {isAdmin && <CheckoutImport fleets={fleets} onImported={(vessel) => {
+              void load();
+              pushToast('success', t('Vessel "{{name}}" imported.', { name: vessel.name }));
+              navigate(`/vessels/${vessel.id}`);
+            }} />}
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Vessel')}</button>
           </>
         )}

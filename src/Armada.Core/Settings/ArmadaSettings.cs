@@ -1022,6 +1022,13 @@ namespace Armada.Core.Settings
             set => _DiskLifecycle = value ?? new DiskLifecycleSettings();
         }
 
+        /// <summary>Allow-listed roots for global-administrator checkout discovery and import.</summary>
+        public VesselImportSettings VesselImport
+        {
+            get => _VesselImport;
+            set => _VesselImport = value ?? new VesselImportSettings();
+        }
+
         /// <summary>
         /// History archive settings: the S3-compatible bucket that receives raw history before it is
         /// freed locally, and the retention of raw objects and trace records. Disabled by default;
@@ -1122,6 +1129,7 @@ namespace Armada.Core.Settings
         private VoyageCheckArmingSettings _VoyageCheckArming = new VoyageCheckArmingSettings();
         private IntegrationValidationSettings _IntegrationValidation = new IntegrationValidationSettings();
         private DiskLifecycleSettings _DiskLifecycle = new DiskLifecycleSettings();
+        private VesselImportSettings _VesselImport = new VesselImportSettings();
         private ArchiveSettings _Archive = new ArchiveSettings();
         private TelemetrySettings _Telemetry = new TelemetrySettings();
         private string _SettingsFilePath = DefaultSettingsPath;
@@ -1298,6 +1306,7 @@ namespace Armada.Core.Settings
             // Read through the shared settings instance on every landing.
             IntegrationValidation = source.IntegrationValidation;
             DiskLifecycle = source.DiskLifecycle;
+            VesselImport.CopyFrom(source.VesselImport);
             // The archive sink is built from this section at each use.
             Archive = source.Archive;
             Architect = source.Architect;

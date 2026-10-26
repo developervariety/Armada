@@ -192,6 +192,7 @@ namespace Armada.Server
         private TypedDispatchStalenessAdapter? _DispatchStalenessAdapter;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private AskActionService _AskActions = null!;
+        private VesselCheckoutImportService _VesselCheckoutImports = null!;
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
         private IntentionalProcessStops _IntentionalStops = new IntentionalProcessStops();
@@ -300,6 +301,7 @@ namespace Armada.Server
                 requesterKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 progressProbeAsync: IsBackgroundJobMakingProgressAsync);
             _AskActions = new AskActionService(_Database, _LongRunningJobs, _Logging);
+            _VesselCheckoutImports = new VesselCheckoutImportService(_Database, _Settings);
 
             // Initialize services
             // PR-fallback wiring: per-call factory selects the right platform CLI (gh / glab).
@@ -1600,6 +1602,9 @@ namespace Armada.Server
                 _MissionOperations)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            new VesselCheckoutImportRoutes(_VesselCheckoutImports)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Workspace
             new WorkspaceRoutes(_Database, _Workspace, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -2164,7 +2169,8 @@ namespace Armada.Server
                 contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 missionService: _MissionService,
                 missionOperations: _MissionOperations,
-                askActions: _AskActions);
+                askActions: _AskActions,
+                vesselCheckoutImportService: _VesselCheckoutImports);
 
         }
 
