@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Server.Mcp.Tools;
+    using Armada.Server.Mcp;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -71,6 +72,16 @@ namespace Armada.Test.Unit.Suites.Services
                 object createResult = await handlers["armada_create_incident"](createDoc.RootElement).ConfigureAwait(false);
                 Incident created = (Incident)createResult;
                 AssertEqual("MCP incident", created.Title);
+
+                using JsonDocument linkDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"checkRunId\":\"chk_fixture\"}");
+                Incident linked = (Incident)await handlers["armada_update_incident"](linkDoc.RootElement).ConfigureAwait(false);
+                AssertEqual("chk_fixture", linked.CheckRunId);
+                using JsonDocument omitLinkDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"summary\":\"Omitted link stays\"}");
+                Incident omittedLink = (Incident)await handlers["armada_update_incident"](omitLinkDoc.RootElement).ConfigureAwait(false);
+                AssertEqual("chk_fixture", omittedLink.CheckRunId);
+                using JsonDocument clearLinkDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"checkRunId\":\"\"}");
+                Incident clearedLink = (Incident)await handlers["armada_update_incident"](clearLinkDoc.RootElement).ConfigureAwait(false);
+                AssertNull(clearedLink.CheckRunId, "An explicit empty Check link survives request normalization and clears the stored link.");
 
                 using JsonDocument listDoc = JsonDocument.Parse("{\"vesselId\":\"vsl_mcp\"}");
                 object listResult = await handlers["armada_list_incidents"](listDoc.RootElement).ConfigureAwait(false);
@@ -295,7 +306,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
             McpIncidentTools.Register(
-                (name, description, schema, handler) => handlers[name] = McpTestCaller.Wrap(handler),
+                (name, description, schema, handler) => handlers[name] = McpTestCaller.Wrap(args => handler(McpToolArgumentNormalizer.Normalize(args, JsonSerializer.SerializeToElement(schema)))),
                 incidents);
             return handlers;
         }

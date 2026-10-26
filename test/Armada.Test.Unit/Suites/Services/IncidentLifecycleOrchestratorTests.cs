@@ -42,6 +42,14 @@ namespace Armada.Test.Unit.Suites.Services
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-5)
                 }).ConfigureAwait(false);
 
+                CheckRun causingPass = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.Build, Label = "build", Command = "dotnet build",
+                    Status = CheckRunStatusEnum.Passed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-6), LastUpdateUtc = DateTime.UtcNow.AddMinutes(-6)
+                }).ConfigureAwait(false);
+
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
                 Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
@@ -50,11 +58,16 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = IncidentStatusEnum.Open,
                     Severity = IncidentSeverityEnum.Medium,
                     VesselId = vessel.Id,
-                    CheckRunId = failed.Id,
+                    CheckRunId = causingPass.Id,
                     DetectedUtc = DateTime.UtcNow.AddMinutes(-4),
                     RootCause = "Automated check command failed or could not run.",
                     RecoveryNotes = "Initial failed check."
                 }).ConfigureAwait(false);
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 0);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "A linked Check that passed before detection cannot mitigate the incident it caused.");
+                AssertEqual(IncidentStatusEnum.Open, (await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false))!.Status);
+                await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest { CheckRunId = failed.Id }).ConfigureAwait(false);
 
                 await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
                 {
@@ -68,8 +81,6 @@ namespace Armada.Test.Unit.Suites.Services
                     CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
                 }).ConfigureAwait(false);
-
-                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 0);
 
                 AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false));
                 Incident? mitigated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
@@ -86,6 +97,15 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(closed.RootCauseWrittenBy, "The automatic cause is not person-written.");
                 AssertEqual("Automated check command failed or could not run.", closed.OpenedReason);
                 AssertNull(closed.RootCause, "An automatic close never keeps the opened reason as the root cause.");
+                await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Mitigated, RecoveryNotes = "Operator reopened: fix is not deployed."
+                }).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The same old pass cannot override an operator reopen.");
+                Incident reopened = (await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false))!;
+                AssertEqual(IncidentStatusEnum.Mitigated, reopened.Status);
+                AssertContains("not deployed", reopened.RecoveryNotes ?? String.Empty);
+
             }).ConfigureAwait(false);
 
             await RunTest("Completed rescue mission mitigates linked failed-mission incident and the automatic close leaves the root cause unset", async () =>
@@ -187,6 +207,15 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(IncidentStatusEnum.Closed, updated!.Status, "An operator who cancels the failed mission's own voyage ends the work, so the incident is superseded.");
                 AssertContains("cancelled voyage", updated.RecoveryNotes ?? "", "Expected cancelled-voyage evidence.");
                 AssertNull(updated.RootCause, "The automatic close leaves the root cause unset.");
+                Incident operatorIncident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Operator reports a cancellation defect", MissionId = incident.MissionId,
+                    VoyageId = incident.VoyageId, VesselId = vessel.Id, Status = IncidentStatusEnum.Mitigated,
+                    DetectedUtc = DateTime.UtcNow.AddMinutes(-3)
+                }).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "Cancellation does not supersede an operator-created incident about that cancellation.");
+                AssertEqual(IncidentStatusEnum.Mitigated, (await incidents.ReadAsync(auth, operatorIncident.Id).ConfigureAwait(false))!.Status);
+
             }).ConfigureAwait(false);
 
             await RunTest("Cancelled voyage closes landing-failed incident as superseded", async () =>
