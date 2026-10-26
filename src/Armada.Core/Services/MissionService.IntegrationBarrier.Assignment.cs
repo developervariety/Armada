@@ -19,7 +19,7 @@ namespace Armada.Core.Services
         }
 
         private async Task<bool> PrepareIntegrationBarrierAssignmentAsync(
-            Mission mission, Captain captain, Vessel vessel, CancellationToken token)
+            Mission mission, Vessel vessel, CancellationToken token)
         {
             if (mission.IntegrationBarrierInvalid || mission.IntegrationBarrier == null)
             {
@@ -50,17 +50,10 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            HarborMissionRoute? route = HarborMissionRouting.ResolveConfigured(_Settings.Harbor, captain, mission);
-            if (route?.CheckoutMode == HarborCheckoutModeEnum.HarborOwned)
-            {
-                await HoldForAssignmentAsync(mission, IntegrationBarrierUnverifiable, mission.VesselId,
-                    "The configured Harbor checkout cannot prove the local landing target commit for this integration barrier.", token).ConfigureAwait(false);
-                return false;
-            }
             string? targetSha = await ResolveIntegrationTargetShaAsync(mission, vessel, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(targetSha)) return false;
 
-            if (!await CheckIntegrationBarrierMembersAsync(mission, captain, vessel, barrier, targetSha!, token).ConfigureAwait(false)) return false;
+            if (!await CheckIntegrationBarrierMembersAsync(mission, vessel, barrier, targetSha!, token).ConfigureAwait(false)) return false;
 
             mission.BranchName = null;
             mission.StartFromRef = targetSha;

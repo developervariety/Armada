@@ -10,7 +10,7 @@ namespace Armada.Core.Services
     public partial class MissionService
     {
         private async Task<bool> CheckIntegrationBarrierMembersAsync(
-            Mission mission, Captain captain, Vessel vessel, MissionIntegrationBarrier barrier,
+            Mission mission, Vessel vessel, MissionIntegrationBarrier barrier,
             string targetSha, CancellationToken token)
         {
             foreach (MissionIntegrationBarrierMember member in barrier.Members)

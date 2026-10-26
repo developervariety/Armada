@@ -697,7 +697,7 @@ namespace Armada.Core.Services
             string? upstreamCommitHash = null;
             if (HasIntegrationBarrierRecord(mission))
             {
-                if (!await PrepareIntegrationBarrierAssignmentAsync(mission, captain, vessel, token).ConfigureAwait(false)) return false;
+                if (!await PrepareIntegrationBarrierAssignmentAsync(mission, vessel, token).ConfigureAwait(false)) return false;
                 dependencyIsCrossVessel = false;
                 dependencyBranchName = null;
                 upstreamCommitHash = null;
@@ -1060,6 +1060,14 @@ namespace Armada.Core.Services
 
             _UnassignableTicks.TryRemove(mission.Id, out int _);
             _CaptainWaitReasons.TryRemove(mission.Id, out string? _);
+
+            if (HasIntegrationBarrierRecord(mission)
+                && HarborMissionRouting.ResolveConfigured(_Settings.Harbor, captain, mission)?.CheckoutMode == HarborCheckoutModeEnum.HarborOwned)
+            {
+                await HoldForAssignmentAsync(mission, IntegrationBarrierUnverifiable, mission.VesselId,
+                    "The configured Harbor checkout cannot prove the local landing target commit for this integration barrier.", token).ConfigureAwait(false);
+                return false;
+            }
 
             HarborMissionRoute? harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
             if (await TryHoldForHarborCapacityAsync(mission, harborRoute, token).ConfigureAwait(false)) return false;
