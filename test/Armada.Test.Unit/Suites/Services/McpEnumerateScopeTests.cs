@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Authorization;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -93,6 +94,79 @@ namespace Armada.Test.Unit.Suites.Services
                             AssertContains(id, asOperator, entity.EntityType + ": the operator listing is unchanged");
                     }
                 }
+            });
+
+            await RunTest("Mission Check reads include legacy default owners before counting and paging without crossing owner boundaries", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("scoped Check voyage")
+                { TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("scoped Check reader")
+                { TenantId = Constants.DefaultTenantId, VoyageId = voyage.Id }).ConfigureAwait(false);
+                SessionTokenService tokens = new SessionTokenService();
+                AuthContext caller = tokens.ValidateToken(tokens.CreateMissionToken(
+                    Constants.DefaultTenantId, Constants.DefaultUserId, mission.Id).Token!)!;
+                AssertEqual(mission.Id, caller.MissionId);
+
+                List<CheckRun> visible = new List<CheckRun>();
+                foreach (var owner in new[]
+                {
+                    (Tenant: (string?)Constants.DefaultTenantId, User: (string?)Constants.DefaultUserId),
+                    (Tenant: (string?)Constants.DefaultTenantId, User: (string?)null),
+                    (Tenant: (string?)null, User: (string?)null)
+                })
+                    visible.Add(await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = owner.Tenant, UserId = owner.User, VoyageId = voyage.Id,
+                        Label = "passed Check", Command = "echo check", Status = CheckRunStatusEnum.Passed
+                    }).ConfigureAwait(false));
+                List<CheckRun> hidden = new List<CheckRun>();
+                foreach (var owner in new[]
+                {
+                    (Tenant: Constants.DefaultTenantId, User: "different-owner"),
+                    (Tenant: "different-tenant", User: Constants.DefaultUserId),
+                    (Tenant: "different-tenant", User: (string?)null)
+                })
+                    hidden.Add(await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = owner.Tenant, UserId = owner.User, VoyageId = voyage.Id,
+                        Label = "foreign Check", Command = "echo check", Status = CheckRunStatusEnum.Passed
+                    }).ConfigureAwait(false));
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = Constants.DefaultTenantId, VoyageId = voyage.Id,
+                    Label = "failed Check", Command = "echo check", Status = CheckRunStatusEnum.Failed
+                }).ConfigureAwait(false);
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = Constants.DefaultTenantId, VoyageId = "another-voyage",
+                    Label = "unrelated Check", Command = "echo check", Status = CheckRunStatusEnum.Passed
+                }).ConfigureAwait(false);
+
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                McpEnumerateTools.Register((name, _, _, handler) => { handlers[name] = handler; }, testDb.Driver);
+                HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+                using (McpCallerContext.Begin(caller))
+                    for (int pageNumber = 1; pageNumber <= visible.Count; pageNumber++)
+                    {
+                        object result = await handlers["armada_enumerate"](JsonSerializer.SerializeToElement(new
+                        { entityType = "checks", voyageId = voyage.Id, status = "Passed", pageNumber, pageSize = 1, includeTestOutput = false })).ConfigureAwait(false);
+                        JsonElement page = JsonSerializer.SerializeToElement(result);
+                        AssertEqual((long)visible.Count, page.GetProperty("TotalRecords").GetInt64(), "legacy ownership is filtered before the count");
+                        AssertEqual(visible.Count, page.GetProperty("TotalPages").GetInt32());
+                        JsonElement rows = page.GetProperty("Objects");
+                        AssertEqual(1, rows.GetArrayLength());
+                        AssertTrue(seen.Add(rows[0].GetProperty("Id").GetString()!), "each page has a different owned Check");
+                    }
+                AssertTrue(seen.SetEquals(visible.Select(run => run.Id)), "the scoped pages contain exactly the owned passed voyage Checks");
+                foreach (CheckRun run in visible)
+                    AssertNotNull(await CallerScopedRead.ReadCheckRunAsync(testDb.Driver, caller, run.Id).ConfigureAwait(false), "known-ID reads use the same default-owner rule");
+                foreach (CheckRun run in hidden)
+                    AssertNull(await CallerScopedRead.ReadCheckRunAsync(testDb.Driver, caller, run.Id).ConfigureAwait(false), "known-ID reads retain tenant and user isolation");
+                AuthContext otherOwner = AuthContext.Authenticated(Constants.DefaultTenantId, "different-owner", false, false, "Test");
+                AssertNotNull(await CallerScopedRead.ReadCheckRunAsync(testDb.Driver, otherOwner, hidden[0].Id).ConfigureAwait(false));
+                foreach (CheckRun run in visible)
+                    AssertNull(await CallerScopedRead.ReadCheckRunAsync(testDb.Driver, otherOwner, run.Id).ConfigureAwait(false), "a nondefault user cannot inherit legacy default-owned Checks");
             });
 
             await RunTest("Incident date windows filter detection time before paging and retain other filters", async () =>
