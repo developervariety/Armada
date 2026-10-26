@@ -2153,6 +2153,13 @@ namespace Armada.Core.Services
         {
             WorkflowProfile? profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, null, token).ConfigureAwait(false);
             List<string> declared = WorkflowGateInputs.Normalize(profile?.GateInputPaths);
+            List<ObjectiveGateInputSources> mappings = objective.Preparation?.GateInputSources ?? new List<ObjectiveGateInputSources>();
+            string? mappingError = WorkflowGateInputs.ValidateSources(mappings);
+            if (mappingError != null)
+            {
+                AddIssue(result, "gate_input_sources_invalid", "brief", ReadinessSeverityEnum.Error, mappingError, null);
+                return;
+            }
             if (declared.Count == 0) return;
 
             List<string> excluded = WorkflowGateInputs.FindExcluded(declared, objective.RolloutConstraints, objective.NonGoals);
@@ -2162,6 +2169,37 @@ namespace Armada.Core.Services
                 ? String.Empty
                 : " The objective's constraints keep " + String.Join(", ", excluded) + " out of the change, so they are not listed.";
 
+            List<string?> planTexts = new List<string?>();
+            foreach (MissionDescription description in missionDescriptions ?? Array.Empty<MissionDescription>())
+            {
+                if (description == null) continue;
+                planTexts.Add(description.Title);
+                planTexts.Add(description.Description);
+            }
+            List<string> plannedPaths = WorkflowGateInputs.FindPlannedPaths(planTexts);
+            Dictionary<string, List<string>> affectedSources = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (ObjectiveGateInputSources mapping in mappings)
+            {
+                string input = WorkflowGateInputs.Normalize(new[] { mapping.InputPath })[0];
+                if (!inScope.Contains(input, StringComparer.OrdinalIgnoreCase)) continue;
+                List<string> affected = WorkflowGateInputs.FindMappedSources(mapping, plannedPaths);
+                // Path mentions include references and exclusions, so absence is never proof of an unaffected input.
+                affectedSources[input] = affected.Count > 0 ? affected : WorkflowGateInputs.Normalize(mapping.SourcePaths);
+            }
+            if (inScope.Count == 0) return;
+            List<string> dependencyNotes = affectedSources.Select(pair => String.Join(", ", pair.Value) + " -> " + pair.Key).ToList();
+            string mappedNote = dependencyNotes.Count == 0 ? String.Empty
+                : " Declared input-to-source dependencies: " + String.Join("; ", dependencyNotes) + ".";
+            bool unknownDependencies = inScope.Any(input => !affectedSources.ContainsKey(input));
+            string plannedNote = (plannedPaths.Count == 0
+                ? " No planned file paths have been supplied; the Architect must establish which inputs the change can affect."
+                : String.Empty) + mappedNote;
+            if (unknownDependencies && plannedPaths.Count > 0)
+                plannedNote += " Paths named in supplied mission descriptions (may include references or exclusions): "
+                    + String.Join(", ", plannedPaths.Take(WorkflowGateInputs.MaxEntries))
+                    + ". The preparation does not declare which planned paths affect each input without a mapping; confirm that relation before assigning input edits.";
+
+
             bool architectPlans = result.EffectivePipelineStages.Any(stage => PersonaCatalog.Matches(stage, PersonaCatalog.Architect));
             if (architectPlans)
             {
@@ -2169,25 +2207,18 @@ namespace Armada.Core.Services
                     "The Architect stage writes the mission file lists, and the required checks read these gate inputs: "
                     + String.Join(", ", inScope)
                     + ". The Architect brief tells it to assign each one the change touches; a plan that names none of them records "
-                    + WorkflowGateInputs.PlanMissingEventType + "." + excludedNote,
+                    + WorkflowGateInputs.PlanMissingEventType + "." + plannedNote + excludedNote,
                     String.Join(",", inScope));
                 return;
             }
 
             if (missionDescriptions == null || missionDescriptions.Count == 0) return;
-            List<string?> planTexts = new List<string?>();
-            foreach (MissionDescription description in missionDescriptions)
-            {
-                if (description == null) continue;
-                planTexts.Add(description.Title);
-                planTexts.Add(description.Description);
-            }
             List<string> unplanned = WorkflowGateInputs.FindUnplanned(inScope, planTexts);
             if (unplanned.Count == 0) return;
             AddIssue(result, GateInputsUnplannedIssueCode, "brief", ReadinessSeverityEnum.Warning,
                 "No mission description names these gate inputs the required checks read: "
                 + String.Join(", ", unplanned)
-                + ". If the change touches what they describe, give each one to the mission that makes the change." + excludedNote,
+                + ". If the change touches what they describe, give each one to the mission that makes the change." + plannedNote + excludedNote,
                 String.Join(",", unplanned));
         }
 

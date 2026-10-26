@@ -1,5 +1,8 @@
 # Changelog
 
+- Gate-input previews accept explicit input-to-source mappings in objective preparation, name supplied paths and their declared affected inputs, and retain uncertain planning reminders. Existing scope exclusions remain authoritative.
+- Archive HTTP failures retain bounded provider support request IDs without copying response messages or unrelated headers.
+
 Net changes since the latest full upstream merge on 2026-05-24
 ([merge baseline](https://github.com/developervariety/Armada/commit/cb9030bd5cbaca71efe738b53807f048afd05cd7)).
 This compares the merged tree with the current fork. It includes later selected

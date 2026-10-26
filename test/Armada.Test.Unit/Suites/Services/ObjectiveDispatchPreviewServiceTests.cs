@@ -1894,6 +1894,58 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreviewIssue missing = unplanned.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
                     AssertContains("docs/data-dictionary.md", missing.Message, "an unnamed gate input is listed");
                     AssertContains("schema/**/*.sql", missing.Message, "an unmatched glob is listed");
+                    AssertContains("Paths named in supplied mission descriptions (may include references or exclusions): src/Export/Writer.cs", missing.Message,
+                        "the warning names the supplied plan path, rather than only the gate inputs");
+                    AssertContains("does not declare which planned paths affect each input", missing.Message,
+                        "the warning does not invent a dependency from a source filename to a gate input");
+                    ObjectiveDispatchPreview architectWithPlan = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, architectPipeline.Id, null, withoutInputs).ConfigureAwait(false);
+                    AssertContains("Paths named in supplied mission descriptions (may include references or exclusions): src/Export/Writer.cs", architectWithPlan.Issues.Single(
+                        issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode).Message,
+                        "an Architect pipeline also retains the concrete supplied plan paths");
+                    AssertContains("No planned file paths have been supplied", planned.Message,
+                        "an absent Architect plan is identified rather than represented by an invented path");
+
+                    objective.Preparation.GateInputSources = new List<ObjectiveGateInputSources>
+                    {
+                        new ObjectiveGateInputSources { InputPath = "docs/data-dictionary.md", SourcePaths = new List<string> { "src/Export/**/*.cs" } },
+                        new ObjectiveGateInputSources { InputPath = "schema/**/*.sql", SourcePaths = new List<string> { "src/Schema/**/*.cs" } }
+                    };
+                    ObjectiveDispatchPreview mapped = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, null, null, withoutInputs).ConfigureAwait(false);
+                    ObjectiveDispatchPreviewIssue mappedWarning = mapped.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
+                    AssertEqual("docs/data-dictionary.md,schema/**/*.sql", mappedWarning.RelatedValue,
+                        "path mentions do not prove that another mapped input is unaffected");
+                    AssertContains("src/Export/Writer.cs -> docs/data-dictionary.md", mappedWarning.Message,
+                        "the warning identifies the planned path and its explicit gate-input dependency");
+                    AssertFalse(mappedWarning.Message.Contains("does not declare which", StringComparison.Ordinal),
+                        "a mapped warning does not misstate that its dependency is unknown");
+                    ObjectiveDispatchPreview mappedArchitect = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, architectPipeline.Id, null, withoutInputs).ConfigureAwait(false);
+                    AssertContains("src/Export/Writer.cs -> docs/data-dictionary.md", mappedArchitect.Issues.Single(
+                        issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode).Message);
+                    List<MissionDescription> unrelatedPaths = new List<MissionDescription>
+                    {
+                        new MissionDescription("Unrelated change", "Edit tests/OtherTests.cs.")
+                    };
+                    ObjectiveDispatchPreview unrelated = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, null, null, unrelatedPaths).ConfigureAwait(false);
+                    AssertTrue(unrelated.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode),
+                        "path mentions are not a complete edit plan and cannot suppress another input");
+                    foreach (string ambiguous in new[] { "Edit src/Export", "Edit src/Export/Writer?.cs", "Compare tests/OtherTests.cs", "Investigate export behavior. Do not edit tests/OtherTests.cs.", "Edit `src/Export/Writer With Spaces.cs`." })
+                    {
+                        ObjectiveDispatchPreview unknownPlan = await harness.Service.PreviewAsync(
+                            harness.Auth, objective, null, null, null,
+                            new List<MissionDescription> { new MissionDescription("Unknown plan", ambiguous) }).ConfigureAwait(false);
+                        AssertTrue(unknownPlan.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode),
+                            "ambiguous path mentions retain the planning warning");
+                    }
+                    objective.Preparation.GateInputSources[0].SourcePaths = new List<string> { "../private" };
+                    ObjectiveDispatchPreview invalidMapping = await harness.Service.PreviewAsync(
+                        harness.Auth, objective, null, null, null, withoutInputs).ConfigureAwait(false);
+                    AssertTrue(invalidMapping.Issues.Any(issue => issue.Code == "gate_input_sources_invalid" && issue.Severity == ReadinessSeverityEnum.Error),
+                        "an invalid dependency mapping is rejected rather than suppressing warnings");
+                    objective.Preparation.GateInputSources.Clear();
 
                     List<MissionDescription> withInputs = new List<MissionDescription>
                     {

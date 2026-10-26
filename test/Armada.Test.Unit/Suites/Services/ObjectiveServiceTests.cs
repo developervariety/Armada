@@ -1891,6 +1891,10 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Declared execution requirements",
                     Preparation = new ObjectivePreparation
                     {
+                        GateInputSources = new List<ObjectiveGateInputSources>
+                        {
+                            new ObjectiveGateInputSources { InputPath = " ./docs/schema.md ", SourcePaths = new List<string> { " ./src/Export/**/*.cs ", "src/Export/**/*.cs" } }
+                        },
                         ExecutionRequirements = new ObjectiveExecutionRequirements
                         {
                             OperatingSystem = "windows",
@@ -1903,6 +1907,28 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Windows", reread!.Preparation.ExecutionRequirements!.OperatingSystem, "the operating system is normalized to its canonical name");
                 AssertEqual(1, reread.Preparation.ExecutionRequirements.Executables.Count, "executables are trimmed and de-duplicated");
                 AssertEqual("example-license", reread.Preparation.ExecutionRequirements.LicensedContext, "a licensed context name persists");
+                AssertEqual("docs/schema.md", reread.Preparation.GateInputSources.Single().InputPath, "input-to-source mappings persist and normalize input paths");
+                AssertEqual("src/Export/**/*.cs", reread.Preparation.GateInputSources.Single().SourcePaths.Single(), "mapped source paths persist and de-duplicate");
+                foreach (string invalidPath in new[] { "./", ".\\", "../private", "/private", "https://example.invalid/private", "C:/private", "src/\nprivate" })
+                {
+                    string mappingError = String.Empty;
+                    try
+                    {
+                        await objectives.UpdateAsync(auth, declared.Id, new ObjectiveUpsertRequest
+                        {
+                            Preparation = new ObjectivePreparation
+                            {
+                                GateInputSources = new List<ObjectiveGateInputSources>
+                                {
+                                    new ObjectiveGateInputSources { InputPath = "docs/schema.md", SourcePaths = new List<string> { invalidPath } }
+                                }
+                            }
+                        }).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex) { mappingError = ex.Message; }
+                    AssertContains("repository-relative", mappingError, "invalid source mappings cannot be saved");
+                }
+
 
                 string invalidStateError = String.Empty;
                 try

@@ -2416,6 +2416,14 @@ namespace Armada.Core.Services
             objective.Preparation ??= new ObjectivePreparation();
             objective.Preparation.Source = SanitizePreparationAnchor(objective.Preparation.Source);
             objective.Preparation.Target = SanitizePreparationAnchor(objective.Preparation.Target);
+            string? gateSourceError = WorkflowGateInputs.ValidateSources(objective.Preparation.GateInputSources);
+            if (gateSourceError != null) throw new InvalidOperationException(gateSourceError);
+            objective.Preparation.GateInputSources ??= new List<ObjectiveGateInputSources>();
+            foreach (ObjectiveGateInputSources mapping in objective.Preparation.GateInputSources)
+            {
+                mapping.InputPath = WorkflowGateInputs.Normalize(new[] { mapping.InputPath })[0];
+                mapping.SourcePaths = WorkflowGateInputs.Normalize(mapping.SourcePaths);
+            }
             objective.Preparation.Claims ??= new List<ObjectivePreparationClaim>();
             objective.Preparation.RequiredClaimKinds ??= new List<ObjectivePreparationClaimKindEnum>();
             objective.Preparation.RequiredClaimKinds = objective.Preparation.RequiredClaimKinds.Distinct().ToList();

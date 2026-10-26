@@ -1095,6 +1095,22 @@ namespace Armada.Server.Mcp.Tools
                         type = "array",
                         items = new { type = "string", @enum = Enum.GetNames<ObjectivePreparationClaimKindEnum>() }
                     },
+                    gateInputSources = new
+                    {
+                        type = "array",
+                        maxItems = 50,
+                        description = "Explicit dependencies: each inputPath is an exact workflow gate input, and sourcePaths names repository-relative paths/globs that can affect it. At most 50 source paths total. Mappings explain dependencies; missing path mentions never prove an input is unaffected. Include existing mappings on a preparation replacement.",
+                        items = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                inputPath = new { type = "string", maxLength = 260 },
+                                sourcePaths = new { type = "array", minItems = 1, maxItems = 50, items = new { type = "string", maxLength = 260 } }
+                            },
+                            required = new[] { "inputPath", "sourcePaths" }
+                        }
+                    },
                     requiredSiblingInputs = new
                     {
                         type = "array",
