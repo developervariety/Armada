@@ -134,6 +134,20 @@ ignores case.
 
 ## Failures
 
+The S3 sink makes at most three attempts for a PUT or HEAD after HTTP 429,
+500, 502, 503 or 504, or a transport failure. Backoff is one second, then
+two seconds. A longer `Retry-After` is honored up to 30 seconds; a longer
+cooldown leaves the object for a later pass. The whole operation shares the
+shorter of the HTTP client timeout and 30 minutes. Caller cancellation stops
+the operation. Authentication, cap, size and checksum failures are not retried.
+
+Each attempt has fresh content and a fresh signature. After a failed PUT,
+HEAD must show that the key is absent before another PUT is sent. Matching
+stored size and SHA-256 complete an ambiguous upload without another version.
+An unknown verification result keeps the local file. After a successful PUT,
+verification retries only HEAD. Exhaustion retains the bounded provider support
+receipt; response message bodies remain private.
+
 A history pass that fails to verify any upload records one
 `disk_lifecycle.archive_failed` event. A pass that verified every file of an
 item but could not remove the item records one

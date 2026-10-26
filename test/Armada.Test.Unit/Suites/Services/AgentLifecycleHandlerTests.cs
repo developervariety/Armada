@@ -2257,7 +2257,7 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             AssertEqual(MissionStatusEnum.Failed, worker.Status, "unmet work or an unavailable reviewer still blocks: " + scenario);
                             AssertTrue(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "the incomplete report keeps its named reason");
-                            AssertEqual(MissionStatusEnum.Cancelled, judge.Status, "a blocked report cannot advance the reviewer");
+                            AssertEqual(scenario == "unrelated-review" ? MissionStatusEnum.Pending : MissionStatusEnum.Cancelled, judge.Status, "only dependent reviewers are cancelled when work is blocked");
                         }
                     }
                 }

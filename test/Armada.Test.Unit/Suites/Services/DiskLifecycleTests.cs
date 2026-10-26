@@ -399,7 +399,7 @@ namespace Armada.Test.Unit.Suites.Services
                         "<Error><Code>InternalError</Code><Message>PRIVATE_RESPONSE</Message></Error>",
                         new Dictionary<string, string[]> { { "x-amz-request-id", new[] { "retained-request-42" } } })))
                     {
-                        service.ArchiveSinkFactory = settings => new S3ArchiveSink(settings, receiptClient);
+                        service.ArchiveSinkFactory = settings => new S3ArchiveSink(settings, receiptClient, retryDelay: (delay, token) => Task.CompletedTask);
                         notes.Posts.Clear();
                         DiskLifecycleReport failed = await service.ReconcileAsync().ConfigureAwait(false);
                         AssertTrue(File.Exists(failing), "HTTP500 keeps the unverified local file");
@@ -421,7 +421,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            foreach (string recovery in new[] { "put-recovers", "ambiguous-put", "head-recovers", "put-exhausted", "head-exhausted", "put-forbidden", "verify-checksum", "retry-after" })
+            foreach (string recovery in new[] { "put-recovers", "ambiguous-put", "head-recovers", "put-exhausted", "head-exhausted", "put-forbidden", "verify-checksum", "retry-after", "cancel-backoff" })
             {
                 await RunTest("S3 archive retry preserves verification and request identity: " + recovery, async () =>
                 {
@@ -447,6 +447,8 @@ namespace Armada.Test.Unit.Suites.Services
                             int puts = 0;
                             int headsAfterPut = 0;
                             int clocks = 0;
+                            List<TimeSpan> delays = new List<TimeSpan>();
+                            using (CancellationTokenSource caller = new CancellationTokenSource())
                             using (HttpClient http = new HttpClient(new StubHttpMessageHandler(async (request, token) =>
                             {
                                 string path = request.RequestUri!.AbsolutePath;
@@ -469,7 +471,7 @@ namespace Armada.Test.Unit.Suites.Services
                                             signatures.Add(request.Headers.GetValues("Authorization").Single());
                                         }
                                         bool fails = target && (recovery is "put-exhausted" or "put-forbidden" or "retry-after"
-                                            || recovery is "put-recovers" or "ambiguous-put" && puts == 1);
+                                            || recovery is "put-recovers" or "ambiguous-put" or "cancel-backoff" && puts == 1);
                                         if (!fails || recovery == "ambiguous-put")
                                         {
                                             stored[path] = data;
@@ -504,8 +506,27 @@ namespace Armada.Test.Unit.Suites.Services
                                 throw new InvalidOperationException("Unexpected archive request method");
                             })))
                             {
-                                service.ArchiveSinkFactory = settings => new S3ArchiveSink(settings, http,
-                                    () => new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(++clocks));
+                                S3ArchiveSink sink = new S3ArchiveSink(layout.Settings.Archive, http,
+                                    () => new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(++clocks),
+                                    (delay, token) =>
+                                    {
+                                        AssertTrue(streams.All(stream => !stream.CanRead), "PUT streams close before any retry backoff");
+                                        delays.Add(delay);
+                                        if (recovery == "cancel-backoff") caller.Cancel();
+                                        token.ThrowIfCancellationRequested();
+                                        return Task.CompletedTask;
+                                    });
+                                service.ArchiveSinkFactory = settings => sink;
+                                if (recovery == "cancel-backoff")
+                                {
+                                    bool cancelled = false;
+                                    try { await sink.PutFileAsync("raw/msn_retry.log", file, sha, caller.Token).ConfigureAwait(false); }
+                                    catch (OperationCanceledException) when (caller.IsCancellationRequested) { cancelled = true; }
+                                    AssertTrue(cancelled, "caller cancellation propagates during backoff");
+                                    AssertEqual(1, puts, "cancellation prevents a second upload");
+                                    AssertTrue(File.Exists(file), "cancellation retains the unverified source");
+                                    return;
+                                }
                                 DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
                                 bool success = recovery is "put-recovers" or "ambiguous-put" or "head-recovers";
                                 AssertEqual(!success, File.Exists(file), "only verified archive bytes permit release: " + recovery);
@@ -515,6 +536,10 @@ namespace Armada.Test.Unit.Suites.Services
                                 AssertEqual(puts, contents.Count, "each PUT has fresh content");
                                 AssertEqual(puts, signatures.Count, "each PUT is signed with the advancing request clock");
                                 AssertTrue(streams.All(stream => !stream.CanRead), "request streams are disposed before the pass completes");
+                                int expectedDelays = recovery is "put-exhausted" or "head-exhausted" ? 2
+                                    : recovery is "put-recovers" or "ambiguous-put" or "head-recovers" ? 1 : 0;
+                                AssertEqual(expectedDelays, delays.Count, "backoff occurs only for bounded transient recovery");
+                                for (int i = 0; i < delays.Count; i++) AssertEqual(TimeSpan.FromSeconds(Math.Pow(2, i)), delays[i], "backoff increases between attempts");
                                 if (recovery == "head-recovers") AssertEqual(2, headsAfterPut, "verification retries HEAD without another PUT");
                                 if (recovery == "head-exhausted") AssertEqual(3, headsAfterPut, "verification exhaustion is bounded");
                                 if (recovery == "put-exhausted")
