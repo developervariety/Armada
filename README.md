@@ -787,6 +787,9 @@ The Admiral server exposes REST routes under `/api/v1/*`, serves the dashboard f
 
 Dashboard reads retry a dropped connection up to twice within the request's
 deadline. The deadline includes response-body reads. Writes are not retried.
+The home dashboard keeps its last data after a failed refresh and shows each
+failed read with a Retry button. Chat and log streams do not reload the home
+dashboard. Relevant record changes and reconnects refresh it.
 Ask Armada retains questions and partial replies after a connection failure
 and marks the result as unconfirmed, so the operator can check before resending.
 

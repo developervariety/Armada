@@ -12,6 +12,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The Voyages list shares table controls and saves optional column visibility.
   Server paging, status filters, row actions and selection remain page-owned.
+- Home dashboard refresh failures show named read errors and a Retry button
+  beside the last available data. Partial failures retain voyage labels.
+  Chat, log and protocol frames do not start unrelated home-page reloads.
 
 - Integration Check reuse requires a captured native execution-context receipt, exact quoted command text and current profile/environment/budget identity. Unproven or changed context runs its Check again.
 

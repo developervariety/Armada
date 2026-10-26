@@ -315,4 +315,64 @@ describe('Dashboard home', () => {
     expect(refreshTimers.map(([, delay]) => delay)).toEqual([30000]);
     intervalSpy.mockRestore();
   });
+
+  it('keeps loaded data usable after a failed refresh and recovers through Retry without a reload', async () => {
+    renderDashboard();
+    expect(await screen.findByText('Recent mission')).toBeInTheDocument();
+    await waitFor(() => expect(getVoyageMissionSummary).toHaveBeenCalledTimes(1));
+    vi.mocked(getStatus).mockRejectedValue(new Error('Request timed out'));
+    vi.mocked(listMissionSummaries).mockRejectedValue(new Error('Connection to Armada failed'));
+    act(() => socketHandlers.forEach((handler) => handler({ type: 'mission.changed' })));
+
+    expect(await screen.findByText('Dashboard refresh failed. Showing the last available data.')).toBeInTheDocument();
+    expect(screen.getByText('Fleet status: Request timed out')).toBeInTheDocument();
+    expect(screen.getByText('Recent missions: Connection to Armada failed')).toBeInTheDocument();
+    expect(screen.getByText('Recent mission')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Error' })).not.toBeInTheDocument();
+
+    vi.mocked(getStatus).mockResolvedValue(baseStatus as never);
+    vi.mocked(listMissionSummaries).mockResolvedValue(page([
+      { id: 'mission-recovered', title: 'Recovered mission', status: 'Complete', createdUtc: '2026-09-15T10:00:00Z' },
+    ]) as never);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry dashboard refresh' }));
+    expect(await screen.findByText('Recovered mission')).toBeInTheDocument();
+    expect(screen.queryByText('Dashboard refresh failed. Showing the last available data.')).not.toBeInTheDocument();
+  });
+
+  it('reports initial read failures with their causes and permits a retry', async () => {
+    vi.mocked(getStatus).mockRejectedValue(new Error('Service unavailable'));
+    vi.mocked(listMissionSummaries).mockRejectedValue(new Error('Request timed out'));
+    renderDashboard();
+    expect(await screen.findByText('Dashboard data could not be loaded.')).toBeInTheDocument();
+    expect(screen.getByText('Fleet status: Service unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Recent missions: Request timed out')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry dashboard refresh' })).toBeEnabled();
+  });
+
+  it('marks a partial refresh failure and retains voyage labels while other data updates', async () => {
+    renderDashboard();
+    await waitFor(() => expect(screen.getAllByText('Beta vessel').filter((element) => element.tagName === 'TD')).toHaveLength(1));
+    vi.mocked(getStatus).mockRejectedValue(new Error('Request timed out'));
+    act(() => socketHandlers.forEach((handler) => handler({ type: 'mission.changed' })));
+    expect(await screen.findByText('Fleet status: Request timed out')).toBeInTheDocument();
+    expect(screen.getAllByText('Beta vessel').filter((element) => element.tagName === 'TD')).toHaveLength(1);
+  });
+
+  it('ignores chat, log and protocol frames but reloads on a state change or resync', async () => {
+    renderDashboard();
+    expect(await screen.findByText('Recent mission')).toBeInTheDocument();
+    await waitFor(() => expect(getVoyageMissionSummary).toHaveBeenCalledTimes(1));
+    act(() => {
+      for (const type of ['ask.chunk', 'ask.tool', 'ask.thinking', 'log.chunk', 'auth.result', 'stream.ready', 'pong']) {
+        socketHandlers.forEach((handler) => handler({ type }));
+      }
+    });
+    await act(async () => {});
+    expect(getStatus).toHaveBeenCalledTimes(1);
+    act(() => socketHandlers.forEach((handler) => handler({ type: 'mission.changed' })));
+    await waitFor(() => expect(getStatus).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getVoyageMissionSummary).toHaveBeenCalledTimes(2));
+    act(() => socketHandlers.forEach((handler) => handler({ type: 'client.resync' })));
+    await waitFor(() => expect(getStatus).toHaveBeenCalledTimes(3));
+  });
 });
