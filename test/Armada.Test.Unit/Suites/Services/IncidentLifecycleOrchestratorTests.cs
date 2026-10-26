@@ -29,7 +29,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await EnsureTenantAndUserAsync(testDb, "ten_inc_life_check", "usr_inc_life_check").ConfigureAwait(false);
                 Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_check", "usr_inc_life_check").ConfigureAwait(false);
 
-                CheckRun failed = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                CheckRun failed = new CheckRun
                 {
                     TenantId = vessel.TenantId,
                     UserId = vessel.UserId,
@@ -40,7 +40,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = CheckRunStatusEnum.Failed,
                     CompletedUtc = DateTime.UtcNow.AddMinutes(-5),
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-5)
-                }).ConfigureAwait(false);
+                };
 
                 CheckRun causingPass = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
                 {
@@ -67,6 +67,7 @@ namespace Armada.Test.Unit.Suites.Services
                 IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 0);
                 AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "A linked Check that passed before detection cannot mitigate the incident it caused.");
                 AssertEqual(IncidentStatusEnum.Open, (await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false))!.Status);
+                failed = await testDb.Driver.CheckRuns.CreateAsync(failed).ConfigureAwait(false);
                 await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest { CheckRunId = failed.Id }).ConfigureAwait(false);
 
                 await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
