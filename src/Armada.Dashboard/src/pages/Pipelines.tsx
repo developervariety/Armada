@@ -331,6 +331,9 @@ export default function Pipelines() {
         onClose={() => setViewRecord(null)}
         onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/pipelines/${encodeURIComponent((r as { name: string }).name)}`); }}
         editLabel={t('Open Details')}
+        secondaryAction={viewRecord && canEditScoped(viewer, viewRecord as unknown as Pipeline)
+          ? { label: t('Edit'), title: t('Change this pipeline\'s name, description, visibility and stages.'), onClick: () => { const r = viewRecord as unknown as Pipeline; setViewRecord(null); openEdit(r); } }
+          : undefined}
       />
 
       {/* Confirm Dialog */}

@@ -222,7 +222,7 @@ export default function PromptTemplates() {
         sizeClassName="modal-large modal-prompt-template"
         onClose={() => setViewRecord(null)}
         onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/prompt-templates/${encodeURIComponent((r as { name: string }).name)}`); }}
-        editLabel={translate('Open Details')}
+        editLabel={viewRecord && canEditScoped(viewer, viewRecord as unknown as PromptTemplate) ? translate('Edit') : translate('Open Details')}
       />
 
       {/* Confirm Dialog */}

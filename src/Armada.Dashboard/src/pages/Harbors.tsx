@@ -299,6 +299,9 @@ export default function Harbors() {
             </dl>
             <HarborMetricsPanel harborId={detail.harbor.id} />
             <div className="modal-actions">
+              {canManage && (
+                <button type="button" className="btn btn-primary" onClick={() => { const h = detail.harbor as Harbor; setDetail({ open: false, harbor: null }); openEdit(h); }} title={t('Change this Harbor\'s name, capacity and whether it gets new missions.')}>{t('Edit')}</button>
+              )}
               <button type="button" className="btn" onClick={() => setDetail({ open: false, harbor: null })}>{t('Close')}</button>
             </div>
           </div>

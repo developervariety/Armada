@@ -259,6 +259,9 @@ export default function Fleets() {
         onClose={() => setViewRecord(null)}
         onEdit={() => { const r = viewRecord; setViewRecord(null); navigate(`/fleets/${(r as { id: string }).id}`); }}
         editLabel={t('Open Details')}
+        secondaryAction={viewRecord
+          ? { label: t('Edit'), title: t('Change the fleet name, description or default pipeline.'), onClick: () => { const r = viewRecord as unknown as Fleet; setViewRecord(null); openEdit(r); } }
+          : undefined}
       />
 
       {/* Confirm Dialog */}
