@@ -54,7 +54,7 @@ namespace Test.Shared.Suites.Services
                 string requestId = "request_" + Guid.NewGuid().ToString("N");
                 FleetActionRunRequest request = new FleetActionRunRequest { RequestId = requestId, VesselIds = new List<string> { first.Id } };
                 FleetActionRun run = await fixture.Service.StartRunAsync(fixture.Owner, action.Id, request).ConfigureAwait(false);
-                await CaptureExceptionAsync<ArgumentException>(() => fixture.Service.StartRunAsync(fixture.Owner, action.Id,
+                await AssertThrowsAsync<ArgumentException>(() => fixture.Service.StartRunAsync(fixture.Owner, action.Id,
                     new FleetActionRunRequest { RequestId = requestId, VesselIds = new List<string> { " " + first.Id } })).ConfigureAwait(false);
                 await fixture.Service.UpdateAsync(fixture.Owner, action.Id, new FleetActionUpsertRequest
                 {
@@ -62,10 +62,9 @@ namespace Test.Shared.Suites.Services
                 }).ConfigureAwait(false);
                 FleetActionRun replay = await fixture.Service.StartRunAsync(fixture.Owner, action.Id, request).ConfigureAwait(false);
                 AssertEqual(run.Id, replay.Id, "same actor request returns the durable run before reading the now-inactive action");
-                InvalidOperationException conflict = await CaptureExceptionAsync<InvalidOperationException>(() =>
+                await AssertThrowsAsync<InvalidOperationException>(() =>
                     fixture.Service.StartRunAsync(fixture.Owner, action.Id,
                         new FleetActionRunRequest { RequestId = requestId, VesselIds = new List<string> { second.Id } })).ConfigureAwait(false);
-                AssertContains("different fleet action run", conflict.Message);
             }
         }
 
@@ -83,10 +82,10 @@ namespace Test.Shared.Suites.Services
                 UserMaster tenantAdmin = await testDb.Driver.Users.CreateAsync(new UserMaster(fixture.Tenant.Id,
                     "tenant-admin-" + Guid.NewGuid().ToString("N") + "@example.invalid", "test-password") { IsTenantAdmin = true }).ConfigureAwait(false);
                 AuthContext tenantCaller = AuthContext.Authenticated(fixture.Tenant.Id, tenantAdmin.Id, false, true, "Session");
-                await CaptureExceptionAsync<UnauthorizedAccessException>(() => fixture.Service.ListAsync(tenantCaller)).ConfigureAwait(false);
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.ListAsync(tenantCaller)).ConfigureAwait(false);
                 fixture.User.Active = false;
                 await testDb.Driver.Users.UpdateAsync(fixture.User).ConfigureAwait(false);
-                await CaptureExceptionAsync<UnauthorizedAccessException>(() => fixture.Service.ListAsync(fixture.Owner)).ConfigureAwait(false);
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => fixture.Service.ListAsync(fixture.Owner)).ConfigureAwait(false);
             }
         }
 

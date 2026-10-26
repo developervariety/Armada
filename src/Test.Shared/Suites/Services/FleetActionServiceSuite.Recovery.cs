@@ -3,9 +3,9 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Threading.Tasks;
-    using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Server;
     using Test.Shared.Infrastructure;
     using static Test.Shared.Infrastructure.Asserts;
 
