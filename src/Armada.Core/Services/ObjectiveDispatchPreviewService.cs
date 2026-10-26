@@ -2177,16 +2177,14 @@ namespace Armada.Core.Services
                 planTexts.Add(description.Description);
             }
             List<string> plannedPaths = WorkflowGateInputs.FindPlannedPaths(planTexts);
-            bool concretePlan = plannedPaths.Count > 0 && plannedPaths.All(path => !path.Contains('*') && !path.Contains('?') && !path.EndsWith("/", StringComparison.Ordinal));
             Dictionary<string, List<string>> affectedSources = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             foreach (ObjectiveGateInputSources mapping in mappings)
             {
                 string input = WorkflowGateInputs.Normalize(new[] { mapping.InputPath })[0];
                 if (!inScope.Contains(input, StringComparer.OrdinalIgnoreCase)) continue;
                 List<string> affected = WorkflowGateInputs.FindMappedSources(mapping, plannedPaths);
-                // Without concrete plan paths, a mapping cannot establish that an input is unaffected.
-                if (concretePlan && affected.Count == 0) inScope.RemoveAll(path => String.Equals(path, input, StringComparison.OrdinalIgnoreCase));
-                else affectedSources[input] = affected.Count > 0 ? affected : WorkflowGateInputs.Normalize(mapping.SourcePaths);
+                // Path mentions include references and exclusions, so absence is never proof of an unaffected input.
+                affectedSources[input] = affected.Count > 0 ? affected : WorkflowGateInputs.Normalize(mapping.SourcePaths);
             }
             if (inScope.Count == 0) return;
             List<string> dependencyNotes = affectedSources.Select(pair => String.Join(", ", pair.Value) + " -> " + pair.Key).ToList();

@@ -1914,8 +1914,8 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreview mapped = await harness.Service.PreviewAsync(
                         harness.Auth, objective, null, null, null, withoutInputs).ConfigureAwait(false);
                     ObjectiveDispatchPreviewIssue mappedWarning = mapped.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
-                    AssertEqual("docs/data-dictionary.md", mappedWarning.RelatedValue,
-                        "a declared mapping excludes an input whose source paths are not in the supplied plan");
+                    AssertEqual("docs/data-dictionary.md,schema/**/*.sql", mappedWarning.RelatedValue,
+                        "path mentions do not prove that another mapped input is unaffected");
                     AssertContains("src/Export/Writer.cs -> docs/data-dictionary.md", mappedWarning.Message,
                         "the warning identifies the planned path and its explicit gate-input dependency");
                     AssertFalse(mappedWarning.Message.Contains("does not declare which", StringComparison.Ordinal),
@@ -1930,8 +1930,16 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     ObjectiveDispatchPreview unrelated = await harness.Service.PreviewAsync(
                         harness.Auth, objective, null, null, null, unrelatedPaths).ConfigureAwait(false);
-                    AssertFalse(unrelated.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode),
-                        "explicit source mappings suppress unrelated planning warnings");
+                    AssertTrue(unrelated.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode),
+                        "path mentions are not a complete edit plan and cannot suppress another input");
+                    foreach (string ambiguous in new[] { "Edit src/Export", "Edit src/Export/Writer?.cs", "Compare tests/OtherTests.cs", "Investigate export behavior. Do not edit tests/OtherTests.cs.", "Edit `src/Export/Writer With Spaces.cs`." })
+                    {
+                        ObjectiveDispatchPreview unknownPlan = await harness.Service.PreviewAsync(
+                            harness.Auth, objective, null, null, null,
+                            new List<MissionDescription> { new MissionDescription("Unknown plan", ambiguous) }).ConfigureAwait(false);
+                        AssertTrue(unknownPlan.Issues.Any(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode),
+                            "ambiguous path mentions retain the planning warning");
+                    }
                     objective.Preparation.GateInputSources[0].SourcePaths = new List<string> { "../private" };
                     ObjectiveDispatchPreview invalidMapping = await harness.Service.PreviewAsync(
                         harness.Auth, objective, null, null, null, withoutInputs).ConfigureAwait(false);

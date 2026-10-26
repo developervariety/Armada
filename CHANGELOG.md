@@ -1,6 +1,6 @@
 # Changelog
 
-- Gate-input previews accept explicit input-to-source mappings in objective preparation, name affected supplied paths, and exclude mapped inputs unrelated to concrete plans. Missing or broad plans keep an honest planning reminder.
+- Gate-input previews accept explicit input-to-source mappings in objective preparation, name supplied paths and their declared affected inputs, and retain uncertain planning reminders. Existing scope exclusions remain authoritative.
 - Archive HTTP failures retain bounded provider support request IDs without copying response messages or unrelated headers.
 
 Net changes since the latest full upstream merge on 2026-05-24

@@ -616,10 +616,11 @@ For an explicit dependency, set `preparation.gateInputSources` on the objective:
 
 `inputPath` must exactly name a workflow gate-input entry. `sourcePaths` are
 operator-declared repository-relative paths or globs, not inferred dependencies.
-The preview names each matching supplied source path and its affected input.
-When a supplied plan names concrete files and none matches a mapped input, that
-input is left out of the warning. A missing plan, directory, or glob remains
-uncertain and keeps the planning reminder. Unmapped inputs keep their existing
+The preview names matching supplied path mentions and their declared affected
+input, or the declared source paths when no mention matches. Path mentions may
+be references, exclusions, directories, or incomplete plans; absence of a match
+never suppresses a warning. Only the existing objective scope exclusions can
+exclude an input. A missing or broad plan keeps the planning reminder. Unmapped inputs keep their existing
 warning, with the missing relation stated. Existing exclusions still win.
 Mappings persist in preparation; a complete preparation replacement must include
 them. Paths cannot be rooted, contain `..`, a colon, or control characters.

@@ -1909,7 +1909,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("example-license", reread.Preparation.ExecutionRequirements.LicensedContext, "a licensed context name persists");
                 AssertEqual("docs/schema.md", reread.Preparation.GateInputSources.Single().InputPath, "input-to-source mappings persist and normalize input paths");
                 AssertEqual("src/Export/**/*.cs", reread.Preparation.GateInputSources.Single().SourcePaths.Single(), "mapped source paths persist and de-duplicate");
-                foreach (string invalidPath in new[] { "../private", "/private", "https://example.invalid/private", "C:/private", "src/\nprivate" })
+                foreach (string invalidPath in new[] { "./", ".\\", "../private", "/private", "https://example.invalid/private", "C:/private", "src/\nprivate" })
                 {
                     string mappingError = String.Empty;
                     try

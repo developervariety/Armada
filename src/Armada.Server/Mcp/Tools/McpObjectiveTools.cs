@@ -1099,7 +1099,7 @@ namespace Armada.Server.Mcp.Tools
                     {
                         type = "array",
                         maxItems = 50,
-                        description = "Explicit dependencies: each inputPath is an exact workflow gate input, and sourcePaths names repository-relative paths/globs that can affect it. At most 50 source paths total. A mapped input is relevant when a supplied planned path matches; absent plans remain unknown. Include existing mappings on a preparation replacement.",
+                        description = "Explicit dependencies: each inputPath is an exact workflow gate input, and sourcePaths names repository-relative paths/globs that can affect it. At most 50 source paths total. Mappings explain dependencies; missing path mentions never prove an input is unaffected. Include existing mappings on a preparation replacement.",
                         items = new
                         {
                             type = "object",

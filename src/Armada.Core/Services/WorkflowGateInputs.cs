@@ -198,7 +198,7 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(path)) return false;
             string normalized = NormalizeEntry(path);
-            return !normalized.Contains(':') && !normalized.Any(Char.IsControl)
+            return normalized.Length > 0 && !normalized.Contains(':') && !normalized.Any(Char.IsControl)
                 && Validate(new[] { normalized }) == null;
         }
 
