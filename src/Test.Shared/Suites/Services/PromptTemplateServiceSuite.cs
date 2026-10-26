@@ -320,6 +320,34 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("ask_system_dispatch_guidance_and_upgrade", "ask.system tells the captain to favor dispatching missions over doing work directly; an untouched earlier built-in is upgraded and operator edits kept", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, new LoggingModule());
+                    await templates.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? ask = await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false);
+                    AssertContains("## Prefer dispatching work", ask!.Content, "new installs favor dispatch");
+                    AssertFalse(ask.Content.Contains("or dispatch work unless the operator explicitly asks"), "the old dispatch restriction is gone");
+
+                    string decisions = (string)typeof(PromptTemplateService).GetField("_AskSystemDecisionsDefault", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+                    AssertFalse(decisions.Contains("## Prefer dispatching work"), "the earlier default lacks the guidance");
+
+                    ask.Content = decisions;
+                    await testDb.Driver.PromptTemplates.UpdateAsync(ask).ConfigureAwait(false);
+                    await templates.SeedDefaultsAsync().ConfigureAwait(false);
+                    ask = await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false);
+                    AssertContains("## Prefer dispatching work", ask!.Content, "untouched earlier built-in upgraded");
+
+                    ask.Content = decisions + "- Operator note\n";
+                    await testDb.Driver.PromptTemplates.UpdateAsync(ask).ConfigureAwait(false);
+                    await templates.SeedDefaultsAsync().ConfigureAwait(false);
+                    ask = await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false);
+                    AssertEqual(decisions + "- Operator note\n", ask!.Content, "operator edit kept");
+                }
+            }));
+
             cases.Add(CaseAsync("persona_execution_upgrade_preserves_customization", "Untouched persona defaults upgrade once while operator edits and non-built-in templates remain unchanged", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -35,6 +35,7 @@ namespace Armada.Server.Ask
         /// </summary>
         public const string ThreadInstructions =
             "You are answering in an Ask Armada conversation. Use Armada's MCP tools (server \"armada\") to look things up and to start work. "
+            + "When the user asks for changes or other work on a repository, strongly prefer dispatching missions (dispatch or create_mission) over doing the work yourself in this conversation. "
             + "Read-only tools run immediately. Any tool that changes state is not executed right away: it becomes a proposal that the user approves or rejects in this conversation. "
             + "When a tool result says \"Proposed as aap_... and waiting for the user's approval\", do not retry the call; tell the user in one or two sentences what you proposed and that it is waiting for their approval. "
             + "Work started from this conversation is tracked here automatically, so you do not need to poll it. Keep answers short and concrete.";
