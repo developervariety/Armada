@@ -1459,13 +1459,17 @@ namespace Armada.Core.Services
             // mission, and the objective's VoyageIds/MissionIds are its DISPATCH lineage: the
             // autonomous selector refuses any objective with a linked voyage, so copying the
             // incident's voyage here would silently make a never-dispatched objective
-            // undispatchable. Delivery context (release, deployment, vessel) is still carried.
+            // undispatchable. Release/deployment evidence is still carried; incident context may
+            // infer an empty target, but must not expand targets the operator already selected.
             AddIfMissing(objective.IncidentIds, incident.Id);
             AddIfMissing(objective.DeploymentIds, incident.DeploymentId);
             AddIfMissing(objective.DeploymentIds, incident.RollbackDeploymentId);
             AddIfMissing(objective.ReleaseIds, incident.ReleaseId);
-            AddIfMissing(objective.VesselIds, incident.VesselId);
-            await AppendFleetForVesselAsync(auth, objective, incident.VesselId, token).ConfigureAwait(false);
+            if (objective.VesselIds.Count == 0)
+            {
+                AddIfMissing(objective.VesselIds, incident.VesselId);
+                await AppendFleetForVesselAsync(auth, objective, incident.VesselId, token).ConfigureAwait(false);
+            }
             return await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);
         }
 
