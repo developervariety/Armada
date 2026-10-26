@@ -555,6 +555,62 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "worktree repaired: " + worktreePath);
         }
 
+        /// <inheritdoc />
+        public async Task RecreateMissingWorktreeAsync(string repoPath, string worktreePath, string branchName, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrWhiteSpace(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrWhiteSpace(branchName)) throw new ArgumentNullException(nameof(branchName));
+            string repo = Path.GetFullPath(repoPath);
+            string target = NormalizeWorktreePath(worktreePath);
+            SemaphoreSlim repoLock = _RepoLocks.GetOrAdd(repo, _ => new SemaphoreSlim(1, 1));
+            await ArmadaMetrics.WaitForLockAsync(repoLock, ArmadaMetrics.LockGitWorktree, token).ConfigureAwait(false);
+            try
+            {
+                RequireMissingWorktreePath(worktreePath);
+                await RunGitAsync(repo, token, "check-ref-format", "refs/heads/" + branchName).ConfigureAwait(false);
+                string reference = "refs/heads/" + branchName;
+                string head = (await RunGitAsync(repo, token, "rev-parse", "--verify", reference + "^{commit}").ConfigureAwait(false)).Trim();
+                string registrations = await RunGitAsync(repo, token, "worktree", "list", "--porcelain", "-z").ConfigureAwait(false);
+                bool removeRegistration = false;
+                foreach (string record in registrations.Split(new[] { "\0\0" }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    string[] fields = record.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+                    string? registeredPath = fields.FirstOrDefault(field => field.StartsWith("worktree ", StringComparison.Ordinal));
+                    if (registeredPath == null) throw new InvalidOperationException("worktree_registration_invalid");
+                    bool samePath = String.Equals(NormalizeWorktreePath(registeredPath.Substring(9)), target, StringComparison.OrdinalIgnoreCase);
+                    bool sameBranch = fields.Contains("branch " + reference, StringComparer.Ordinal);
+                    if (samePath)
+                    {
+                        if (!sameBranch || fields.Any(field => field == "locked" || field.StartsWith("locked ", StringComparison.Ordinal)))
+                            throw new InvalidOperationException("worktree_registration_owned_or_locked");
+                        removeRegistration = true;
+                    }
+                    else if (sameBranch) throw new InvalidOperationException("worktree_branch_in_use");
+                }
+                RequireMissingWorktreePath(worktreePath);
+                if (removeRegistration)
+                    await RunGitAsync(repo, token, "worktree", "remove", "--force", "--", worktreePath).ConfigureAwait(false);
+                RequireMissingWorktreePath(worktreePath);
+                // Explicit worktree branch names can still guess a remote when their local ref disappears.
+                // Attach with switch's no-guess contract after checking out the captured commit detached.
+                await RunGitAsync(repo, token, "worktree", "add", "--detach", "--", worktreePath, head).ConfigureAwait(false);
+                await RunGitAsync(worktreePath, token, "switch", "--no-guess", "--", branchName).ConfigureAwait(false);
+                string attached = (await RunGitAsync(worktreePath, token, "symbolic-ref", "HEAD").ConfigureAwait(false)).Trim();
+                string restored = (await RunGitAsync(worktreePath, token, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                if (!String.Equals(attached, reference, StringComparison.Ordinal) || !String.Equals(restored, head, StringComparison.Ordinal))
+                    throw new InvalidOperationException("worktree_reconstruction_ref_changed");
+            }
+            finally { repoLock.Release(); }
+        }
+
+        private static void RequireMissingWorktreePath(string worktreePath)
+        {
+            if (Directory.Exists(worktreePath) || File.Exists(worktreePath)
+                || new DirectoryInfo(worktreePath).LinkTarget != null || new FileInfo(worktreePath).LinkTarget != null)
+                throw new InvalidOperationException("worktree_reconstruction_path_exists");
+        }
+
         /// <summary>
         /// Prune stale worktree registrations.
         /// </summary>

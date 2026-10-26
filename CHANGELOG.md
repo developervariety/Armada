@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Provider retries retain their owned continuation dock. Dock repair can restore an absent native checkout from its exact local branch, without creating refs or replacing foreign and locked worktrees.
+
 - Deliverable-kind preview facts distinguish negated report-only wording from an explicit committed-test duty. Facts remain informational; dispatch preparation gates are unchanged.
 
 - Dispatch tool schemas require a task title and description, matching runtime validation before objective context is appended.

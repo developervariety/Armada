@@ -109,76 +109,84 @@ namespace Armada.Test.Unit.Suites.Services
                     SqliteDatabaseDriver database = testDatabase.Driver;
                     ArmadaSettings settings = CreateSettings();
                     LoggingModule logging = CreateLogging();
-                    CaptainQuarantineService quarantine = new CaptainQuarantineService(database, settings, logging);
-                    AdmiralService admiral = CreateAdmiralService(database, settings, quarantine);
-
-                    Mission mission = new Mission("Credit failure mission");
-                    mission.Status = MissionStatusEnum.InProgress;
-                    mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
-                    mission.ProcessId = 8101;
-                    mission.StartedUtc = DateTime.UtcNow.AddMinutes(-2);
-                    mission = await database.Missions.CreateAsync(mission).ConfigureAwait(false);
-
-                    Captain captain = new Captain("credit-failure-captain");
-                    captain.State = CaptainStateEnum.Working;
-                    captain.CurrentMissionId = mission.Id;
-                    captain.ProcessId = 8101;
-                    captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
-
-                    Vessel vessel = await database.Vessels.CreateAsync(new Vessel("credit-vessel", "https://example.invalid/repo.git")).ConfigureAwait(false);
-                    string worktree = Path.Combine(settings.DocksDirectory, vessel.Name, mission.Id, vessel.Name);
-                    Directory.CreateDirectory(worktree);
-                    await File.WriteAllTextAsync(Path.Combine(worktree, "retained.txt"), "pending work").ConfigureAwait(false);
-                    Dock dock = await database.Docks.CreateAsync(new Dock(vessel.Id)
+                    try
                     {
-                        TenantId = vessel.TenantId, UserId = vessel.UserId, CaptainId = captain.Id,
-                        BranchName = "armada/credit-continuation", WorktreePath = worktree, Active = true
-                    }).ConfigureAwait(false);
-                    mission.VesselId = vessel.Id;
-                    mission.CaptainId = captain.Id;
-                    mission.DockId = dock.Id;
-                    mission.BranchName = dock.BranchName;
-                    await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                    captain.CurrentDockId = dock.Id;
-                    await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                        CaptainQuarantineService quarantine = new CaptainQuarantineService(database, settings, logging);
+                        AdmiralService admiral = CreateAdmiralService(database, settings, quarantine);
 
-                    await WriteMissionLogAsync(
-                        settings,
-                        mission.Id,
-                        "[stderr] Billing error: insufficient credits. try again at 11:57 PM").ConfigureAwait(false);
+                        Mission mission = new Mission("Credit failure mission");
+                        mission.Status = MissionStatusEnum.InProgress;
+                        mission.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                        mission.ProcessId = 8101;
+                        mission.StartedUtc = DateTime.UtcNow.AddMinutes(-2);
+                        mission = await database.Missions.CreateAsync(mission).ConfigureAwait(false);
 
-                    await admiral.HandleProcessExitAsync(8101, 1, captain.Id, mission.Id).ConfigureAwait(false);
+                        Captain captain = new Captain("credit-failure-captain");
+                        captain.State = CaptainStateEnum.Working;
+                        captain.CurrentMissionId = mission.Id;
+                        captain.ProcessId = 8101;
+                        captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
 
-                    Mission? missionAfter = await database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
-                    Captain? captainAfter = await database.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
-                    AssertNotNull(missionAfter, "Mission should remain persisted after process-exit failure handling.");
-                    AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status,
-                        "An insufficient-credit failure re-routes (requeues) the mission to a captain with quota, not a terminal fail.");
-                    AssertEqual(1, missionAfter.RecoveryAttempts,
-                        "The re-route increments the recovery attempt count.");
-                    AssertEqual(dock.Id, missionAfter.DockId, "A provider retry retains root continuation authority");
-                    Dock? retained = await database.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
-                    AssertTrue(retained!.Active, "The retry dock must remain active");
-                    AssertNull(retained.CaptainId, "The failed captain must release ownership of the retained dock");
-                    AssertEqual("pending work", await File.ReadAllTextAsync(Path.Combine(worktree, "retained.txt")).ConfigureAwait(false),
-                        "Provider retry must not remove its continuation worktree or dirty work");
-                    Directory.Delete(settings.DocksDirectory, true);
+                        Vessel vessel = await database.Vessels.CreateAsync(new Vessel("credit-vessel", "https://example.invalid/repo.git")).ConfigureAwait(false);
+                        string worktree = Path.Combine(settings.DocksDirectory, vessel.Name, mission.Id, vessel.Name);
+                        Directory.CreateDirectory(worktree);
+                        await File.WriteAllTextAsync(Path.Combine(worktree, "retained.txt"), "pending work").ConfigureAwait(false);
+                        Dock dock = await database.Docks.CreateAsync(new Dock(vessel.Id)
+                        {
+                            TenantId = vessel.TenantId, UserId = vessel.UserId, CaptainId = captain.Id,
+                            BranchName = "armada/credit-continuation", WorktreePath = worktree, Active = true
+                        }).ConfigureAwait(false);
+                        mission.VesselId = vessel.Id;
+                        mission.CaptainId = captain.Id;
+                        mission.DockId = dock.Id;
+                        mission.BranchName = dock.BranchName;
+                        await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        captain.CurrentDockId = dock.Id;
+                        await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
 
-                    AssertTrue(missionAfter.FailureReason!.Contains("insufficient credits", StringComparison.OrdinalIgnoreCase),
-                        "The raw runtime failure should remain visible on the requeued mission.");
-                    AssertNotNull(captainAfter, "Assigned captain should remain persisted after quarantine.");
-                    AssertEqual(CaptainStateEnum.Quarantined, captainAfter!.State,
-                        "An insufficient-credit process exit should quarantine the assigned captain.");
-                    AssertTrue(captainAfter.QuarantineReason!.Contains("credit, billing, payment, or authentication", StringComparison.OrdinalIgnoreCase),
-                        "The quarantine should carry a provider-agnostic operator-visible reason.");
-                    AssertNotNull(captainAfter.QuarantineUntilUtc,
-                        "A published retry time should be retained as a quarantine deadline.");
-                    AssertEqual(23, captainAfter.QuarantineUntilUtc!.Value.Hour,
-                        "The published retry hour should drive quarantine duration.");
-                    AssertEqual(57, captainAfter.QuarantineUntilUtc.Value.Minute,
-                        "The published retry minute should drive quarantine duration.");
-                    AssertNull(captainAfter.CurrentMissionId,
-                        "Quarantine should clear the failed mission assignment.");
+                        await WriteMissionLogAsync(
+                            settings,
+                            mission.Id,
+                            "[stderr] Billing error: insufficient credits. try again at 11:57 PM").ConfigureAwait(false);
+
+                        await admiral.HandleProcessExitAsync(8101, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                        Mission? missionAfter = await database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        Captain? captainAfter = await database.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        AssertNotNull(missionAfter, "Mission should remain persisted after process-exit failure handling.");
+                        AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status,
+                            "An insufficient-credit failure re-routes (requeues) the mission to a captain with quota, not a terminal fail.");
+                        AssertEqual(1, missionAfter.RecoveryAttempts,
+                            "The re-route increments the recovery attempt count.");
+                        AssertEqual(dock.Id, missionAfter.DockId, "A provider retry retains root continuation authority");
+                        Dock? retained = await database.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
+                        AssertTrue(retained!.Active, "The retry dock must remain active");
+                        AssertNull(retained.CaptainId, "The failed captain must release ownership of the retained dock");
+                        AssertEqual("pending work", await File.ReadAllTextAsync(Path.Combine(worktree, "retained.txt")).ConfigureAwait(false),
+                            "Provider retry must not remove its continuation worktree or dirty work");
+
+                        AssertTrue(missionAfter.FailureReason!.Contains("insufficient credits", StringComparison.OrdinalIgnoreCase),
+                            "The raw runtime failure should remain visible on the requeued mission.");
+                        AssertNotNull(captainAfter, "Assigned captain should remain persisted after quarantine.");
+                        AssertEqual(CaptainStateEnum.Quarantined, captainAfter!.State,
+                            "An insufficient-credit process exit should quarantine the assigned captain.");
+                        AssertTrue(captainAfter.QuarantineReason!.Contains("credit, billing, payment, or authentication", StringComparison.OrdinalIgnoreCase),
+                            "The quarantine should carry a provider-agnostic operator-visible reason.");
+                        AssertNotNull(captainAfter.QuarantineUntilUtc,
+                            "A published retry time should be retained as a quarantine deadline.");
+                        AssertEqual(23, captainAfter.QuarantineUntilUtc!.Value.Hour,
+                            "The published retry hour should drive quarantine duration.");
+                        AssertEqual(57, captainAfter.QuarantineUntilUtc.Value.Minute,
+                            "The published retry minute should drive quarantine duration.");
+                        AssertNull(captainAfter.CurrentMissionId,
+                            "Quarantine should clear the failed mission assignment.");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(settings.DocksDirectory)) Directory.Delete(settings.DocksDirectory, true);
+                        if (Directory.Exists(settings.ReposDirectory)) Directory.Delete(settings.ReposDirectory, true);
+                        if (Directory.Exists(settings.LogDirectory)) Directory.Delete(settings.LogDirectory, true);
+                    }
                 }
             }).ConfigureAwait(false);
 

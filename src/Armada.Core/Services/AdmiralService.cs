@@ -4075,12 +4075,11 @@ namespace Armada.Core.Services
             string? voyageId = mission.VoyageId;
 
             // Reset the mission so it can be re-dispatched. Keep the failure reason recorded for
-            // operator visibility, but clear the captain/dock/process binding and run timestamps.
+            // operator visibility, but clear the captain/process binding and run timestamps.
             mission.Status = MissionStatusEnum.Pending;
             mission.AssignmentState = MissionAssignmentStateEnum.Pending;
             mission.FailureReason = failureReason;
             mission.CaptainId = null;
-            mission.DockId = null;
             mission.ProcessId = null;
             mission.StartedUtc = null;
             mission.CompletedUtc = null;
@@ -4095,8 +4094,31 @@ namespace Armada.Core.Services
                 captainId: captain.Id, missionId: mission.Id,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
 
-            // Reclaim the dock before changing captain availability.
-            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+            // A pending retry still owns its continuation. Release the failed captain without
+            // destroying the active dock that authorizes the saved branch on reassignment.
+            string? retainedDockId = mission.DockId ?? captain.CurrentDockId;
+            if (!String.IsNullOrEmpty(retainedDockId))
+            {
+                Dock? retainedDock = await _Database.Docks.ReadAsync(retainedDockId, token).ConfigureAwait(false);
+                if (retainedDock != null && retainedDock.Active
+                    && retainedDock.VesselId == mission.VesselId
+                    && OwnershipPolicy.SameTenant(retainedDock.TenantId, mission.TenantId)
+                    && OwnershipPolicy.UserOfRecord(retainedDock.UserId) == OwnershipPolicy.UserOfRecord(mission.UserId)
+                    && retainedDock.BranchName == mission.BranchName
+                    && retainedDock.CaptainId == captain.Id)
+                {
+                    retainedDock.CaptainId = null;
+                    retainedDock.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Docks.UpdateAsync(retainedDock, token).ConfigureAwait(false);
+                    mission.DockId = retainedDock.Id;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
+                else if (mission.DockId != null)
+                {
+                    mission.DockId = null;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
+            }
             bool isCreditAuthFailure = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(failureReason);
             bool shouldQuarantine = ProviderQuotaLimitDetector.IsQuotaLimitSignal(failureReason) || isCreditAuthFailure;
             if (shouldQuarantine)
