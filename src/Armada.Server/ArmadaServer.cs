@@ -1588,6 +1588,10 @@ namespace Armada.Server
             new FleetRoutes(_Database, EmitEventAsync, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Register literal checkout paths before the vessel-id route.
+            new VesselCheckoutImportRoutes(_VesselCheckoutImports)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Vessels
             new VesselRoutes(
                 _Database,
@@ -1600,9 +1604,6 @@ namespace Armada.Server
                 _Git as IBranchInventory,
                 new VesselBranchWriteService(_Database, _Logging, _Settings.Harbor),
                 _MissionOperations)
-                .Register(_App, authenticate, _AuthorizationService);
-
-            new VesselCheckoutImportRoutes(_VesselCheckoutImports)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Workspace
