@@ -1,6 +1,6 @@
 # Changelog
 
-- Gate-input preview warnings now name supplied planned paths and state when their dependency on a gate input is unknown.
+- Gate-input previews accept explicit input-to-source mappings in objective preparation, name affected supplied paths, and exclude mapped inputs unrelated to concrete plans. Missing or broad plans keep an honest planning reminder.
 - Archive HTTP failures retain bounded provider support request IDs without copying response messages or unrelated headers.
 
 Net changes since the latest full upstream merge on 2026-05-24

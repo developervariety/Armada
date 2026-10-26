@@ -608,6 +608,25 @@ sentence that allows only the files it names excludes each input it does not
 name. The warning names the excluded inputs, and with nothing left to list it is
 not raised. A pipeline with neither raises no gate-input warning.
 
+For an explicit dependency, set `preparation.gateInputSources` on the objective:
+
+```json
+[{"inputPath":"docs/data-dictionary.md","sourcePaths":["src/Export/**/*.cs"]}]
+```
+
+`inputPath` must exactly name a workflow gate-input entry. `sourcePaths` are
+operator-declared repository-relative paths or globs, not inferred dependencies.
+The preview names each matching supplied source path and its affected input.
+When a supplied plan names concrete files and none matches a mapped input, that
+input is left out of the warning. A missing plan, directory, or glob remains
+uncertain and keeps the planning reminder. Unmapped inputs keep their existing
+warning, with the missing relation stated. Existing exclusions still win.
+Mappings persist in preparation; a complete preparation replacement must include
+them. Paths cannot be rooted, contain `..`, a colon, or control characters.
+There may be at most 50 inputs and 50 source paths in total. Invalid mappings
+are refused; they cannot suppress a warning. These mappings affect preview
+explanations only; they do not change required checks or their pass conditions.
+
 `armada_dispatch` accepts `captainAssignments`, an array of `persona`,
 `captainId` and optional `fallbackTier` entries (`persona` `*` applies to every
 stage without its own entry). The voyage row stores them when it is created,
@@ -1777,7 +1796,7 @@ field. Preflight answers are written through `preparation.preflight.questions`. 
 update supplies `preparation`, that nested object is a complete replacement.
 Send every nested value that must remain: `requiredForDispatch`,
 `requiredClaimKinds`, `requiredSiblingInputs`, `executionRequirements`,
-`source`, `target`, `claims`, `preflight`, and `stageSkip`. Omitted preparation
+`source`, `target`, `claims`, `preflight`, `stageSkip`, and `gateInputSources`. Omitted preparation
 members reset to their model defaults or `null`. The MCP input schema exposes
 each member, including all preflight-answer and stored stage-skip fields.
 A replacement that moves the `source` or `target` anchor to another commit of

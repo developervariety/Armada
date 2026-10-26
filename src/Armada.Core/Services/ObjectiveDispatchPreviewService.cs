@@ -2193,10 +2193,14 @@ namespace Armada.Core.Services
             string mappedNote = dependencyNotes.Count == 0 ? String.Empty
                 : " Declared input-to-source dependencies: " + String.Join("; ", dependencyNotes) + ".";
             bool unknownDependencies = inScope.Any(input => !affectedSources.ContainsKey(input));
-            string plannedNote = !unknownDependencies ? mappedNote : mappedNote + (plannedPaths.Count == 0
+            string plannedNote = (plannedPaths.Count == 0
                 ? " No planned file paths have been supplied; the Architect must establish which inputs the change can affect."
-                : " Paths named in supplied mission descriptions (may include references or exclusions): " + String.Join(", ", plannedPaths)
-                    + ". The preparation does not declare which planned paths affect each input without a mapping; confirm that relation before assigning input edits.");
+                : String.Empty) + mappedNote;
+            if (unknownDependencies && plannedPaths.Count > 0)
+                plannedNote += " Paths named in supplied mission descriptions (may include references or exclusions): "
+                    + String.Join(", ", plannedPaths.Take(WorkflowGateInputs.MaxEntries))
+                    + ". The preparation does not declare which planned paths affect each input without a mapping; confirm that relation before assigning input edits.";
+
 
             bool architectPlans = result.EffectivePipelineStages.Any(stage => PersonaCatalog.Matches(stage, PersonaCatalog.Architect));
             if (architectPlans)
