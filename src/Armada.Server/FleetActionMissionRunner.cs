@@ -44,19 +44,7 @@ namespace Armada.Server
                 List<FleetActionRun> runs = await _Database.FleetActionRuns.EnumerateActiveAsync(100, afterId, token).ConfigureAwait(false);
                 foreach (FleetActionRun run in runs)
                 {
-                    FleetActionRunState next = FleetActionRunStateBuilder.Clone(run.State);
-                    bool changed = false;
-                    foreach (FleetActionRunTargetState target in next.TargetStates)
-                    {
-                        if (target.Status == Armada.Core.Enums.FleetActionTargetStatusEnum.Dispatching)
-                        {
-                            FleetActionRunStateBuilder.SetTarget(target, Armada.Core.Enums.FleetActionTargetStatusEnum.Uncertain,
-                                "The process stopped after dispatch was claimed; the result is unknown.");
-                            changed = true;
-                        }
-                    }
-                    if (changed) await FenceRecoveredStateAsync(run, next, token).ConfigureAwait(false);
-                    await ReconcileRunAsync(run.TenantId, run.UserId, run.Id, token).ConfigureAwait(false);
+                    await RecoverRunAsync(run, token).ConfigureAwait(false);
                 }
                 if (runs.Count < 100) return;
                 afterId = runs[runs.Count - 1].Id;
