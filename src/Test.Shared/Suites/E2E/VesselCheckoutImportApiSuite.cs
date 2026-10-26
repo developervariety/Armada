@@ -304,7 +304,7 @@ namespace Test.Shared.Suites.E2E
 
         private static async Task<string> SendMcpAsync(HttpClient client, string sessionId, string method, object parameters)
         {
-            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "/mcp"))
+            using (HttpRequestMessage request = new HttpRequestMessage(System.Net.Http.HttpMethod.Post, "/mcp"))
             {
                 request.Content = JsonHelper.ToJsonContent(new { jsonrpc = "2.0", id = 1, method, @params = parameters });
                 request.Headers.Add("X-Session-Id", sessionId);
