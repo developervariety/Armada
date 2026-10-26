@@ -198,8 +198,6 @@ export UseSharedCompilation=false
 # temp path of the run and its children under it, and removes it on exit (TestDataDirectory).
 export ARMADA_TEST_TEMP_ROOT="${TMPDIR:-/tmp}"
 gate_tmp="$scratch/tmp"
-mkdir -p "$gate_tmp"
-export TMPDIR="$gate_tmp" TMP="$gate_tmp" TEMP="$gate_tmp"
 
 # Prefer the SDK the Microsoft install script puts in ~/.dotnet over a distribution package. A distribution
 # runtime built against the system libunwind can fail to unwind the stack at a managed throw and abort with
@@ -283,8 +281,8 @@ run_gate() {
 # host. A caller that already holds the lock passes --lock-held.
 lock_taken=0
 release_host_lock() {
-  dotnet build-server shutdown < /dev/null > /dev/null 2>&1 9>&- || true
   if [ "${gate_tmp_owned:-0}" = "1" ]; then
+    dotnet build-server shutdown < /dev/null > /dev/null 2>&1 9>&- || true
     rm -rf "$gate_tmp" 2>/dev/null || echo "WARNING: could not remove gate temp directory $gate_tmp"
   fi
   if [ "$lock_taken" = "1" ]; then
@@ -366,9 +364,18 @@ fi
 # before fetch/checkout/build and before removing anything in this scratch directory.
 if ! bash -c "$disk_admission_script" -- "$scratch" "$min_free_disk_mb"; then exit 1; fi
 
-# Emptied only once this gate holds the scratch directory, so a refused second gate never touches it.
-find "$gate_tmp" -mindepth 1 -delete 2>/dev/null || echo "WARNING: could not empty gate temp directory $gate_tmp"
+# A queued gate creates its temp only after the prior holder has completed cleanup under both locks.
+# A refused waiter owns neither temp cleanup nor build-server shutdown.
+if [ -L "$gate_tmp" ] || ! mkdir -p "$gate_tmp"; then
+  echo "RESULT: FAIL (cannot create gate temp directory $gate_tmp)"
+  exit 1
+fi
+export TMPDIR="$gate_tmp" TMP="$gate_tmp" TEMP="$gate_tmp"
 gate_tmp_owned=1
+if ! find "$gate_tmp" -mindepth 1 -delete; then
+  echo "RESULT: FAIL (cannot empty gate temp directory $gate_tmp)"
+  exit 1
+fi
 
 run_gate
 exit $?
