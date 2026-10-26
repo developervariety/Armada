@@ -145,6 +145,48 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, reloaded.VoyageIds.Count, "Persisted objective carries no voyage from the incident link.");
                 AssertEqual(1, AutonomousObjectiveSelector.SelectEligible(new List<Objective> { reloaded }).Count,
                     "Annotating the objective with an incident must leave it auto-dispatch eligible.");
+
+                Fleet contextFleet = new Fleet { TenantId = tenantId, UserId = userId, Name = "Related incident context" };
+                await testDb.Driver.Fleets.CreateAsync(contextFleet).ConfigureAwait(false);
+                Vessel contextVessel = new Vessel
+                {
+                    TenantId = tenantId, UserId = userId, Name = "Related incident vessel",
+                    RepoUrl = "file:///tmp/related-incident.git", FleetId = contextFleet.Id
+                };
+                await testDb.Driver.Vessels.CreateAsync(contextVessel).ConfigureAwait(false);
+                Incident crossVessel = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Related fault in another repository", Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium, VesselId = contextVessel.Id
+                }).ConfigureAwait(false);
+                await objectives.LinkIncidentAsync(auth, never.Id, crossVessel.Id).ConfigureAwait(false);
+                Objective targeted = NotNull(await objectives.ReadAsync(auth, never.Id).ConfigureAwait(false));
+                AssertEqual(1, targeted.VesselIds.Count, "an incident annotation cannot expand an already selected dispatch target");
+                AssertEqual(vessel.Id, targeted.VesselIds[0], "the objective keeps its original target");
+                AssertTrue(targeted.IncidentIds.Contains(incident.Id) && targeted.IncidentIds.Contains(crossVessel.Id),
+                    "both incident evidence links are preserved");
+                AssertFalse(targeted.FleetIds.Contains(contextFleet.Id), "foreign incident context does not expand selected fleet scope");
+                AssertEqual(0, targeted.VoyageIds.Count);
+                AssertEqual(0, targeted.MissionIds.Count);
+                targeted = await objectives.LinkIncidentAsync(auth, never.Id, crossVessel.Id).ConfigureAwait(false);
+                AssertEqual(1, targeted.VesselIds.Count, "linking the same incident remains idempotent");
+                AssertEqual(2, targeted.IncidentIds.Count);
+
+                Objective unbound = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Incident fix without a selected target"
+                }).ConfigureAwait(false);
+                unbound = await objectives.LinkIncidentAsync(auth, unbound.Id, crossVessel.Id).ConfigureAwait(false);
+                AssertEqual(1, unbound.VesselIds.Count, "an empty target still infers its incident vessel");
+                AssertEqual(contextVessel.Id, unbound.VesselIds[0]);
+                AssertTrue(unbound.FleetIds.Contains(contextFleet.Id), "empty-target inference carries its fleet");
+
+                targeted = await objectives.UpdateAsync(auth, never.Id, new ObjectiveUpsertRequest
+                {
+                    IncidentIds = new List<string> { crossVessel.Id }
+                }).ConfigureAwait(false);
+                AssertEqual(1, targeted.VesselIds.Count, "direct incident-list updates preserve declared targets");
+                AssertEqual(vessel.Id, targeted.VesselIds[0]);
             }).ConfigureAwait(false);
 
             await RunTest("Deleting a pipeline clears it from a Completed objective with a new snapshot, and the next read succeeds", async () =>
