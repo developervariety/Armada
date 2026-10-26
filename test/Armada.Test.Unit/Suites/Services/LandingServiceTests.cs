@@ -1047,23 +1047,14 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         ArmadaSettings settings = CreateSettings();
                         settings.DocksDirectory = Path.Combine(rootDir, "docks");
-                        LandingService service = CreateValidatedService(testDb.Driver, settings);
+                        LandingService service = CreateValidatedService(testDb.Driver, settings, out CheckRunService checkRuns);
                         Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
                         WorkflowProfile profile = await CreateCheckProfileAsync(testDb.Driver, vessel, fixture).ConfigureAwait(false);
                         string leftTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.LeftBranch).ConfigureAwait(false)).Trim();
-                        CheckRun earlier = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
-                        {
-                            VesselId = vessel.Id,
-                            WorkflowProfileId = profile.Id,
-                            Type = CheckRunTypeEnum.UnitTest,
-                            Source = CheckRunSourceEnum.Armada,
-                            Status = CheckRunStatusEnum.Passed,
-                            Command = profile.UnitTestCommand!,
-                            CommitHash = leftTip,
-                            ExitCode = 0,
-                            CreatedUtc = DateTime.UtcNow,
-                            LastUpdateUtc = DateTime.UtcNow
-                        }).ConfigureAwait(false);
+                        CheckRun earlier = await checkRuns.RunAsync(
+                            AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "UnitTest"),
+                            new CheckRunRequest { VesselId = vessel.Id, Type = CheckRunTypeEnum.UnitTest, CommitHash = leftTip }).ConfigureAwait(false);
+                        AssertEqual(CheckRunStatusEnum.Passed, earlier.Status, "the independent full command passed before landing");
 
                         Mission mission = CreateMission("msn_icv_reuse");
                         await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
@@ -1071,7 +1062,7 @@ namespace Armada.Test.Unit.Suites.Services
                             vessel, mission, "main", fixture.LeftBranch, "Merge armada mission").ConfigureAwait(false);
 
                         AssertTrue(landed, "the measured tip lands; failure reason: " + (mission.FailureReason ?? "(none)"));
-                        AssertEqual(0, CountCheckRuns(fixture), "no second check ran");
+                        AssertEqual(1, CountCheckRuns(fixture), "the independent check ran once and landing ran no second check");
                         List<IntegrationValidationResult> evidence = await ReadMissionEvidenceAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
                         AssertEqual(1, evidence.Count, "the landing is recorded");
                         AssertEqual(IntegrationValidationOutcomeEnum.Passed, evidence[0].Outcome, "the reused check passes the candidate");
@@ -1083,6 +1074,84 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(rootDir, true); } catch { }
                 }
             });
+            foreach (string contextChange in new[] { "quoted-space", "environment", "profile", "budget", "legacy" })
+            {
+                await RunTest("MergeInDedicatedWorktreeAsync_RejectsStaleCheckContext_" + contextChange,
+                    () => AssertIntegrationContextChangeAsync(contextChange));
+            }
+        }
+
+        private static async Task AssertIntegrationContextChangeAsync(string change)
+        {
+            if (OperatingSystem.IsWindows()) return;
+            string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_context_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                IntegrationFixture fixture = await CreateIntegrationFixtureAsync(rootDir).ConfigureAwait(false);
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                    LandingService service = CreateValidatedService(testDb.Driver, settings, out CheckRunService checkRuns);
+                    Vessel vessel = await CreateIntegrationVesselAsync(testDb.Driver, fixture).ConfigureAwait(false);
+                    WorkflowProfile profile = await CreateCheckProfileAsync(testDb.Driver, vessel, fixture).ConfigureAwait(false);
+                    string count = "echo run >> " + fixture.CounterFile + "; ";
+                    profile.UnitTestCommand = count + (change == "quoted-space" ? "test 'a  b' = 'a  b'" : "test \"$GATE_PROBE\" = required");
+                    profile.EnvironmentVariables["GATE_PROBE"] = change == "legacy" ? "wrong" : "required";
+                    profile = await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                    string leftTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/" + fixture.LeftBranch).ConfigureAwait(false)).Trim();
+                    string baseTip = (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                    CheckRun earlier;
+                    if (change == "legacy")
+                    {
+                        earlier = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                        {
+                            VesselId = vessel.Id, WorkflowProfileId = profile.Id, Type = CheckRunTypeEnum.UnitTest,
+                            Source = CheckRunSourceEnum.Armada, Status = CheckRunStatusEnum.Passed,
+                            Command = profile.UnitTestCommand!, CommitHash = leftTip, ExitCode = 0
+                        }).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        earlier = await checkRuns.RunAsync(
+                            AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "UnitTest"),
+                            new CheckRunRequest { VesselId = vessel.Id, Type = CheckRunTypeEnum.UnitTest, CommitHash = leftTip }).ConfigureAwait(false);
+                        AssertEqual(CheckRunStatusEnum.Passed, earlier.Status, "the earlier full command really passed");
+                    }
+                    if (change == "quoted-space") profile.UnitTestCommand = count + "test 'a b' = 'a  b'";
+                    if (change == "environment") profile.EnvironmentVariables["GATE_PROBE"] = "wrong";
+                    if (change == "budget") profile.GateCommandTimeoutSeconds = 60;
+                    if (change == "profile")
+                    {
+                        profile.Active = false;
+                        await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                        profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "Replacement integration profile", Scope = WorkflowProfileScopeEnum.Vessel,
+                            VesselId = vessel.Id, Active = true, IsDefault = true, UnitTestCommand = profile.UnitTestCommand,
+                            EnvironmentVariables = new Dictionary<string, string>(profile.EnvironmentVariables)
+                        }).ConfigureAwait(false);
+                    }
+                    else if (change != "legacy")
+                        profile = await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+
+                    Mission mission = CreateMission("msn_context_" + change);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    bool landed = await service.MergeInDedicatedWorktreeAsync(vessel, mission, "main", fixture.LeftBranch, "Merge mission").ConfigureAwait(false);
+                    bool expectedLanding = change is "profile" or "budget";
+                    AssertEqual(expectedLanding, landed, "only a newly executed passing context may publish: " + change);
+                    AssertEqual(change == "legacy" ? 1 : 2, CountCheckRuns(fixture), "landing executes the current command rather than trusting stale context: " + change);
+                    List<IntegrationValidationResult> evidence = await ReadMissionEvidenceAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                    AssertEqual(1, evidence.Count, "one candidate verdict is recorded");
+                    AssertTrue(!evidence[0].ReusedCheckRunIds.Contains(earlier.Id), "stale or unproven context cannot satisfy integration");
+                    if (!expectedLanding)
+                        AssertEqual(baseTip, (await RunGitAsync(fixture.BareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(), "a failing current context cannot advance the target");
+                }
+            }
+            finally
+            {
+                try { Directory.Delete(rootDir, true); } catch { }
+            }
         }
 
         private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
@@ -1269,11 +1338,16 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static LandingService CreateValidatedService(SqliteDatabaseDriver database, ArmadaSettings settings)
         {
+            return CreateValidatedService(database, settings, out _);
+        }
+
+        private static LandingService CreateValidatedService(SqliteDatabaseDriver database, ArmadaSettings settings, out CheckRunService checkRuns)
+        {
             LoggingModule logging = CreateLogging();
             LandingService service = new LandingService(logging, database, settings, new GitService(logging));
             WorkflowProfileService profiles = new WorkflowProfileService(database, logging);
             VesselReadinessService readiness = new VesselReadinessService(database, profiles, logging);
-            CheckRunService checkRuns = new CheckRunService(database, profiles, readiness, logging);
+            checkRuns = new CheckRunService(database, profiles, readiness, logging);
             service.SetIntegrationValidator(new IntegrationCandidateValidator(logging, database, settings, checkRuns, profiles));
             return service;
         }
