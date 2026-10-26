@@ -317,6 +317,14 @@ namespace Armada.Core.Services
             incident.RecoveryNotes = request.RecoveryNotes != null ? Normalize(request.RecoveryNotes) : incident.RecoveryNotes;
             incident.Postmortem = request.Postmortem != null ? Normalize(request.Postmortem) : incident.Postmortem;
             incident.MitigatedUtc = request.MitigatedUtc.HasValue ? request.MitigatedUtc.Value.ToUniversalTime() : incident.MitigatedUtc;
+            // A new mitigation acknowledges all failure evidence observed before this transition.
+            // Retaining an earlier mitigation time lets the lifecycle sweep reopen it immediately.
+            if (incident.Status == IncidentStatusEnum.Mitigated
+                && previousStatus != IncidentStatusEnum.Mitigated
+                && !request.MitigatedUtc.HasValue)
+            {
+                incident.MitigatedUtc = DateTime.UtcNow;
+            }
             incident.ClosedUtc = request.ClosedUtc.HasValue ? request.ClosedUtc.Value.ToUniversalTime() : incident.ClosedUtc;
             incident.LastUpdateUtc = DateTime.UtcNow;
 
