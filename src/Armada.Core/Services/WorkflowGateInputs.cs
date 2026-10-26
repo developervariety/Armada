@@ -167,6 +167,15 @@ namespace Armada.Core.Services
             return unplanned;
         }
 
+        // Concrete repository-relative paths supplied by the plan, not inferred dependencies.
+        internal static List<string> FindPlannedPaths(IEnumerable<string?> planTexts)
+        {
+            return planTexts.Where(text => !String.IsNullOrWhiteSpace(text))
+                .SelectMany(text => PathTokens(text!))
+                .Where(path => Validate(new[] { path }) == null)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Take(MaxEntries).ToList();
+        }
+
         /// <summary>
         /// The gate-input entries an objective's constraint text keeps out of the change. A sentence that forbids
         /// changes ("No src/ or docs/ file changes", "Do not edit docs/guide.md") excludes each entry it names or

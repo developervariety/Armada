@@ -151,7 +151,7 @@ namespace Armada.Core.Services.Archive
                 {
                     string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
-                        throw new InvalidOperationException("archive list of '" + prefix + "' failed: HTTP " + (int)response.StatusCode + " " + ErrorCode(body));
+                        throw new InvalidOperationException("archive list of '" + prefix + "' failed: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body));
 
                     XDocument document = XDocument.Parse(body);
                     XNamespace ns = document.Root?.Name.Namespace ?? XNamespace.None;
@@ -186,7 +186,7 @@ namespace Armada.Core.Services.Archive
                 if (!response.IsSuccessStatusCode)
                 {
                     string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
-                    throw new InvalidOperationException("archive read of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + ErrorCode(body));
+                    throw new InvalidOperationException("archive read of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body));
                 }
                 long? length = response.Content.Headers.ContentLength;
                 if (length.HasValue && length.Value > maxBytes)
@@ -217,7 +217,7 @@ namespace Armada.Core.Services.Archive
             {
                 if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.NotFound) return null;
                 string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
-                return "archive delete of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + ErrorCode(body);
+                return "archive delete of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body);
             }
         }
 
@@ -260,7 +260,7 @@ namespace Armada.Core.Services.Archive
                             string code = ErrorCode(body);
                             string failure = code.Contains("SHA256", StringComparison.OrdinalIgnoreCase) ? "sha256_mismatch"
                                 : code.Contains("BadDigest", StringComparison.OrdinalIgnoreCase) ? "md5_mismatch" : "upload_failed";
-                            return ArchivePutResult.Failed(key, failure, "upload of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + code);
+                            return ArchivePutResult.Failed(key, failure, "upload of '" + key + "' failed: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body));
                         }
                         etag = response.Headers.ETag?.Tag?.Trim('"');
                     }
@@ -297,8 +297,8 @@ namespace Armada.Core.Services.Archive
                     string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
                     if (response.StatusCode == HttpStatusCode.Forbidden && IsCapExceeded(body))
                         return ArchivePutResult.Failed(key, ArchivePutResult.CapExceededCode,
-                            "stored object '" + key + "' read-back refused: the object store download or transaction cap is exceeded (HTTP 403 " + ErrorCode(body) + ")");
-                    return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: HTTP " + (int)response.StatusCode);
+                            "stored object '" + key + "' read-back refused: the object store download or transaction cap is exceeded (HTTP 403 " + FailureDetails(response, body) + ")");
+                    return ArchivePutResult.Failed(key, "verify_failed", "stored object '" + key + "' could not be read back: HTTP " + (int)response.StatusCode + " " + FailureDetails(response, body));
                 }
                 long stored = response.Content.Headers.ContentLength ?? -1;
                 if (stored != bytes)
@@ -404,7 +404,38 @@ namespace Armada.Core.Services.Archive
             if (String.IsNullOrWhiteSpace(body)) return String.Empty;
             int start = body.IndexOf("<Code>", StringComparison.Ordinal);
             int end = body.IndexOf("</Code>", StringComparison.Ordinal);
-            return start >= 0 && end > start ? body.Substring(start + 6, end - start - 6) : String.Empty;
+            return start >= 0 && end > start ? SafeReceiptToken(body.Substring(start + 6, end - start - 6), 64) : String.Empty;
+        }
+
+        // Provider support receipts only: never copy arbitrary headers, error messages, or response bodies.
+        private static string FailureDetails(HttpResponseMessage response, string body)
+        {
+            string details = ErrorCode(body);
+            string requestId = ReceiptHeader(response, "x-amz-request-id", 128);
+            string hostId = ReceiptHeader(response, "x-amz-id-2", 512);
+            if (requestId.Length > 0) details += " request_id=" + requestId;
+            if (hostId.Length > 0) details += " host_id=" + hostId;
+            return details;
+        }
+
+        private static string ReceiptHeader(HttpResponseMessage response, string name, int limit)
+        {
+            if (!response.Headers.TryGetValues(name, out IEnumerable<string>? values)) return String.Empty;
+            string[] entries = values.Take(2).ToArray();
+            return entries.Length == 1 ? SafeReceiptToken(entries[0], limit) : String.Empty;
+        }
+
+        private static string SafeReceiptToken(string value, int limit)
+        {
+            if (value.Length == 0 || value.Length > limit) return String.Empty;
+            foreach (char character in value)
+            {
+                if ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z')
+                    || (character >= '0' && character <= '9') || character == '-' || character == '_'
+                    || character == '.' || character == '/' || character == '+' || character == '=') continue;
+                return String.Empty;
+            }
+            return value;
         }
 
         // True when a 403 body names a download or transaction cap (the error code or message), rather
