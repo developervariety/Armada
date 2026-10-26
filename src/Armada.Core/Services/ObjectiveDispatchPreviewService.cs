@@ -2172,7 +2172,7 @@ namespace Armada.Core.Services
             List<string> plannedPaths = WorkflowGateInputs.FindPlannedPaths(planTexts);
             string plannedNote = plannedPaths.Count == 0
                 ? " No planned file paths have been supplied; the Architect must establish which inputs the change can affect."
-                : " Planned paths to check: " + String.Join(", ", plannedPaths)
+                : " Paths named in supplied mission descriptions (may include references or exclusions): " + String.Join(", ", plannedPaths)
                     + ". The workflow profile does not declare which planned paths affect each input; confirm that relation before assigning input edits.";
 
             bool architectPlans = result.EffectivePipelineStages.Any(stage => PersonaCatalog.Matches(stage, PersonaCatalog.Architect));

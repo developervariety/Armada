@@ -1894,13 +1894,13 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreviewIssue missing = unplanned.Issues.Single(issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode);
                     AssertContains("docs/data-dictionary.md", missing.Message, "an unnamed gate input is listed");
                     AssertContains("schema/**/*.sql", missing.Message, "an unmatched glob is listed");
-                    AssertContains("Planned paths to check: src/Export/Writer.cs", missing.Message,
+                    AssertContains("Paths named in supplied mission descriptions (may include references or exclusions): src/Export/Writer.cs", missing.Message,
                         "the warning names the supplied plan path, rather than only the gate inputs");
                     AssertContains("does not declare which planned paths affect each input", missing.Message,
                         "the warning does not invent a dependency from a source filename to a gate input");
                     ObjectiveDispatchPreview architectWithPlan = await harness.Service.PreviewAsync(
                         harness.Auth, objective, null, architectPipeline.Id, null, withoutInputs).ConfigureAwait(false);
-                    AssertContains("Planned paths to check: src/Export/Writer.cs", architectWithPlan.Issues.Single(
+                    AssertContains("Paths named in supplied mission descriptions (may include references or exclusions): src/Export/Writer.cs", architectWithPlan.Issues.Single(
                         issue => issue.Code == ObjectiveDispatchPreviewService.GateInputsUnplannedIssueCode).Message,
                         "an Architect pipeline also retains the concrete supplied plan paths");
                     AssertContains("No planned file paths have been supplied", planned.Message,
