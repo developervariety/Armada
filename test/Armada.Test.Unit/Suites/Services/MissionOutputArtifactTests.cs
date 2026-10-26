@@ -155,6 +155,32 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(partial.Complete, "the legacy persona name carries the same contract");
                 AssertEqual(1, partial.MissingReportSections.Count);
                 AssertEqual("Negative Paths", partial.MissingReportSections[0]);
+
+                const string reportOnly = "## Findings\nThe preserved metadata and command digest were independently verified.\n" +
+                    "## Validation\nRequired-removal and wrong-type controls reject the invalid records.\n" +
+                    "## Residual Risk\nHistorical inputs remain unavailable; no behavioral acceptance is claimed.\n" +
+                    "[ARMADA:RESULT] COMPLETE";
+                foreach (MissionModeEnum mode in new[] { MissionModeEnum.Implementation, MissionModeEnum.Audit, MissionModeEnum.Research })
+                {
+                    Mission report = BuildMission(reportOnly, MissionStatusEnum.WorkProduced);
+                    report.Persona = "TestEngineer";
+                    report.Mode = mode;
+                    MissionOutputArtifactPage artifact = MissionOutputArtifact.Build(report);
+                    bool reportMode = mode != MissionModeEnum.Implementation;
+                    AssertEqual(reportMode, artifact.Complete, "capture completeness follows the generated contract for " + mode);
+                    AssertEqual(reportMode ? 0 : 3, artifact.MissingReportSections.Count,
+                        "only Implementation requires test-creation sections");
+                    AssertEqual(reportOnly, artifact.Content, "mode changes no captured bytes");
+                    AssertTrue(artifact.Finalized && !artifact.HasMore, "the full finished report was captured");
+                    if (reportMode)
+                    {
+                        AssertNull(artifact.TruncationReason);
+                        string contract = MissionPromptBuilder.GetPersonaOutputContract(report.Persona, mode);
+                        AssertContains("deliverable is a report", contract, "the actual prompt asks for a report");
+                        AssertFalse(contract.Contains("Coverage Added", StringComparison.Ordinal),
+                            "the prompt does not require Implementation coverage headings");
+                    }
+                }
                 return Task.CompletedTask;
             });
 
@@ -182,6 +208,15 @@ namespace Armada.Test.Unit.Suites.Services
                 MissionOutputArtifactPage pmPage = MissionOutputArtifact.Build(productManager);
                 AssertFalse(pmPage.Complete);
                 AssertEqual(2, pmPage.MissingReportSections.Count, "the Product Manager contract names its two missing sections");
+                foreach (MissionModeEnum mode in new[] { MissionModeEnum.Audit, MissionModeEnum.Research })
+                {
+                    productManager.Mode = mode;
+                    MissionOutputArtifactPage reportPage = MissionOutputArtifact.Build(productManager);
+                    AssertTrue(reportPage.Complete, "the report-only product prompt leaves section shape to its mission");
+                    AssertEqual(0, reportPage.MissingReportSections.Count);
+                    AssertContains("mission description controls the report's shape",
+                        MissionPromptBuilder.GetPersonaOutputContract(productManager.Persona, mode));
+                }
                 return Task.CompletedTask;
             });
 
