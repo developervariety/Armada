@@ -24,8 +24,8 @@ namespace Armada.Core.Services
 
         private static readonly Regex _Heading = new Regex(@"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
         private static readonly Regex _JoinedProgressHeading = new Regex(
-            @"^[ \t]{0,3}\[ARMADA:STATUS\] (?:InProgress|Testing|Review)#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", RegexOptions.Compiled);
-        private static readonly Regex _Fence = new Regex(@"^[ \t]{0,3}(`{3,}|~{3,})(.*)$", RegexOptions.Compiled);
+            @"^ {0,3}\[ARMADA:STATUS\] (?:InProgress|Testing|Review)#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", RegexOptions.Compiled);
+        private static readonly Regex _Fence = new Regex(@"^ {0,3}(`{3,}|~{3,})(.*)$", RegexOptions.Compiled);
 
         #endregion
 

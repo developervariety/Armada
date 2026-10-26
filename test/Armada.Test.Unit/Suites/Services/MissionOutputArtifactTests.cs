@@ -204,6 +204,8 @@ namespace Armada.Test.Unit.Suites.Services
                     "Prose [ARMADA:STATUS] Testing## Coverage Added",
                     "> [ARMADA:STATUS] Testing## Coverage Added",
                     "    [ARMADA:STATUS] Testing## Coverage Added",
+                    "\t[ARMADA:STATUS] Testing## Coverage Added",
+                    " \t[ARMADA:STATUS] Testing## Coverage Added",
                     "[ARMADA:STATUS] Unknown## Coverage Added",
                     "[ARMADA:STATUS] Complete## Coverage Added",
                     "[ARMADA:STATUS] Testing#Coverage Added",
@@ -220,6 +222,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(page.MissingReportSections.Contains("Coverage Added"));
                     AssertEqual(prefix + tail, page.Content);
                 }
+                Mission afterIndentedFence = BuildMission("\t```text\n\n[ARMADA:STATUS] Testing## Coverage Added" + tail, MissionStatusEnum.Complete);
+                afterIndentedFence.Persona = "TestEngineer";
+                AssertTrue(MissionOutputArtifact.Build(afterIndentedFence).Complete,
+                    "A code-indented fence example does not hide the later unindented heading");
                 return Task.CompletedTask;
             });
 

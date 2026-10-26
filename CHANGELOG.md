@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Report section checks recognize an explicit Markdown heading joined to a known progress-status line outside code examples. Stored report text and artifact digests stay unchanged.
+
 - Restarted dependent stages retain the verified upstream commit and can restore a missing inherited branch from that commit before checkout provisioning.
 
 - Incident recovery requires newer Check evidence after detection or an operator status decision. Cancellation supersedes only known automatic incidents, and stale lifecycle writes cannot overwrite a newer snapshot. Explicit blank Check links reach the incident update handler.
