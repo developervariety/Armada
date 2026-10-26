@@ -23,6 +23,9 @@ namespace Armada.Core.Services
         };
 
         private static readonly Regex _Heading = new Regex(@"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$", RegexOptions.Multiline | RegexOptions.Compiled);
+        private static readonly Regex _JoinedProgressHeading = new Regex(
+            @"^[ \t]{0,3}\[ARMADA:STATUS\] (?:InProgress|Testing|Review)#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", RegexOptions.Compiled);
+        private static readonly Regex _Fence = new Regex(@"^[ \t]{0,3}(`{3,}|~{3,})(.*)$", RegexOptions.Compiled);
 
         #endregion
 
@@ -60,9 +63,43 @@ namespace Armada.Core.Services
             List<string> headings = String.IsNullOrEmpty(report)
                 ? new List<string>()
                 : _Heading.Matches(report.Replace("\r\n", "\n")).Select(match => match.Groups[1].Value.Trim().Trim('*', '`').Trim()).ToList();
+            if (!String.IsNullOrEmpty(report)) headings.AddRange(ReadJoinedProgressHeadings(report));
             return required
                 .Where(section => !headings.Any(heading => heading.StartsWith(section, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
+        }
+
+        private static List<string> ReadJoinedProgressHeadings(string report)
+        {
+            // Historical captures can join a progress line directly to the next Markdown heading.
+            // Recognize that heading only; neither rewrite the artifact nor treat the status as authority.
+            List<string> headings = new List<string>();
+            char fenceCharacter = '\0';
+            int fenceLength = 0;
+            foreach (string line in report.Replace("\r\n", "\n").Split('\n'))
+            {
+                Match fence = _Fence.Match(line);
+                if (fence.Success)
+                {
+                    string delimiter = fence.Groups[1].Value;
+                    if (fenceCharacter == '\0')
+                    {
+                        fenceCharacter = delimiter[0];
+                        fenceLength = delimiter.Length;
+                    }
+                    else if (delimiter[0] == fenceCharacter && delimiter.Length >= fenceLength
+                        && String.IsNullOrWhiteSpace(fence.Groups[2].Value))
+                    {
+                        fenceCharacter = '\0';
+                        fenceLength = 0;
+                    }
+                    continue;
+                }
+                if (fenceCharacter != '\0') continue;
+                Match heading = _JoinedProgressHeading.Match(line);
+                if (heading.Success) headings.Add(heading.Groups[1].Value.Trim().Trim('*', '`').Trim());
+            }
+            return headings;
         }
 
         #endregion
