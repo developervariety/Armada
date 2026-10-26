@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Dashboard development tools use patched Vite, Vitest, source-map-js, and Undici releases.
+
 - Provider retries retain their owned continuation dock. Dock repair can restore an absent native checkout from its exact local branch, without creating refs or replacing foreign and locked worktrees.
 
 - Deliverable-kind preview facts distinguish negated report-only wording from an explicit committed-test duty. Facts remain informational; dispatch preparation gates are unchanged.
