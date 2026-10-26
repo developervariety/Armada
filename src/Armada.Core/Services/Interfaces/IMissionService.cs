@@ -185,6 +185,18 @@ namespace Armada.Core.Services.Interfaces
         Task<string?> VerifyStageWorkAsync(Mission mission, Captain captain, CancellationToken token = default);
 
         /// <summary>
+        /// Run the stage check for a mission that just finished and report what it established: passed, failed,
+        /// skipped (with the reason) or could not run. Only <see cref="StageCheckStatusEnum.Passed"/> means the work
+        /// was verified. <see cref="VerifyStageWorkAsync"/> returns this result's <see cref="StageCheckResult.FailureMessage"/>.
+        /// </summary>
+        /// <param name="mission">Mission.</param>
+        /// <param name="captain">Captain that just finished it.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The check result.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when mission or captain is null.</exception>
+        Task<StageCheckResult> CheckStageWorkAsync(Mission mission, Captain captain, CancellationToken token = default);
+
+        /// <summary>
         /// Deny a mission that is waiting at a review gate.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>

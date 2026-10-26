@@ -20,41 +20,64 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public async Task<string?> VerifyStageWorkAsync(Mission mission, Captain captain, CancellationToken token = default)
         {
+            StageCheckResult result = await CheckStageWorkAsync(mission, captain, token).ConfigureAwait(false);
+            return result.FailureMessage;
+        }
+
+        /// <inheritdoc />
+        public async Task<StageCheckResult> CheckStageWorkAsync(Mission mission, Captain captain, CancellationToken token = default)
+        {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
+            DateTime started = DateTime.UtcNow;
+            StageCheckResult result = await RunStageCheckAsync(mission, captain, token).ConfigureAwait(false);
+            result.CheckedUtc = DateTime.UtcNow;
+            result.DurationMs = (long)(result.CheckedUtc - started).TotalMilliseconds;
+            return result;
+        }
+
+        private async Task<StageCheckResult> RunStageCheckAsync(Mission mission, Captain captain, CancellationToken token)
+        {
             bool checkedRuntime = captain.Runtime == AgentRuntimeEnum.Mux || captain.Runtime == AgentRuntimeEnum.ApiEndpoint;
-            if (!checkedRuntime && !_Settings.VerifyAllStageRuntimes) return null;
+            if (!checkedRuntime && !_Settings.VerifyAllStageRuntimes) return StageCheckResult.Skip(StageCheckReasonEnum.RuntimeNotChecked);
             if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect)
                 || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.ProductManager) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Recorder))
-                return null;
-            if (String.IsNullOrEmpty(mission.DockId) || String.IsNullOrEmpty(mission.VesselId)) return null;
+                return StageCheckResult.Skip(StageCheckReasonEnum.ReviewPersona);
+            if (String.IsNullOrEmpty(mission.DockId) || String.IsNullOrEmpty(mission.VesselId)) return StageCheckResult.Skip(StageCheckReasonEnum.NoDock);
             // A verifier that reported a blocking product defect is not checked: a failing check is its evidence, and its
             // outcome goes to the Worker as rework rather than back to the verifier to "fix" (HF-25).
             if (VerifierContract.Applies(mission.Persona) && OnPeekMissionOutput != null && VerifierContract.IsBlocked(OnPeekMissionOutput(mission.Id)))
             {
                 _Logging.Info(_Header + mission.Persona + " mission " + mission.Id + " reported a blocking defect; skipping the stage check");
-                return null;
+                return StageCheckResult.Skip(StageCheckReasonEnum.VerifierReportedBlocker);
             }
 
+            StageCheckResult result = new StageCheckResult();
             try
             {
                 Dock? dock = await _Database.Docks.ReadAsync(mission.DockId!, token).ConfigureAwait(false);
                 Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
-                if (dock == null || vessel == null || String.IsNullOrEmpty(dock.WorktreePath)) return null;
+                if (dock == null || vessel == null || String.IsNullOrEmpty(dock.WorktreePath)) return StageCheckResult.Skip(StageCheckReasonEnum.NoDock);
 
                 // A Harbor whose link is down for a moment (an Admiral restart, a network blip) is waited for: the check
                 // not being able to run is an infrastructure condition, not something to send the captain back over.
                 if (!await WaitForDockHarborAsync(dock, token).ConfigureAwait(false))
-                    return "The stage check could not run because Harbor " + dock.HarborId + " did not reconnect within "
+                {
+                    result.Status = StageCheckStatusEnum.CouldNotRun;
+                    result.Reason = StageCheckReasonEnum.HarborDisconnected;
+                    result.FailureMessage = "The stage check could not run because Harbor " + dock.HarborId + " did not reconnect within "
                         + (int)HarborReconnectWait.TotalSeconds + " seconds. Its success has not been verified; rerun the configured checks once the Harbor is back.";
+                    return result;
+                }
 
                 AuthContext system = new AuthContext { IsAuthenticated = true, IsAdmin = true, TenantId = vessel.TenantId };
                 WorkflowProfile? profile = await new WorkflowProfileService(_Database, _Logging).ResolveForVesselAsync(system, vessel, null, token).ConfigureAwait(false);
-                if (profile == null) return null;
+                if (profile == null) return StageCheckResult.Skip(StageCheckReasonEnum.NoWorkflowProfile);
                 List<string> commands = new List<string>();
                 if (!String.IsNullOrWhiteSpace(profile.BuildCommand)) commands.Add(profile.BuildCommand!.Trim());
                 if (!String.IsNullOrWhiteSpace(profile.UnitTestCommand)) commands.Add(profile.UnitTestCommand!.Trim());
-                if (commands.Count == 0) return null;
+                if (commands.Count == 0) return StageCheckResult.Skip(StageCheckReasonEnum.NoCommands);
+                result.Commands = commands;
 
                 // A stage that committed nothing has nothing new to verify (a frontier stage that only reviewed). Local
                 // models are still checked either way, because they often leave edits uncommitted.
@@ -63,7 +86,11 @@ namespace Armada.Core.Services
                 {
                     string? head = await ReadDockHeadAsync(dock, token).ConfigureAwait(false);
                     if (String.IsNullOrEmpty(startCommit) || String.IsNullOrEmpty(head) || String.Equals(startCommit, head, StringComparison.OrdinalIgnoreCase))
-                        return null;
+                    {
+                        StageCheckResult skipped = StageCheckResult.Skip(StageCheckReasonEnum.NoNewCommit);
+                        skipped.Commands = commands;
+                        return skipped;
+                    }
                 }
 
                 DockHost? harborHost = HarborHostFor(dock);
@@ -80,15 +107,19 @@ namespace Armada.Core.Services
                 {
                     foreach (string command in commands)
                     {
-                        HostCommandResult result = await RunStageCommandAsync(executor, windows, dock.WorktreePath!, command, token).ConfigureAwait(false);
-                        if (result.TimedOut)
+                        HostCommandResult commandResult = await RunStageCommandAsync(executor, windows, dock.WorktreePath!, command, token).ConfigureAwait(false);
+                        if (commandResult.TimedOut)
                         {
                             _Logging.Warn(_Header + "stage check for mission " + mission.Id + " timed out running " + command);
-                            return "The stage check timed out after " + _Settings.StageCheckTimeoutMinutes + " minutes: " + command + ". Its success has not been verified. "
+                            result.Status = StageCheckStatusEnum.CouldNotRun;
+                            result.Reason = StageCheckReasonEnum.TimedOut;
+                            result.FailedCommand = command;
+                            result.FailureMessage = "The stage check timed out after " + _Settings.StageCheckTimeoutMinutes + " minutes: " + command + ". Its success has not been verified. "
                                 + "Investigate and rerun the check. If the command is simply slower than that, an operator can raise stageCheckTimeoutMinutes or give the vessel's workflow profile a narrower test command.";
+                            return result;
                         }
 
-                        if (result.ExitCode != 0)
+                        if (commandResult.ExitCode != 0)
                         {
                             // A check that fails on the stage's starting commit as well is a pre-existing failure, not
                             // something this stage broke: report it in the log and do not send the captain back over it.
@@ -96,13 +127,18 @@ namespace Armada.Core.Services
                                 && await FailsOnBaseCommitAsync(executor, windows, vessel.Id, dock.WorktreePath!, startCommit!, command, token).ConfigureAwait(false))
                             {
                                 _Logging.Warn(_Header + "stage check for mission " + mission.Id + " fails on its base commit " + startCommit + " too (" + command + "); not blocking the stage");
+                                result.PreExistingFailures.Add(command);
                                 continue;
                             }
 
-                            string output = ((result.StandardOutput ?? "") + "\n" + (result.StandardError ?? "")).Trim();
+                            string output = ((commandResult.StandardOutput ?? "") + "\n" + (commandResult.StandardError ?? "")).Trim();
                             if (output.Length > 3000) output = "...\n" + output.Substring(output.Length - 3000);
-                            _Logging.Warn(_Header + "stage check for mission " + mission.Id + " failed: " + command + " exited " + result.ExitCode);
-                            return "The stage check failed: `" + command + "` exited with code " + result.ExitCode + " in the working tree. Its output:\n```\n" + output + "\n```\nFix the cause, run the command again until it succeeds, and commit.";
+                            _Logging.Warn(_Header + "stage check for mission " + mission.Id + " failed: " + command + " exited " + commandResult.ExitCode);
+                            result.Status = StageCheckStatusEnum.Failed;
+                            result.FailedCommand = command;
+                            result.ExitCode = commandResult.ExitCode;
+                            result.FailureMessage = "The stage check failed: `" + command + "` exited with code " + commandResult.ExitCode + " in the working tree. Its output:\n```\n" + output + "\n```\nFix the cause, run the command again until it succeeds, and commit.";
+                            return result;
                         }
                     }
                 }
@@ -114,12 +150,16 @@ namespace Armada.Core.Services
                 }
 
                 _Logging.Info(_Header + "stage check for mission " + mission.Id + " passed (" + String.Join("; ", commands) + ")");
-                return null;
+                result.Status = StageCheckStatusEnum.Passed;
+                return result;
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is TimeoutException)
             {
                 _Logging.Warn(_Header + "stage check for mission " + mission.Id + " could not run: " + ex.Message);
-                return "The stage verification could not run: " + ex.Message + ". Restore dependencies and rerun the configured checks.";
+                result.Status = StageCheckStatusEnum.CouldNotRun;
+                result.Reason = StageCheckReasonEnum.Error;
+                result.FailureMessage = "The stage verification could not run: " + ex.Message + ". Restore dependencies and rerun the configured checks.";
+                return result;
             }
         }
 

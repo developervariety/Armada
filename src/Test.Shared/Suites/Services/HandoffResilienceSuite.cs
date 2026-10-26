@@ -788,6 +788,97 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(File.Exists(Path.Combine(fx.Repo, "ran.txt")), "the check did not run");
             }));
 
+            cases.Add(CaseAsync("stage_check_result_reports_passed_with_commands", "A passing stage check reports Passed and the commands it ran", TestTags.Positive, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("true").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "stage work").ConfigureAwait(false);
+
+                StageCheckResult result = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertEqual(StageCheckStatusEnum.Passed, result.Status);
+                AssertEqual(StageCheckReasonEnum.None, result.Reason);
+                AssertEqual(1, result.Commands.Count, "the build command is listed");
+                AssertFalse(result.IsBlocking, "a pass does not block");
+                AssertNull(result.FailureMessage);
+            }));
+
+            cases.Add(CaseAsync("stage_check_result_reports_failed_with_the_command", "A regression reports Failed with the command, exit code and the note for the captain", TestTags.Negative, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("test ! -f broken.txt").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("broken.txt", "the stage broke the build").ConfigureAwait(false);
+
+                StageCheckResult result = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertEqual(StageCheckStatusEnum.Failed, result.Status);
+                AssertEqual("test ! -f broken.txt", result.FailedCommand);
+                AssertNotNull(result.ExitCode, "the exit code is kept");
+                AssertTrue(result.IsBlocking, "a failure blocks the stage");
+                AssertContains("stage check failed", result.FailureMessage!);
+            }));
+
+            cases.Add(CaseAsync("stage_check_result_lists_a_pre_existing_failure", "A failure the base commit already has is a pass that names the command", TestTags.Positive, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("exit 3").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "unrelated stage work").ConfigureAwait(false);
+
+                StageCheckResult result = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertEqual(StageCheckStatusEnum.Passed, result.Status);
+                AssertEqual(1, result.PreExistingFailures.Count, "the pre-existing failure is named, not hidden");
+            }));
+
+            cases.Add(CaseAsync("stage_check_result_says_why_a_frontier_stage_was_skipped", "A frontier stage with no new commit reports Skipped with NoNewCommit, not a pass", TestTags.Negative, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("touch ran.txt && exit 3").ConfigureAwait(false);
+
+                StageCheckResult result = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertEqual(StageCheckStatusEnum.Skipped, result.Status);
+                AssertEqual(StageCheckReasonEnum.NoNewCommit, result.Reason);
+                AssertFalse(result.IsBlocking);
+            }));
+
+            cases.Add(CaseAsync("stage_check_result_skips_review_personas_and_missing_docks", "Review personas and missions without a dock report Skipped with their reasons", TestTags.Negative, async () =>
+            {
+                using StageCheckFixture fx = await StageCheckFixture.CreateAsync("exit 3").ConfigureAwait(false);
+                await fx.CommitStageChangeAsync("notes.txt", "stage work").ConfigureAwait(false);
+
+                fx.Mission.Persona = "Judge";
+                StageCheckResult judge = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertEqual(StageCheckStatusEnum.Skipped, judge.Status);
+                AssertEqual(StageCheckReasonEnum.ReviewPersona, judge.Reason);
+
+                fx.Mission.Persona = "Worker";
+                fx.Mission.DockId = null;
+                StageCheckResult noDock = await fx.Missions.CheckStageWorkAsync(fx.Mission, fx.Captain).ConfigureAwait(false);
+                AssertEqual(StageCheckStatusEnum.Skipped, noDock.Status);
+                AssertEqual(StageCheckReasonEnum.NoDock, noDock.Reason);
+
+                await AssertThrowsAsync<ArgumentNullException>(() => fx.Missions.CheckStageWorkAsync(null!, fx.Captain));
+                await AssertThrowsAsync<ArgumentNullException>(() => fx.Missions.CheckStageWorkAsync(fx.Mission, null!));
+            }));
+
+            cases.Add(CaseAsync("stage_check_event_round_trips_the_result", "A stage-check event carries the mission's ids and reads back the same result", TestTags.Positive, () =>
+            {
+                Mission mission = new Mission("Work", "Do it") { TenantId = "ten_x", VesselId = "vsl_x", VoyageId = "vyg_x" };
+                Captain captain = new Captain("qwen", AgentRuntimeEnum.Mux);
+                StageCheckResult result = new StageCheckResult { Status = StageCheckStatusEnum.CouldNotRun, Reason = StageCheckReasonEnum.TimedOut, FailedCommand = "dotnet test", FailureMessage = "timed out" };
+                result.Commands.Add("dotnet test");
+
+                ArmadaEvent evt = StageCheckEvents.Build(mission, captain, result);
+                AssertEqual(StageCheckEvents.EventType, evt.EventType);
+                AssertEqual(mission.Id, evt.MissionId);
+                AssertEqual("ten_x", evt.TenantId);
+                AssertEqual(captain.Id, evt.CaptainId);
+                AssertContains("could not run (TimedOut)", evt.Message);
+
+                StageCheckResult? read = StageCheckEvents.Read(evt);
+                AssertNotNull(read);
+                AssertEqual(StageCheckStatusEnum.CouldNotRun, read!.Status);
+                AssertEqual(StageCheckReasonEnum.TimedOut, read.Reason);
+                AssertEqual("dotnet test", read.FailedCommand);
+                AssertNull(StageCheckEvents.Read(new ArmadaEvent("other", "x") { Payload = evt.Payload }), "another event type is not read");
+                AssertNull(StageCheckEvents.Read(new ArmadaEvent(StageCheckEvents.EventType, "x") { Payload = "{not json" }), "a malformed payload reads as null");
+                AssertThrows<ArgumentNullException>(() => StageCheckEvents.Build(mission, captain, null!));
+                return Task.CompletedTask;
+            }));
+
             cases.Add(CaseAsync("quota_failure_quarantines_without_an_idle_gap", "A usage-limit failure moves the captain straight to Quarantined, so a waiting mission is never handed to it", TestTags.Reliability, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

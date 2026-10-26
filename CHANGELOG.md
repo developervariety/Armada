@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Stage checks say whether a stage was verified
+
+- **A skipped check no longer looks like a passed one.** Every stage check is now recorded on its mission as a `mission.stage_check` event whose payload is a `StageCheckResult`: `status` `Passed`, `Failed`, `Skipped`, or `CouldNotRun`, a `reason` (`RuntimeNotChecked`, `ReviewPersona`, `VerifierReportedBlocker`, `NoDock`, `NoWorkflowProfile`, `NoCommands`, `NoNewCommit`, `HarborDisconnected`, `TimedOut`, `Error`), the commands, the failed command and its exit code, pre-existing failures (commands that fail on the base commit too), and the duration. Before, the check returned nothing both when it passed and for every skip, so nobody could tell which stages were checked. Behavior is unchanged: the same results block the stage as before. `IMissionService.CheckStageWorkAsync` returns the result; `VerifyStageWorkAsync` still returns only the failure note. See [CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md). Phase 1, step 3 of [MODEL_HETEROGENEITY.md](docs/MODEL_HETEROGENEITY.md).
+
 ### Leftover-work commits skip scratch files
 
 - **Armada's commit of work a captain left uncommitted no longer picks up scratch files.** Untracked editor backups and merge leftovers (`*.backup`, `*.bak`, `*.orig`, `*.rej`, `*.tmp`, `*.swp`, `*.swo`, `*~`, `.DS_Store`, `Thumbs.db`) stay in the worktree, uncommitted, so a `README.md.backup` no longer lands on the branch and draws a Judge rejection. A tracked file with such a name is still committed. When only scratch files are left, no commit is made. Part of Phase 1 of [MODEL_HETEROGENEITY.md](docs/MODEL_HETEROGENEITY.md).

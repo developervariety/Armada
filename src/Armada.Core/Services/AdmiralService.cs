@@ -1029,7 +1029,9 @@ namespace Armada.Core.Services
                 // instead of handing broken code to the next stage.
                 if (mission != null)
                 {
-                    string? checkFailure = await _Missions.VerifyStageWorkAsync(mission, captain, token).ConfigureAwait(false);
+                    StageCheckResult check = await _Missions.CheckStageWorkAsync(mission, captain, token).ConfigureAwait(false);
+                    await RecordStageCheckAsync(mission, captain, check, token).ConfigureAwait(false);
+                    string? checkFailure = check.FailureMessage;
                     if (checkFailure != null)
                     {
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts && await TryResumeInPlaceAsync(captain, mission, checkFailure, token).ConfigureAwait(false))
@@ -1668,6 +1670,18 @@ namespace Armada.Core.Services
         }
 
         /// <summary>Emit an event to the event log database.</summary>
+        private async Task RecordStageCheckAsync(Mission mission, Captain captain, StageCheckResult check, CancellationToken token)
+        {
+            try
+            {
+                await _Database.Events.CreateAsync(StageCheckEvents.Build(mission, captain, check), token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Warn(_Header + "could not record the stage check for mission " + mission.Id + ": " + ex.Message);
+            }
+        }
+
         private async Task EmitEventAsync(string eventType, string message,
             string? entityType = null, string? entityId = null,
             string? captainId = null, string? missionId = null,
