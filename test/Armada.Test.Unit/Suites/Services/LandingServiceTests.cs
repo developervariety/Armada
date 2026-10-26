@@ -1081,7 +1081,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private static async Task AssertIntegrationContextChangeAsync(string change)
+        private async Task AssertIntegrationContextChangeAsync(string change)
         {
             if (OperatingSystem.IsWindows()) return;
             string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_context_" + Guid.NewGuid().ToString("N"));
