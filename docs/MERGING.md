@@ -96,11 +96,19 @@ use one shared validator.
    the merge was built on, and the merged (integration) commit.
 2. It resolves the vessel's workflow profile. The required checks are the
    profile's `BuildCommand` and `UnitTestCommand`.
-3. For each required check, it reuses a `Passed` Check that ran the same command
-   at exactly the integration commit. Otherwise it runs the Check through the
-   normal Check service, in an isolated checkout of the integration commit and
-   under the host-wide command slot. A fast-forward landing of a tip that already
-   passed therefore runs no second gate.
+3. For each required check, it reuses a full native Armada Check only at exactly
+   the integration commit, with exit code zero, the current profile identity,
+   and an exact trimmed command. A versioned `check.execution_context` receipt
+   binds that Check to its captured profile, declared environment, resolved
+   execution budget, repository source and native runtime. The receipt stores
+   an opaque SHA-256 fingerprint, never environment values. Missing, malformed
+   or mismatched receipts require a fresh Check. Imported, deployment, gate-
+   satisfied and Harbor-owned results do not supply native reuse proof.
+   Harbor checks run through their configured route; native history cannot
+   substitute for a current Harbor binding.
+   Otherwise the normal Check service runs in an isolated checkout of the
+   integration commit under the host-wide command slot. A fast-forward of a
+   tip with matching independent execution evidence runs no second gate.
 4. It records a `landing.integration_validation` event for the mission (direct
    landing) or the merge entry (queue). The payload names the outcome, the
    reason, the source, target-base and integration commits, and the linked

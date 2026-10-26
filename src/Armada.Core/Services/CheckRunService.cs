@@ -423,6 +423,7 @@ namespace Armada.Core.Services
                 CheckCommandBudget budget = CreateCommandBudget(profile, run.Type);
 
                 CommandExecutionResult execution;
+                CheckExecutionContextReceipt? executionContext = null;
 
                 try
                 {
@@ -481,6 +482,8 @@ namespace Armada.Core.Services
                         }
                         run = claim.Run;
                         OnCheckRunChanged?.Invoke(run);
+                        Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
+                        if (!harborSelected) executionContext = CaptureExecutionContext(run, vessel, profile, executionCommand, commandEnvironment);
                         harborExecution = await TryRunHarborCheckAsync(run, vessel, profile, executionCommand,
                             !String.IsNullOrWhiteSpace(request.CommandOverride), budget, token).ConfigureAwait(false);
                         if (harborSelected && harborExecution == null)
@@ -501,7 +504,6 @@ namespace Armada.Core.Services
                         }
                         else
                         {
-                            Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
                             execution = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
                                 executionCommand, executionDirectory, timeout, token, commandEnvironment)).ConfigureAwait(false);
                         }
@@ -556,6 +558,8 @@ namespace Armada.Core.Services
                 FinishExecutedRun(run, budget);
 
                 run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
+                if (execution.ExitCode == 0 && harborExecution == null)
+                    await RecordExecutionContextAsync(run, executionContext, token).ConfigureAwait(false);
                 OnCheckRunChanged?.Invoke(run);
                 harborArtifacts?.Dispose();
                 return run;
@@ -1219,6 +1223,7 @@ namespace Armada.Core.Services
             CheckCommandBudget budget = CreateCommandBudget(profile, run.Type);
 
             CommandExecutionResult execution;
+            CheckExecutionContextReceipt? executionContext = null;
 
             try
             {
@@ -1285,6 +1290,8 @@ namespace Armada.Core.Services
                     }
                     run = claim.Run;
                     OnCheckRunChanged?.Invoke(run);
+                    Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
+                    if (!harborSelected) executionContext = CaptureExecutionContext(run, vessel, profile, executionCommand, commandEnvironment);
                     harborExecution = await TryRunHarborCheckAsync(run, vessel, profile, executionCommand, false, budget, token).ConfigureAwait(false);
                     if (harborSelected && harborExecution == null)
                         throw new InvalidOperationException("harbor_owned_check_route_lost");
@@ -1304,7 +1311,6 @@ namespace Armada.Core.Services
                     }
                     else
                     {
-                        Dictionary<string, string> commandEnvironment = await BuildCommandEnvironmentAsync(profile, run, token).ConfigureAwait(false);
                         execution = await budget.ExecuteAsync(timeout => ExecuteCommandAsync(
                             executionCommand, executionDirectory, timeout, token, commandEnvironment)).ConfigureAwait(false);
                     }
@@ -1348,6 +1354,8 @@ namespace Armada.Core.Services
             FinishExecutedRun(run, budget);
 
             run = await CompleteExecutionAsync(run, token).ConfigureAwait(false);
+            if (execution.ExitCode == 0 && harborExecution == null)
+                await RecordExecutionContextAsync(run, executionContext, token).ConfigureAwait(false);
             OnCheckRunChanged?.Invoke(run);
             return run;
         }

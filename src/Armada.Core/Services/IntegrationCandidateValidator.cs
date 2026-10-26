@@ -20,8 +20,8 @@ namespace Armada.Core.Services
     /// textual merge of two individually green branches can still break the target. The required checks
     /// are the Build and UnitTest commands of the vessel's resolved workflow profile, executed through
     /// <see cref="CheckRunService"/> in an isolated checkout of the candidate commit, under the host-wide
-    /// command slot. A Check that already passed at exactly the candidate commit with the same command is
-    /// reused rather than run again, so a fast-forward landing of a reviewed tip costs no second gate.
+    /// command slot. A full native Check at exactly the candidate commit can be reused only when its captured
+    /// execution context matches the current profile, command, environment, budget and native route.
     /// <para>
     /// The records carry no voyage and no mission, so they never decide a branch-review gate; the evidence
     /// event links them to the landing instead. The caller holds the vessel's repository slot; this class
@@ -182,7 +182,7 @@ namespace Armada.Core.Services
             foreach (CheckRunTypeEnum type in required)
             {
                 string command = _WorkflowProfiles.ResolveCommand(profile!, type) ?? String.Empty;
-                CheckRun? reused = await FindPassingRecordAsync(vessel, type, command, candidate.IntegrationCommit, token).ConfigureAwait(false);
+                CheckRun? reused = await FindPassingRecordAsync(vessel, profile!, type, command, candidate.IntegrationCommit, token).ConfigureAwait(false);
                 if (reused != null)
                 {
                     passed.CheckRunIds.Add(reused.Id);
@@ -275,10 +275,10 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// A Passed record for this vessel, type and command at exactly the candidate commit, or null. A read
-        /// failure returns null, so an unreadable history costs a run rather than a false green.
+        /// A full independent Passed record for this vessel and exact candidate commit with the current captured
+        /// execution context, or null. Unreadable or unproven history costs a run rather than a false green.
         /// </summary>
-        private async Task<CheckRun?> FindPassingRecordAsync(Vessel vessel, CheckRunTypeEnum type, string command, string commit, CancellationToken token)
+        private async Task<CheckRun?> FindPassingRecordAsync(Vessel vessel, WorkflowProfile profile, CheckRunTypeEnum type, string command, string commit, CancellationToken token)
         {
             try
             {
@@ -292,16 +292,18 @@ namespace Armada.Core.Services
                     IncludeOutput = false
                 };
                 EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
-                string expectedCommand = NormalizeCommand(command);
-                return page.Objects
+                string expectedCommand = command.Trim();
+                IEnumerable<CheckRun> candidates = page.Objects
                     .Where(run => run != null
                         && run.Status == CheckRunStatusEnum.Passed
                         && String.Equals(run.VesselId, vessel.Id, StringComparison.Ordinal)
                         && !String.IsNullOrWhiteSpace(run.CommitHash)
                         && String.Equals(run.CommitHash!.Trim(), commit.Trim(), StringComparison.OrdinalIgnoreCase)
-                        && String.Equals(NormalizeCommand(run.Command), expectedCommand, StringComparison.Ordinal))
-                    .OrderByDescending(run => run.CreatedUtc)
-                    .FirstOrDefault();
+                        && String.Equals(run.Command?.Trim(), expectedCommand, StringComparison.Ordinal))
+                    .OrderByDescending(run => run.CreatedUtc);
+                foreach (CheckRun run in candidates)
+                    if (await _CheckRuns.HasMatchingExecutionContextAsync(run, vessel, profile, token).ConfigureAwait(false)) return run;
+                return null;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -357,12 +359,6 @@ namespace Armada.Core.Services
                 isTenantAdmin: true,
                 authMethod: "System",
                 principalDisplay: "Integration validation");
-        }
-
-        private static string NormalizeCommand(string? command)
-        {
-            if (String.IsNullOrWhiteSpace(command)) return String.Empty;
-            return String.Join(" ", command.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         }
 
         private static string ShortCommit(string? commit)

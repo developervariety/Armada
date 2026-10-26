@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Integration Check reuse requires a captured native execution-context receipt, exact quoted command text and current profile/environment/budget identity. Unproven or changed context runs its Check again.
+
 - Queued server gates create build temp only after lock admission. Refused gates leave the current holder's build servers and temp files intact.
 
 - The Server area shows Harbor jobs through the existing owner-scoped read API.
