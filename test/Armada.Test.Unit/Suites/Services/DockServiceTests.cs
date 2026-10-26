@@ -128,7 +128,8 @@ namespace Armada.Test.Unit.Suites.Services
                         catch (InvalidOperationException) { linkRefused = true; }
                         AssertTrue(linkRefused, "Even a broken symlink must not be treated as a missing managed checkout");
                         AssertNotNull(new DirectoryInfo(path).LinkTarget, "The link must not be replaced");
-                        Directory.Delete(path);
+                        if (OperatingSystem.IsWindows()) Directory.Delete(path);
+                        else File.Delete(path);
                         AssertEqual("foreign work", await File.ReadAllTextAsync(Path.Combine(foreignDirectory, "keep.txt")).ConfigureAwait(false), "Foreign files remain intact");
                         dock.BranchName = "missing/continuation";
                         await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
