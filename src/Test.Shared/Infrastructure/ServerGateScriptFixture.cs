@@ -234,7 +234,7 @@ namespace Test.Shared.Infrastructure
                 string firstText = await firstOutput.ConfigureAwait(false) + await firstErrors.ConfigureAwait(false);
                 string secondText = await secondOutput.ConfigureAwait(false) + await secondErrors.ConfigureAwait(false);
                 AssertEqual(0, first.ExitCode, "first gate succeeds before handing off its scratch directory\n" + firstText);
-                AssertEqual(0, second.ExitCode, "queued gate recreates its own build temp after the holder cleans up\n" + secondText);
+                AssertEqual(0, second.ExitCode, "queued gate owns its scratch lock and build temp after the holder cleans up\n" + secondText);
                 AssertTrue(!Directory.Exists(Path.Combine(scratch, "tmp")), "the final holder cleans up its own temp");
             }
             finally

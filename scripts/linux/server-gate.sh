@@ -280,10 +280,14 @@ run_gate() {
 # holder; a lock whose owner process is gone is reported and taken over, so a killed gate cannot wedge the
 # host. A caller that already holds the lock passes --lock-held.
 lock_taken=0
+scratch_lock_opened=0
 release_host_lock() {
   if [ "${gate_tmp_owned:-0}" = "1" ]; then
     dotnet build-server shutdown < /dev/null > /dev/null 2>&1 9>&- || true
     rm -rf "$gate_tmp" 2>/dev/null || echo "WARNING: could not remove gate temp directory $gate_tmp"
+  fi
+  if [ "$scratch_lock_opened" = "1" ]; then
+    exec 9>&-
   fi
   if [ "$lock_taken" = "1" ]; then
     # Release only a lock this gate still owns. When the owner file names another holder, or is gone,
@@ -353,7 +357,11 @@ if [ "$min_available_mb" -gt 0 ] && [ -r /proc/meminfo ]; then
 fi
 
 if command -v flock >/dev/null 2>&1; then
-  exec 9> "$scratch/gate.lock"
+  if ! exec 9> "$scratch/gate.lock"; then
+    echo "RESULT: FAIL (cannot open scratch lock in $scratch)"
+    exit 1
+  fi
+  scratch_lock_opened=1
   if ! flock -n 9; then
     echo "RESULT: FAIL (another gate is running in $scratch)"
     exit 1
