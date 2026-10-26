@@ -56,6 +56,26 @@ namespace Test.Shared.Infrastructure
                 if [ "$FIXTURE_SCENARIO" = queued ]; then exec /bin/sleep 0.05; fi
                 exec /bin/sleep "$@"
                 """);
+            WriteExecutable(bin, "rmdir", """
+                #!/bin/bash
+                /usr/bin/rmdir "$@" || exit $?
+                if [ "$FIXTURE_SCENARIO" = queued ] && [ "$FIXTURE_ROLE" = first ] && [ "$1" = "$FIXTURE_ROOT/host.lock" ]; then
+                  for ((attempt=0; attempt<200; attempt++)); do
+                    [ ! -f "$FIXTURE_ROOT/queued-scratch-checked" ] || exit 0
+                    /bin/sleep 0.05
+                  done
+                  printf 'queued scratch handoff barrier timed out\n' >&2; exit 99
+                fi
+                """);
+            WriteExecutable(bin, "flock", """
+                #!/bin/bash
+                /usr/bin/flock "$@"
+                status=$?
+                if [ "$FIXTURE_SCENARIO" = queued ] && [ "$FIXTURE_ROLE" = second ] && [ "$*" = '-n 9' ]; then
+                  touch "$FIXTURE_ROOT/queued-scratch-checked"
+                fi
+                exit "$status"
+                """);
             WriteExecutable(bin, "df", """
                 #!/bin/bash
                 count=0
@@ -219,6 +239,8 @@ namespace Test.Shared.Infrastructure
             }
             finally
             {
+                File.WriteAllText(Path.Combine(root, "release-build"), "release");
+                File.WriteAllText(Path.Combine(root, "queued-scratch-checked"), "release");
                 foreach (Process? process in new[] { first, second })
                 {
                     if (process != null && !process.HasExited)
