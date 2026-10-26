@@ -476,6 +476,39 @@ namespace Armada.Test.Unit.Suites.Services
                         ArchivePutResult result = await sink.VerifyStoredAsync("armada/raw/missionLogs/x/two.log", 10, "abc", CancellationToken.None).ConfigureAwait(false);
                         AssertEqual("verify_failed", result.FailureCode, "A 403 that does not name a cap stays a per-object verify failure, not a cap");
                     }
+
+                    string errorBody = "<Error><Code>InternalError</Code><Message>PRIVATE_RESPONSE</Message><RequestId>xml-request-42</RequestId><HostId>xml-host+/=</HostId></Error>";
+                    using (HttpClient failedClient = new HttpClient(new StubHttpMessageHandler(HttpStatusCode.InternalServerError, errorBody,
+                        new Dictionary<string, string[]> { { "x-amz-request-id", new[] { "header-request-42" } }, { "x-amz-id-2", new[] { "header-host+/=" } }, { "X-Private", new[] { "PRIVATE_HEADER" } } })))
+                    {
+                        S3ArchiveSink sink = new S3ArchiveSink(settings, failedClient);
+                        ArchivePutResult put = await sink.PutBytesAsync("diagnostic.log", new byte[] { 1, 2 }, "text/plain").ConfigureAwait(false);
+                        AssertEqual("upload_failed", put.FailureCode);
+                        AssertFalse(put.Verified);
+                        AssertContains("HTTP 500 InternalError", put.FailureMessage!);
+                        AssertContains("request_id=header-request-42", put.FailureMessage!);
+                        AssertContains("host_id=header-host+/=", put.FailureMessage!);
+                        AssertFalse(put.FailureMessage!.Contains("PRIVATE_RESPONSE", StringComparison.Ordinal), "provider message bodies are not copied into diagnostics");
+                        ArchivePutResult head = await sink.VerifyStoredAsync("diagnostic.log", 2, "abc").ConfigureAwait(false);
+                        AssertEqual("verify_failed", head.FailureCode);
+                        AssertContains("request_id=header-request-42", head.FailureMessage!);
+                        AssertFalse(put.FailureMessage!.Contains("PRIVATE_HEADER", StringComparison.Ordinal));
+                        AssertFalse(put.FailureMessage!.Contains("xml-request", StringComparison.Ordinal), "only allowlisted response headers are included");
+                    }
+                    foreach (string[] unsafeId in new[] { new[] { "unsafe id" }, new[] { new string('x', 513) }, new[] { "one", "two" } })
+                    {
+                        using (HttpClient unsafeClient = new HttpClient(new StubHttpMessageHandler(HttpStatusCode.InternalServerError,
+                            "<Error><Code>InternalError</Code><Message>PRIVATE_RESPONSE</Message></Error>",
+                            new Dictionary<string, string[]> { { "x-amz-request-id", unsafeId }, { "x-amz-id-2", unsafeId } })))
+                        {
+                            ArchivePutResult failed = await new S3ArchiveSink(settings, unsafeClient).PutBytesAsync(
+                                "diagnostic.log", new byte[] { 1 }, "text/plain").ConfigureAwait(false);
+                            AssertEqual("upload_failed", failed.FailureCode);
+                            AssertFalse(failed.FailureMessage!.Contains("request_id=", StringComparison.Ordinal));
+                            AssertFalse(failed.FailureMessage!.Contains("host_id=", StringComparison.Ordinal));
+                            AssertFalse(failed.FailureMessage!.Contains("PRIVATE_RESPONSE", StringComparison.Ordinal));
+                        }
+                    }
                 }
                 finally
                 {
@@ -1343,11 +1376,13 @@ namespace Armada.Test.Unit.Suites.Services
         {
             private readonly HttpStatusCode _Status;
             private readonly string _Body;
+            private readonly Dictionary<string, string[]>? _Headers;
 
-            public StubHttpMessageHandler(HttpStatusCode status, string body)
+            public StubHttpMessageHandler(HttpStatusCode status, string body, Dictionary<string, string[]>? headers = null)
             {
                 _Status = status;
                 _Body = body;
+                _Headers = headers;
             }
 
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -1356,6 +1391,9 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     Content = new StringContent(_Body)
                 };
+                if (_Headers != null)
+                    foreach (KeyValuePair<string, string[]> header in _Headers)
+                        response.Headers.TryAddWithoutValidation(header.Key, header.Value);
                 return Task.FromResult(response);
             }
         }
