@@ -411,7 +411,7 @@ namespace Test.Shared.Suites.Services
                 AssertContains("Another dashboard deploy is active", result.SecondOutput, "the refusal should identify the active deploy");
                 AssertEqual(0, result.FirstExitCode, "the first dashboard deploy should complete after its build is released");
                 AssertEqual(1, result.BuildCount, "the refused deploy should not start a second dashboard build");
-                AssertEqual("first-build", result.DashboardContent, "the first deploy should install its complete output after the lock is released");
+                AssertEqual("index.html=first-build", result.DashboardContent, "the first deploy should install its complete output after the lock is released");
                 AssertFalse(result.LockExists, "the completed deploy should release its lock");
             }, skip: OperatingSystem.IsWindows(), skipReason: "POSIX shell behavior is covered on Linux and macOS."));
 
