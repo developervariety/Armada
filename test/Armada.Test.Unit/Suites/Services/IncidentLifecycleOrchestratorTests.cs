@@ -402,45 +402,77 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains(failedAgain.Id, reobserved.RecoveryNotes ?? "", "The newer failing check is recorded as evidence.");
             }).ConfigureAwait(false);
 
-            await RunTest("Existing failed check does not reopen a later manual mitigation", async () =>
+            await RunTest("Existing failure does not reopen a later repeated manual mitigation", async () =>
             {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_ack", "usr_inc_life_ack").ConfigureAwait(false);
-                Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_ack", "usr_inc_life_ack").ConfigureAwait(false);
-
-                CheckRun failed = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                foreach (bool missionFailure in new[] { false, true })
                 {
-                    TenantId = vessel.TenantId,
-                    UserId = vessel.UserId,
-                    VesselId = vessel.Id,
-                    Type = CheckRunTypeEnum.UnitTest,
-                    Label = "unit",
-                    Command = "dotnet test",
-                    Status = CheckRunStatusEnum.Failed,
-                    CompletedUtc = DateTime.UtcNow.AddMinutes(-5),
-                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-5)
-                }).ConfigureAwait(false);
-
-                IncidentService incidents = new IncidentService(testDb.Driver);
-                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
-                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
-                {
-                    Title = "Automated check failed: unit",
-                    Status = IncidentStatusEnum.Mitigated,
-                    Severity = IncidentSeverityEnum.High,
-                    VesselId = vessel.Id,
-                    CheckRunId = failed.Id,
-                    DetectedUtc = DateTime.UtcNow.AddMinutes(-6),
-                    MitigatedUtc = DateTime.UtcNow.AddMinutes(-1),
-                    RecoveryNotes = "Failure acknowledged with a durable correction owner."
-                }).ConfigureAwait(false);
-
-                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents);
-                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false));
-
-                Incident? updated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
-                AssertTrue(updated != null, "Expected incident.");
-                AssertEqual(IncidentStatusEnum.Mitigated, updated!.Status);
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    await EnsureTenantAndUserAsync(testDb, "ten_inc_life_ack", "usr_inc_life_ack").ConfigureAwait(false);
+                    Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_ack", "usr_inc_life_ack").ConfigureAwait(false);
+                    CheckRun failed = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = vessel.TenantId,
+                        UserId = vessel.UserId,
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Label = "unit",
+                        Command = "dotnet test",
+                        Status = CheckRunStatusEnum.Failed,
+                        CompletedUtc = DateTime.UtcNow.AddMinutes(-5),
+                        LastUpdateUtc = DateTime.UtcNow.AddMinutes(-5)
+                    }).ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb, vessel, MissionStatusEnum.Failed, "Acknowledged mission").ConfigureAwait(false);
+                    IncidentService incidents = new IncidentService(testDb.Driver);
+                    AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                    DateTime oldMitigation = DateTime.UtcNow.AddMinutes(-10);
+                    Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = missionFailure ? "Mission failed: Acknowledged mission" : "Automated check failed: unit",
+                        Status = IncidentStatusEnum.Mitigated,
+                        Severity = IncidentSeverityEnum.High,
+                        VesselId = vessel.Id,
+                        CheckRunId = missionFailure ? null : failed.Id,
+                        MissionId = missionFailure ? mission.Id : null,
+                        DetectedUtc = DateTime.UtcNow.AddMinutes(-15),
+                        MitigatedUtc = oldMitigation,
+                        RecoveryNotes = "Earlier failure acknowledged."
+                    }).ConfigureAwait(false);
+                    IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents);
+                    AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The newer failure reopens the old mitigation.");
+                    Incident? reopened = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                    AssertEqual(IncidentStatusEnum.Open, reopened!.Status);
+                    DateTime? priorMitigation = reopened.MitigatedUtc;
+                    Incident noteOnly = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    {
+                        RecoveryNotes = "Correction owner retained."
+                    }).ConfigureAwait(false);
+                    AssertEqual(priorMitigation, noteOnly.MitigatedUtc, "A note alone does not acknowledge newer failure evidence.");
+                    DateTime beforeMitigation = DateTime.UtcNow;
+                    Incident mitigated = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    {
+                        Status = IncidentStatusEnum.Mitigated,
+                        RecoveryNotes = "Current failure acknowledged with a durable correction owner."
+                    }).ConfigureAwait(false);
+                    AssertTrue(mitigated.MitigatedUtc >= beforeMitigation, "A repeated mitigation records the new acknowledgement time.");
+                    AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "Acknowledged failure evidence does not reopen the new mitigation.");
+                    Incident unchanged = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    {
+                        Status = IncidentStatusEnum.Mitigated,
+                        RecoveryNotes = "Same mitigation, more detail."
+                    }).ConfigureAwait(false);
+                    AssertEqual(mitigated.MitigatedUtc, unchanged.MitigatedUtc, "Same-status edits retain the acknowledgement time.");
+                    await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest { Status = IncidentStatusEnum.Open }).ConfigureAwait(false);
+                    DateTime explicitMitigation = DateTime.UtcNow.AddMinutes(-1);
+                    Incident explicitUpdate = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    {
+                        Status = IncidentStatusEnum.Mitigated,
+                        MitigatedUtc = explicitMitigation
+                    }).ConfigureAwait(false);
+                    AssertEqual(explicitMitigation, explicitUpdate.MitigatedUtc, "An explicit acknowledgement time is preserved.");
+                    AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false));
+                    Incident? updated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                    AssertEqual(IncidentStatusEnum.Mitigated, updated!.Status);
+                }
             }).ConfigureAwait(false);
 
             await RunTest("Later same-vessel passed check closes stale infrastructure-blocked check incident", async () =>
