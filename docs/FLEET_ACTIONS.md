@@ -9,7 +9,8 @@ credentials cannot use this operator surface.
 
 Open **Mission Actions** in the Dashboard. Save a name, prompt, optional pipeline
 and concurrency from one through eight. The prompt can use `{vesselName}` and
-`{vesselId}`. Select up to 50 vessels, review the selected targets, and start the
+`{vesselId}`. Only these tokens are substituted; other text, including JSON and
+code braces, stays unchanged. Select up to 50 vessels, review the targets, and start the
 run. An inactive definition keeps its history and does not accept new runs.
 
 The server stores the action, rendered prompts, vessel ownership, effective

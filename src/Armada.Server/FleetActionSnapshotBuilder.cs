@@ -4,7 +4,6 @@ namespace Armada.Server
     using System.Collections.Generic;
     using System.Security.Cryptography;
     using System.Text.Json;
-    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -15,8 +14,6 @@ namespace Armada.Server
 
     internal static class FleetActionSnapshotBuilder
     {
-        private static readonly Regex _Placeholder = new Regex(@"\{([^{}]+)\}", RegexOptions.CultureInvariant);
-
         internal static string Fingerprint(string actionId, List<string> vesselIds)
         {
             byte[] input = JsonSerializer.SerializeToUtf8Bytes(new { ActionId = actionId, VesselIds = vesselIds });
@@ -81,20 +78,8 @@ namespace Armada.Server
             return Convert.ToHexString(SHA256.HashData(content));
         }
 
-        internal static void ValidateTemplate(string template)
-        {
-            foreach (Match match in _Placeholder.Matches(template))
-                if (match.Groups[1].Value != "vesselId" && match.Groups[1].Value != "vesselName")
-                    throw new ArgumentException("Only {vesselId} and {vesselName} prompt placeholders are supported.", nameof(template));
-            string remainder = template.Replace("{vesselId}", String.Empty, StringComparison.Ordinal)
-                .Replace("{vesselName}", String.Empty, StringComparison.Ordinal);
-            if (remainder.Contains('{') || remainder.Contains('}'))
-                throw new ArgumentException("Prompt placeholders must use {vesselId} or {vesselName}.", nameof(template));
-        }
-
         private static string Render(string template, Vessel vessel)
         {
-            ValidateTemplate(template);
             return template.Replace("{vesselId}", vessel.Id, StringComparison.Ordinal)
                 .Replace("{vesselName}", vessel.Name, StringComparison.Ordinal);
         }

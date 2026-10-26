@@ -57,7 +57,6 @@ namespace Armada.Server
                 throw new ArgumentException("A name of at most 255 characters is required.", nameof(request));
             if (String.IsNullOrWhiteSpace(request.PromptTemplate) || request.PromptTemplate.Length > _MaximumPromptLength)
                 throw new ArgumentException("A prompt template of at most 16000 characters is required.", nameof(request));
-            FleetActionSnapshotBuilder.ValidateTemplate(request.PromptTemplate);
             if (request.Concurrency < 1 || request.Concurrency > 8)
                 throw new ArgumentException("Concurrency must be between one and eight.", nameof(request));
             if (!String.IsNullOrWhiteSpace(request.PipelineId) && request.PipelineId.Trim().Length > 128)
