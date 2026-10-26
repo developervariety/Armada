@@ -106,6 +106,20 @@ namespace Armada.Test.Unit.Suites.Services
                 Incident reopened = (await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false))!;
                 AssertEqual(IncidentStatusEnum.Mitigated, reopened.Status);
                 AssertContains("not deployed", reopened.RecoveryNotes ?? String.Empty);
+                AssertTrue(reopened.LastOperatorStatusUtc.HasValue, "The operator decision survives snapshot projection.");
+                CheckRun freshBeforeDecision = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.Build, Label = "build", Command = "dotnet build",
+                    Status = CheckRunStatusEnum.Passed, CompletedUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+                await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest { Status = IncidentStatusEnum.Mitigated }).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "Repeating Mitigated also establishes a new operator decision.");
+                freshBeforeDecision.CompletedUtc = DateTime.UtcNow;
+                await testDb.Driver.CheckRuns.UpdateAsync(freshBeforeDecision).ConfigureAwait(false);
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "A genuinely later passing Check can satisfy normal quiet-period closure.");
+                AssertEqual(IncidentStatusEnum.Closed, (await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false))!.Status);
+
 
             }).ConfigureAwait(false);
 
@@ -216,6 +230,16 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "Cancellation does not supersede an operator-created incident about that cancellation.");
                 AssertEqual(IncidentStatusEnum.Mitigated, (await incidents.ReadAsync(auth, operatorIncident.Id).ConfigureAwait(false))!.Status);
+                Incident historicalCancel = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Automatic incident after cancellation", MissionId = incident.MissionId,
+                    VoyageId = incident.VoyageId, VesselId = vessel.Id, Status = IncidentStatusEnum.Open,
+                    DetectedUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+                await orchestrator.RunSweepAsync().ConfigureAwait(false);
+                AssertEqual(IncidentStatusEnum.Open, (await incidents.ReadAsync(auth, historicalCancel.Id).ConfigureAwait(false))!.Status,
+                    "Even a known automatic incident cannot be superseded by a cancellation before detection.");
+
 
             }).ConfigureAwait(false);
 
@@ -239,7 +263,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
-                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                Incident incident = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = "Mission failed: Landing failed mission",
                     Status = IncidentStatusEnum.Open,
@@ -288,7 +312,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
-                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                Incident incident = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = "Mission failed: Upstream stage",
                     Status = IncidentStatusEnum.Open,
@@ -766,7 +790,7 @@ namespace Armada.Test.Unit.Suites.Services
             rescue.FailureReason = "Autonomous recovery suppressed because parent voyage " + voyage.Id + " is Cancelled.";
             await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
 
-            return await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            return await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Mission failed: " + title,
                 Status = IncidentStatusEnum.Open,

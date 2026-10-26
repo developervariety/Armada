@@ -162,6 +162,18 @@ namespace Armada.Core.Models
         public bool ClosedAutomatically { get; set; } = false;
 
         /// <summary>
+        /// True for incidents created by a system path, false for caller-created incidents, or null
+        /// for legacy snapshots whose creation origin was not recorded. Callers cannot set this value.
+        /// </summary>
+        public bool? OpenedAutomatically { get; set; } = null;
+
+        /// <summary>
+        /// Last explicit caller update to an active status, including a repeated mitigation.
+        /// Recovery evidence must be newer than this operator decision.
+        /// </summary>
+        public DateTime? LastOperatorStatusUtc { get; set; } = null;
+
+        /// <summary>
         /// Optional recovery notes.
         /// </summary>
         public string? RecoveryNotes { get; set; } = null;

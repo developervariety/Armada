@@ -1123,7 +1123,7 @@ namespace Armada.Core.Services
                 EnumerationResult<Incident> existing = await _Incidents.EnumerateAsync(auth,
                     new IncidentQuery { VesselId = vessel.Id, Search = title, ExcludeTerminal = true, PageSize = 1 }, token).ConfigureAwait(false);
                 if (existing.TotalRecords > 0) return;
-                await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
+                await _Incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = title,
                     Summary = summary,
@@ -1193,7 +1193,7 @@ namespace Armada.Core.Services
                     RootCause = rootCause,
                     RecoveryNotes = recoveryNotes
                 };
-                await _Incidents.CreateAsync(auth, request, token).ConfigureAwait(false);
+                await _Incidents.CreateAutomaticallyAsync(auth, request, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {

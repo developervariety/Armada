@@ -7643,7 +7643,7 @@ namespace Armada.Core.Services
                 {
                     string title = mission.Title ?? mission.Id;
                     if (title.Length > 96) title = title.Substring(0, 96);
-                    await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                     {
                         Title = "Owner question: " + title,
                         Summary = "The " + stage + " stage of " + mission.Mode + " mission " + mission.Id
@@ -7716,7 +7716,7 @@ namespace Armada.Core.Services
             if (title.Length > 96) title = title.Substring(0, 96);
             string questionText = LastOutputLines(completedMission.AgentOutput, 20);
 
-            await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Handoff blocked: " + title,
                 Summary = "The " + (completedMission.Persona ?? "Worker") + " stage of mission " + completedMission.Id
@@ -8020,7 +8020,7 @@ namespace Armada.Core.Services
             System.Text.StringBuilder lines = new System.Text.StringBuilder();
             foreach (string conflict in conflicts) lines.AppendLine("- " + conflict);
 
-            Incident created = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            Incident created = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Criterion review: a required fix conflicts with an acceptance criterion on " + title,
                 Summary = "The Judge for mission " + mission.Id + " requires a fix that cannot be made without breaking a stated "
@@ -8071,7 +8071,7 @@ namespace Armada.Core.Services
             System.Text.StringBuilder revisions = new System.Text.StringBuilder();
             foreach (string item in items) revisions.AppendLine("- " + item);
 
-            await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Operator landing: comment-only NEEDS_REVISION on " + title,
                 Summary = "The Judge returned NEEDS_REVISION for mission " + mission.Id
@@ -13491,7 +13491,7 @@ namespace Armada.Core.Services
 
                 string title = mission.Title ?? mission.Id;
                 if (title.Length > 96) title = title.Substring(0, 96);
-                await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = "Mission unassignable: " + title,
                     Summary = "Mission " + mission.Id + " stayed unassignable for " + ticks + " assignment passes: " + reason,

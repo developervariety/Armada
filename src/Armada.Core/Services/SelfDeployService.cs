@@ -724,7 +724,7 @@ namespace Armada.Core.Services
                     true,
                     "SelfDeploy");
 
-                Incident created = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                Incident created = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = "Self-deploy blocked",
                     Summary = summary,

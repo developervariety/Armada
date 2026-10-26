@@ -242,6 +242,20 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = IncidentStatusEnum.Open
                 }).ConfigureAwait(false);
                 AssertEqual(IncidentStatusEnum.Open, reopened.Status, "an operator can still reopen");
+
+                Incident observedClosed = (await incidents.ReadAsync(McpTestCaller.Operator, created.Id).ConfigureAwait(false))!;
+                Incident operatorReopen = await incidents.UpdateAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Mitigated, RecoveryNotes = "Operator has not verified deployment."
+                }).ConfigureAwait(false);
+                IncidentService secondWriter = new IncidentService(testDb.Driver);
+                Incident? staleClose = await secondWriter.UpdateAutomaticallyIfUnchangedAsync(McpTestCaller.Operator, observedClosed,
+                    new IncidentUpsertRequest { Status = IncidentStatusEnum.Closed, RecoveryNotes = "Stale close." }).ConfigureAwait(false);
+                AssertNull(staleClose, "A stale lifecycle snapshot cannot override an active operator reopen.");
+                Incident preserved = (await incidents.ReadAsync(McpTestCaller.Operator, created.Id).ConfigureAwait(false))!;
+                AssertEqual(IncidentStatusEnum.Mitigated, preserved.Status);
+                AssertEqual(operatorReopen.RecoveryNotes, preserved.RecoveryNotes);
+                AssertEqual(operatorReopen.LastOperatorStatusUtc, preserved.LastOperatorStatusUtc);
             }).ConfigureAwait(false);
 
             await RunTest("A snapshot stored before opened reasons existed treats its root cause as the opened reason", async () =>

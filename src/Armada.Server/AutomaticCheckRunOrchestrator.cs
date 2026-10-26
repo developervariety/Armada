@@ -1024,7 +1024,7 @@ namespace Armada.Server
 
             try
             {
-                await _Incidents.CreateAsync(incidentAuth, request, token).ConfigureAwait(false);
+                await _Incidents.CreateAutomaticallyAsync(incidentAuth, request, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

@@ -3869,7 +3869,7 @@ namespace Armada.Core.Services
 
                 string title = mission.Title ?? mission.Id;
                 if (title.Length > 96) title = title.Substring(0, 96);
-                Incident created = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                Incident created = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = "Mission failed: " + title,
                     Summary = "Mission " + mission.Id + " failed on process exit and halted voyage " + mission.VoyageId + ". Reason: " + failureReason,
