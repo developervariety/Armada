@@ -246,6 +246,13 @@ keeps the question and any partial reply when the response is lost or times
 out. It shows an unconfirmed-result notice and releases the composer without
 a tab reload. Check the result before resending a request that can run tools.
 
+The home dashboard reports failed reads in an inline alert and keeps the last
+available rows and voyage labels. The alert names the failed section and its
+error. Retry and the next scheduled or relevant event refresh use the same
+bounded load path. A successful refresh clears the read alert. Action errors
+keep their own dialog. Chat tokens, logs and protocol acknowledgements do not
+trigger home reloads; record changes and reconnect resyncs do.
+
 An implementation mission whose branch already matches the merge-queue target
 requires a recorded delivery commit and a reachable commit made strictly after
 `Mission.StartedUtc`. Git commit time supplies this check. Missing or unreadable

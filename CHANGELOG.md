@@ -10,6 +10,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Home dashboard refresh failures show named read errors and a Retry button
+  beside the last available data. Partial failures retain voyage labels.
+  Chat, log and protocol frames do not start unrelated home-page reloads.
+
 - Integration Check reuse requires a captured native execution-context receipt, exact quoted command text and current profile/environment/budget identity. Unproven or changed context runs its Check again.
 
 - Queued server gates create build temp only after lock admission. Refused gates leave the current holder's build servers and temp files intact.

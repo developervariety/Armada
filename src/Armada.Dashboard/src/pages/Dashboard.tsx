@@ -26,7 +26,6 @@ import FilterBar from '../components/shared/FilterBar';
 import MissionHistoryChart from '../components/MissionHistoryChart';
 import { useLocale } from '../context/LocaleContext';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
-import { useLoadError } from '../lib/useLoadError';
 
 interface VoyageProgress {
   voyage: {
@@ -64,6 +63,13 @@ const RECENT_MISSION_COUNT = 10;
 const VOYAGE_VESSEL_PAGE_SIZE = 100;
 /** Home keeps its previous 30-second cadence unless the operator chooses another interval. */
 const HOME_DEFAULT_REFRESH_SECONDS = 30;
+// Chat tokens, logs and protocol acknowledgements do not change the home page's records.
+const DASHBOARD_REFRESH_EVENTS = new Set([
+  'mission.changed', 'voyage.changed', 'captain.changed', 'fleet.changed', 'vessel.changed',
+  'signal.received', 'signal.changed', 'check-run.changed', 'incident.changed',
+  'fleet.created', 'fleet.updated', 'fleet.deleted', 'vessel.created', 'vessel.updated', 'vessel.deleted',
+  'status.snapshot', 'client.resync',
+]);
 
 function voyagePercent(vp: VoyageProgress): number {
   if (!vp.totalMissions) return 0;
@@ -87,7 +93,9 @@ export default function Dashboard() {
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
-  const { error, setError, loadFailed, loadSucceeded } = useLoadError();
+  const [error, setError] = useState('');
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
+  const [hasData, setHasData] = useState(false);
   // Fleet status is a global-administrator read. A refusal is a role boundary, not a failure: it is named once
   // and the route is not requested again for this page, so a narrower session never polls into repeated 403s.
   const [statusRefused, setStatusRefused] = useState(false);
@@ -144,21 +152,33 @@ export default function Dashboard() {
   );
 
   const fetchAll = useCallback(async () => {
+    const failures: string[] = [];
+    async function read<T>(section: string, pending: Promise<T>): Promise<T | null> {
+      try {
+        return await pending;
+      } catch (err: unknown) {
+        failures.push(t('{{section}}: {{message}}', {
+          section: t(section), message: err instanceof Error ? err.message : String(err),
+        }));
+        return null;
+      }
+    }
     try {
       const [statusRes, missionRes, vesselRes, captainRes, fleetRes] = await Promise.all([
         statusRefusedRef.current
           ? Promise.resolve(null)
-          : getStatus().catch((err: unknown) => {
+          : read('Fleet status', getStatus().catch((err: unknown) => {
               if ((err as { status?: number } | null)?.status === 403) {
                 statusRefusedRef.current = true;
                 setStatusRefused(true);
+                return null;
               }
-              return null;
-            }),
-        listMissionSummaries({ pageSize: RECENT_MISSION_COUNT }).catch(() => null),
-        listAllVessels().catch(() => null),
-        listAllCaptains().catch(() => null),
-        listAllFleets().catch(() => null),
+              throw err;
+            })),
+        read('Recent missions', listMissionSummaries({ pageSize: RECENT_MISSION_COUNT })),
+        read('Vessels', listAllVessels()),
+        read('Captains', listAllCaptains()),
+        read('Fleets', listAllFleets()),
       ]);
       const statusData = statusRes as unknown as StatusData | null;
       if (statusData) setStatus(statusData);
@@ -167,32 +187,34 @@ export default function Dashboard() {
       if (vesselRes) setVessels(vesselRes);
       if (fleetRes) setFleets(fleetRes);
       if (captainRes) setCaptains(captainRes);
-      if (!statusRes && !missionRes) loadFailed(t('Failed to load dashboard data.'));
-      else loadSucceeded();
+      if (statusRes || missionRes) setHasData(true);
 
       // Voyage vessels come from the voyage's own mission summary, so a voyage whose missions are older than
       // the recent slice still shows its vessels.
-      const voyageIds = (statusData?.voyages ?? [])
-        .map((vp) => vp.voyage?.id)
-        .filter((id): id is string => Boolean(id));
-      const summaries = await Promise.all(
-        voyageIds.map((id) =>
-          getVoyageMissionSummary(id, { pageSize: VOYAGE_VESSEL_PAGE_SIZE })
-            .then((summary) => ({ id, vesselIds: summary.vessels?.objects ?? [] }))
-            .catch(() => null),
-        ),
-      );
-      const next: Record<string, string[]> = {};
-      for (const entry of summaries) {
-        if (entry) next[entry.id] = entry.vesselIds;
+      if (statusData) {
+        const voyageIds = (statusData.voyages ?? [])
+          .map((vp) => vp.voyage?.id)
+          .filter((id): id is string => Boolean(id));
+        const summaries = await Promise.all(voyageIds.map(async (id) => ({
+          id, summary: await read('Voyage vessels', getVoyageMissionSummary(id, { pageSize: VOYAGE_VESSEL_PAGE_SIZE })),
+        })));
+        setVoyageVesselIds((current) => {
+          const next: Record<string, string[]> = {};
+          for (const entry of summaries) {
+            next[entry.id] = entry.summary ? entry.summary.vessels?.objects ?? [] : current[entry.id] ?? [];
+          }
+          return next;
+        });
       }
-      setVoyageVesselIds(next);
-      // The chart loads itself on mount, so only later refreshes advance its key.
-      if (homeLoadedRef.current) setHistoryRefreshKey((key) => key + 1);
-      homeLoadedRef.current = true;
-    } catch {
-      loadFailed(t('Failed to load dashboard data.'));
+      if (statusRes || missionRes) {
+        // The chart loads itself on mount, so only later successful refreshes advance its key.
+        if (homeLoadedRef.current) setHistoryRefreshKey((key) => key + 1);
+        homeLoadedRef.current = true;
+      }
+    } catch (err: unknown) {
+      failures.push(err instanceof Error ? err.message : t('Failed to load dashboard data.'));
     } finally {
+      setLoadErrors(failures);
       setLoading(false);
     }
   }, [t]);
@@ -225,8 +247,8 @@ export default function Dashboard() {
 
   // Refresh on WebSocket messages through the same coalesced path.
   useEffect(() => {
-    const unsubscribe = subscribe((_msg: WebSocketMessage) => {
-      loadAll();
+    const unsubscribe = subscribe((msg: WebSocketMessage) => {
+      if (DASHBOARD_REFRESH_EVENTS.has(msg.type)) void loadAll();
     });
     return unsubscribe;
   }, [subscribe, loadAll]);
@@ -398,6 +420,19 @@ export default function Dashboard() {
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      {loadErrors.length > 0 && (
+        <div className="dashboard-alerts">
+          <div className="dashboard-alert dashboard-alert-warning" role="alert">
+            <div className="dashboard-alert-content">
+              <strong>{t(hasData
+                ? 'Dashboard refresh failed. Showing the last available data.'
+                : 'Dashboard data could not be loaded.')}</strong>
+              <ul>{loadErrors.map((message, index) => <li key={`${index}:${message}`}>{message}</li>)}</ul>
+              <button className="btn btn-sm" onClick={() => void loadAll()}>{t('Retry dashboard refresh')}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {statusRefused && (
         <div className="dashboard-alerts">
           <div className="dashboard-alert dashboard-alert-warning" role="status">
