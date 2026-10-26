@@ -13,7 +13,7 @@ namespace Armada.Server
 
         private async Task InitializeFleetActionsAsync()
         {
-            _FleetActions = new FleetActionService(_Database, _Admiral, _Settings, _Logging);
+            _FleetActions = new FleetActionService(_Database, _Admiral);
             VoyageDispatchService dispatcher = new VoyageDispatchService(_Database, _Admiral, _Logging,
                 _CodeIndex, _ObjectiveService, _Settings, _ObjectiveDispatchPreviewService, _DispatchStalenessAdapter);
             _FleetActionRunner = new FleetActionMissionRunner(_Database, _FleetActions, _Admiral,

@@ -7,8 +7,6 @@ namespace Armada.Server
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
-    using Armada.Core.Settings;
-    using SyslogLogging;
 
     /// <summary>Owns exact-owner mission action definitions and durable run requests.</summary>
     public sealed partial class FleetActionService
@@ -19,15 +17,13 @@ namespace Armada.Server
         private const int _MaximumRequestIdLength = 128;
         private readonly DatabaseDriver _Database;
         private readonly IAdmiralService _Admiral;
-        private readonly LoggingModule _Logging;
 
         /// <summary>Create the owner-scoped action service.</summary>
-        public FleetActionService(DatabaseDriver database, IAdmiralService admiral, ArmadaSettings settings, LoggingModule? logging = null)
+        public FleetActionService(DatabaseDriver database, IAdmiralService admiral)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             if (settings == null) throw new ArgumentNullException(nameof(settings));
-            _Logging = logging ?? new LoggingModule();
         }
 
         /// <summary>List action definitions for the current operator.</summary>

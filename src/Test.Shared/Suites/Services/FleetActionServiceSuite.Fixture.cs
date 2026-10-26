@@ -28,7 +28,7 @@ namespace Test.Shared.Suites.Services
             settings.CodeIndex.Enabled = false;
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
-            FleetActionService service = new FleetActionService(database, admiral, settings, logging);
+            FleetActionService service = new FleetActionService(database, admiral);
             AuthContext owner = AuthContext.Authenticated(tenant.Id, user.Id, true, user.IsTenantAdmin, "Session");
             return new Fixture(database, service, owner, tenant, user, admiral, settings, logging);
         }
