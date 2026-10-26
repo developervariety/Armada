@@ -35,7 +35,7 @@ namespace Test.Shared.Suites.Services
 
         private static async Task<Vessel> CreateVesselAsync(Fixture fixture, string name)
         {
-            return await fixture.Database.Vessels.CreateAsync(new Vessel(name, "https://example.invalid/" + Guid.NewGuid().ToString("N") + ".git")
+            return await fixture.Database.Vessels.CreateAsync(new Vessel(name + " " + Guid.NewGuid().ToString("N"), "https://example.invalid/" + Guid.NewGuid().ToString("N") + ".git")
             {
                 TenantId = fixture.Tenant.Id,
                 UserId = fixture.User.Id
@@ -60,7 +60,7 @@ namespace Test.Shared.Suites.Services
             {
                 TenantId = fixture.Tenant.Id,
                 UserId = fixture.User.Id,
-                AllowedPersonas = "Worker",
+                AllowedPersonas = "[\"Worker\"]",
                 PreferredPersona = "Worker",
                 Tier = CaptainTierEnum.Premium
             }).ConfigureAwait(false);
