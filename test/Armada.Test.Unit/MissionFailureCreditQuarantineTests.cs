@@ -150,6 +150,7 @@ namespace Armada.Test.Unit.Suites.Services
                             "[stderr] Billing error: insufficient credits. try again at 11:57 PM").ConfigureAwait(false);
 
                         await admiral.HandleProcessExitAsync(8101, 1, captain.Id, mission.Id).ConfigureAwait(false);
+                        await admiral.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
 
                         Mission? missionAfter = await database.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                         Captain? captainAfter = await database.Captains.ReadAsync(captain.Id).ConfigureAwait(false);

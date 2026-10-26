@@ -172,7 +172,11 @@ namespace Armada.Test.Unit.Suites.Services
                         bool disappearedRefRefused = false;
                         try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
                         catch (InvalidOperationException) { disappearedRefRefused = true; }
-                        finally { await RunGitAsync(repoPath, "config", "--unset", "core.hooksPath").ConfigureAwait(false); }
+                        catch (Exception exception)
+                    {
+                        throw new InvalidOperationException("Native dock reconstruction fixture failed: " + exception, exception);
+                    }
+                    finally { await RunGitAsync(repoPath, "config", "--unset", "core.hooksPath").ConfigureAwait(false); }
                         AssertTrue(disappearedRefRefused, "A local branch removed during checkout must not be recreated from origin");
                         AssertFalse(await git.BranchExistsAsync(repoPath, dock.BranchName).ConfigureAwait(false), "Repair must not guess a tracking branch");
                         AssertEqual(savedHead, (await RunGitAsync(path, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(),

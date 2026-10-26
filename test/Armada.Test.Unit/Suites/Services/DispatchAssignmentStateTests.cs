@@ -911,6 +911,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService,
                         missionService, new VoyageService(logging, testDb.Driver), dockService);
                     await admiral.HandleProcessExitAsync(8812, 1, captainA.Id, root.Id).ConfigureAwait(false);
+                    await admiral.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
                     root = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false)
                         ?? throw new InvalidOperationException("Retry mission disappeared");
                     AssertEqual(MissionStatusEnum.Pending, root.Status, "Provider failure must requeue the root");
