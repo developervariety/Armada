@@ -183,6 +183,18 @@ namespace Test.Shared.Suites.E2E
                 AssertTrue(Directory.Exists(checkout), "deleting the vessel preserves the external checkout");
                 AssertTrue(File.Exists(Path.Combine(checkout, ".git", "refs", "heads", "main")), "deleting the vessel preserves the checkout's local branch reference");
 
+                using (HttpResponseMessage restImport = await fx.AuthClient.PostAsync("/api/v1/vessels/import-checkout",
+                    JsonHelper.ToJsonContent(new { checkoutPath = checkout, name = "REST Imported Checkout" })).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.OK, restImport.StatusCode, "REST accepts the dashboard camel-case import body");
+                    Vessel restVessel = await JsonHelper.DeserializeAsync<Vessel>(restImport).ConfigureAwait(false);
+                    AssertEqual(Path.GetFullPath(checkout), restVessel.WorkingDirectory, "REST preserves the selected checkout path");
+                    AssertNull(restVessel.LocalPath, "REST does not claim ownership of the external checkout");
+                    using (HttpResponseMessage removed = await fx.AuthClient.DeleteAsync("/api/v1/vessels/" + Uri.EscapeDataString(restVessel.Id)).ConfigureAwait(false))
+                        AssertTrue(removed.IsSuccessStatusCode, "the REST-imported vessel can be removed");
+                    AssertTrue(File.Exists(Path.Combine(checkout, ".git", "refs", "heads", "main")), "REST vessel removal preserves the checkout");
+                }
+
                 fx.Settings.VesselImport.AllowedRoots.Clear();
                 using (HttpResponseMessage unconfiguredDiscoveryResponse = await fx.AuthClient.GetAsync("/api/v1/vessels/local-checkouts").ConfigureAwait(false))
                 {

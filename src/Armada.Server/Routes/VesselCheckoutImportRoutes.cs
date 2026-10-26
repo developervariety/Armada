@@ -2,6 +2,7 @@ namespace Armada.Server.Routes
 {
     using System;
     using System.Threading.Tasks;
+    using System.Text.Json;
     using Armada.Server;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -14,6 +15,7 @@ namespace Armada.Server.Routes
     public sealed class VesselCheckoutImportRoutes
     {
         private readonly VesselCheckoutImportService? _Service;
+        private static readonly JsonSerializerOptions _BodyOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         /// <summary>Create the local checkout route group.</summary>
         /// <param name="service">Shared local checkout discovery and import service.</param>
@@ -68,7 +70,8 @@ namespace Armada.Server.Routes
                 VesselCheckoutImportRequest request;
                 try
                 {
-                    request = req.GetData<VesselCheckoutImportRequest>();
+                    request = JsonSerializer.Deserialize<VesselCheckoutImportRequest>(req.Http.Request.DataAsString, _BodyOptions)
+                        ?? throw new ArgumentException("A checkout import request is required.");
                 }
                 catch (Exception ex) when (ex is ArgumentException || ex is System.Text.Json.JsonException)
                 {
