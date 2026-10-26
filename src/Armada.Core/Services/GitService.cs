@@ -1117,7 +1117,26 @@ namespace Armada.Core.Services
             string status = (await RunGitAsync(worktreePath, token, "status", "--porcelain", "--untracked-files=all").ConfigureAwait(false)).Trim();
             if (status.Length == 0) return false;
 
+            // Untracked scratch files (README.md.backup, *.orig) are not the captain's work: leave them in the worktree.
+            List<string> scratch = new List<string>();
+            string untracked = await RunGitAsync(worktreePath, token, "ls-files", "--others", "--exclude-standard", "-z").ConfigureAwait(false);
+            foreach (string path in GitMachineOutputParser.ParsePathListZ(untracked))
+                if (ScratchFileMatcher.IsScratchFile(path)) scratch.Add(path);
+
             await RunGitAsync(worktreePath, token, "add", "-A").ConfigureAwait(false);
+            if (scratch.Count > 0)
+            {
+                for (int i = 0; i < scratch.Count; i += 100)
+                {
+                    List<string> args = new List<string> { "reset", "-q", "--" };
+                    foreach (string path in scratch.Skip(i).Take(100)) args.Add(":(literal)" + path);
+                    await RunGitAsync(worktreePath, token, args.ToArray()).ConfigureAwait(false);
+                }
+
+                string staged = await RunGitAsync(worktreePath, token, "diff", "--cached", "--name-only", "-z").ConfigureAwait(false);
+                if (GitMachineOutputParser.ParsePathListZ(staged).Count == 0) return false;
+            }
+
             try
             {
                 await RunGitAsync(worktreePath, token, "commit", "--no-verify", "-m", message).ConfigureAwait(false);

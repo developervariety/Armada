@@ -340,13 +340,14 @@ namespace Armada.Core.Services.Interfaces
 
         /// <summary>
         /// Stage and commit every change in a worktree (respecting .gitignore and the repository's exclude rules), so
-        /// work a captain left uncommitted is not lost. Uses the repository's git identity, falling back to "Armada"
-        /// when none is configured.
+        /// work a captain left uncommitted is not lost. Untracked scratch files (see <see cref="ScratchFileMatcher"/>)
+        /// are left in the worktree, uncommitted. Uses the repository's git identity, falling back to "Armada" when
+        /// none is configured.
         /// </summary>
         /// <param name="worktreePath">Worktree path.</param>
         /// <param name="message">Commit message.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>True when a commit was made; false when there was nothing to commit.</returns>
+        /// <returns>True when a commit was made; false when there was nothing to commit, or only scratch files.</returns>
         /// <exception cref="ArgumentNullException">Thrown when worktreePath or message is null or empty.</exception>
         /// <exception cref="InvalidOperationException">Thrown when git cannot commit (for example a failing hook).</exception>
         Task<bool> CommitAllAsync(string worktreePath, string message, CancellationToken token = default) => Task.FromResult(false);

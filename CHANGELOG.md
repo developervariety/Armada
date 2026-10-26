@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Leftover-work commits skip scratch files
+
+- **Armada's commit of work a captain left uncommitted no longer picks up scratch files.** Untracked editor backups and merge leftovers (`*.backup`, `*.bak`, `*.orig`, `*.rej`, `*.tmp`, `*.swp`, `*.swo`, `*~`, `.DS_Store`, `Thumbs.db`) stay in the worktree, uncommitted, so a `README.md.backup` no longer lands on the branch and draws a Judge rejection. A tracked file with such a name is still committed. When only scratch files are left, no commit is made. Part of Phase 1 of [MODEL_HETEROGENEITY.md](docs/MODEL_HETEROGENEITY.md).
+
 ### Show live card in Ask Armada
 
 - **"Show live card" on a progress update now goes to the card.** When the message that started the work was not among the loaded messages, the card sat on the oldest loaded progress update. Clicking the link scrolled to the top of the conversation, which loaded older messages and moved the card back up to the starting message, so the reader landed on a message that no longer had a card. A card now stays on the message that first showed it while that message is loaded, and the link briefly highlights the card.

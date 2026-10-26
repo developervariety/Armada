@@ -1037,6 +1037,101 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("commit_all_leaves_untracked_scratch_files_out", "CommitAllAsync commits the work and leaves untracked scratch files in the worktree", TestTags.Positive, async () =>
+            {
+                GitService service = CreateService();
+                string repoDir = TestGitRepoHelper.CreateWorkingRepoCopy();
+                try
+                {
+                    await RunGitAsync(repoDir, "config", "user.email", "t@t").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.name", "t").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "Feature.cs"), "class Feature { }\n").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "README.md.backup"), "old\n").ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.Combine(repoDir, "src"));
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "src", "Program.cs.orig"), "old\n").ConfigureAwait(false);
+
+                    bool committed = await service.CommitAllAsync(repoDir, "leftover").ConfigureAwait(false);
+
+                    AssertTrue(committed, "the real change is committed");
+                    string files = await RunGitAsync(repoDir, "show", "--name-only", "--format=", "HEAD").ConfigureAwait(false);
+                    AssertContains("Feature.cs", files);
+                    AssertFalse(files.Contains("README.md.backup"), "the backup file is not committed");
+                    AssertFalse(files.Contains("Program.cs.orig"), "the merge leftover is not committed");
+                    AssertTrue(File.Exists(Path.Combine(repoDir, "README.md.backup")), "the scratch file stays in the worktree");
+                    string status = await RunGitAsync(repoDir, "status", "--porcelain", "--untracked-files=all").ConfigureAwait(false);
+                    AssertContains("?? README.md.backup", status, "the scratch file is left untracked, not staged");
+                }
+                finally
+                {
+                    TestTemp.TryDelete(repoDir);
+                }
+            }));
+
+            cases.Add(CaseAsync("commit_all_with_only_scratch_files_commits_nothing", "CommitAllAsync makes no commit when only scratch files are left", TestTags.Negative, async () =>
+            {
+                GitService service = CreateService();
+                string repoDir = TestGitRepoHelper.CreateWorkingRepoCopy();
+                try
+                {
+                    await RunGitAsync(repoDir, "config", "user.email", "t@t").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.name", "t").ConfigureAwait(false);
+                    string headBefore = (await RunGitAsync(repoDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "README.md.backup"), "old\n").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "notes.tmp"), "x\n").ConfigureAwait(false);
+
+                    bool committed = await service.CommitAllAsync(repoDir, "leftover").ConfigureAwait(false);
+
+                    AssertFalse(committed, "nothing but scratch files: no commit");
+                    string headAfter = (await RunGitAsync(repoDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    AssertEqual(headBefore, headAfter, "HEAD is unchanged");
+                    string staged = await RunGitAsync(repoDir, "diff", "--cached", "--name-only").ConfigureAwait(false);
+                    AssertEqual("", staged.Trim(), "nothing is left staged");
+                }
+                finally
+                {
+                    TestTemp.TryDelete(repoDir);
+                }
+            }));
+
+            cases.Add(CaseAsync("commit_all_keeps_tracked_files_with_scratch_names", "CommitAllAsync still commits a change to a tracked file whose name looks like scratch", TestTags.Negative, async () =>
+            {
+                GitService service = CreateService();
+                string repoDir = TestGitRepoHelper.CreateWorkingRepoCopy();
+                try
+                {
+                    await RunGitAsync(repoDir, "config", "user.email", "t@t").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "config", "user.name", "t").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "fixture.bak"), "v1\n").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "add", "fixture.bak").ConfigureAwait(false);
+                    await RunGitAsync(repoDir, "commit", "-q", "-m", "track fixture").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(repoDir, "fixture.bak"), "v2\n").ConfigureAwait(false);
+
+                    bool committed = await service.CommitAllAsync(repoDir, "leftover").ConfigureAwait(false);
+
+                    AssertTrue(committed, "a tracked file is the repository's own, not scratch");
+                    string files = await RunGitAsync(repoDir, "show", "--name-only", "--format=", "HEAD").ConfigureAwait(false);
+                    AssertContains("fixture.bak", files);
+                }
+                finally
+                {
+                    TestTemp.TryDelete(repoDir);
+                }
+            }));
+
+            cases.Add(Case("scratch_file_matcher_recognizes_backups_and_rejects_source", "ScratchFileMatcher matches backups and leftovers but not source files", TestTags.Negative, () =>
+            {
+                AssertTrue(ScratchFileMatcher.IsScratchFile("README.md.backup"));
+                AssertTrue(ScratchFileMatcher.IsScratchFile("src/Program.cs.ORIG"), "case-insensitive, nested");
+                AssertTrue(ScratchFileMatcher.IsScratchFile("src\\patch.rej"), "back slashes");
+                AssertTrue(ScratchFileMatcher.IsScratchFile("docs/.DS_Store"));
+                AssertTrue(ScratchFileMatcher.IsScratchFile("Notes.md~"));
+                AssertFalse(ScratchFileMatcher.IsScratchFile("src/Program.cs"));
+                AssertFalse(ScratchFileMatcher.IsScratchFile(".bak"), "a bare suffix is a name, not a backup");
+                AssertFalse(ScratchFileMatcher.IsScratchFile("backup/Program.cs"), "a directory name does not count");
+                AssertFalse(ScratchFileMatcher.IsScratchFile(""));
+                AssertFalse(ScratchFileMatcher.IsScratchFile(null));
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.GitService",
                 displayName: "Git Service",
