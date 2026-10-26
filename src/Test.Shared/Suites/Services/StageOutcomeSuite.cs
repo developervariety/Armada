@@ -602,6 +602,75 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(3, versionCalls, "an expired value is probed again");
             }));
 
+            cases.Add(CaseAsync("provenance_cancelled_wait_retains_background_result", "Cancelling a wait does not cancel the shared probe or lose its late result", TestTags.Negative, async () =>
+            {
+                StageProvenanceProbe probe = new StageProvenanceProbe(CreateLogging());
+                TaskCompletionSource<string?> result = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                int calls = 0;
+                CancellationToken backgroundToken = default;
+                probe.RuntimeVersionProbe = (c, h, ep, ct) =>
+                {
+                    Interlocked.Increment(ref calls);
+                    backgroundToken = ct;
+                    entered.TrySetResult(true);
+                    return result.Task;
+                };
+                Captain captain = new Captain("cancelled waiter", AgentRuntimeEnum.Mux);
+                using CancellationTokenSource caller = new CancellationTokenSource();
+                Task<string?> waiting = probe.GetRuntimeVersionAsync(captain, null, null, caller.Token);
+                try
+                {
+                    await entered.Task.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                    caller.Cancel();
+                    AssertNull(await waiting.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false), "cancelled wait returns null promptly");
+                    AssertEqual(false, backgroundToken.IsCancellationRequested, "caller cannot cancel the shared probe");
+                    AssertNull(await probe.GetRuntimeVersionAsync(captain, null, null).ConfigureAwait(false), "in-flight probe is not waited for twice");
+                    AssertEqual(1, calls, "in-flight probe reused");
+                    result.TrySetResult("mux late-version");
+                    string? cached = null;
+                    Stopwatch deadline = Stopwatch.StartNew();
+                    while (cached == null && deadline.Elapsed < TimeSpan.FromSeconds(3))
+                    {
+                        cached = await probe.GetRuntimeVersionAsync(captain, null, null).ConfigureAwait(false);
+                        if (cached == null) await Task.Delay(10).ConfigureAwait(false);
+                    }
+                    AssertEqual("mux late-version", cached, "late result becomes available in cache");
+                    AssertEqual(1, calls, "late value reused without another probe");
+                    probe.ClearCache();
+                    AssertEqual("mux late-version", await probe.GetRuntimeVersionAsync(captain, null, null).ConfigureAwait(false), "explicit invalidation re-probes");
+                    AssertEqual(2, calls, "clear cache invalidates the completed probe");
+                }
+                finally
+                {
+                    result.TrySetResult(null);
+                }
+            }));
+
+            cases.Add(CaseAsync("provenance_digest_cache_isolates_model_endpoint_and_host", "Digest cache separates model, endpoint URL and Harbor and bounds returned values", TestTags.Positive, async () =>
+            {
+                StageProvenanceProbe probe = new StageProvenanceProbe(CreateLogging());
+                int calls = 0;
+                probe.ModelDigestProbe = (ep, model, h, ct) =>
+                {
+                    Interlocked.Increment(ref calls);
+                    return Task.FromResult<string?>(new string('a', StageProvenanceProbe.MaxValueLength + 20) + "\nignored");
+                };
+                ModelEndpoint endpoint = new ModelEndpoint { Provider = ModelProviderEnum.Ollama, BaseUrl = "http://ollama.invalid" };
+                string expected = new string('a', StageProvenanceProbe.MaxValueLength);
+                AssertEqual(expected, await probe.GetModelDigestAsync(endpoint, "model-a", null).ConfigureAwait(false), "value length bounded");
+                AssertEqual(expected, await probe.GetModelDigestAsync(endpoint, "model-a", null).ConfigureAwait(false), "cache reused");
+                AssertEqual(1, calls, "same key uses cache");
+                await probe.GetModelDigestAsync(endpoint, "model-b", null).ConfigureAwait(false);
+                await probe.GetModelDigestAsync(endpoint, "model-a", "hbr_other").ConfigureAwait(false);
+                endpoint.BaseUrl = "http://replacement.invalid";
+                await probe.GetModelDigestAsync(endpoint, "model-a", null).ConfigureAwait(false);
+                AssertEqual(4, calls, "different models, hosts and endpoint URLs cannot share a cached digest");
+                foreach (string? absent in new string?[] { null, "", " ", "\t\n" })
+                    AssertNull(await probe.GetModelDigestAsync(endpoint, absent, null).ConfigureAwait(false), "absent model is unavailable");
+                AssertEqual(4, calls, "absent models never probe");
+            }));
+
             cases.Add(CaseAsync("provenance_probe_failures_record_nulls", "A probe that throws, times out or answers nothing leaves the values null and the outcome is still recorded promptly", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
