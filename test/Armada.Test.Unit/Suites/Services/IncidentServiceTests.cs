@@ -271,7 +271,9 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 string payload = JsonSerializer.Serialize(legacy)
                     .Replace("\"OpenedReason\":null,", String.Empty)
-                    .Replace("\"RootCauseWrittenBy\":null,", String.Empty);
+                    .Replace("\"RootCauseWrittenBy\":null,", String.Empty)
+                    .Replace("\"OpenedAutomatically\":null,", String.Empty)
+                    .Replace("\"LastOperatorStatusUtc\":null,", String.Empty);
                 AssertFalse(payload.Contains("OpenedReason", StringComparison.Ordinal), "the stored payload has no opened reason");
                 await testDb.Driver.Events.CreateAsync(new ArmadaEvent(IncidentService.SnapshotEventType, legacy.Title)
                 {
@@ -281,6 +283,10 @@ namespace Armada.Test.Unit.Suites.Services
                     EntityId = legacy.Id,
                     Payload = payload
                 }).ConfigureAwait(false);
+
+                Incident legacyRead = (await incidents.ReadAsync(McpTestCaller.Operator, legacy.Id).ConfigureAwait(false))!;
+                AssertNull(legacyRead.OpenedAutomatically, "Legacy snapshots retain unknown origin.");
+                AssertNull(legacyRead.LastOperatorStatusUtc, "Legacy snapshots have no invented operator timestamp.");
 
                 string? code = await RefusalCodeAsync(() => incidents.UpdateAsync(McpTestCaller.Operator, legacy.Id, new IncidentUpsertRequest
                 {

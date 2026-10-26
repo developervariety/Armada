@@ -268,16 +268,11 @@ namespace Armada.Server
             if (!String.IsNullOrWhiteSpace(incident.RollbackDeploymentId))
                 rollbackDeployment = await _Database.Deployments.ReadAsync(incident.RollbackDeploymentId, token: token).ConfigureAwait(false);
             if (rollbackDeployment != null && !IsIncidentTenant(incident, rollbackDeployment.TenantId)) rollbackDeployment = null;
-            if (rollbackDeployment?.Status == DeploymentStatusEnum.RolledBack)
+            if (rollbackDeployment?.Status == DeploymentStatusEnum.RolledBack && IsFreshRecovery(incident, rollbackDeployment.RolledBackUtc))
                 return IncidentEvidence.RolledBack("Rollback deployment completed: " + rollbackDeployment.Id + ".");
 
-            if (!String.IsNullOrWhiteSpace(incident.ReleaseId))
-            {
-                Release? release = await _Database.Releases.ReadAsync(incident.ReleaseId, token: token).ConfigureAwait(false);
-                if (release != null && !IsIncidentTenant(incident, release.TenantId)) release = null;
-                if (release?.Status == ReleaseStatusEnum.RolledBack)
-                    return IncidentEvidence.RolledBack("Linked release was rolled back: " + release.Id + ".");
-            }
+            // Release has no rollback-occurrence timestamp. A release status alone cannot prove a
+            // new recovery; a linked rollback deployment above supplies durable rollback evidence.
 
             return null;
         }
@@ -336,11 +331,13 @@ namespace Armada.Server
             if (deployment == null || !IsIncidentTenant(incident, deployment.TenantId)) return IncidentEvidence.None;
 
             if (deployment.Status == DeploymentStatusEnum.RolledBack)
-                return IncidentEvidence.RolledBack("Deployment rolled back: " + deployment.Id + ".");
+                return IsFreshRecovery(incident, deployment.RolledBackUtc)
+                    ? IncidentEvidence.RolledBack("Deployment rolled back: " + deployment.Id + ".") : IncidentEvidence.None;
             if (deployment.Status == DeploymentStatusEnum.Succeeded
                 && (deployment.VerificationStatus == DeploymentVerificationStatusEnum.Passed
                     || deployment.VerificationStatus == DeploymentVerificationStatusEnum.Skipped))
-                return IncidentEvidence.Mitigated("Deployment succeeded with verification status " + deployment.VerificationStatus + ": " + deployment.Id + ".");
+                return IsFreshRecovery(incident, deployment.CompletedUtc)
+                    ? IncidentEvidence.Mitigated("Deployment succeeded with verification status " + deployment.VerificationStatus + ": " + deployment.Id + ".") : IncidentEvidence.None;
             if (deployment.Status == DeploymentStatusEnum.Failed || deployment.Status == DeploymentStatusEnum.VerificationFailed)
                 return IncidentEvidence.ActiveFailure("Deployment remains " + deployment.Status + ": " + deployment.Id + ".", deployment.CompletedUtc ?? deployment.LastUpdateUtc);
 
@@ -356,9 +353,10 @@ namespace Armada.Server
             if (release == null || !IsIncidentTenant(incident, release.TenantId)) return IncidentEvidence.None;
 
             if (release.Status == ReleaseStatusEnum.RolledBack)
-                return IncidentEvidence.RolledBack("Release rolled back: " + release.Id + ".");
+                return IncidentEvidence.None; // No durable rollback occurrence exists on a release.
             if (release.Status == ReleaseStatusEnum.Shipped)
-                return IncidentEvidence.Mitigated("Release shipped: " + release.Id + ".");
+                return IsFreshRecovery(incident, release.PublishedUtc)
+                    ? IncidentEvidence.Mitigated("Release shipped: " + release.Id + ".") : IncidentEvidence.None;
             if (release.Status == ReleaseStatusEnum.Failed)
                 return IncidentEvidence.ActiveFailure("Release remains failed: " + release.Id + ".", release.LastUpdateUtc);
 
@@ -374,7 +372,8 @@ namespace Armada.Server
             if (mission == null || !IsIncidentTenant(incident, mission.TenantId)) return IncidentEvidence.None;
 
             if (mission.Status == MissionStatusEnum.Complete)
-                return IncidentEvidence.Mitigated("Linked mission completed: " + mission.Id + ".");
+                return IsFreshRecovery(incident, mission.CompletedUtc)
+                    ? IncidentEvidence.Mitigated("Linked mission completed: " + mission.Id + ".") : IncidentEvidence.None;
             if (mission.Status == MissionStatusEnum.Cancelled)
                 return CanSupersedeFromCancellation(incident, mission.CompletedUtc)
                     ? IncidentEvidence.Superseded("Linked mission was cancelled, so the incident is superseded: " + mission.Id + ".")
@@ -405,7 +404,8 @@ namespace Armada.Server
             if (latestRescue == null)
                 return IncidentEvidence.ActiveFailure("Linked mission remains " + mission.Status + ": " + mission.Id + ".", mission.CompletedUtc ?? mission.LastUpdateUtc);
             if (latestRescue.Status == MissionStatusEnum.Complete)
-                return IncidentEvidence.Mitigated("Autonomous rescue mission completed: " + latestRescue.Id + ".");
+                return IsFreshRecovery(incident, latestRescue.CompletedUtc)
+                    ? IncidentEvidence.Mitigated("Autonomous rescue mission completed: " + latestRescue.Id + ".") : IncidentEvidence.None;
             if (latestRescue.Status == MissionStatusEnum.Cancelled)
                 return IncidentEvidence.RescueCancelled(DescribeRescueCancel(latestRescue));
             if (latestRescue.Status == MissionStatusEnum.Failed
@@ -570,12 +570,17 @@ namespace Armada.Server
 
         private static bool IsFreshRecoveryCheck(CheckRun run, Incident incident)
         {
-            return run.CompletedUtc.HasValue && run.CompletedUtc.Value > RecoveryBoundary(incident);
+            return IsFreshRecovery(incident, run.CompletedUtc);
+        }
+
+        private static bool IsFreshRecovery(Incident incident, DateTime? occurredUtc)
+        {
+            return occurredUtc.HasValue && occurredUtc.Value > RecoveryBoundary(incident);
         }
 
         private static bool CanSupersedeFromCancellation(Incident incident, DateTime? occurredUtc)
         {
-            return incident.OpenedAutomatically == true && occurredUtc.HasValue && occurredUtc.Value > RecoveryBoundary(incident);
+            return incident.OpenedAutomatically == true && IsFreshRecovery(incident, occurredUtc);
         }
 
         private static bool MatchesIncidentCheck(CheckRun run, Incident incident, CheckRun? failed)
