@@ -125,6 +125,23 @@ namespace Armada.Test.Unit.Suites.Services
                     captain.ProcessId = 8101;
                     captain = await database.Captains.CreateAsync(captain).ConfigureAwait(false);
 
+                    Vessel vessel = await database.Vessels.CreateAsync(new Vessel("credit-vessel", "https://example.invalid/repo.git")).ConfigureAwait(false);
+                    string worktree = Path.Combine(settings.DocksDirectory, vessel.Name, mission.Id, vessel.Name);
+                    Directory.CreateDirectory(worktree);
+                    await File.WriteAllTextAsync(Path.Combine(worktree, "retained.txt"), "pending work").ConfigureAwait(false);
+                    Dock dock = await database.Docks.CreateAsync(new Dock(vessel.Id)
+                    {
+                        TenantId = vessel.TenantId, UserId = vessel.UserId, CaptainId = captain.Id,
+                        BranchName = "armada/credit-continuation", WorktreePath = worktree, Active = true
+                    }).ConfigureAwait(false);
+                    mission.VesselId = vessel.Id;
+                    mission.CaptainId = captain.Id;
+                    mission.DockId = dock.Id;
+                    mission.BranchName = dock.BranchName;
+                    await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    captain.CurrentDockId = dock.Id;
+                    await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
                     await WriteMissionLogAsync(
                         settings,
                         mission.Id,
@@ -139,6 +156,14 @@ namespace Armada.Test.Unit.Suites.Services
                         "An insufficient-credit failure re-routes (requeues) the mission to a captain with quota, not a terminal fail.");
                     AssertEqual(1, missionAfter.RecoveryAttempts,
                         "The re-route increments the recovery attempt count.");
+                    AssertEqual(dock.Id, missionAfter.DockId, "A provider retry retains root continuation authority");
+                    Dock? retained = await database.Docks.ReadAsync(dock.Id).ConfigureAwait(false);
+                    AssertTrue(retained!.Active, "The retry dock must remain active");
+                    AssertNull(retained.CaptainId, "The failed captain must release ownership of the retained dock");
+                    AssertEqual("pending work", await File.ReadAllTextAsync(Path.Combine(worktree, "retained.txt")).ConfigureAwait(false),
+                        "Provider retry must not remove its continuation worktree or dirty work");
+                    Directory.Delete(settings.DocksDirectory, true);
+
                     AssertTrue(missionAfter.FailureReason!.Contains("insufficient credits", StringComparison.OrdinalIgnoreCase),
                         "The raw runtime failure should remain visible on the requeued mission.");
                     AssertNotNull(captainAfter, "Assigned captain should remain persisted after quarantine.");
