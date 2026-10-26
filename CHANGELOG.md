@@ -12,6 +12,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Local POSIX server publish fails when Dashboard deployment fails and no
   Dashboard is available. It continues only when an existing Dashboard remains.
+  Dashboard copies are staged before replacement, with rollback on install failure.
 
 - The Voyages list shares table controls and saves optional column visibility.
   Server paging, status filters, row actions and selection remain page-owned.

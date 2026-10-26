@@ -28,6 +28,11 @@ Dashboard deployment failure returns a publish error when
 `~/.armada/dashboard/index.html` is absent. If that file still exists, publish
 continues with a warning. This check proves file availability; it does not
 prove that the retained Dashboard matches the new server.
+The POSIX deploy script copies the complete build into a sibling staging
+folder before replacement. A failed copy leaves the current Dashboard in place.
+Replacement uses a per-user deploy lock and keeps a rollback folder until the
+new folder is installed. An interrupted or failed rollback reports the retained
+folder path for recovery.
 
 > **Container deployments:** the Docker image build does not include the React
 > dashboard. The Admiral serves the dashboard from `~/.armada/dashboard` (data
