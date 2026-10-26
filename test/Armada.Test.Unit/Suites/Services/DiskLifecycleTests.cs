@@ -421,7 +421,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            foreach (string recovery in new[] { "put-recovers", "ambiguous-put", "head-recovers", "put-exhausted", "head-exhausted", "put-forbidden", "verify-checksum", "retry-after", "cancel-backoff" })
+            foreach (string recovery in new[] { "put-recovers", "ambiguous-put", "head-recovers", "put-exhausted", "head-exhausted", "put-forbidden", "verify-checksum", "retry-after", "cancel-backoff", "budget-backoff" })
             {
                 await RunTest("S3 archive retry preserves verification and request identity: " + recovery, async () =>
                 {
@@ -471,7 +471,7 @@ namespace Armada.Test.Unit.Suites.Services
                                             signatures.Add(request.Headers.GetValues("Authorization").Single());
                                         }
                                         bool fails = target && (recovery is "put-exhausted" or "put-forbidden" or "retry-after"
-                                            || recovery is "put-recovers" or "ambiguous-put" or "cancel-backoff" && puts == 1);
+                                            || recovery is "put-recovers" or "ambiguous-put" or "cancel-backoff" or "budget-backoff" && puts == 1);
                                         if (!fails || recovery == "ambiguous-put")
                                         {
                                             stored[path] = data;
@@ -506,17 +506,30 @@ namespace Armada.Test.Unit.Suites.Services
                                 throw new InvalidOperationException("Unexpected archive request method");
                             })))
                             {
+                                if (recovery == "budget-backoff") http.Timeout = TimeSpan.FromMilliseconds(200);
                                 S3ArchiveSink sink = new S3ArchiveSink(layout.Settings.Archive, http,
                                     () => new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(++clocks),
                                     (delay, token) =>
                                     {
                                         AssertTrue(streams.All(stream => !stream.CanRead), "PUT streams close before any retry backoff");
                                         delays.Add(delay);
+                                        if (recovery == "budget-backoff") return Task.Delay(Timeout.InfiniteTimeSpan, token);
                                         if (recovery == "cancel-backoff") caller.Cancel();
                                         token.ThrowIfCancellationRequested();
                                         return Task.CompletedTask;
                                     });
                                 service.ArchiveSinkFactory = settings => sink;
+                                if (recovery == "budget-backoff")
+                                {
+                                    ArchivePutResult expired = await sink.PutFileAsync("raw/msn_retry.log", file, sha, caller.Token).ConfigureAwait(false);
+                                    AssertFalse(expired.Verified, "operation budget cannot verify an unfinished upload");
+                                    AssertEqual("upload_failed", expired.FailureCode, "budget expiry retains the upload failure");
+                                    AssertFalse(caller.IsCancellationRequested, "operation expiry is separate from caller cancellation");
+                                    AssertEqual(1, puts, "operation expiry prevents another PUT");
+                                    AssertEqual(0, headsAfterPut, "operation expiry prevents a verification request");
+                                    AssertTrue(File.Exists(file), "the operation budget keeps the unverified source");
+                                    return;
+                                }
                                 if (recovery == "cancel-backoff")
                                 {
                                     bool cancelled = false;
