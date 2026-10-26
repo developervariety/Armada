@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Multi-agent orchestration for scaling human developers with AI coding captains.</strong>
   <br />
-  <em>Private fork of <a href="https://github.com/jchristn/Armada">jchristn/Armada</a> — v0.9.0 alpha, APIs and schemas may change</em>
+  <em>Private fork of <a href="https://github.com/jchristn/Armada">jchristn/Armada</a> — v1.0.0 — selected upstream features with fork-specific controls</em>
 </p>
 
 <p align="center">
@@ -58,11 +58,50 @@ Armada is intentionally vocabulary-heavy because the model mirrors the operating
 
 This repository is a private fork of [jchristn/Armada](https://github.com/jchristn/Armada).
 It shares the core operating model -- fleets, vessels, captains, missions, voyages,
-docks, pipelines, and delivery records -- but it is a divergent **superset**, not a
-version behind upstream. The fork keeps parity by re-implementing selected upstream
-features rather than merging, because a blanket merge would collide with, and in
-places regress, deliberate fork choices. The capability-by-capability map is the list below; the incremental cherry-pick
-sync procedure and its baseline live in [`CLAUDE.md`](CLAUDE.md).
+docks, pipelines, and delivery records. It is a divergent fork with selected
+upstream features and its own authorization, routing, verification and recovery
+rules. Its version numbers are independent of upstream. v1.0.0 does not claim
+full upstream feature parity. The incremental integration procedure lives in
+[`CLAUDE.md`](CLAUDE.md).
+
+For release changes, see the [changelog](CHANGELOG.md#v100-2026-10-26). Read the
+[v1.0.0 upgrade guide](docs/UPGRADING.md) before replacing an existing server.
+Docker and local publish scripts remain the supported release paths.
+
+### Upstream adoption in v1.0.0
+
+The selected integration pass includes these capabilities. The sections below
+explain the fork behavior and link to its subsystem guides.
+
+| Upstream capability | Included behavior |
+| --- | --- |
+| Password and lifecycle correctness | Salted passwords with legacy upgrade, cancellation-safe writes and interrupted Architect fan-out repair. |
+| Database protection | Pre-migration backup with isolated restore verification, historical upgrade checks and per-file SQLite write queues. |
+| Runtime and MCP evidence | Typed provider failures, final reply artifacts, deferred caller-filtered catalogs, bounded file reads and matching HTTP/stdio tool names. Missing standalone services return `Unavailable`. |
+| Harbor execution | Capacity waits, opt-in host-owned checkouts and fenced restart adoption with verified output replay. |
+| Operator workflows | Saved Ask threads, exact human approval proposals, fork-aware work reports, checkout import, Mission actions and a read-only Harbor jobs view. |
+| UI and local releases | Shared table controls on Voyages only; staged Dashboard installation with rollback and fresh-install failure checks. |
+| Architect plans | Version 2 and 3 JSON contracts with an explicit integration barrier that waits for all accepted branches to land. |
+
+### Upstream features not imported
+
+| Capability | v1.0.0 decision |
+| --- | --- |
+| Administrator storage inventory (storage monitoring) | Not imported. No upstream System > Storage page, `/api/v1/storage` inventory, background exact counts, growth history or Harbor storage heartbeat reports. Existing disk lifecycle scans and cleanup are separate fork features. |
+| TUI and mobile app with server push | Deferred; Dashboard and Helm remain the supported clients. |
+| Central CLI permission requests and rules | Requires a separate design; saved Ask approvals do not provide this tool-permission workflow. |
+| Hosted CI workflow publication | Held. Local verification and the Linux gate remain available. |
+| Signed installers, package-service publishing and A/B-slot rebuilds | Excluded from this release scope; keep Docker and local scripts. |
+| Arbitrary shell Fleet Actions | Excluded; saved actions dispatch missions through existing Checks and landing rules. |
+| Upstream routing, blocked-stage and recovery replacements | Keep fork Smart Routing, exact-commit verification, incidents and bounded rescue rules. |
+| Upstream retention and bulk permanent deletion | Keep the fork archive and retention rules. |
+| Cloud model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) | Not ported. |
+
+This table records selected integration decisions. It is not an inventory of
+every later upstream change. A capability present in source can also be disabled
+by deployment policy. Harbor-owned checkouts remain opt-in.
+
+### Shared capabilities and fork behavior
 
 Both versions offer saved Ask conversations. The fork keeps the current chat
 routes and administrator access rule. Saved threads belong to one tenant and
@@ -189,10 +228,8 @@ same authenticated owner and enrollment, process start identity and complete
 output replay. Uncertain writers retain their assignment and dock; a confirmed
 terminal result is acknowledged after the mission exit handler completes.
 
-Some upstream additions are unported by decision, not by omission: the cloud
-model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) and upstream's native
-installer and A/B-slot rebuild paths, because the fork ships Docker with supervised
-self-deploy.
+The table above records the features outside this release scope. Supervised
+self-deploy remains disabled pending its separate safety integration.
 
 ---
 

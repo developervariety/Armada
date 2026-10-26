@@ -896,7 +896,7 @@ namespace Armada.Server
                     clientInfo = new
                     {
                         name = "armada",
-                        version = "0.8.0"
+                        version = Armada.Core.Constants.ProductVersion
                     }
                 }
             });
@@ -1068,7 +1068,7 @@ namespace Armada.Server
                             clientInfo = new
                             {
                                 name = "armada",
-                                version = "0.8.0"
+                                version = Armada.Core.Constants.ProductVersion
                             }
                         }
                     }),

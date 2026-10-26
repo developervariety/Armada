@@ -1,6 +1,6 @@
 # Armada REST API Reference
 
-**Version:** 0.9.0
+**Version:** 1.0.0
 **Base URL:** `http://localhost:7890`
 **Content-Type:** `application/json`
 
@@ -937,7 +937,7 @@ required role.
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "0.9.0",
+      "ArmadaVersion": "1.0.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -965,7 +965,7 @@ Health check endpoint. **Does not require authentication.**
   "Timestamp": "2026-03-07T12:00:00Z",
   "StartUtc": "2026-03-07T08:00:00Z",
   "Uptime": "0.04:00:00",
-  "Version": "0.9.0",
+  "Version": "1.0.0",
   "Ports": {
     "Admiral": 7890,
     "Mcp": 7891
@@ -4933,7 +4933,7 @@ Aggregate status summary returned by the status endpoint.
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "0.9.0",
+      "ArmadaVersion": "1.0.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",

@@ -67,3 +67,9 @@ optional column visibility in the current browser. Identity and action columns
 remain visible. Column visibility does not change the server query, row
 selection or the caller's authority. Refresh results use the latest request;
 a slower old response cannot replace the current page.
+
+Upstream's administrator storage inventory is not included in v1.0.0. The fork
+has no System > Storage view, `/api/v1/storage` cached inventory or refresh
+route, database exact-count collector, storage growth history, or Harbor storage
+heartbeat reports. Its disk lifecycle service is a separate scan and cleanup
+contract. See the [upstream adoption map](../README.md#upstream-features-not-imported).

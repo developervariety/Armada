@@ -1,6 +1,7 @@
 # Running Armada with Docker
 
 This guide covers running the Armada server and dashboard using Docker containers.
+For an existing installation, first read the [v1.0.0 upgrade guide](UPGRADING.md).
 
 > **Active deployment note:** The Armada server in the fleet project uses
 > PostgreSQL. The SQLite paths and `armada.db` values below describe the local
@@ -79,8 +80,8 @@ That dashboard includes the planning workflow as well as direct dispatch: you ca
 
 Captain processes run with the Admiral and receive
 `http://localhost:7891/mcp` through their runtime configuration by default.
-Keep port 7891 on a trusted interface: the MCP endpoint does not provide
-per-captain authorization.
+Captain MCP requests use mission-scoped credentials and caller-filtered tools.
+Keep port 7891 on a trusted interface and do not give operator credentials to captains.
 
 ---
 
@@ -310,25 +311,25 @@ scripts\windows\build-dashboard.bat
 
 ```bash
 Linux:
-./scripts/linux/build-server.sh v0.9.0
+./scripts/linux/build-server.sh v1.0.0
 
 macOS:
-./scripts/macos/build-server.sh v0.9.0
+./scripts/macos/build-server.sh v1.0.0
 
 Windows:
-scripts\windows\build-server.bat v0.9.0
+scripts\windows\build-server.bat v1.0.0
 
 Linux:
-./scripts/linux/build-dashboard.sh v0.9.0
+./scripts/linux/build-dashboard.sh v1.0.0
 
 macOS:
-./scripts/macos/build-dashboard.sh v0.9.0
+./scripts/macos/build-dashboard.sh v1.0.0
 
 Windows:
-scripts\windows\build-dashboard.bat v0.9.0
+scripts\windows\build-dashboard.bat v1.0.0
 ```
 
-This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v0.9.0` (and the same for the dashboard).
+This produces both `jchristn77/armada-server:latest` and `jchristn77/armada-server:v1.0.0` (and the same for the dashboard).
 
 ### Building locally (no push)
 

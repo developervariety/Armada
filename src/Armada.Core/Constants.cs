@@ -23,7 +23,7 @@ namespace Armada.Core
         /// <summary>
         /// Product version.
         /// </summary>
-        public static readonly string ProductVersion = "0.9.0";
+        public static readonly string ProductVersion = "1.0.0";
 
         /// <summary>
         /// Environment variable that overrides <see cref="DefaultDataDirectory"/>. Unset in normal

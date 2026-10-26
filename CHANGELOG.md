@@ -1,14 +1,32 @@
 # Changelog
 
-- Gate-input previews accept explicit input-to-source mappings in objective preparation, name supplied paths and their declared affected inputs, and retain uncertain planning reminders. Existing scope exclusions remain authoritative.
-- Archive HTTP failures retain bounded provider support request IDs without copying response messages or unrelated headers.
-
 Net changes since the latest full upstream merge on 2026-05-24
 ([merge baseline](https://github.com/developervariety/Armada/commit/cb9030bd5cbaca71efe738b53807f048afd05cd7)).
 This compares the merged tree with the current fork. It includes later selected
 upstream integrations and excludes changes already present at that baseline.
 
-## Unreleased
+## v1.0.0 (2026-10-26)
+
+This is the fork's first 1.0 release. It includes the changes below since the
+full-merge baseline. Fork and upstream version numbers are independent. The
+[README adoption map](README.md#upstream-adoption-in-v100) identifies imported,
+adapted and excluded upstream capabilities. The [upgrade guide](docs/UPGRADING.md)
+covers database protection, client compatibility and rollback.
+
+Docker and local publish scripts remain the release targets. CI workflow
+publication stays held. Signed installers and package-service publishing are
+outside this release. Upstream's administrator storage inventory is not included.
+
+### Release preparation
+
+- Align the product, shared .NET build, Helm package, Dashboard package and API
+  examples on version 1.0.0.
+- Record selective upstream adoption and the retained fork policies in README.
+
+### Recent changes
+
+- Gate-input previews accept explicit input-to-source mappings in objective preparation, name supplied paths and their declared affected inputs, and retain uncertain planning reminders. Existing scope exclusions remain authoritative.
+- Archive HTTP failures retain bounded provider support request IDs without copying response messages or unrelated headers.
 
 - Report section checks recognize an explicit Markdown heading joined to a known progress-status line outside code examples. Stored report text and artifact digests stay unchanged.
 - Architect handoff accepts opt-in version 2 and 3 JSON plan contracts through
@@ -2416,7 +2434,7 @@ upstream integrations and excludes changes already present at that baseline.
   provider telemetry is still read, and the stored failure reason never contains
   the `[ARMADA:ACTIVITY]` marker.
 
-## Added
+### Additional capabilities
 
 - **Typed decisions:** provider-neutral closed-question classification behind
   deterministic rules; conservative Gate behavior, key-based availability,
@@ -2462,7 +2480,7 @@ upstream integrations and excludes changes already present at that baseline.
   briefs and process liveness are proven by behavior in their owner suites, not
   by source-text checks, and repeated stage-base and merge-queue Git cases run once.
 
-## Removed
+### Additional removals
 
 - Reflection-memory bootstrap, consolidation and learned-fact/pack-hint storage.
   Native captain memory and the external rules repository have separate owners.
@@ -2492,7 +2510,7 @@ upstream integrations and excludes changes already present at that baseline.
   the summarizer model. A settings file that still carries the key loads
   normally, and the next save drops it.
 
-## Changed
+### Additional behavior changes
 
 - **Each captain launch gets its own temporary directory, removed on exit:**
   agent CLIs and the builds and tests they start wrote to the shared temporary

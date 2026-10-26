@@ -227,7 +227,7 @@ export async function runBridge(options = {}) {
             result: {
               protocolVersion: requestObject.params?.protocolVersion || "2024-11-05",
               capabilities: { logging: {}, tools: {} },
-              serverInfo: { name: "Armada", version: "0.8.0" },
+              serverInfo: { name: "Armada", version: "1.0.0" },
             },
           }) + "\n");
         }

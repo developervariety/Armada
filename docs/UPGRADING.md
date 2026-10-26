@@ -1,0 +1,89 @@
+# Upgrade to v1.0.0
+
+Armada v1.0.0 is a release of this fork. Its version number is independent of
+upstream. The [README adoption map](../README.md#upstream-vs-fork) records the
+selected imports, adaptations and exclusions. The [changelog](../CHANGELOG.md#v100-2026-10-26)
+records delivered changes. Preparing or building this release does not upgrade a
+running Admiral.
+
+## Release paths
+
+Use the existing [Docker build and deployment path](DOCKER.md), or the local
+publish scripts in `scripts/linux`, `scripts/macos` and `scripts/windows`.
+Build the server and Dashboard from the same accepted source. The shared .NET
+version, runtime product version, Helm package and Dashboard package are 1.0.0.
+A version label alone does not prove that a running process contains that source;
+check the build commit as well.
+
+Hosted CI workflow publication remains held. This release does not add signed
+installers, package-service publishing, mobile clients or a TUI. Local publish
+scripts keep their existing framework options. The shared build supports .NET 8
+and .NET 10; the repository gate runs all four test runners on Linux with .NET 10.
+
+## Before the upgrade
+
+1. Record the current source commit, image or published directory, settings and
+   database provider. Retain the old executable and Dashboard as one rollback set.
+2. Stop new dispatch through the existing scheduler and dispatch controls. Let
+   active work finish, or account for each local and remote writer before stopping
+   the Admiral. Preserve mission branches, docks and uncertain Harbor jobs.
+3. Make a provider-native database backup. Keep settings, durable journals and
+   required data files with it. Verify an isolated restore. A copied SQLite file
+   does not back up a PostgreSQL, MySQL or SQL Server deployment.
+4. Rehearse startup against an isolated restore with separate data roots and
+   credentials. Prevent the rehearsal from dispatching work or using production
+   runners. Verify schema migration, a second startup, representative records,
+   authentication and the client contracts used by the deployment.
+5. Record passing Checks at the exact candidate commit. Follow the existing
+   [release and deployment workflow](DELIVERY_OPERATIONS.md) for approval,
+   deployment evidence and verification.
+
+Startup migration protection requires a native backup and verified isolated
+restore before it upgrades an existing schema. Failure stops startup. Schema
+versions differ by database provider; do not use the product version as a schema
+number or run an old migration script because its filename looks similar.
+
+## Compatibility and policy
+
+- Legacy password rows remain readable and upgrade after successful login.
+  New writes use salted PBKDF2. Do not restore weak password storage to downgrade.
+- Existing Ask routes remain available. Saved threads, approvals and Mission
+  actions add durable owner-scoped records. Interrupted or uncertain actions
+  require inspection before retry; do not clear their claims to force a rerun.
+- HTTP and standalone stdio list server-dependent MCP tools. In standalone stdio,
+  a missing process service returns `Unavailable`. Reconnect MCP clients after
+  upgrading so they refresh the catalog. Mission credentials retain their scope.
+- Existing Harbor process-only routes retain Admiral-owned checkout operations.
+  Harbor-owned checkouts are opt-in. Update the runner with the matching source
+  before using new checkout operations. An offline or uncertain checkout owner
+  holds work instead of falling back to another host.
+- Restart adoption verifies the persisted owner, process identity and output
+  replay. Uncertain jobs stay fenced from replacement. A reconnect is not proof
+  that an old writer has stopped.
+- Architect JSON plans explicitly select version 2 or 3. Their integration
+  barrier waits for every accepted branch to land on the current target. Legacy
+  marked and numbered plans remain supported; ambiguous graphs and unversioned
+  JSON do not gain an automatic compatibility fallback.
+- Smart Routing, exact-commit Checks, consumer verification, local landing,
+  incident recovery, rescue budgets and verified history archives keep the
+  fork's rules. Review loaded settings rather than assuming upstream defaults.
+- Upstream's administrator storage inventory is not included. The settings
+  watcher and disk lifecycle scans do not provide its file/database/Harbor
+  inventory, growth history or System > Storage page.
+
+## Verify and roll back
+
+After an approved deployment, check health, product version and build commit;
+confirm database startup and representative scoped reads. Verify the Dashboard
+and the MCP catalog, then test the configured local or Harbor execution path
+under the deployment's normal Checks. Restore only the scheduler and dispatch
+state that the operator authorized. Retain upgrade and verification evidence on
+the release and deployment records.
+
+If startup or verification fails, keep new dispatch stopped. Account for remote
+writers before replacing the process. An older executable is not a supported
+reader of a newer schema. Restore the verified pre-upgrade database together
+with its matching executable, settings and Dashboard when rollback requires it.
+Preserve any post-upgrade work and journals before restore; a database restore
+can discard newer records. Record the rollback and its verification through the
+existing deployment workflow.

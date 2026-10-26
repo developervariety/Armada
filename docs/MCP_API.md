@@ -7,7 +7,7 @@ tier: leaf
 ---
 # Armada MCP API
 
-**Version:** 0.9.0
+**Version:** 1.0.0
 **Primary endpoint:** `http://localhost:7891/mcp`
 **Compatibility endpoint:** `http://localhost:7891/rpc`
 **Transport:** Stateless Streamable HTTP
