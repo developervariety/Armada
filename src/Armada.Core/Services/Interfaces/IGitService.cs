@@ -121,6 +121,17 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         Task RepairWorktreeAsync(string worktreePath, CancellationToken token = default);
 
+        /// <summary>Reconstruct an absent native checkout from an existing local branch without fetching or creating refs.</summary>
+        /// <param name="repoPath">The owning repository.</param>
+        /// <param name="worktreePath">The absent managed checkout path.</param>
+        /// <param name="branchName">The exact existing local branch.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task RecreateMissingWorktreeAsync(string repoPath, string worktreePath, string branchName, CancellationToken token = default)
+        {
+            throw new NotSupportedException("strict_worktree_reconstruction_not_supported");
+        }
+
+
         /// <summary>
         /// Check if a path is a valid git repository.
         /// </summary>

@@ -788,7 +788,7 @@ namespace Armada.Server
         private async Task OpenStuckVoyageIncidentAsync(Voyage voyage, string summary, CancellationToken token)
         {
             AuthContext auth = BuildVoyageAuth(voyage);
-            Incident incident = await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
+            Incident incident = await _Incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Stuck open voyage: " + Truncate(voyage.Title, 96),
                 Summary = summary,
@@ -1814,7 +1814,7 @@ namespace Armada.Server
                 }, token).ConfigureAwait(false);
             }
 
-            Incident created = await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
+            Incident created = await _Incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Mission failed: " + Truncate(mission.Title, 96),
                 Summary = BuildIncidentSummary(mission, decision),

@@ -67,6 +67,123 @@ namespace Armada.Test.Unit.Suites.Services
 
                         AssertEqual(sourceHead, defaultBranchCommit, "Configured default branch should be created from the existing repo history");
                         AssertEqual(sourceHead, worktreeHead, "Provisioned worktree should start from the source repo history");
+
+                        string path = dock.WorktreePath!;
+                        string branch = dock.BranchName!;
+                        UserMaster foreignOwner = await testDb.Driver.Users.CreateAsync(new UserMaster(Constants.DefaultTenantId,
+                            "foreign-repair@example.invalid", "fixture-password")).ConfigureAwait(false);
+                        dock.UserId = foreignOwner.Id;
+                        await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                        bool foreignOwnerRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { foreignOwnerRefused = true; }
+                        AssertTrue(foreignOwnerRefused, "Repair must refuse a different user even in the same tenant");
+                        dock.UserId = null;
+                        await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+
+                        await RunGitAsync(path, "config", "user.name", "Armada test").ConfigureAwait(false);
+                        await RunGitAsync(path, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(path, "continuation.txt"), "committed continuation").ConfigureAwait(false);
+                        await RunGitAsync(path, "add", "continuation.txt").ConfigureAwait(false);
+                        await RunGitAsync(path, "commit", "-m", "Retain continuation").ConfigureAwait(false);
+                        string savedHead = (await RunGitAsync(path, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                        AssertFalse(savedHead == sourceHead, "Continuation must differ from the default branch");
+                        for (int phase = 0; phase < 2; phase++)
+                        {
+                            if (phase == 0) await git.RemoveWorktreeAsync(path).ConfigureAwait(false);
+                            else Directory.Delete(path, true);
+                            await service.RepairAsync(dock.Id).ConfigureAwait(false);
+                            AssertEqual(savedHead, (await RunGitAsync(path, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(),
+                                "Repair must restore exact committed continuation with or without a stale registration");
+                            AssertEqual(branch, (await RunGitAsync(path, "symbolic-ref", "--short", "HEAD").ConfigureAwait(false)).Trim(),
+                                "Repair must attach the saved local branch");
+                            AssertEqual(sourceHead, (await RunGitAsync(repoPath, "rev-parse", "refs/heads/release/e2e").ConfigureAwait(false)).Trim(),
+                                "Repair must not move the default branch");
+                        }
+                        await git.LockWorktreeAsync(path, "operator hold").ConfigureAwait(false);
+                        Directory.Delete(path, true);
+                        bool lockedRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { lockedRefused = true; }
+                        AssertTrue(lockedRefused, "Repair must not override a locked registration");
+                        AssertFalse(Directory.Exists(path), "Locked registration must remain absent");
+                        await RunGitAsync(repoPath, "worktree", "unlock", path).ConfigureAwait(false);
+                        await service.RepairAsync(dock.Id).ConfigureAwait(false);
+                        await git.RemoveWorktreeAsync(path).ConfigureAwait(false);
+                        string otherPath = Path.Combine(rootDir, "branch-holder");
+                        await RunGitAsync(repoPath, "worktree", "add", otherPath, branch).ConfigureAwait(false);
+                        bool branchHeldRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { branchHeldRefused = true; }
+                        AssertTrue(branchHeldRefused, "Repair must not evict a different worktree holding the branch");
+                        AssertEqual(savedHead, (await RunGitAsync(otherPath, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "Other checkout remains intact");
+                        await git.RemoveWorktreeAsync(otherPath).ConfigureAwait(false);
+                        string foreignDirectory = Path.Combine(rootDir, "foreign");
+                        Directory.CreateDirectory(foreignDirectory);
+                        await File.WriteAllTextAsync(Path.Combine(foreignDirectory, "keep.txt"), "foreign work").ConfigureAwait(false);
+                        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                        Directory.CreateSymbolicLink(path, Path.Combine(rootDir, "absent-foreign"));
+                        bool linkRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { linkRefused = true; }
+                        AssertTrue(linkRefused, "Even a broken symlink must not be treated as a missing managed checkout");
+                        AssertNotNull(new DirectoryInfo(path).LinkTarget, "The link must not be replaced");
+                        if (OperatingSystem.IsWindows()) Directory.Delete(path);
+                        else File.Delete(path);
+                        AssertEqual("foreign work", await File.ReadAllTextAsync(Path.Combine(foreignDirectory, "keep.txt")).ConfigureAwait(false), "Foreign files remain intact");
+                        dock.BranchName = "missing/continuation";
+                        await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                        bool missingRefRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { missingRefRefused = true; }
+                        AssertTrue(missingRefRefused, "An absent saved ref must be refused instead of created from main");
+                        AssertFalse(Directory.Exists(path), "Missing ref refusal must not create a checkout");
+                        AssertFalse(await git.BranchExistsAsync(repoPath, dock.BranchName).ConfigureAwait(false), "Repair must not invent a branch");
+                        dock.BranchName = branch;
+                        await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                        Dock foreign = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                        {
+                            TenantId = dock.TenantId, UserId = dock.UserId, WorktreePath = path, BranchName = branch, Active = true
+                        }).ConfigureAwait(false);
+                        bool foreignRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { foreignRefused = true; }
+                        AssertTrue(foreignRefused, "Another active dock owning the missing path must block reconstruction");
+                        AssertFalse(Directory.Exists(path), "Foreign ownership refusal must not create a checkout");
+                        foreign.Active = false;
+                        await testDb.Driver.Docks.UpdateAsync(foreign).ConfigureAwait(false);
+                        dock.Active = false;
+                        await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                        await service.RepairAsync(dock.Id).ConfigureAwait(false);
+                        AssertFalse((await testDb.Driver.Docks.ReadAsync(dock.Id).ConfigureAwait(false))!.Active,
+                            "Physical repair must not reactivate a retired dock or authorize mission continuation");
+                        AssertEqual(savedHead, (await RunGitAsync(path, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "Retired dock repair retains its exact branch");
+                        await git.RemoveWorktreeAsync(path).ConfigureAwait(false);
+                        dock.BranchName = "racing/continuation";
+                        await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
+                        await RunGitAsync(repoPath, "update-ref", "refs/heads/" + dock.BranchName, savedHead).ConfigureAwait(false);
+                        await RunGitAsync(repoPath, "update-ref", "refs/remotes/origin/" + dock.BranchName, savedHead).ConfigureAwait(false);
+                        string hooks = Path.Combine(rootDir, "hooks");
+                        Directory.CreateDirectory(hooks);
+                        string hook = Path.Combine(hooks, "post-checkout");
+                        await File.WriteAllTextAsync(hook, "#!/bin/sh\ngit update-ref -d refs/heads/racing/continuation\n").ConfigureAwait(false);
+                        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(hook,
+                            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                        await RunGitAsync(repoPath, "config", "core.hooksPath", hooks).ConfigureAwait(false);
+                        bool disappearedRefRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { disappearedRefRefused = true; }
+                        finally { await RunGitAsync(repoPath, "config", "--unset", "core.hooksPath").ConfigureAwait(false); }
+                        AssertTrue(disappearedRefRefused, "A local branch removed during checkout must not be recreated from origin");
+                        AssertFalse(await git.BranchExistsAsync(repoPath, dock.BranchName).ConfigureAwait(false), "Repair must not guess a tracking branch");
+                        AssertEqual(savedHead, (await RunGitAsync(path, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(),
+                            "A refused attachment keeps the captured detached commit available");
+
+
+                    }
+                    catch (Exception exception)
+                    {
+                        throw new InvalidOperationException("Native dock reconstruction fixture failed: " + exception, exception);
                     }
                     finally
                     {

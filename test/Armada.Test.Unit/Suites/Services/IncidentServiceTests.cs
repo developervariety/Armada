@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Server.Mcp.Tools;
+    using Armada.Server.Mcp;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -71,6 +72,16 @@ namespace Armada.Test.Unit.Suites.Services
                 object createResult = await handlers["armada_create_incident"](createDoc.RootElement).ConfigureAwait(false);
                 Incident created = (Incident)createResult;
                 AssertEqual("MCP incident", created.Title);
+
+                using JsonDocument linkDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"checkRunId\":\"chk_fixture\"}");
+                Incident linked = (Incident)await handlers["armada_update_incident"](linkDoc.RootElement).ConfigureAwait(false);
+                AssertEqual("chk_fixture", linked.CheckRunId);
+                using JsonDocument omitLinkDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"summary\":\"Omitted link stays\"}");
+                Incident omittedLink = (Incident)await handlers["armada_update_incident"](omitLinkDoc.RootElement).ConfigureAwait(false);
+                AssertEqual("chk_fixture", omittedLink.CheckRunId);
+                using JsonDocument clearLinkDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"checkRunId\":\"\"}");
+                Incident clearedLink = (Incident)await handlers["armada_update_incident"](clearLinkDoc.RootElement).ConfigureAwait(false);
+                AssertNull(clearedLink.CheckRunId, "An explicit empty Check link survives request normalization and clears the stored link.");
 
                 using JsonDocument listDoc = JsonDocument.Parse("{\"vesselId\":\"vsl_mcp\"}");
                 object listResult = await handlers["armada_list_incidents"](listDoc.RootElement).ConfigureAwait(false);
@@ -231,6 +242,20 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = IncidentStatusEnum.Open
                 }).ConfigureAwait(false);
                 AssertEqual(IncidentStatusEnum.Open, reopened.Status, "an operator can still reopen");
+
+                Incident observedClosed = (await incidents.ReadAsync(McpTestCaller.Operator, created.Id).ConfigureAwait(false))!;
+                Incident operatorReopen = await incidents.UpdateAsync(McpTestCaller.Operator, created.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Mitigated, RecoveryNotes = "Operator has not verified deployment."
+                }).ConfigureAwait(false);
+                IncidentService secondWriter = new IncidentService(testDb.Driver);
+                Incident? staleClose = await secondWriter.UpdateAutomaticallyIfUnchangedAsync(McpTestCaller.Operator, observedClosed,
+                    new IncidentUpsertRequest { Status = IncidentStatusEnum.Closed, RecoveryNotes = "Stale close." }).ConfigureAwait(false);
+                AssertNull(staleClose, "A stale lifecycle snapshot cannot override an active operator reopen.");
+                Incident preserved = (await incidents.ReadAsync(McpTestCaller.Operator, created.Id).ConfigureAwait(false))!;
+                AssertEqual(IncidentStatusEnum.Mitigated, preserved.Status);
+                AssertEqual(operatorReopen.RecoveryNotes, preserved.RecoveryNotes);
+                AssertEqual(operatorReopen.LastOperatorStatusUtc, preserved.LastOperatorStatusUtc);
             }).ConfigureAwait(false);
 
             await RunTest("A snapshot stored before opened reasons existed treats its root cause as the opened reason", async () =>
@@ -246,7 +271,9 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 string payload = JsonSerializer.Serialize(legacy)
                     .Replace("\"OpenedReason\":null,", String.Empty)
-                    .Replace("\"RootCauseWrittenBy\":null,", String.Empty);
+                    .Replace("\"RootCauseWrittenBy\":null,", String.Empty)
+                    .Replace("\"OpenedAutomatically\":null,", String.Empty)
+                    .Replace("\"LastOperatorStatusUtc\":null,", String.Empty);
                 AssertFalse(payload.Contains("OpenedReason", StringComparison.Ordinal), "the stored payload has no opened reason");
                 await testDb.Driver.Events.CreateAsync(new ArmadaEvent(IncidentService.SnapshotEventType, legacy.Title)
                 {
@@ -256,6 +283,10 @@ namespace Armada.Test.Unit.Suites.Services
                     EntityId = legacy.Id,
                     Payload = payload
                 }).ConfigureAwait(false);
+
+                Incident legacyRead = (await incidents.ReadAsync(McpTestCaller.Operator, legacy.Id).ConfigureAwait(false))!;
+                AssertNull(legacyRead.OpenedAutomatically, "Legacy snapshots retain unknown origin.");
+                AssertNull(legacyRead.LastOperatorStatusUtc, "Legacy snapshots have no invented operator timestamp.");
 
                 string? code = await RefusalCodeAsync(() => incidents.UpdateAsync(McpTestCaller.Operator, legacy.Id, new IncidentUpsertRequest
                 {
@@ -295,7 +326,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
             McpIncidentTools.Register(
-                (name, description, schema, handler) => handlers[name] = McpTestCaller.Wrap(handler),
+                (name, description, schema, handler) => handlers[name] = McpTestCaller.Wrap(args => handler(McpToolArgumentNormalizer.Normalize(args, JsonSerializer.SerializeToElement(schema)))),
                 incidents);
             return handlers;
         }

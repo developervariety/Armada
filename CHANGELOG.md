@@ -15,6 +15,16 @@ upstream integrations and excludes changes already present at that baseline.
   plans. Parallel branches use a durable integration barrier with fixed accepted
   membership, verified rescue identity and proof of landing on the current target.
 
+- Restarted dependent stages retain the verified upstream commit and can restore a missing inherited branch from that commit before checkout provisioning.
+
+- Incident recovery requires newer Check evidence after detection or an operator status decision. Cancellation supersedes only known automatic incidents, and stale lifecycle writes cannot overwrite a newer snapshot. Explicit blank Check links reach the incident update handler.
+
+- Require patched PKCS dependency versions for both supported .NET targets through the shared SQL client dependency graph.
+
+- Dashboard development tools use patched Vite, Vitest, source-map-js, and Undici releases.
+
+- Provider retries retain their owned continuation dock. Dock repair can restore an absent native checkout from its exact local branch, without creating refs or replacing foreign and locked worktrees.
+
 - Deliverable-kind preview facts distinguish negated report-only wording from an explicit committed-test duty. Facts remain informational; dispatch preparation gates are unchanged.
 
 - Dispatch tool schemas require a task title and description, matching runtime validation before objective context is appended.

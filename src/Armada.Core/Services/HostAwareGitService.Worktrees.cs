@@ -86,6 +86,13 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public Task RecreateMissingWorktreeAsync(string repoPath, string worktreePath, string branchName, CancellationToken token = default)
+        {
+            if (IsRemote(repoPath) || IsRemote(worktreePath)) throw new InvalidOperationException("harbor_checkout_reconstruction_not_granted");
+            return _Local.RecreateMissingWorktreeAsync(repoPath, worktreePath, branchName, token);
+        }
+
+        /// <inheritdoc />
         public Task FetchAsync(string repoPath, CancellationToken token = default)
         {
             if (!IsRemote(repoPath)) return _Local.FetchAsync(repoPath, token);

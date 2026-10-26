@@ -29,7 +29,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await EnsureTenantAndUserAsync(testDb, "ten_inc_life_check", "usr_inc_life_check").ConfigureAwait(false);
                 Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_check", "usr_inc_life_check").ConfigureAwait(false);
 
-                CheckRun failed = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                CheckRun failed = new CheckRun
                 {
                     TenantId = vessel.TenantId,
                     UserId = vessel.UserId,
@@ -40,6 +40,14 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = CheckRunStatusEnum.Failed,
                     CompletedUtc = DateTime.UtcNow.AddMinutes(-5),
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-5)
+                };
+
+                CheckRun causingPass = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.Build, Label = "build", Command = "dotnet build",
+                    Status = CheckRunStatusEnum.Passed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-6), LastUpdateUtc = DateTime.UtcNow.AddMinutes(-6)
                 }).ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
@@ -50,11 +58,17 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = IncidentStatusEnum.Open,
                     Severity = IncidentSeverityEnum.Medium,
                     VesselId = vessel.Id,
-                    CheckRunId = failed.Id,
+                    CheckRunId = causingPass.Id,
                     DetectedUtc = DateTime.UtcNow.AddMinutes(-4),
                     RootCause = "Automated check command failed or could not run.",
                     RecoveryNotes = "Initial failed check."
                 }).ConfigureAwait(false);
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 0);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "A linked Check that passed before detection cannot mitigate the incident it caused.");
+                AssertEqual(IncidentStatusEnum.Open, (await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false))!.Status);
+                failed = await testDb.Driver.CheckRuns.CreateAsync(failed).ConfigureAwait(false);
+                await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest { CheckRunId = failed.Id }).ConfigureAwait(false);
 
                 await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
                 {
@@ -68,8 +82,6 @@ namespace Armada.Test.Unit.Suites.Services
                     CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
                 }).ConfigureAwait(false);
-
-                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 0);
 
                 AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false));
                 Incident? mitigated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
@@ -86,6 +98,29 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(closed.RootCauseWrittenBy, "The automatic cause is not person-written.");
                 AssertEqual("Automated check command failed or could not run.", closed.OpenedReason);
                 AssertNull(closed.RootCause, "An automatic close never keeps the opened reason as the root cause.");
+                await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                {
+                    Status = IncidentStatusEnum.Mitigated, RecoveryNotes = "Operator reopened: fix is not deployed."
+                }).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The same old pass cannot override an operator reopen.");
+                Incident reopened = (await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false))!;
+                AssertEqual(IncidentStatusEnum.Mitigated, reopened.Status);
+                AssertContains("not deployed", reopened.RecoveryNotes ?? String.Empty);
+                AssertTrue(reopened.LastOperatorStatusUtc.HasValue, "The operator decision survives snapshot projection.");
+                CheckRun freshBeforeDecision = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.Build, Label = "build", Command = "dotnet build",
+                    Status = CheckRunStatusEnum.Passed, CompletedUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+                Incident repeatedDecision = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest { Status = IncidentStatusEnum.Mitigated }).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "Repeating Mitigated also establishes a new operator decision.");
+                freshBeforeDecision.CompletedUtc = repeatedDecision.LastOperatorStatusUtc!.Value.AddSeconds(1);
+                await testDb.Driver.CheckRuns.UpdateAsync(freshBeforeDecision).ConfigureAwait(false);
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "A genuinely later passing Check can satisfy normal quiet-period closure.");
+                AssertEqual(IncidentStatusEnum.Closed, (await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false))!.Status);
+
+
             }).ConfigureAwait(false);
 
             await RunTest("Completed rescue mission mitigates linked failed-mission incident and the automatic close leaves the root cause unset", async () =>
@@ -127,6 +162,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(closed.ClosedAutomatically, "The lifecycle close is automatic.");
                 AssertNull(closed.RootCause, "The automatic close does not copy the opened reason into the root cause.");
                 AssertEqual("Unit-test failure.", closed.OpenedReason, "The opened reason is kept.");
+                Incident rescueDecision = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                { Status = IncidentStatusEnum.Mitigated }).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The old completed rescue cannot undo an operator reopen.");
+                await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest { MissionId = rescue.Id }).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The same completed mission cannot bypass the rescue evidence boundary.");
+                rescue.CompletedUtc = rescueDecision.LastOperatorStatusUtc!.Value.AddSeconds(1);
+                await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "A later completed mission remains valid recovery evidence.");
+                rescue.CompletedUtc = rescueDecision.LastOperatorStatusUtc.Value.AddSeconds(-1);
+                await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
+                Incident nextRescueDecision = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                { Status = IncidentStatusEnum.Mitigated, MissionId = failed.Id }).ConfigureAwait(false);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false));
+                rescue.CompletedUtc = nextRescueDecision.LastOperatorStatusUtc!.Value.AddSeconds(2);
+                await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "A later completed rescue retains normal closure.");
+
             }).ConfigureAwait(false);
 
             await RunTest("Cancelled rescue leaves the failed-mission incident open with a note naming the cancel", async () =>
@@ -187,6 +239,25 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(IncidentStatusEnum.Closed, updated!.Status, "An operator who cancels the failed mission's own voyage ends the work, so the incident is superseded.");
                 AssertContains("cancelled voyage", updated.RecoveryNotes ?? "", "Expected cancelled-voyage evidence.");
                 AssertNull(updated.RootCause, "The automatic close leaves the root cause unset.");
+                Incident operatorIncident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Operator reports a cancellation defect", MissionId = incident.MissionId,
+                    VoyageId = incident.VoyageId, VesselId = vessel.Id, Status = IncidentStatusEnum.Mitigated,
+                    DetectedUtc = DateTime.UtcNow.AddMinutes(-3)
+                }).ConfigureAwait(false);
+                await orchestrator.RunSweepAsync().ConfigureAwait(false); // A cancelled-rescue note is permitted; closure is not.
+                AssertEqual(IncidentStatusEnum.Mitigated, (await incidents.ReadAsync(auth, operatorIncident.Id).ConfigureAwait(false))!.Status);
+                Incident historicalCancel = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Automatic incident after cancellation", MissionId = incident.MissionId,
+                    VoyageId = incident.VoyageId, VesselId = vessel.Id, Status = IncidentStatusEnum.Open,
+                    DetectedUtc = DateTime.UtcNow
+                }).ConfigureAwait(false);
+                await orchestrator.RunSweepAsync().ConfigureAwait(false);
+                AssertEqual(IncidentStatusEnum.Open, (await incidents.ReadAsync(auth, historicalCancel.Id).ConfigureAwait(false))!.Status,
+                    "Even a known automatic incident cannot be superseded by a cancellation before detection.");
+
+
             }).ConfigureAwait(false);
 
             await RunTest("Cancelled voyage closes landing-failed incident as superseded", async () =>
@@ -209,7 +280,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
-                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                Incident incident = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = "Mission failed: Landing failed mission",
                     Status = IncidentStatusEnum.Open,
@@ -258,7 +329,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
-                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                Incident incident = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = "Mission failed: Upstream stage",
                     Status = IncidentStatusEnum.Open,
@@ -575,6 +646,41 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(updated != null, "Expected incident.");
                 AssertEqual(IncidentStatusEnum.RolledBack, updated!.Status);
                 AssertTrue(updated.ClosedUtc.HasValue, "Rolled-back incidents should get closure timestamp.");
+
+                IncidentLifecycleOrchestrator immediate = CreateOrchestrator(testDb.Driver, incidents, 0);
+                Incident rollbackDecision = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                { Status = IncidentStatusEnum.Mitigated }).ConfigureAwait(false);
+                AssertEqual(0, await immediate.RunSweepAsync().ConfigureAwait(false), "An old rollback cannot override an operator reopen through the priority path.");
+                deployment.RolledBackUtc = rollbackDecision.LastOperatorStatusUtc!.Value.AddSeconds(1);
+                await testDb.Driver.Deployments.UpdateAsync(deployment).ConfigureAwait(false);
+                AssertEqual(1, await immediate.RunSweepAsync().ConfigureAwait(false), "A new rollback remains valid evidence.");
+
+                Incident deploymentDecision = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                { Status = IncidentStatusEnum.Mitigated, RollbackDeploymentId = String.Empty }).ConfigureAwait(false);
+                deployment.Status = DeploymentStatusEnum.Succeeded;
+                deployment.CompletedUtc = deploymentDecision.LastOperatorStatusUtc!.Value.AddSeconds(-1);
+                deployment.RolledBackUtc = null;
+                await testDb.Driver.Deployments.UpdateAsync(deployment).ConfigureAwait(false);
+                AssertEqual(0, await immediate.RunSweepAsync().ConfigureAwait(false), "An old successful deployment cannot override the decision.");
+                deployment.CompletedUtc = deploymentDecision.LastOperatorStatusUtc.Value.AddSeconds(1);
+                await testDb.Driver.Deployments.UpdateAsync(deployment).ConfigureAwait(false);
+                AssertEqual(1, await immediate.RunSweepAsync().ConfigureAwait(false), "A later successful deployment retains normal closure.");
+
+                Release release = await testDb.Driver.Releases.CreateAsync(new Release
+                {
+                    TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                    Title = "Recovery release", Status = ReleaseStatusEnum.Shipped, PublishedUtc = DateTime.UtcNow.AddHours(-1)
+                }).ConfigureAwait(false);
+                Incident releaseDecision = await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                { Status = IncidentStatusEnum.Mitigated, DeploymentId = String.Empty, ReleaseId = release.Id }).ConfigureAwait(false);
+                AssertEqual(0, await immediate.RunSweepAsync().ConfigureAwait(false), "An old shipment cannot undo the decision.");
+                release.PublishedUtc = releaseDecision.LastOperatorStatusUtc!.Value.AddSeconds(1);
+                await testDb.Driver.Releases.UpdateAsync(release).ConfigureAwait(false);
+                AssertEqual(1, await immediate.RunSweepAsync().ConfigureAwait(false), "A later shipment remains valid recovery.");
+                await incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest { Status = IncidentStatusEnum.Mitigated }).ConfigureAwait(false);
+                release.Status = ReleaseStatusEnum.RolledBack;
+                await testDb.Driver.Releases.UpdateAsync(release).ConfigureAwait(false);
+                AssertEqual(0, await immediate.RunSweepAsync().ConfigureAwait(false), "Release rollback status without an occurrence is insufficient.");
             }).ConfigureAwait(false);
 
             await RunTest("Links to another tenant's records are never read as evidence", async () =>
@@ -736,7 +842,7 @@ namespace Armada.Test.Unit.Suites.Services
             rescue.FailureReason = "Autonomous recovery suppressed because parent voyage " + voyage.Id + " is Cancelled.";
             await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
 
-            return await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            return await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Mission failed: " + title,
                 Status = IncidentStatusEnum.Open,

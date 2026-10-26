@@ -2698,7 +2698,7 @@ namespace Armada.Core.Services
                 EnumerationResult<Incident> existing = await _Incidents.EnumerateAsync(auth, query, token).ConfigureAwait(false);
                 if (existing.TotalRecords > 0) return;
 
-                await _Incidents.CreateAsync(auth, new IncidentUpsertRequest
+                await _Incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = title,
                     Summary = summary,

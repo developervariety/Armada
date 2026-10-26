@@ -268,16 +268,11 @@ namespace Armada.Server
             if (!String.IsNullOrWhiteSpace(incident.RollbackDeploymentId))
                 rollbackDeployment = await _Database.Deployments.ReadAsync(incident.RollbackDeploymentId, token: token).ConfigureAwait(false);
             if (rollbackDeployment != null && !IsIncidentTenant(incident, rollbackDeployment.TenantId)) rollbackDeployment = null;
-            if (rollbackDeployment?.Status == DeploymentStatusEnum.RolledBack)
+            if (rollbackDeployment?.Status == DeploymentStatusEnum.RolledBack && IsFreshRecovery(incident, rollbackDeployment.RolledBackUtc))
                 return IncidentEvidence.RolledBack("Rollback deployment completed: " + rollbackDeployment.Id + ".");
 
-            if (!String.IsNullOrWhiteSpace(incident.ReleaseId))
-            {
-                Release? release = await _Database.Releases.ReadAsync(incident.ReleaseId, token: token).ConfigureAwait(false);
-                if (release != null && !IsIncidentTenant(incident, release.TenantId)) release = null;
-                if (release?.Status == ReleaseStatusEnum.RolledBack)
-                    return IncidentEvidence.RolledBack("Linked release was rolled back: " + release.Id + ".");
-            }
+            // Release has no rollback-occurrence timestamp. A release status alone cannot prove a
+            // new recovery; a linked rollback deployment above supplies durable rollback evidence.
 
             return null;
         }
@@ -336,11 +331,13 @@ namespace Armada.Server
             if (deployment == null || !IsIncidentTenant(incident, deployment.TenantId)) return IncidentEvidence.None;
 
             if (deployment.Status == DeploymentStatusEnum.RolledBack)
-                return IncidentEvidence.RolledBack("Deployment rolled back: " + deployment.Id + ".");
+                return IsFreshRecovery(incident, deployment.RolledBackUtc)
+                    ? IncidentEvidence.RolledBack("Deployment rolled back: " + deployment.Id + ".") : IncidentEvidence.None;
             if (deployment.Status == DeploymentStatusEnum.Succeeded
                 && (deployment.VerificationStatus == DeploymentVerificationStatusEnum.Passed
                     || deployment.VerificationStatus == DeploymentVerificationStatusEnum.Skipped))
-                return IncidentEvidence.Mitigated("Deployment succeeded with verification status " + deployment.VerificationStatus + ": " + deployment.Id + ".");
+                return IsFreshRecovery(incident, deployment.CompletedUtc)
+                    ? IncidentEvidence.Mitigated("Deployment succeeded with verification status " + deployment.VerificationStatus + ": " + deployment.Id + ".") : IncidentEvidence.None;
             if (deployment.Status == DeploymentStatusEnum.Failed || deployment.Status == DeploymentStatusEnum.VerificationFailed)
                 return IncidentEvidence.ActiveFailure("Deployment remains " + deployment.Status + ": " + deployment.Id + ".", deployment.CompletedUtc ?? deployment.LastUpdateUtc);
 
@@ -356,9 +353,10 @@ namespace Armada.Server
             if (release == null || !IsIncidentTenant(incident, release.TenantId)) return IncidentEvidence.None;
 
             if (release.Status == ReleaseStatusEnum.RolledBack)
-                return IncidentEvidence.RolledBack("Release rolled back: " + release.Id + ".");
+                return IncidentEvidence.None; // No durable rollback occurrence exists on a release.
             if (release.Status == ReleaseStatusEnum.Shipped)
-                return IncidentEvidence.Mitigated("Release shipped: " + release.Id + ".");
+                return IsFreshRecovery(incident, release.PublishedUtc)
+                    ? IncidentEvidence.Mitigated("Release shipped: " + release.Id + ".") : IncidentEvidence.None;
             if (release.Status == ReleaseStatusEnum.Failed)
                 return IncidentEvidence.ActiveFailure("Release remains failed: " + release.Id + ".", release.LastUpdateUtc);
 
@@ -374,18 +372,23 @@ namespace Armada.Server
             if (mission == null || !IsIncidentTenant(incident, mission.TenantId)) return IncidentEvidence.None;
 
             if (mission.Status == MissionStatusEnum.Complete)
-                return IncidentEvidence.Mitigated("Linked mission completed: " + mission.Id + ".");
+                return IsFreshRecovery(incident, mission.CompletedUtc)
+                    ? IncidentEvidence.Mitigated("Linked mission completed: " + mission.Id + ".") : IncidentEvidence.None;
             if (mission.Status == MissionStatusEnum.Cancelled)
-                return IncidentEvidence.Superseded("Linked mission was cancelled, so the incident is superseded: " + mission.Id + ".");
+                return CanSupersedeFromCancellation(incident, mission.CompletedUtc)
+                    ? IncidentEvidence.Superseded("Linked mission was cancelled, so the incident is superseded: " + mission.Id + ".")
+                    : IncidentEvidence.None;
             if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.LandingFailed)
                 return IncidentEvidence.ActiveWork("Linked mission is still " + mission.Status + ": " + mission.Id + ".");
 
             // A mission closed by terminal-voyage reconciliation records an ended voyage, not a failure to
             // recover, so an incident opened for it has nothing left to track.
             if (Armada.Core.Services.TerminalVoyageMissionRule.IsReconciledOutcome(mission))
-                return IncidentEvidence.Superseded("Linked mission was closed by terminal-voyage reconciliation, not by a failure of its own, so the incident is superseded: " + mission.Id + ".");
+                return CanSupersedeFromCancellation(incident, mission.ReconciledUtc)
+                    ? IncidentEvidence.Superseded("Linked mission was closed by terminal-voyage reconciliation, not by a failure of its own, so the incident is superseded: " + mission.Id + ".")
+                    : IncidentEvidence.None;
 
-            if (await IsMissionVoyageCancelledAsync(mission, token).ConfigureAwait(false))
+            if (await IsMissionVoyageCancelledAsync(mission, incident, token).ConfigureAwait(false))
                 return IncidentEvidence.Superseded("Linked mission belongs to a cancelled voyage and is superseded: " + mission.Id + ".");
 
             // This runs in the incident-lifecycle sweep every ~5s, so it reads only the summaries
@@ -401,7 +404,8 @@ namespace Armada.Server
             if (latestRescue == null)
                 return IncidentEvidence.ActiveFailure("Linked mission remains " + mission.Status + ": " + mission.Id + ".", mission.CompletedUtc ?? mission.LastUpdateUtc);
             if (latestRescue.Status == MissionStatusEnum.Complete)
-                return IncidentEvidence.Mitigated("Autonomous rescue mission completed: " + latestRescue.Id + ".");
+                return IsFreshRecovery(incident, latestRescue.CompletedUtc)
+                    ? IncidentEvidence.Mitigated("Autonomous rescue mission completed: " + latestRescue.Id + ".") : IncidentEvidence.None;
             if (latestRescue.Status == MissionStatusEnum.Cancelled)
                 return IncidentEvidence.RescueCancelled(DescribeRescueCancel(latestRescue));
             if (latestRescue.Status == MissionStatusEnum.Failed
@@ -441,7 +445,7 @@ namespace Armada.Server
             CheckRunTypeEnum? type = failed?.Type;
 
             return runs
-                .Where(run => run.Status == CheckRunStatusEnum.Passed)
+                .Where(run => run.Status == CheckRunStatusEnum.Passed && IsFreshRecoveryCheck(run, incident))
                 .Where(run => failed == null || !String.Equals(run.Id, failed.Id, StringComparison.OrdinalIgnoreCase))
                 .Where(run => !type.HasValue || run.Type == type.Value)
                 .Where(run => Matches(run.VesselId, vesselId))
@@ -459,27 +463,27 @@ namespace Armada.Server
             if (!String.IsNullOrWhiteSpace(incident.MissionId))
             {
                 Mission? mission = await _Database.Missions.ReadAsync(incident.MissionId, token).ConfigureAwait(false);
-                if (mission?.Status == MissionStatusEnum.Cancelled)
+                if (mission?.Status == MissionStatusEnum.Cancelled && CanSupersedeFromCancellation(incident, mission.CompletedUtc))
                     return true;
             }
 
             if (!String.IsNullOrWhiteSpace(incident.VoyageId))
             {
                 Voyage? voyage = await _Database.Voyages.ReadAsync(incident.VoyageId, token).ConfigureAwait(false);
-                if (voyage?.Status == VoyageStatusEnum.Cancelled)
+                if (voyage?.Status == VoyageStatusEnum.Cancelled && CanSupersedeFromCancellation(incident, voyage.CompletedUtc))
                     return true;
             }
 
             return false;
         }
 
-        private async Task<bool> IsMissionVoyageCancelledAsync(Mission mission, CancellationToken token)
+        private async Task<bool> IsMissionVoyageCancelledAsync(Mission mission, Incident incident, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(mission.VoyageId))
                 return false;
 
             Voyage? voyage = await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
-            return voyage?.Status == VoyageStatusEnum.Cancelled;
+            return voyage?.Status == VoyageStatusEnum.Cancelled && CanSupersedeFromCancellation(incident, voyage.CompletedUtc);
         }
 
         private async Task<bool> UpdateIncidentAsync(
@@ -492,7 +496,7 @@ namespace Armada.Server
             CancellationToken token)
         {
             DateTime now = DateTime.UtcNow;
-            Incident updated = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+            Incident? updated = await _Incidents.UpdateAutomaticallyIfUnchangedAsync(auth, incident, new IncidentUpsertRequest
             {
                 Status = status,
                 Severity = severity,
@@ -501,6 +505,7 @@ namespace Armada.Server
                 ClosedUtc = status == IncidentStatusEnum.Closed || status == IncidentStatusEnum.RolledBack ? now : null
             }, token).ConfigureAwait(false);
 
+            if (updated == null) return false;
             if (updated.Status != status)
             {
                 _Logging.Info(_Header + "incident " + updated.Id + " is " + updated.Status + " since the sweep read it; move to " + status + " skipped");
@@ -518,11 +523,12 @@ namespace Armada.Server
             string eventType,
             CancellationToken token)
         {
-            Incident updated = await _Incidents.UpdateAutomaticallyAsync(auth, incident.Id, new IncidentUpsertRequest
+            Incident? updated = await _Incidents.UpdateAutomaticallyIfUnchangedAsync(auth, incident, new IncidentUpsertRequest
             {
                 RecoveryNotes = AppendNote(incident.RecoveryNotes, note)
             }, token).ConfigureAwait(false);
 
+            if (updated == null) return false;
             if (updated.Status != incident.Status)
             {
                 _Logging.Info(_Header + "incident " + updated.Id + " is " + updated.Status + " since the sweep read it; note skipped");
@@ -556,8 +562,30 @@ namespace Armada.Server
             await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
         }
 
+        private static DateTime RecoveryBoundary(Incident incident)
+        {
+            return incident.LastOperatorStatusUtc.HasValue && incident.LastOperatorStatusUtc.Value > incident.DetectedUtc
+                ? incident.LastOperatorStatusUtc.Value : incident.DetectedUtc;
+        }
+
+        private static bool IsFreshRecoveryCheck(CheckRun run, Incident incident)
+        {
+            return IsFreshRecovery(incident, run.CompletedUtc);
+        }
+
+        private static bool IsFreshRecovery(Incident incident, DateTime? occurredUtc)
+        {
+            return occurredUtc.HasValue && occurredUtc.Value > RecoveryBoundary(incident);
+        }
+
+        private static bool CanSupersedeFromCancellation(Incident incident, DateTime? occurredUtc)
+        {
+            return incident.OpenedAutomatically == true && IsFreshRecovery(incident, occurredUtc);
+        }
+
         private static bool MatchesIncidentCheck(CheckRun run, Incident incident, CheckRun? failed)
         {
+            if (run.Status == CheckRunStatusEnum.Passed && !IsFreshRecoveryCheck(run, incident)) return false;
             if (!String.IsNullOrWhiteSpace(incident.CheckRunId)
                 && String.Equals(run.Id, incident.CheckRunId, StringComparison.OrdinalIgnoreCase))
                 return true;

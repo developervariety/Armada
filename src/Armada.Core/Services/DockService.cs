@@ -639,7 +639,42 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrEmpty(dock.WorktreePath))
             {
-                await _Git.RepairWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
+                bool wasMissing = !Directory.Exists(dock.WorktreePath);
+                Vessel? vessel = await _Database.Vessels.ReadAsync(dock.VesselId, token).ConfigureAwait(false);
+                if (vessel == null || !Armada.Core.Authorization.OwnershipPolicy.SameTenant(vessel.TenantId, dock.TenantId)
+                    || !String.Equals(Armada.Core.Authorization.OwnershipPolicy.UserOfRecord(vessel.UserId), Armada.Core.Authorization.OwnershipPolicy.UserOfRecord(dock.UserId), StringComparison.Ordinal))
+                    throw new InvalidOperationException("dock_repair_owner_mismatch");
+                string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
+                SemaphoreSlim repoLock = _RepoProvisionLocks.GetOrAdd(Path.GetFullPath(repoPath), _ => new SemaphoreSlim(1, 1));
+                await ArmadaMetrics.WaitForLockAsync(repoLock, ArmadaMetrics.LockDockProvision, token).ConfigureAwait(false);
+                try
+                {
+                    Dock? current = await _Database.Docks.ReadAsync(dock.Id, token).ConfigureAwait(false);
+                    if (current == null || current.HostCheckout != null || current.WorktreePath != dock.WorktreePath
+                        || current.BranchName != dock.BranchName || current.VesselId != dock.VesselId
+                        || current.TenantId != dock.TenantId || current.UserId != dock.UserId
+                        || await IsWorktreeOwnedByAnotherActiveDockAsync(current, token).ConfigureAwait(false))
+                        throw new InvalidOperationException("dock_repair_ownership_changed");
+                    if (wasMissing)
+                    {
+                        string root = Path.GetFullPath(_Settings.DocksDirectory);
+                        string relative = Path.GetRelativePath(root, Path.GetFullPath(dock.WorktreePath));
+                        string[] parts = relative.Split(Path.DirectorySeparatorChar);
+                        if (parts.Length != 3 || parts[0] != vessel.Name || parts[2] != vessel.Name
+                            || parts.Any(part => part == ".." || part == ".") || String.IsNullOrWhiteSpace(dock.BranchName))
+                            throw new InvalidOperationException("dock_repair_path_outside_managed_root");
+                        string component = root;
+                        foreach (string part in new[] { "" }.Concat(parts))
+                        {
+                            component = Path.Combine(component, part);
+                            if (new DirectoryInfo(component).LinkTarget != null || new FileInfo(component).LinkTarget != null)
+                                throw new InvalidOperationException("dock_repair_symlink_refused");
+                        }
+                        await _Git.RecreateMissingWorktreeAsync(repoPath, dock.WorktreePath, dock.BranchName!, token).ConfigureAwait(false);
+                    }
+                    else await _Git.RepairWorktreeAsync(dock.WorktreePath, token).ConfigureAwait(false);
+                }
+                finally { repoLock.Release(); }
                 _Logging.Info(_Header + "repaired dock " + dockId);
             }
         }

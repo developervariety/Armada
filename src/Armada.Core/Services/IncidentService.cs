@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Runtime.CompilerServices;
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using Armada.Core.Authorization;
@@ -30,6 +31,7 @@ namespace Armada.Core.Services
         public Action<Incident>? OnIncidentChanged { get; set; }
 
         private readonly DatabaseDriver _Database;
+        private static readonly ConditionalWeakTable<DatabaseDriver, SemaphoreSlim> _WriteLocks = new ConditionalWeakTable<DatabaseDriver, SemaphoreSlim>();
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -200,13 +202,28 @@ namespace Armada.Core.Services
         /// <summary>
         /// Create an incident.
         /// </summary>
-        public async Task<Incident> CreateAsync(AuthContext auth, IncidentUpsertRequest request, CancellationToken token = default)
+        public Task<Incident> CreateAsync(AuthContext auth, IncidentUpsertRequest request, CancellationToken token = default)
+        {
+            return CreateCoreAsync(auth, request, false, token);
+        }
+
+        /// <summary>
+        /// Create an incident from a system observation. Its durable origin permits lifecycle
+        /// supersession only by a later cancellation; caller-facing tools do not expose this path.
+        /// </summary>
+        public Task<Incident> CreateAutomaticallyAsync(AuthContext auth, IncidentUpsertRequest request, CancellationToken token = default)
+        {
+            return CreateCoreAsync(auth, request, true, token);
+        }
+
+        private async Task<Incident> CreateCoreAsync(AuthContext auth, IncidentUpsertRequest request, bool automatic, CancellationToken token)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (request == null) throw new ArgumentNullException(nameof(request));
 
             Incident incident = new Incident
             {
+                OpenedAutomatically = automatic,
                 TenantId = auth.IsAdmin ? null : auth.TenantId,
                 UserId = auth.UserId,
                 Title = NormalizeRequired(request.Title, nameof(request.Title)),
@@ -264,9 +281,10 @@ namespace Armada.Core.Services
         /// with <see cref="IncidentRootCauseRefusedException"/> unless the root cause in force is one the
         /// caller wrote (<see cref="IncidentRootCauseRule"/>).
         /// </summary>
-        public Task<Incident> UpdateAsync(AuthContext auth, string id, IncidentUpsertRequest request, CancellationToken token = default)
+        public async Task<Incident> UpdateAsync(AuthContext auth, string id, IncidentUpsertRequest request, CancellationToken token = default)
         {
-            return UpdateCoreAsync(auth, id, request, false, token);
+            return await UpdateCoreAsync(auth, id, request, false, null, token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Incident update was superseded.");
         }
 
         /// <summary>
@@ -274,12 +292,37 @@ namespace Armada.Core.Services
         /// rule does not apply, a close or rollback is recorded as automatic, and any root cause the
         /// request supplies is recorded as automatic, never as person-written.
         /// </summary>
-        public Task<Incident> UpdateAutomaticallyAsync(AuthContext auth, string id, IncidentUpsertRequest request, CancellationToken token = default)
+        public async Task<Incident> UpdateAutomaticallyAsync(AuthContext auth, string id, IncidentUpsertRequest request, CancellationToken token = default)
         {
-            return UpdateCoreAsync(auth, id, request, true, token);
+            return await UpdateCoreAsync(auth, id, request, true, null, token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Incident update was superseded.");
         }
 
-        private async Task<Incident> UpdateCoreAsync(AuthContext auth, string id, IncidentUpsertRequest request, bool automatic, CancellationToken token)
+        /// <summary>
+        /// Apply a lifecycle decision only while the observed snapshot is current. A stale decision
+        /// returns null. The comparison and snapshot write share the caller-update lock.
+        /// </summary>
+        public Task<Incident?> UpdateAutomaticallyIfUnchangedAsync(AuthContext auth, Incident observed, IncidentUpsertRequest request, CancellationToken token = default)
+        {
+            if (observed == null) throw new ArgumentNullException(nameof(observed));
+            return UpdateCoreAsync(auth, observed.Id, request, true, observed.LastUpdateUtc, token);
+        }
+
+        private async Task<Incident?> UpdateCoreAsync(AuthContext auth, string id, IncidentUpsertRequest request, bool automatic, DateTime? expectedUpdateUtc, CancellationToken token)
+        {
+            SemaphoreSlim writeLock = _WriteLocks.GetValue(_Database, _ => new SemaphoreSlim(1, 1));
+            await writeLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                return await UpdateLockedAsync(auth, id, request, automatic, expectedUpdateUtc, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                writeLock.Release();
+            }
+        }
+
+        private async Task<Incident?> UpdateLockedAsync(AuthContext auth, string id, IncidentUpsertRequest request, bool automatic, DateTime? expectedUpdateUtc, CancellationToken token)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
@@ -287,6 +330,7 @@ namespace Armada.Core.Services
 
             Incident incident = await ReadAsync(auth, id, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Incident not found.");
+            if (expectedUpdateUtc.HasValue && incident.LastUpdateUtc != expectedUpdateUtc.Value) return null;
             IncidentStatusEnum previousStatus = incident.Status;
             string? previousRootCause = incident.RootCause;
 
@@ -326,7 +370,10 @@ namespace Armada.Core.Services
                 incident.MitigatedUtc = DateTime.UtcNow;
             }
             incident.ClosedUtc = request.ClosedUtc.HasValue ? request.ClosedUtc.Value.ToUniversalTime() : incident.ClosedUtc;
-            incident.LastUpdateUtc = DateTime.UtcNow;
+            DateTime now = DateTime.UtcNow;
+            incident.LastUpdateUtc = now > incident.LastUpdateUtc ? now : incident.LastUpdateUtc.AddTicks(1);
+            if (!automatic && request.Status.HasValue && !IsTerminal(incident.Status))
+                incident.LastOperatorStatusUtc = incident.LastUpdateUtc;
 
             // The text an incident opened with is an automatic reading, not a determined cause. A system
             // path that closes or rolls back the incident therefore leaves the root cause unset rather than

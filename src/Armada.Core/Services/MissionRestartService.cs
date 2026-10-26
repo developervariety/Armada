@@ -1,7 +1,9 @@
 namespace Armada.Core.Services
 {
     using Armada.Core.Database;
+    using Armada.Core.Authorization;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using SyslogLogging;
@@ -270,6 +272,15 @@ namespace Armada.Core.Services
             if (plan.Anchor != null)
             {
                 mission.DependsOnMissionId = plan.Anchor.Id;
+                // Capture the verified source before the restart is saved. A reclaimed checkout
+                // or deleted branch must not make later assignment choose the default branch.
+                if (!HasHarborOwnedRestartSource(mission, plan.Anchor, vessel)
+                    && String.Equals(mission.VesselId, plan.Anchor.VesselId, StringComparison.Ordinal)
+                    && OwnershipPolicy.SameTenant(mission.TenantId, plan.Anchor.TenantId)
+                    && String.Equals(OwnershipPolicy.UserOfRecord(mission.UserId), OwnershipPolicy.UserOfRecord(plan.Anchor.UserId), StringComparison.Ordinal))
+                {
+                    mission.StartFromRef = plan.Anchor.CommitHash;
+                }
                 if (IsUnlandedProducedWork(plan.Anchor))
                 {
                     Mission anchor = plan.Anchor;
@@ -305,6 +316,28 @@ namespace Armada.Core.Services
             _Logging?.Info("[MissionRestartService] reopened voyage " + voyage.Id + " to restart " + mission.Id + " on "
                 + runsOn + "; superseded " + plan.Superseded.Count + " stage(s); resumed " + resumed
                 + " later stage(s); armed " + armed + " check(s)");
+        }
+
+        private bool HasHarborOwnedRestartSource(Mission mission, Mission anchor, Vessel vessel)
+        {
+            // Restart has not selected a captain. A captain-specific owned route can override
+            // a native vessel route, including while Harbor is disabled. Keep its revision payload
+            // unchanged until assignment can resolve the actual captain and checkout owner.
+            if (!String.IsNullOrWhiteSpace(mission.HarborJobId)
+                || !String.IsNullOrWhiteSpace(mission.DockProvisionAttemptId)
+                || !String.IsNullOrWhiteSpace(anchor.HarborJobId)
+                || !String.IsNullOrWhiteSpace(anchor.DockProvisionAttemptId)) return true;
+            if (HarborMissionRouting.ResolveConfiguredForVessel(_Settings.Harbor, vessel.Id)?.CheckoutMode
+                == HarborCheckoutModeEnum.HarborOwned) return true;
+            if (_Settings.Harbor?.MissionRoutes != null)
+            {
+                foreach (HarborMissionRoute route in _Settings.Harbor.MissionRoutes)
+                {
+                    if (route != null && !String.IsNullOrWhiteSpace(route.CaptainId)
+                        && route.CheckoutMode == HarborCheckoutModeEnum.HarborOwned) return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>

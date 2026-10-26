@@ -1,5 +1,6 @@
 namespace Armada.Core.Services
 {
+    using Armada.Core.Authorization;
     using System.Collections.Generic;
     using System.Text.Json;
     using SyslogLogging;
@@ -689,6 +690,7 @@ namespace Armada.Core.Services
             // mission must always start on a fresh branch in its own vessel.
             bool dependencyIsCrossVessel = false;
             string? dependencyBranchName = null;
+            bool dependencyHasSameOwner = false;
 
             // Captured for the stage-base check after provisioning: a stage must be cut from the
             // commit its predecessor actually produced, and proving that needs the hash here.
@@ -730,6 +732,8 @@ namespace Armada.Core.Services
                     && !String.Equals(dependency.VesselId, mission.VesselId, StringComparison.Ordinal);
                 upstreamCommitHash = dependency.CommitHash;
                 dependencyBranchName = dependency.BranchName;
+                dependencyHasSameOwner = OwnershipPolicy.SameTenant(mission.TenantId, dependency.TenantId)
+                    && String.Equals(OwnershipPolicy.UserOfRecord(mission.UserId), OwnershipPolicy.UserOfRecord(dependency.UserId), StringComparison.Ordinal);
 
                 if (!IsDependencySatisfyingStatus(dependency.Status))
                 {
@@ -1181,7 +1185,13 @@ namespace Armada.Core.Services
             // requested commit. An unresolvable ref fails the mission by name; it never falls back to
             // the default branch, because a captain working on the wrong base reads as a captain
             // defect two stages later.
-            if (!harborOwnedCheckout && !preserveSavedBranch
+            // A restarted dependent captured this exact same-owner predecessor commit. Handoff
+            // can restore the old branch name even after its ref and checkout are gone, so resolve
+            // the captured base before provision is allowed to create that branch.
+            bool restoreCapturedUpstreamBase = preserveInheritedBranch && dependencyHasSameOwner
+                && !String.IsNullOrWhiteSpace(upstreamCommitHash)
+                && String.Equals(mission.StartFromRef?.Trim(), upstreamCommitHash, StringComparison.OrdinalIgnoreCase);
+            if (!harborOwnedCheckout && (!preserveSavedBranch || restoreCapturedUpstreamBase)
                 && !String.IsNullOrWhiteSpace(mission.StartFromRef))
             {
                 resolvedStartCommit = await _Docks.PrepareBranchFromRefAsync(vessel, branchName, mission.StartFromRef!.Trim(), token).ConfigureAwait(false);
@@ -7676,7 +7686,7 @@ namespace Armada.Core.Services
                 {
                     string title = mission.Title ?? mission.Id;
                     if (title.Length > 96) title = title.Substring(0, 96);
-                    await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                     {
                         Title = "Owner question: " + title,
                         Summary = "The " + stage + " stage of " + mission.Mode + " mission " + mission.Id
@@ -7749,7 +7759,7 @@ namespace Armada.Core.Services
             if (title.Length > 96) title = title.Substring(0, 96);
             string questionText = LastOutputLines(completedMission.AgentOutput, 20);
 
-            await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Handoff blocked: " + title,
                 Summary = "The " + (completedMission.Persona ?? "Worker") + " stage of mission " + completedMission.Id
@@ -8053,7 +8063,7 @@ namespace Armada.Core.Services
             System.Text.StringBuilder lines = new System.Text.StringBuilder();
             foreach (string conflict in conflicts) lines.AppendLine("- " + conflict);
 
-            Incident created = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            Incident created = await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Criterion review: a required fix conflicts with an acceptance criterion on " + title,
                 Summary = "The Judge for mission " + mission.Id + " requires a fix that cannot be made without breaking a stated "
@@ -8104,7 +8114,7 @@ namespace Armada.Core.Services
             System.Text.StringBuilder revisions = new System.Text.StringBuilder();
             foreach (string item in items) revisions.AppendLine("- " + item);
 
-            await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
             {
                 Title = "Operator landing: comment-only NEEDS_REVISION on " + title,
                 Summary = "The Judge returned NEEDS_REVISION for mission " + mission.Id
@@ -13531,7 +13541,7 @@ namespace Armada.Core.Services
 
                 string title = mission.Title ?? mission.Id;
                 if (title.Length > 96) title = title.Substring(0, 96);
-                await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                 {
                     Title = "Mission unassignable: " + title,
                     Summary = "Mission " + mission.Id + " stayed unassignable for " + ticks + " assignment passes: " + reason,

@@ -888,18 +888,35 @@ namespace Armada.Test.Unit.Suites.Services
                     string savedHead = CommitAheadOnBranch(bareRepo, savedBranch, "Captain A committed work");
                     AssertTrue(!String.Equals(savedHead, mainHead, StringComparison.Ordinal), "precondition: the saved branch head is ahead of main");
 
-                    // The restart retained the branch and the active dock, and cleared the captain.
-                    Dock retained = new Dock(vessel.Id)
+                    Captain captainA = await testDb.Driver.Captains.CreateAsync(new Captain("captain-a")
                     {
-                        TenantId = vessel.TenantId,
-                        BranchName = savedBranch,
-                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_olddock_" + Guid.NewGuid().ToString("N")),
-                        Active = true,
-                    };
-                    retained = await testDb.Driver.Docks.CreateAsync(retained).ConfigureAwait(false);
+                        State = CaptainStateEnum.Working, CurrentMissionId = root.Id, ProcessId = 8812
+                    }).ConfigureAwait(false);
+                    Dock retained = await dockService.ProvisionAsync(vessel, captainA, savedBranch, root.Id).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("Fixture dock provisioning failed");
+                    // Legacy mission owner fields normalize to the default owner, just like the explicit dock owner.
+                    root.UserId = null;
                     root.BranchName = savedBranch;
                     root.DockId = retained.Id;
+                    root.CaptainId = captainA.Id;
+                    root.ProcessId = 8812;
+                    root.Status = MissionStatusEnum.InProgress;
+                    root.AssignmentState = MissionAssignmentStateEnum.Assigned;
                     await testDb.Driver.Missions.UpdateAsync(root).ConfigureAwait(false);
+                    captainA.CurrentDockId = retained.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captainA).ConfigureAwait(false);
+                    Directory.CreateDirectory(Path.Combine(settings.LogDirectory, "missions"));
+                    await File.WriteAllTextAsync(Path.Combine(settings.LogDirectory, "missions", root.Id + ".log"),
+                        "[stderr] API Error: 401 Invalid credential\nAgent exited with code 1").ConfigureAwait(false);
+                    AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService,
+                        missionService, new VoyageService(logging, testDb.Driver), dockService);
+                    await admiral.HandleProcessExitAsync(8812, 1, captainA.Id, root.Id).ConfigureAwait(false);
+                    await admiral.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
+                    root = await testDb.Driver.Missions.ReadAsync(root.Id).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("Retry mission disappeared");
+                    AssertEqual(MissionStatusEnum.Pending, root.Status, "Provider failure must requeue the root");
+                    AssertEqual(retained.Id, root.DockId, "Provider failure must retain continuation authority");
+                    AssertTrue(Directory.Exists(retained.WorktreePath), "Provider retry must retain the committed checkout");
 
                     // The replacement captain is a DIFFERENT captain -- the exact restart-swap failure.
                     Captain captainB = await testDb.Driver.Captains.CreateAsync(new Captain("captain-b") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
