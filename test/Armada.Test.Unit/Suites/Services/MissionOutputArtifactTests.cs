@@ -184,6 +184,45 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("A progress-status line joined to a real section preserves artifact bytes and section recognition", () =>
+            {
+                const string tail = "\nA bounded result.\n## Negative Paths\nA rejected input.\n## Residual Risks\nNo semantic approval is inferred.\n";
+                foreach (string status in new[] { "InProgress", "Testing", "Review" })
+                {
+                    string text = "Earlier progress.\n[ARMADA:STATUS] " + status + "## Coverage Added" + tail;
+                    Mission mission = BuildMission(text, MissionStatusEnum.Complete);
+                    mission.Persona = "TestEngineer";
+                    MissionOutputArtifactPage page = MissionOutputArtifact.Build(mission);
+                    AssertTrue(page.Complete, "An explicit heading after a recognized progress status is present: " + status);
+                    AssertEqual(text, page.Content, "Read-time heading recognition does not rewrite the report");
+                    AssertEqual(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant(), page.Sha256);
+                    AssertTrue(page.Finalized && !page.HasMore);
+                    AssertEqual(0, page.MissingReportSections.Count);
+                }
+                string[] invalid =
+                {
+                    "Prose [ARMADA:STATUS] Testing## Coverage Added",
+                    "> [ARMADA:STATUS] Testing## Coverage Added",
+                    "    [ARMADA:STATUS] Testing## Coverage Added",
+                    "[ARMADA:STATUS] Unknown## Coverage Added",
+                    "[ARMADA:STATUS] Complete## Coverage Added",
+                    "[ARMADA:STATUS] Testing#Coverage Added",
+                    "```text\n[ARMADA:STATUS] Testing## Coverage Added\n```",
+                    "~~~\n[ARMADA:STATUS] Testing## Coverage Added\n~~~",
+                    "````\n```\n[ARMADA:STATUS] Testing## Coverage Added\n````"
+                };
+                foreach (string prefix in invalid)
+                {
+                    Mission mission = BuildMission(prefix + tail, MissionStatusEnum.Complete);
+                    mission.Persona = "TestEngineer";
+                    MissionOutputArtifactPage page = MissionOutputArtifact.Build(mission);
+                    AssertFalse(page.Complete, "An example or malformed status does not supply a section: " + prefix);
+                    AssertTrue(page.MissingReportSections.Contains("Coverage Added"));
+                    AssertEqual(prefix + tail, page.Content);
+                }
+                return Task.CompletedTask;
+            });
+
             await RunTest("A report with every contract section, a failed stage, and a persona without a contract stay as captured", () =>
             {
                 Mission full = BuildMission("## Coverage Added\n- one\n\n### negative paths\n- one\n\n## Residual Risks\nnone\n[ARMADA:RESULT] COMPLETE", MissionStatusEnum.Complete);
