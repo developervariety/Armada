@@ -45,6 +45,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
                 settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
+                settings.ModelTier.ReservedHighTierSlots = 0;
                 settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada-barrier-rescue-" + key);
                 settings.LandingMode = LandingModeEnum.LocalMerge;
                 Vessel vessel = new Vessel("barrier-rescue-vessel-" + key, "https://github.com/test/barrier.git");
@@ -148,6 +149,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
                 settings.ModelTier.Records = FleetRoutingSettings.CreateModelTier().Records;
+                settings.ModelTier.ReservedHighTierSlots = 0;
                 settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada-integration-barrier-" + key);
                 settings.LandingMode = LandingModeEnum.LocalMerge;
                 Vessel vessel = new Vessel("barrier-vessel-" + key, "https://github.com/test/barrier.git");
@@ -235,7 +237,11 @@ namespace Armada.Test.Unit.Suites.Services
                 Directory.CreateDirectory(Path.GetDirectoryName(vessel.LocalPath!)!);
 
                 bool assigned = await missions.TryAssignAsync(integration, vessel).ConfigureAwait(false);
-                AssertEqual(expectAssignment, assigned, "assignment result matches the branch completion and landing proof");
+                integration = (await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false))!;
+                AssertEqual(expectAssignment, assigned, "assignment result matches the branch completion and landing proof; state="
+                    + integration.AssignmentState + ", hold=" + (integration.AssignmentHoldReason ?? "(none)")
+                    + ", holdEntity=" + (integration.AssignmentHoldEntityId ?? "(none)")
+                    + ", failure=" + (integration.FailureReason ?? "(none)"));
                 if (expectAssignment)
                 {
                     AssertEqual(TargetSha, integration.StartFromRef, "integration starts from the freshly resolved target tip");
