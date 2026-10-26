@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Require patched PKCS dependency versions for both supported .NET targets through the shared SQL client dependency graph.
+
 - Dashboard development tools use patched Vite, Vitest, source-map-js, and Undici releases.
 
 - Provider retries retain their owned continuation dock. Dock repair can restore an absent native checkout from its exact local branch, without creating refs or replacing foreign and locked worktrees.
