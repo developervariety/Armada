@@ -10,6 +10,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Local POSIX server publish fails when Dashboard deployment fails and no
+  Dashboard is available. It continues only when an existing Dashboard remains.
+
 - The Voyages list shares table controls and saves optional column visibility.
   Server paging, status filters, row actions and selection remain page-owned.
 - Home dashboard refresh failures show named read errors and a Retry button

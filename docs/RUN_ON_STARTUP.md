@@ -24,6 +24,11 @@ Canonical helpers:
 
 `publish-server` publishes `src/Armada.Server` in `Release` mode for `net10.0` by default to `~/.armada/bin` and then attempts to deploy the React dashboard. You can override the framework on every platform: on Windows with `scripts\windows\publish-server.bat net8.0` or `scripts\windows\publish-server.bat --framework net8.0`, and on Linux or macOS with `./scripts/linux/publish-server.sh --framework net8.0`, `-f net8.0`, a leading `net8.0`, or `ARMADA_TARGET_FRAMEWORK=net8.0`. The shell scripts `install-mcp.sh`, `remove-mcp.sh` and `update.sh` accept the same forms. On Linux and macOS only a leading value that starts with `net` is read as a bare framework; the remaining arguments, such as `--insecure`, are still forwarded to the dashboard deploy.
 
+Dashboard deployment failure returns a publish error when
+`~/.armada/dashboard/index.html` is absent. If that file still exists, publish
+continues with a warning. This check proves file availability; it does not
+prove that the retained Dashboard matches the new server.
+
 > **Container deployments:** the Docker image build does not include the React
 > dashboard. The Admiral serves the dashboard from `~/.armada/dashboard` (data
 > directory). When you deploy the Admiral through Docker (`docker compose build/up`),

@@ -335,6 +335,48 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(Case("posix_publish_server_fails_when_react_dashboard_is_unavailable", "POSIX Publish Server Fails When React Dashboard Is Unavailable", TestTags.Negative, () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                PosixPublishResult result = RunPosixPublishScenario(createServer: true, dashboardDeploySucceeds: false, existingDashboard: false);
+
+                AssertTrue(result.ExitCode != 0, "publish-server.sh should fail when dashboard deployment fails and no prior dashboard exists");
+                AssertContains("Dashboard deploy failed and no deployed React dashboard is available.", result.Output, "the failure should name the missing dashboard");
+            }));
+
+            cases.Add(Case("posix_publish_server_keeps_existing_dashboard_after_deploy_failure", "POSIX Publish Server Keeps Existing Dashboard After Deploy Failure", TestTags.Positive, () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                PosixPublishResult result = RunPosixPublishScenario(createServer: true, dashboardDeploySucceeds: false, existingDashboard: true);
+
+                AssertEqual(0, result.ExitCode, "a failed dashboard build may keep a previously deployed dashboard");
+                AssertContains("Keeping the previously deployed React dashboard.", result.Output, "the warning should say that the old dashboard stays in place");
+                AssertEqual("existing-dashboard", result.DashboardContent, "the previously deployed dashboard should remain unchanged");
+            }));
+
+            cases.Add(Case("posix_publish_server_succeeds_when_server_and_dashboard_publish", "POSIX Publish Server Succeeds When Server And Dashboard Publish", TestTags.Positive, () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                PosixPublishResult result = RunPosixPublishScenario(createServer: true, dashboardDeploySucceeds: true, existingDashboard: false);
+
+                AssertEqual(0, result.ExitCode, "server and dashboard publish should complete");
+                AssertContains("[publish-server] Completed.", result.Output, "successful publish should report completion");
+                AssertEqual("new-dashboard", result.DashboardContent, "successful deploy should install the new dashboard");
+            }));
+
+            cases.Add(Case("posix_publish_server_fails_when_published_server_executable_is_missing", "POSIX Publish Server Fails When Published Server Executable Is Missing", TestTags.Negative, () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+
+                PosixPublishResult result = RunPosixPublishScenario(createServer: false, dashboardDeploySucceeds: true, existingDashboard: false);
+
+                AssertTrue(result.ExitCode != 0, "publish-server.sh should fail when dotnet did not create the server executable");
+                AssertContains("Published server executable not found", result.Output, "the failure should identify the missing server executable");
+            }));
+
             cases.Add(Case("status_health_route_uses_product_version_constant", "Status Health Route Uses ProductVersion Constant", TestTags.Positive, () =>
             {
                 string statusRoutesContents = ReadRepositoryFile("src", "Armada.Server", "Routes", "StatusRoutes.cs");
@@ -460,6 +502,102 @@ namespace Test.Shared.Suites.Services
             }
 
             File.Copy(sourcePath, destinationPath, overwrite: true);
+        }
+
+        private static PosixPublishResult RunPosixPublishScenario(bool createServer, bool dashboardDeploySucceeds, bool existingDashboard)
+        {
+            string repoRoot = FindRepositoryRoot();
+            string tempRoot = TestTemp.NewDirectory("publish-server-posix");
+            string tempRepo = Path.Combine(tempRoot, "repo");
+            string home = Path.Combine(tempRoot, "home");
+            string tools = Path.Combine(tempRoot, "tools");
+            string scripts = Path.Combine(tempRepo, "scripts", "common");
+            Directory.CreateDirectory(scripts);
+            Directory.CreateDirectory(home);
+            Directory.CreateDirectory(tools);
+
+            try
+            {
+                CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "common", "publish-server.sh"));
+                CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "common", "resolve-framework.sh"));
+                CopyRepositoryFile(repoRoot, tempRepo, Path.Combine("scripts", "common", "resolve-insecure.sh"));
+                string publishPath = Path.Combine(scripts, "publish-server.sh");
+                string dotnetPath = Path.Combine(tools, "dotnet");
+                string deployPath = Path.Combine(scripts, "deploy-dashboard.sh");
+                string dashboardDirectory = Path.Combine(home, ".armada", "dashboard");
+
+                File.WriteAllText(dotnetPath,
+                    "#!/bin/bash\n" +
+                    "set -eu\n" +
+                    "[ \"${DOTNET_CREATE_SERVER:-1}\" = 1 ] || exit 0\n" +
+                    "output=''\n" +
+                    "while [ \"$#\" -gt 0 ]; do\n" +
+                    "  if [ \"$1\" = -o ]; then shift; output=\"$1\"; fi\n" +
+                    "  shift\n" +
+                    "done\n" +
+                    "[ -n \"$output\" ] || exit 2\n" +
+                    "mkdir -p \"$output\"\n" +
+                    ": > \"$output/Armada.Server\"\n");
+                File.WriteAllText(deployPath,
+                    "#!/bin/bash\n" +
+                    "set -eu\n" +
+                    "[ \"${DASHBOARD_DEPLOY_SUCCEEDS:-0}\" = 1 ] || exit 1\n" +
+                    "mkdir -p \"$HOME/.armada/dashboard\"\n" +
+                    "printf new-dashboard > \"$HOME/.armada/dashboard/index.html\"\n");
+                File.SetUnixFileMode(dotnetPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                File.SetUnixFileMode(deployPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+                if (existingDashboard)
+                {
+                    Directory.CreateDirectory(dashboardDirectory);
+                    File.WriteAllText(Path.Combine(dashboardDirectory, "index.html"), "existing-dashboard");
+                }
+
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = "/bin/bash",
+                    WorkingDirectory = tempRepo,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                };
+                startInfo.ArgumentList.Add(publishPath);
+                startInfo.Environment["HOME"] = home;
+                startInfo.Environment["PATH"] = tools + Path.PathSeparator + (Environment.GetEnvironmentVariable("PATH") ?? String.Empty);
+                startInfo.Environment["DOTNET_CREATE_SERVER"] = createServer ? "1" : "0";
+                startInfo.Environment["DASHBOARD_DEPLOY_SUCCEEDS"] = dashboardDeploySucceeds ? "1" : "0";
+
+                using (Process process = new Process { StartInfo = startInfo })
+                {
+                    process.Start();
+                    string standardOutput = process.StandardOutput.ReadToEnd();
+                    string standardError = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+
+                    string dashboardContent = File.Exists(Path.Combine(dashboardDirectory, "index.html"))
+                        ? File.ReadAllText(Path.Combine(dashboardDirectory, "index.html"))
+                        : String.Empty;
+                    return new PosixPublishResult(process.ExitCode, standardOutput + standardError, dashboardContent);
+                }
+            }
+            finally
+            {
+                TestTemp.TryDelete(tempRoot);
+            }
+        }
+
+        private sealed class PosixPublishResult
+        {
+            public PosixPublishResult(int exitCode, string output, string dashboardContent)
+            {
+                ExitCode = exitCode;
+                Output = output;
+                DashboardContent = dashboardContent;
+            }
+
+            public int ExitCode { get; }
+            public string Output { get; }
+            public string DashboardContent { get; }
         }
 
         private static string RunCommandAndCaptureOutput(string fileName, string arguments, string workingDirectory, IDictionary<string, string>? environmentVariables = null)

@@ -722,6 +722,11 @@ dashboard-deploy scripts honor `--insecure`. Prefer not to pass the flag each
 time: set `NODE_TLS_REJECT_UNAUTHORIZED=0` (`set` on Windows, `export` on
 Linux/macOS) in your shell, or run `npm config set strict-ssl false` once.
 
+Local server publish requires an available Dashboard. If Dashboard deployment
+fails, publish continues with a warning only if `~/.armada/dashboard/index.html`
+still exists.
+Without that file, publish returns a failure.
+
 ---
 
 ## MCP Integration
