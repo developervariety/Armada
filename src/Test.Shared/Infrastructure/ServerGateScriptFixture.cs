@@ -12,7 +12,7 @@ namespace Test.Shared.Infrastructure
         internal static async Task VerifyDiskAdmissionAsync(string repositoryRoot)
         {
             if (!OperatingSystem.IsLinux()) return;
-            foreach (string scenario in new[] { "low-before", "low-after", "caller-lock", "invalid", "df-error", "boundary" })
+            foreach (string scenario in new[] { "queued", "low-before", "low-after", "caller-lock", "invalid", "df-error", "boundary" })
             {
                 string root = Path.Combine(Path.GetTempPath(), "gate-disk-contract-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(root);
@@ -51,6 +51,11 @@ namespace Test.Shared.Infrastructure
                 shift
                 exec /bin/bash -c "$1"
                 """);
+            WriteExecutable(bin, "sleep", """
+                #!/bin/bash
+                if [ "$FIXTURE_SCENARIO" = queued ]; then exec /bin/sleep 0.05; fi
+                exec /bin/sleep "$@"
+                """);
             WriteExecutable(bin, "df", """
                 #!/bin/bash
                 count=0
@@ -74,6 +79,15 @@ namespace Test.Shared.Infrastructure
             WriteExecutable(bin, "dotnet", """
                 #!/bin/bash
                 printf 'dotnet %s\n' "$*" >> "$FIXTURE_CALLS"
+                if [ "$1" = build ] && [ "$FIXTURE_SCENARIO" = queued ]; then
+                  if [ "$FIXTURE_ROLE" = first ]; then
+                    touch "$FIXTURE_ROOT/build-ready"
+                    while [ ! -f "$FIXTURE_ROOT/release-build" ]; do /bin/sleep 0.05; done
+                  fi
+                  if ! printf 'build temp' > "$TMPDIR/build-probe"; then
+                    printf ' error missing gate temp directory\n'; exit 1
+                  fi
+                fi
                 case "$1" in --version) printf '10.0.fixture\n';; build) printf 'Build succeeded.\n';; build-server) exit 0;; *) exit 96;; esac
                 """);
             WriteExecutable(root, "runner", """
@@ -120,6 +134,11 @@ namespace Test.Shared.Infrastructure
             start.Environment["FIXTURE_ROOT"] = root;
             start.Environment["FIXTURE_CALLS"] = calls;
             start.Environment["FIXTURE_SCENARIO"] = scenario;
+            if (scenario == "queued")
+            {
+                await VerifyQueuedAsync(start, root, scratch).ConfigureAwait(false);
+                return;
+            }
             using Process process = Process.Start(start) ?? throw new InvalidOperationException("fixture process did not start");
             Task<string> output = process.StandardOutput.ReadToEndAsync();
             Task<string> errors = process.StandardError.ReadToEndAsync();
@@ -143,6 +162,7 @@ namespace Test.Shared.Infrastructure
                 {
                     AssertTrue(!recorded.Contains("git fetch", StringComparison.Ordinal) && !recorded.Contains("dotnet build src/Armada.sln", StringComparison.Ordinal) && !recorded.Contains("tests\n", StringComparison.Ordinal), "no checkout, build or tests after refusal\n" + text + "\n" + recorded);
                     AssertTrue(text.Contains("disk admission", StringComparison.OrdinalIgnoreCase), "refusal names the infrastructure admission failure\n" + text + "\n" + recorded);
+                    AssertTrue(!recorded.Contains("dotnet build-server", StringComparison.Ordinal), "a refused gate does not shut down another gate's build servers");
                     bool afterPush = scenario is "low-after" or "caller-lock";
                     AssertEqual(afterPush, recorded.Contains("git push", StringComparison.Ordinal), "only the admitted second check may follow a push");
                     if (afterPush) AssertTrue(recorded.Contains("df 2 held=yes", StringComparison.Ordinal)
@@ -158,6 +178,73 @@ namespace Test.Shared.Infrastructure
                 if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync().ConfigureAwait(false); }
                 await Task.WhenAll(output, errors).ConfigureAwait(false);
             }
+        }
+
+        private static async Task VerifyQueuedAsync(ProcessStartInfo start, string root, string scratch)
+        {
+            start.Environment["FIXTURE_ROLE"] = "first";
+            using (Process first = Process.Start(start) ?? throw new InvalidOperationException("first gate did not start"))
+            {
+            Task<string> firstOutput = first.StandardOutput.ReadToEndAsync();
+            Task<string> firstErrors = first.StandardError.ReadToEndAsync();
+            Process? second = null;
+            Task<string>? secondOutput = null;
+            Task<string>? secondErrors = null;
+            try
+            {
+                DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+                while (!File.Exists(Path.Combine(root, "build-ready")))
+                {
+                    if (first.HasExited || DateTime.UtcNow >= deadline)
+                        throw new InvalidOperationException("first gate did not reach its build barrier");
+                    await Task.Delay(20).ConfigureAwait(false);
+                }
+                start.Environment["FIXTURE_ROLE"] = "second";
+                second = Process.Start(start) ?? throw new InvalidOperationException("queued gate did not start");
+                TaskCompletionSource<bool> waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                secondOutput = ReadQueuedOutputAsync(second, waiting);
+                secondErrors = second.StandardError.ReadToEndAsync();
+                if (await Task.WhenAny(waiting.Task, Task.Delay(15000)).ConfigureAwait(false) != waiting.Task)
+                    throw new InvalidOperationException("second gate did not wait for the first gate's host lock");
+                File.WriteAllText(Path.Combine(root, "release-build"), "release");
+                Task exited = Task.WhenAll(first.WaitForExitAsync(), second.WaitForExitAsync());
+                if (await Task.WhenAny(exited, Task.Delay(45000)).ConfigureAwait(false) != exited)
+                    throw new InvalidOperationException("queued gates did not finish");
+                await exited.ConfigureAwait(false);
+                string firstText = await firstOutput.ConfigureAwait(false) + await firstErrors.ConfigureAwait(false);
+                string secondText = await secondOutput.ConfigureAwait(false) + await secondErrors.ConfigureAwait(false);
+                AssertEqual(0, first.ExitCode, "first gate succeeds before handing off its scratch directory\n" + firstText);
+                AssertEqual(0, second.ExitCode, "queued gate recreates its own build temp after the holder cleans up\n" + secondText);
+                AssertTrue(!Directory.Exists(Path.Combine(scratch, "tmp")), "the final holder cleans up its own temp");
+            }
+            finally
+            {
+                foreach (Process? process in new[] { first, second })
+                {
+                    if (process != null && !process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                        await process.WaitForExitAsync().ConfigureAwait(false);
+                    }
+                }
+                await Task.WhenAll(firstOutput, firstErrors).ConfigureAwait(false);
+                if (secondOutput != null && secondErrors != null)
+                    await Task.WhenAll(secondOutput, secondErrors).ConfigureAwait(false);
+                second?.Dispose();
+            }
+        }
+
+        }
+
+        private static async Task<string> ReadQueuedOutputAsync(Process process, TaskCompletionSource<bool> waiting)
+        {
+            System.Text.StringBuilder output = new();
+            while (await process.StandardOutput.ReadLineAsync().ConfigureAwait(false) is string line)
+            {
+                output.AppendLine(line);
+                if (line.Contains("Host lock: waiting", StringComparison.Ordinal)) waiting.TrySetResult(true);
+            }
+            return output.ToString();
         }
 
         private static void WriteExecutable(string directory, string name, string contents)
