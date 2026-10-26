@@ -541,9 +541,9 @@ Research, and Audit mode:
 ### A report-only Worker that ends COMPLETE with an unfinished report
 
 A Research or Audit Worker that ends with `[ARMADA:RESULT] COMPLETE` while its
-own report states that its acceptance criteria are not met ("The acceptance
-criteria are therefore not met") did not finish the report. Every reviewer
-stage after it could only confirm that, so Armada does not run them:
+own report states that its current-stage acceptance criteria are not met
+("The acceptance criteria are therefore not met") did not finish the report.
+Armada blocks that unfinished work before review:
 
 - The mission fails with a `report_incomplete:` failure reason that quotes the
   captain's sentence.
@@ -551,6 +551,11 @@ stage after it could only confirm that, so Armada does not run them:
   instead of after every reviewer.
 - As for every report-only failure, autonomous recovery opens an incident and
   dispatches no rescue.
+
+A criterion explicitly awaiting only the actual pending downstream Judge keeps
+that review eligible. The Judge must still decide it. An unrelated, missing or
+cancelled Judge does not excuse an unmet criterion. Any separate unfinished
+current-stage work still blocks, even when future Judge review is also pending.
 
 Only the final outcome `[ARMADA:RESULT] COMPLETE` counts, and the sentence must
 say the acceptance criteria themselves are not met; a finding that some code

@@ -5,8 +5,8 @@ namespace Armada.Core.Services
 
     /// <summary>
     /// The one rule for a report-only Worker that ends <c>[ARMADA:RESULT] COMPLETE</c> while its own report
-    /// states that its acceptance criteria are not met. The report is unfinished by the captain's own account,
-    /// so every reviewer stage after it can only confirm that, and the voyage cannot pass.
+    /// states that its current-stage acceptance criteria are not met. A criterion that explicitly awaits an
+    /// actual pending downstream Judge retains that review obligation without cancelling the Judge.
     /// </summary>
     /// <remarks>
     /// The completion path fails such a stage with a <see cref="FailureReasonPrefix"/> reason that quotes the
@@ -35,7 +35,12 @@ namespace Armada.Core.Services
         private const string _CompleteWord = "COMPLETE";
 
         private static readonly Regex _CriteriaNotMet = new Regex(
-            @"\bacceptance\s+criteri(?:a|on)\b[^.\n]{0,60}?\b(?:are|is|were|was|remain|remains)\b[^.\n]{0,40}?\bnot\s+(?:met|satisfied)\b",
+            @"\b(?:acceptance\s+criteri(?:a|on)|criterion\s+\d+)\b[^.;\n]{0,60}?\b(?:are|is|were|was|remain|remains)\b[^.;\n]{0,40}?\bnot\s+(?:met|satisfied)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
+        private static readonly Regex _PendingJudgeOnly = new Regex(
+            @"\A\s*(?:only\s+)?(?:because|until)\s+(?:(?:the|final|independent)\s+)*Judge(?:\s+(?:review|acceptance|verdict))?\s+(?:(?:is|remains)\s+)?(?:still\s+)?(?:pending|not\s+(?:yet\s+)?(?:complete|finished|done))\s*[.!]?\s*\z",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
@@ -52,6 +57,16 @@ namespace Armada.Core.Services
         /// <returns>True when the stage claims COMPLETE for a report it states is unfinished.</returns>
         public static bool TryRead(string? agentOutput, out string statement)
         {
+            return TryRead(agentOutput, false, out statement);
+        }
+
+        /// <summary>Read unmet current work while retaining the obligation of an actual pending downstream Judge.</summary>
+        /// <param name="agentOutput">Captain output.</param>
+        /// <param name="hasPendingDownstreamJudge">Whether the current mission has a pending Judge in its dependency chain.</param>
+        /// <param name="statement">The bounded statement of unfinished current work.</param>
+        /// <returns>True when an unmet criterion is not solely awaiting that configured Judge.</returns>
+        public static bool TryRead(string? agentOutput, bool hasPendingDownstreamJudge, out string statement)
+        {
             statement = String.Empty;
             if (String.IsNullOrEmpty(agentOutput)) return false;
             if (!ProgressParser.TryFindFinalOutcome(agentOutput, out ProgressParser.ProgressSignal signal, out ProgressParser.MarkerLine _))
@@ -60,22 +75,39 @@ namespace Armada.Core.Services
             if (!ProgressParser.ValueStartsWithWord(signal.Value, _CompleteWord)) return false;
 
             string text = agentOutput.Replace("**", String.Empty).Replace("__", String.Empty);
-            Match match;
+            MatchCollection matches;
             try
             {
-                match = _CriteriaNotMet.Match(text);
+                matches = _CriteriaNotMet.Matches(text);
+                _ = matches.Count;
             }
             catch (RegexMatchTimeoutException)
             {
                 return false;
             }
-            if (!match.Success) return false;
-
-            int start = SentenceStart(text, match.Index);
-            int end = SentenceEnd(text, match.Index + match.Length);
-            string sentence = text.Substring(start, end - start).Trim();
-            statement = sentence.Length <= MaxStatementLength ? sentence : sentence.Substring(0, MaxStatementLength) + "...";
-            return true;
+            foreach (Match match in matches)
+            {
+                int start = SentenceStart(text, match.Index);
+                int end = SentenceEnd(text, match.Index + match.Length);
+                if (hasPendingDownstreamJudge)
+                {
+                    string reason = text.Substring(match.Index + match.Length, end - match.Index - match.Length);
+                    try
+                    {
+                        if (_PendingJudgeOnly.IsMatch(reason)) continue;
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        statement = "Downstream review classification timed out: "
+                            + text.Substring(start, Math.Min(end - start, MaxStatementLength)).Trim();
+                        return true;
+                    }
+                }
+                string sentence = text.Substring(start, end - start).Trim();
+                statement = sentence.Length <= MaxStatementLength ? sentence : sentence.Substring(0, MaxStatementLength) + "...";
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -112,7 +144,7 @@ namespace Armada.Core.Services
             for (int i = index - 1; i >= 0; i--)
             {
                 char c = text[i];
-                if (c == '\n') return i + 1;
+                if (c == '\n' || c == ';') return i + 1;
                 if ((c == '.' || c == '!' || c == '?') && i + 1 < text.Length && Char.IsWhiteSpace(text[i + 1])) return i + 1;
             }
             return 0;
