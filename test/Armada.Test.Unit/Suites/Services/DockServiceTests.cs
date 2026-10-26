@@ -89,7 +89,35 @@ namespace Armada.Test.Unit.Suites.Services
                             AssertEqual(sourceHead, (await RunGitAsync(repoPath, "rev-parse", "refs/heads/release/e2e").ConfigureAwait(false)).Trim(),
                                 "Repair must not move the default branch");
                         }
+                        await git.LockWorktreeAsync(path, "operator hold").ConfigureAwait(false);
+                        Directory.Delete(path, true);
+                        bool lockedRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { lockedRefused = true; }
+                        AssertTrue(lockedRefused, "Repair must not override a locked registration");
+                        AssertFalse(Directory.Exists(path), "Locked registration must remain absent");
+                        await RunGitAsync(repoPath, "worktree", "unlock", path).ConfigureAwait(false);
+                        await service.RepairAsync(dock.Id).ConfigureAwait(false);
                         await git.RemoveWorktreeAsync(path).ConfigureAwait(false);
+                        string otherPath = Path.Combine(rootDir, "branch-holder");
+                        await RunGitAsync(repoPath, "worktree", "add", otherPath, branch).ConfigureAwait(false);
+                        bool branchHeldRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { branchHeldRefused = true; }
+                        AssertTrue(branchHeldRefused, "Repair must not evict a different worktree holding the branch");
+                        AssertEqual(savedHead, (await RunGitAsync(otherPath, "rev-parse", "HEAD").ConfigureAwait(false)).Trim(), "Other checkout remains intact");
+                        await git.RemoveWorktreeAsync(otherPath).ConfigureAwait(false);
+                        string foreignDirectory = Path.Combine(rootDir, "foreign");
+                        Directory.CreateDirectory(foreignDirectory);
+                        await File.WriteAllTextAsync(Path.Combine(foreignDirectory, "keep.txt"), "foreign work").ConfigureAwait(false);
+                        Directory.CreateSymbolicLink(path, Path.Combine(rootDir, "absent-foreign"));
+                        bool linkRefused = false;
+                        try { await service.RepairAsync(dock.Id).ConfigureAwait(false); }
+                        catch (InvalidOperationException) { linkRefused = true; }
+                        AssertTrue(linkRefused, "Even a broken symlink must not be treated as a missing managed checkout");
+                        AssertNotNull(new DirectoryInfo(path).LinkTarget, "The link must not be replaced");
+                        Directory.Delete(path);
+                        AssertEqual("foreign work", await File.ReadAllTextAsync(Path.Combine(foreignDirectory, "keep.txt")).ConfigureAwait(false), "Foreign files remain intact");
                         dock.BranchName = "missing/continuation";
                         await testDb.Driver.Docks.UpdateAsync(dock).ConfigureAwait(false);
                         bool missingRefRefused = false;
