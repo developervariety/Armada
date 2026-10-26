@@ -23,7 +23,6 @@ namespace Armada.Server
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
-            if (settings == null) throw new ArgumentNullException(nameof(settings));
         }
 
         /// <summary>List action definitions for the current operator.</summary>
