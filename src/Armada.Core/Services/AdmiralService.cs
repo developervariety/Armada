@@ -1717,7 +1717,7 @@ namespace Armada.Core.Services
                 captainId: captain.Id, missionId: missionId,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
 
-            RuntimeProcessExitEvidence? exitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId);
+            RuntimeProcessExitEvidence? exitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId, captain.ProcessStartedUtc);
             bool logCaptureFailed = exitEvidence != null && exitEvidence.TryGetOutcome(out _, out bool captureFailed) && captureFailed;
             if (exitCode == 0 && !logCaptureFailed)
             {
@@ -2165,7 +2165,7 @@ namespace Armada.Core.Services
             if (!isAlive)
             {
                 if (OnIsProcessExitHandled != null && OnIsProcessExitHandled(processId.Value)) return;
-                RuntimeProcessExitEvidence? evidence = ProcessSupervisor.GetRuntimeExitEvidence(processId.Value);
+                RuntimeProcessExitEvidence? evidence = ProcessSupervisor.GetRuntimeExitEvidence(processId.Value, captain.ProcessStartedUtc);
                 if (evidence != null)
                 {
                     if (evidence.TryGetOutcome(out int? effectiveExitCode, out bool captureFailed))

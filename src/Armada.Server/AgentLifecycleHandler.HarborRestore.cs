@@ -34,6 +34,12 @@ namespace Armada.Server
             runtime.HarborExitCompletionWaiter = WaitForProcessExitCompletionAsync;
             string logFilePath = Path.Combine(_Settings.LogDirectory, "missions", mission!.Id + ".log");
             IHarborProcessEvents events = runtime.CreateHarborReattachmentEvents(job.AdmiralProcessId!.Value, logFilePath);
+            if (!ProcessSupervisor.TryRestoreSyntheticProcess(job.AdmiralProcessId.Value,
+                stopToken => executor.StopRestoredAsync(job, stopToken)))
+            {
+                (events as IDisposable)?.Dispose();
+                return new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Uncertain);
+            }
             long stateOwner = RestoreMissionStateOwnership(mission.Id);
             IAgentRuntime runtimeEvents = runtime;
             runtimeEvents.OnOutputReceived += HandleAgentOutput;
@@ -52,14 +58,6 @@ namespace Armada.Server
                 registration.Subscribe();
             }
 
-            if (!ProcessSupervisor.TryRestoreSyntheticProcess(job.AdmiralProcessId.Value,
-                stopToken => executor.StopRestoredAsync(job, stopToken)))
-            {
-                CloseProviderErrorSource(stateOwner);
-                ReleaseMissionState(stateOwner, mission.Id);
-                events.OnExited(job.AdmiralProcessId.Value, null, "harbor_process_identity_already_owned");
-                return new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Uncertain);
-            }
             ProcessSupervisor.RecordLaunchedProcess(job.AdmiralProcessId.Value, job.AdmiralProcessStartedUtc!.Value);
 
             lock (_ProcessToCaptain)
@@ -71,7 +69,7 @@ namespace Armada.Server
                     ProcessSupervisor.UnregisterSyntheticProcess(job.AdmiralProcessId.Value);
                     CloseProviderErrorSource(stateOwner);
                     ReleaseMissionState(stateOwner, mission.Id);
-                    events.OnExited(job.AdmiralProcessId.Value, null, "harbor_process_identity_already_owned");
+                    (events as IDisposable)?.Dispose();
                     return new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Uncertain);
                 }
                 _ProcessToCaptain[job.AdmiralProcessId.Value] = captain.Id;

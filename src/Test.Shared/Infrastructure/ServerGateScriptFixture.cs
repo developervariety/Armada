@@ -104,6 +104,7 @@ namespace Test.Shared.Infrastructure
             if (scenario == "caller-lock") start.ArgumentList.Add("--lock-held");
             // The environment contract is used so the pre-fix public script reaches costly work and gives a meaningful RED.
             start.Environment["ARMADA_GATE_MIN_FREE_DISK_MB"] = "8000";
+            start.Environment.Remove("DOTNET_ROOT");
             start.Environment["HOME"] = home;
             start.Environment["PATH"] = bin + ":/usr/bin:/bin";
             start.Environment["FIXTURE_ROOT"] = root;

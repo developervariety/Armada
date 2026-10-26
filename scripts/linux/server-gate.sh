@@ -11,7 +11,7 @@
 #
 # Usage:
 #   scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>] [--shards <n>]
-#                                [--host-lock <path>] [--lock-held] [--min-available-mb <n>]
+#                                [--host-lock <path>] [--lock-held] [--min-available-mb <n>] [--min-free-disk-mb <n>]
 #
 #   <ref>            Local commit to test (a branch, tag or SHA). It must be committed; the script refuses
 #                    to run while tracked files have uncommitted changes.
@@ -25,6 +25,10 @@
 #   --min-available-mb
 #                    Wait after taking the host lock until the host reports at least this much available
 #                    memory. Default: $ARMADA_GATE_MIN_AVAILABLE_MB, else 8000. 0 disables the wait.
+#   --min-free-disk-mb
+#                    Refuse before copying source, and recheck under the host lock before building, when
+#                    scratch storage is below this floor. Default: $ARMADA_GATE_MIN_FREE_DISK_MB, else 8000.
+#                    This reserves headroom; unrelated writers can still consume space after admission.
 #
 # Example:
 #   ARMADA_GATE_SSH_HOST=<server-host> ARMADA_GATE_SCRATCH_DIR=<scratch-dir> scripts/linux/server-gate.sh HEAD
@@ -36,7 +40,7 @@
 set -euo pipefail
 
 usage() {
-  sed -n '12,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '12,35p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 ref=""
@@ -46,6 +50,7 @@ shards=""
 host_lock="${ARMADA_GATE_HOST_LOCK:-/tmp/armada-gate-host.lock}"
 lock_held="0"
 min_available_mb="${ARMADA_GATE_MIN_AVAILABLE_MB:-8000}"
+min_free_disk_mb="${ARMADA_GATE_MIN_FREE_DISK_MB:-8000}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -66,6 +71,9 @@ while [ "$#" -gt 0 ]; do
     --min-available-mb)
       if [ "$#" -lt 2 ]; then echo "--min-available-mb requires a number" >&2; exit 2; fi
       min_available_mb="$2"; shift 2 ;;
+    --min-free-disk-mb)
+      if [ "$#" -lt 2 ]; then echo "--min-free-disk-mb requires a number" >&2; exit 2; fi
+      min_free_disk_mb="$2"; shift 2 ;;
     -h|--help)
       usage; exit 0 ;;
     -*)
@@ -97,6 +105,32 @@ if ! [[ "$min_available_mb" =~ ^[0-9]+$ ]]; then
   echo "Minimum available memory must be a whole number of MB, got '$min_available_mb'." >&2; exit 2
 fi
 
+if ! [[ "$min_free_disk_mb" =~ ^[1-9][0-9]{0,8}$ ]]; then
+  echo "Minimum free disk must be a positive whole number of MB, got '$min_free_disk_mb'." >&2; exit 2
+fi
+
+# Sent as a trusted script body to both remote phases, so the admission grammar has one owner.
+disk_admission_script=$(cat <<'DISK_ADMISSION'
+check_disk_admission() {
+  local scratch="$1" minimum_mb="$2" probe="$1" report available_kb available_mb
+  while [ ! -e "$probe" ]; do probe="$(dirname "$probe")"; done
+  if ! report="$(LC_ALL=C df -Pk "$probe" 2>/dev/null)"; then
+    echo "RESULT: FAIL (disk admission: cannot read free space for $probe)"; return 1
+  fi
+  if ! available_kb="$(printf '%s\n' "$report" | awk 'NR==2 { if ($4 ~ /^[0-9]+$/) print $4; else exit 1 } END { if (NR != 2) exit 1 }')" \
+      || ! [[ "$available_kb" =~ ^[0-9]{1,15}$ ]]; then
+    echo "RESULT: FAIL (disk admission: invalid free-space reading for $probe)"; return 1
+  fi
+  available_mb=$((10#$available_kb / 1024))
+  echo "Disk admission: $available_mb MB available at $probe (minimum $minimum_mb MB)"
+  if [ "$available_mb" -lt "$minimum_mb" ]; then
+    echo "RESULT: FAIL (disk admission: insufficient scratch storage at $probe)"; return 1
+  fi
+}
+check_disk_admission "$1" "$2"
+DISK_ADMISSION
+)
+
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -121,13 +155,17 @@ quoted_scratch="$(printf '%q' "$scratch_dir")"
 echo "Gate: $short_sha ($(git log -1 --format=%s "$sha"))"
 echo "Host: $ssh_host  Scratch: $scratch_dir"
 
+# Refuse before mkdir, bare initialization or source transfer, even when scratch does not exist yet.
+preflight_args="$(printf '%q ' "$disk_admission_script" -- "$scratch_dir" "$min_free_disk_mb")"
+ssh "$ssh_host" "bash -c $preflight_args"
+
 # Create the scratch bare repository when absent. Nothing else on the host is created or changed.
 ssh "$ssh_host" "mkdir -p $quoted_scratch && { [ -d $quoted_scratch/repo.git ] || git init -q --bare $quoted_scratch/repo.git; }"
 
 # Push the commit under a gate-only ref, so no branch on the host moves.
 git push -q "${ssh_host}:${scratch_dir}/repo.git" "${sha}:${gate_ref}"
 
-remote_args="$(printf '%q ' "$scratch_dir" "$sha" "$shards" "$host_lock" "$lock_held" "$min_available_mb" "$ref")"
+remote_args="$(printf '%q ' "$scratch_dir" "$sha" "$shards" "$host_lock" "$lock_held" "$min_available_mb" "$ref" "$min_free_disk_mb" "$disk_admission_script")"
 
 set +e
 ssh "$ssh_host" "bash -s -- $remote_args" <<'REMOTE'
@@ -139,6 +177,8 @@ host_lock="$4"
 lock_held="$5"
 min_available_mb="$6"
 gate_label="$7"
+min_free_disk_mb="$8"
+disk_admission_script="$9"
 repo="$scratch/repo.git"
 worktree="$scratch/worktree"
 logs="$scratch/logs/$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:12}"
@@ -321,6 +361,10 @@ if command -v flock >/dev/null 2>&1; then
     exit 1
   fi
 fi
+
+# Queueing can consume the headroom measured before transfer. Recheck while both locks are held,
+# before fetch/checkout/build and before removing anything in this scratch directory.
+if ! bash -c "$disk_admission_script" -- "$scratch" "$min_free_disk_mb"; then exit 1; fi
 
 # Emptied only once this gate holds the scratch directory, so a refused second gate never touches it.
 find "$gate_tmp" -mindepth 1 -delete 2>/dev/null || echo "WARNING: could not empty gate temp directory $gate_tmp"

@@ -1311,7 +1311,7 @@ namespace Armada.Runtimes
         /// Feeds a Harbor job's output chunks into the runtime's line handling. Chunks are split into lines per
         /// stream; a partial final line is delivered when the job ends.
         /// </summary>
-        private sealed class HarborRuntimeEvents : IHarborProcessCompletionEvents
+        private sealed class HarborRuntimeEvents : IHarborProcessCompletionEvents, IDisposable
         {
             private readonly BaseAgentRuntime _Runtime;
             private readonly object _Lock = new object();
@@ -1375,6 +1375,8 @@ namespace Armada.Runtimes
                 if (waiter != null)
                     await waiter(processId).ConfigureAwait(false);
             }
+
+            public void Dispose() => CloseLog();
 
             public void CloseLog()
             {

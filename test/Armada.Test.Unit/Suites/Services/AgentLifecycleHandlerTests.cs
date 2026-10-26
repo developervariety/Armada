@@ -1431,9 +1431,11 @@ namespace Armada.Test.Unit.Suites.Services
                         else
                         {
                             string blocker = Path.Combine(root, "regular-file");
-                            File.WriteAllText(blocker, "not a directory");
-                            logging.Settings.FileLogging = FileLoggingMode.FileWithDate;
+                            Directory.CreateDirectory(blocker);
                             logging.Settings.LogFilename = Path.Combine(blocker, "admiral.log");
+                            logging.Settings.FileLogging = FileLoggingMode.FileWithDate;
+                            Directory.Delete(blocker, true);
+                            File.WriteAllText(blocker, "not a directory");
                             bool threw = false;
                             try { logging.Info("prove the diagnostic sink fails"); }
                             catch (IOException) { threw = true; }
@@ -1446,6 +1448,8 @@ namespace Armada.Test.Unit.Suites.Services
                             "only trusted capture failure defeats completion-stop success: " + mode);
                         await WaitForProcessExitCompletedAsync(handler, processId).ConfigureAwait(false);
                         AssertEqual(1, calls, "the exit is delivered exactly once");
+                        AssertTrue(Armada.Core.ProcessSupervisor.GetRuntimeExitEvidence(processId) == null,
+                            "durably delivered launch evidence is released");
                     }
                     finally
                     {

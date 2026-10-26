@@ -1134,6 +1134,16 @@ namespace Armada.Test.Unit.Suites.Services
                                 AssertEqual(currentSession!.Generation, rebound.SessionGeneration, "the durable job is bound to the current link generation");
                                 AssertTrue(await reconnected.NoMessageAsync().ConfigureAwait(false), "restart does not send a duplicate launch");
 
+                                RuntimeProcessExitEvidence? ownedEvidence = ProcessSupervisor.GetRuntimeExitEvidence(admiralProcessId);
+                                AssertNotNull(ownedEvidence, "the admitted launch retains its trusted exit owner");
+                                AssertFalse(ownedEvidence!.TryGetOutcome(out _, out _), "the live admitted launch is not finalized");
+                                AssertTrue(restarted.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? ownedSnapshot), "the owned job snapshot exists");
+                                HarborJobRecoveryResult duplicate = await recoveryScope.Handler.RestoreAsync(ownedSnapshot!).ConfigureAwait(false);
+                                AssertEqual(HarborJobRecoveryDispositionEnum.Uncertain, duplicate.Disposition, "a duplicate observer cannot adopt the same process");
+                                AssertTrue(Object.ReferenceEquals(ownedEvidence, ProcessSupervisor.GetRuntimeExitEvidence(admiralProcessId)),
+                                    "rejected restoration cannot replace the admitted owner's evidence");
+                                AssertFalse(ownedEvidence.TryGetOutcome(out _, out _), "rejected restoration cannot finalize the active owner's exit");
+
                                 await reconnected.SendAsync(Output(jobId, 1, "after restart")).ConfigureAwait(false);
                                 await reconnected.SendAsync(new HarborExited { JobId = jobId, ExitCode = 0 }).ConfigureAwait(false);
                                 RecordedProcessExit exit = await recoveryScope.Admiral.NextExitAsync(Wait).ConfigureAwait(false);

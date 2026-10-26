@@ -37,18 +37,26 @@ namespace Armada.Core
             if (processId <= 0 || (processId <= SyntheticProcessIdFloor && !startedUtc.HasValue))
                 throw new InvalidOperationException("runtime_exit_launch_identity_missing");
             RuntimeProcessExitEvidence evidence = new RuntimeProcessExitEvidence(startedUtc);
-            _RuntimeExits[processId] = evidence;
-            return evidence;
+            return _RuntimeExits.AddOrUpdate(processId, evidence,
+                (_, current) => current.LaunchStartUtc == startedUtc ? current : evidence);
         }
 
         /// <summary>Read only the current launch's trusted evidence; a reused native PID cannot inherit it.</summary>
-        public static RuntimeProcessExitEvidence? GetRuntimeExitEvidence(int processId)
+        public static RuntimeProcessExitEvidence? GetRuntimeExitEvidence(int processId, DateTime? expectedLaunchStartUtc = null)
         {
             if (!_RuntimeExits.TryGetValue(processId, out RuntimeProcessExitEvidence? evidence)) return null;
-            return processId > SyntheticProcessIdFloor || evidence.LaunchStartUtc == GetRecordedLaunchStartUtc(processId)
+            if (processId > SyntheticProcessIdFloor) return evidence; // Unique, monotonic Harbor identity.
+            return evidence.LaunchStartUtc == GetRecordedLaunchStartUtc(processId)
+                && (!expectedLaunchStartUtc.HasValue || evidence.LaunchStartUtc == expectedLaunchStartUtc)
                 ? evidence : null;
         }
 
+
+        /// <summary>Release only the evidence consumed by a successfully delivered durable exit.</summary>
+        public static void ReleaseRuntimeExitEvidence(int processId, RuntimeProcessExitEvidence evidence)
+        {
+            _RuntimeExits.TryRemove(new System.Collections.Generic.KeyValuePair<int, RuntimeProcessExitEvidence>(processId, evidence));
+        }
 
         /// <summary>
         /// Allocate a synthetic process identifier. Every runtime that runs work outside a local OS process (an

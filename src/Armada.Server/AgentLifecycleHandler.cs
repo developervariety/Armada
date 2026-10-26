@@ -2123,6 +2123,7 @@ namespace Armada.Server
                     processId,
                     _ => new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously))
                 : null;
+            RuntimeProcessExitEvidence? deliveredExitEvidence = ProcessSupervisor.GetRuntimeExitEvidence(processId);
             bool handled = false;
             try
             {
@@ -2158,6 +2159,8 @@ namespace Armada.Server
                         completion.TrySetException(new InvalidOperationException("harbor_lifecycle_completion_failed"));
                 }
                 _HarborProcessIds.TryRemove(processId, out _);
+                if (handled && deliveredExitEvidence != null)
+                    ProcessSupervisor.ReleaseRuntimeExitEvidence(processId, deliveredExitEvidence);
                 completionLock?.Dispose();
             }
         }
