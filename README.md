@@ -1227,8 +1227,8 @@ Armada has a growing community building on and around it.
 
 Special thanks to the community that helps build and improve Armada.
 
-- [@kevin-v96](https://github.com/kevin-v96)
 - [@developervariety](https://github.com/developervariety)
+- [@kevin-v96](https://github.com/kevin-v96)
 
 ## Issues and Discussions
 
