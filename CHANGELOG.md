@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Review finding extraction leaves outside-scope observations and instruction proposals out of revision work. Explicit blockers and unmet criteria remain findings.
+
 - Archive uploads and verification retry transient server or transport failures within a bounded operation. Failed uploads are checked before another PUT; successful uploads retry verification only.
 
 - Completed report-only work can reach its configured pending Judge when that review is its sole outstanding criterion. Unfinished current work and unavailable review still block.

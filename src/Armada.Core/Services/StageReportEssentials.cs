@@ -65,7 +65,8 @@ namespace Armada.Core.Services
         // introduces findings; one that reports passing or reviewed behaviour introduces context; one
         // that labels minor or follow-up items introduces lesser items, which a rescue does not fix.
         private static readonly Regex _LesserLeadIn = new Regex(
-            @"\b(?:minor|nits?|nitpicks?|follow-?ups?|non-?blocking|not\s+(?:a\s+)?blockers?|cosmetic|optional|lesser)\b",
+            @"\b(?:minor|nits?|nitpicks?|follow-?ups?|non-?blocking|not\s+(?:a\s+)?blockers?|cosmetic|optional|lesser)\b"
+            + @"|\b(?:outside|out\s+of)\s+(?:the\s+)?(?:allowed\s+)?(?:edit\s+)?scope\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _RequiredLeadIn = new Regex(
@@ -257,6 +258,15 @@ namespace Armada.Core.Services
             for (int i = 0; i < lines.Length; i++)
             {
                 string raw = lines[i].Trim();
+                if (String.Equals(raw, "[CLAUDE.MD-PROPOSAL]", StringComparison.OrdinalIgnoreCase)
+                    || String.Equals(raw, "[/CLAUDE.MD-PROPOSAL]", StringComparison.OrdinalIgnoreCase))
+                {
+                    section = String.Empty;
+                    leadIn = String.Empty;
+                    paragraphLead = String.Empty;
+                    protectedHeadingDepth = 0;
+                    continue;
+                }
                 string boldSection = BoldLineSection(raw);
                 if (boldSection.Length > 0)
                 {

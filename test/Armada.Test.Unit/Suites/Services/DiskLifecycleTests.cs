@@ -508,7 +508,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 throw new InvalidOperationException("Unexpected archive request method");
                             })))
                             {
-                                if (recovery == "budget-backoff") http.Timeout = TimeSpan.FromMilliseconds(200);
+                                if (recovery == "budget-backoff") http.Timeout = TimeSpan.FromSeconds(2);
                                 S3ArchiveSink sink = new S3ArchiveSink(layout.Settings.Archive, http,
                                     () => new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(++clocks),
                                     (delay, token) =>

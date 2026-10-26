@@ -2223,7 +2223,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A completed Research report waits for its actual downstream Judge without waiving unfinished work", async () =>
             {
-                foreach (string scenario in new[] { "pending-review", "unfinished-work", "unrelated-review", "cancelled-review" })
+                foreach (string scenario in new[] { "pending-review", "unfinished-work", "unrelated-review", "cancelled-review", "foreign-review" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -2231,6 +2231,11 @@ namespace Armada.Test.Unit.Suites.Services
                         if (scenario == "unrelated-review")
                         {
                             rig.JudgeStage!.DependsOnMissionId = null;
+                            await testDb.Driver.Missions.UpdateAsync(rig.JudgeStage).ConfigureAwait(false);
+                        }
+                        if (scenario == "foreign-review")
+                        {
+                            rig.JudgeStage!.UserId = "other-review-owner";
                             await testDb.Driver.Missions.UpdateAsync(rig.JudgeStage).ConfigureAwait(false);
                         }
                         if (scenario == "cancelled-review")
@@ -2257,7 +2262,8 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             AssertEqual(MissionStatusEnum.Failed, worker.Status, "unmet work or an unavailable reviewer still blocks: " + scenario);
                             AssertTrue(ReportIncompleteResult.IsIncompleteReportFailure(worker.FailureReason), "the incomplete report keeps its named reason");
-                            AssertEqual(scenario == "unrelated-review" ? MissionStatusEnum.Pending : MissionStatusEnum.Cancelled, judge.Status, "only dependent reviewers are cancelled when work is blocked");
+                            if (scenario == "foreign-review") AssertFalse(judge.Status is MissionStatusEnum.Assigned or MissionStatusEnum.InProgress, "a foreign reviewer cannot start for this blocked work");
+                            else AssertEqual(scenario == "unrelated-review" ? MissionStatusEnum.Pending : MissionStatusEnum.Cancelled, judge.Status, "only dependent reviewers are cancelled when work is blocked");
                         }
                     }
                 }
