@@ -14,6 +14,7 @@ namespace Armada.Test.Unit.Suites.Routes
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -157,6 +158,8 @@ namespace Armada.Test.Unit.Suites.Routes
                         AssertEqual(1, harness.EventTypes().Count(type => type == "voyage.reopened:" + chain.Voyage.Id),
                             surface + ": one voyage.reopened event: " + String.Join(",", harness.EventTypes()));
                         await VerifyRestartAssignmentFromPreservedCommitAsync(harness, surface).ConfigureAwait(false);
+                        await VerifyRestartAssignmentFromPreservedCommitAsync(harness, surface, missingCommit: true).ConfigureAwait(false);
+                        await VerifyRestartCaptureBoundariesAsync(harness, surface).ConfigureAwait(false);
 
                     }
                 }
@@ -220,7 +223,7 @@ namespace Armada.Test.Unit.Suites.Routes
             }).ConfigureAwait(false);
         }
 
-        private async Task VerifyRestartAssignmentFromPreservedCommitAsync(SurfaceParityHarness harness, string surface)
+        private async Task VerifyRestartAssignmentFromPreservedCommitAsync(SurfaceParityHarness harness, string surface, bool missingCommit = false)
         {
             string root = Path.Combine(Path.GetTempPath(), "armada-restart-anchor-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
@@ -250,7 +253,8 @@ namespace Armada.Test.Unit.Suites.Routes
                 vessel.DefaultBranch = defaultBranch;
                 vessel.WorkingDirectory = Path.Combine(root, "working");
                 await harness.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
-                chain.Producer.CommitHash = producedHead;
+                string requestedHead = missingCommit ? new string('a', 40) : producedHead;
+                chain.Producer.CommitHash = requestedHead;
                 chain.Producer.Status = MissionStatusEnum.Complete;
                 await harness.Driver.Missions.UpdateAsync(chain.Producer).ConfigureAwait(false);
                 await RunGitAsync(bare, "update-ref", "refs/armada/missions/" + chain.Producer.Id, producedHead).ConfigureAwait(false);
@@ -284,7 +288,18 @@ namespace Armada.Test.Unit.Suites.Routes
                     TenantId = vessel.TenantId, UserId = vessel.UserId, Model = "claude-opus-5",
                     AllowedPersonas = "[\"Worker\"]"
                 }).ConfigureAwait(false);
-                AssertTrue(await missions.TryAssignAsync(pending, vessel).ConfigureAwait(false),
+                bool didAssign = await missions.TryAssignAsync(pending, vessel).ConfigureAwait(false);
+                if (missingCommit)
+                {
+                    AssertFalse(didAssign, "A missing captured commit must fail before checkout or launch.");
+                    Mission refused = (await harness.Driver.Missions.ReadAsync(pending.Id).ConfigureAwait(false))!;
+                    AssertContains("start_from_ref_missing", refused.FailureReason ?? String.Empty);
+                    AssertEqual(0, launches);
+                    AssertNull(refused.DockId);
+                    AssertEqual(defaultHead, (await RunGitAsync(bare, "rev-parse", "refs/heads/" + defaultBranch).ConfigureAwait(false)).Trim());
+                    return;
+                }
+                AssertTrue(didAssign,
                     "A restarted dependent must reconstruct its missing branch from verified work, not the default branch.");
                 Mission assigned = (await harness.Driver.Missions.ReadAsync(pending.Id).ConfigureAwait(false))!;
                 Dock current = (await harness.Driver.Docks.ReadAsync(assigned.DockId!).ConfigureAwait(false))!;
@@ -303,6 +318,42 @@ namespace Armada.Test.Unit.Suites.Routes
                         File.SetAttributes(file, FileAttributes.Normal);
                     Directory.Delete(root, true);
                 }
+            }
+        }
+
+        private async Task VerifyRestartCaptureBoundariesAsync(SurfaceParityHarness harness, string surface)
+        {
+            List<HarborMissionRoute> priorRoutes = harness.Settings.Harbor.MissionRoutes;
+            try
+            {
+                foreach (string boundary in new[] { "vessel-owned", "captain-owned", "retained-job", "retained-attempt", "foreign-tenant", "foreign-user", "cross-vessel" })
+                {
+                    FailedStageChain chain = await SeedFailedStageChainAsync(harness, surface + "-" + boundary).ConfigureAwait(false);
+                    chain.FailedStage.StartFromRef = "prior-explicit-source";
+                    harness.Settings.Harbor.MissionRoutes = new List<HarborMissionRoute>();
+                    if (boundary == "vessel-owned" || boundary == "captain-owned")
+                        harness.Settings.Harbor.MissionRoutes.Add(new HarborMissionRoute
+                        {
+                            CheckoutMode = HarborCheckoutModeEnum.HarborOwned,
+                            VesselId = boundary == "vessel-owned" ? chain.FailedStage.VesselId : null,
+                            CaptainId = boundary == "captain-owned" ? "unselected-captain" : null
+                        });
+                    if (boundary == "retained-job") chain.FailedStage.HarborJobId = "retained-job";
+                    if (boundary == "retained-attempt") chain.Producer.DockProvisionAttemptId = "retained-attempt";
+                    if (boundary == "foreign-tenant") chain.Producer.TenantId = "other-tenant";
+                    if (boundary == "foreign-user") chain.Producer.UserId = "other-user";
+                    if (boundary == "cross-vessel") chain.Producer.VesselId = "other-vessel";
+                    await harness.Driver.Missions.UpdateAsync(chain.Producer).ConfigureAwait(false);
+                    await harness.Driver.Missions.UpdateAsync(chain.FailedStage).ConfigureAwait(false);
+                    SurfaceReply reply = await RestartAsync(harness, surface, chain.FailedStage.Id).ConfigureAwait(false);
+                    AssertFalse(reply.Refused, boundary + ": restart retains its existing supported behavior.");
+                    Mission stored = (await harness.Driver.Missions.ReadAsync(chain.FailedStage.Id).ConfigureAwait(false))!;
+                    AssertEqual("prior-explicit-source", stored.StartFromRef, boundary + ": do not replace another checkout or owner's source payload.");
+                }
+            }
+            finally
+            {
+                harness.Settings.Harbor.MissionRoutes = priorRoutes;
             }
         }
 
