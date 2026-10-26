@@ -1455,13 +1455,12 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            foreach (string mode in new[] { "capture-failed", "provider-74", "diagnostic-io" })
+            foreach (string mode in new[] { "capture-failed", "provider-74", "diagnostic-disposed" })
             {
                 await RunTest("Trusted exit delivery: " + mode, async () =>
                 {
                     using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                     LoggingModule logging = CreateLogging();
-                    FileLoggingMode priorFileLogging = logging.Settings.FileLogging;
                     TaskCompletionSource<int?> exitSeen = new(TaskCreationOptions.RunContinuationsAsynchronously);
                     int calls = 0;
                     StubAdmiralService admiral = new StubAdmiralService();
@@ -1479,27 +1478,20 @@ namespace Armada.Test.Unit.Suites.Services
                     RegisterTrackedProcess(handler, processId, mission.CaptainId!, mission.Id);
                     Armada.Core.ProcessSupervisor.RecordLaunchedProcess(processId, DateTime.UtcNow);
                     Armada.Core.RuntimeProcessExitEvidence evidence = Armada.Core.ProcessSupervisor.TrackRuntimeExit(processId);
-                    evidence.Complete(mode == "diagnostic-io" ? 1 : 74, mode == "capture-failed");
-                    string root = Path.Combine(Path.GetTempPath(), "exit-diagnostic-" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(root);
+                    evidence.Complete(mode == "diagnostic-disposed" ? 1 : 74, mode == "capture-failed");
                     try
                     {
-                        if (mode != "diagnostic-io")
+                        if (mode != "diagnostic-disposed")
                             AssertTrue(stops.TryRegister(processId, mission.CaptainId!, mission.Id, IntentionalStopKindEnum.Completion));
                         else
                         {
-                            string blocker = Path.Combine(root, "regular-file");
-                            Directory.CreateDirectory(blocker);
-                            logging.Settings.LogFilename = Path.Combine(blocker, "admiral.log");
-                            logging.Settings.FileLogging = FileLoggingMode.FileWithDate;
-                            Directory.Delete(blocker, true);
-                            File.WriteAllText(blocker, "not a directory");
+                            logging.Dispose();
                             bool threw = false;
-                            try { logging.Info("prove the diagnostic sink fails"); }
-                            catch (IOException) { threw = true; }
-                            AssertTrue(threw, "the real diagnostic sink must throw before testing containment");
+                            try { logging.Info("prove the diagnostic sink is disposed"); }
+                            catch (ObjectDisposedException) { threw = true; }
+                            AssertTrue(threw, "the real disposed logger must throw before testing containment");
                         }
-                        handler.HandleAgentProcessExited(processId, mode == "diagnostic-io" ? 1 : 74);
+                        handler.HandleAgentProcessExited(processId, mode == "diagnostic-disposed" ? 1 : 74);
                         Task finished = await Task.WhenAny(exitSeen.Task, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
                         AssertTrue(finished == exitSeen.Task, "the effective exit reaches durable handling despite diagnostic failure: " + mode);
                         AssertEqual(mode == "capture-failed" ? 74 : mode == "provider-74" ? 0 : 1, exitSeen.Task.Result,
@@ -1511,9 +1503,8 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                     finally
                     {
-                        logging.Settings.FileLogging = priorFileLogging;
                         Armada.Core.ProcessSupervisor.ForgetLaunchedProcess(processId);
-                        Directory.Delete(root, true);
+                        logging.Dispose();
                     }
                 });
             }
