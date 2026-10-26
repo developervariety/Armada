@@ -21,7 +21,7 @@ if [ ! -f "${DASHBOARD_DIR}/package.json" ]; then
 fi
 
 # Building the dashboard requires Node.js. When Node is unavailable, fall back to the pre-built
-# dist that ships in the repository so install still works on a machine without Node installed.
+# dist left by an earlier build (dist/ is not committed) so install still works without Node.
 if command -v node >/dev/null 2>&1; then
     cd "${DASHBOARD_DIR}"
     if [ ! -d "node_modules" ]; then

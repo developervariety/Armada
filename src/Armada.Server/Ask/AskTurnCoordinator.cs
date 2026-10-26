@@ -540,7 +540,9 @@ namespace Armada.Server.Ask
                 reservation.CaptainId = handle.CaptainId;
                 reservation.TrackedWorkId = trackedWorkId;
                 reservation.ContentText = String.Empty;
-                placeholder = await _Threads.AppendMessageAsync(thread, reservation, true).ConfigureAwait(false);
+                // Not unread yet: the user is usually still looking at the thread when the turn starts. The reply
+                // counts as unread when FinishReplyAsync fills it in, so one that lands after they left shows a badge.
+                placeholder = await _Threads.AppendMessageAsync(thread, reservation, false).ConfigureAwait(false);
                 messageId = placeholder.Id;
 
                 Captain? captain = await _Database.Captains.ReadAsync(handle.CaptainId!).ConfigureAwait(false);
@@ -652,7 +654,7 @@ namespace Armada.Server.Ask
             placeholder.CaptainId = reply.CaptainId ?? placeholder.CaptainId;
             placeholder.DurationMs = reply.DurationMs;
             placeholder.Metrics = reply.Metrics;
-            return await _Threads.CompleteMessageAsync(thread, placeholder, toolCalls).ConfigureAwait(false);
+            return await _Threads.CompleteMessageAsync(thread, placeholder, true, toolCalls).ConfigureAwait(false);
         }
 
         private async Task RunSummaryAsync(AskThread thread, AskTurnHandle handle)

@@ -401,15 +401,18 @@ namespace Armada.Core.Services.Ask
         /// </summary>
         /// <param name="thread">Thread that owns the message.</param>
         /// <param name="message">The reserved message with its final content.</param>
+        /// <param name="countsAsUnread">True to count the finished message as unread now. Reserve the message with
+        /// countsAsUnread false and pass true here, so a reply that arrives after the user looked away is unread.</param>
         /// <param name="toolCalls">Tool calls made while producing it, or null.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The updated message.</returns>
         /// <exception cref="ArgumentNullException">Thrown when thread or message is null.</exception>
-        public async Task<AskMessage> CompleteMessageAsync(AskThread thread, AskMessage message, List<AskMessageToolCall>? toolCalls = null, CancellationToken token = default)
+        public async Task<AskMessage> CompleteMessageAsync(AskThread thread, AskMessage message, bool countsAsUnread, List<AskMessageToolCall>? toolCalls = null, CancellationToken token = default)
         {
             if (thread == null) throw new ArgumentNullException(nameof(thread));
             if (message == null) throw new ArgumentNullException(nameof(message));
             message = await _Database.AskMessages.UpdateAsync(message, token).ConfigureAwait(false);
+            if (countsAsUnread) await _Database.AskThreads.IncrementUnreadAsync(thread.TenantId!, thread.Id, token).ConfigureAwait(false);
 
             if (toolCalls != null && toolCalls.Count > 0)
             {

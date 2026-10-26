@@ -3,7 +3,7 @@ name: full
 # The full verification, manual only (Actions > full > Run workflow); pushes and pull requests run the quick smoke
 # test in ci.yml instead, and nothing runs on a schedule. Run this before a release. Five jobs:
 #   build-and-test  Windows, macOS, and Linux x net8.0 and net10.0: warning-free build plus every Test.Automated suite.
-#   dashboard       npm ci, build, Vitest, and a check that the committed dist/ matches a fresh build.
+#   dashboard       npm ci, build, and Vitest.
 #   tui-parity      The TUI parity manifest is current and has no planned entries.
 #   mobile          The Expo app: typecheck, lint (app and shared dashboard modules), Jest, route screens,
 #                   and the mobile parity manifest.
@@ -80,7 +80,7 @@ jobs:
           if-no-files-found: warn
 
   # ------------------------------------------------------------------
-  # Dashboard: install, build, test, and verify the committed dist/.
+  # Dashboard: install, build, and test.
   # Runs on Linux only so line endings match the committed files.
   # ------------------------------------------------------------------
   dashboard:
@@ -107,19 +107,6 @@ jobs:
       - name: Test
         run: npm run test:run
 
-      # dist/ is committed on purpose (deploy scripts fall back to it when Node is absent), so a change
-      # to dashboard source without a rebuilt dist/ ships a stale dashboard. Fail when they differ.
-      - name: Verify committed dist/ matches a fresh build
-        shell: bash
-        run: |
-          changes="$(git status --porcelain --untracked-files=all -- dist)"
-          if [ -n "$changes" ]; then
-            echo "::error::src/Armada.Dashboard/dist is out of date. Run 'npm ci && npm run build' in src/Armada.Dashboard and commit dist/."
-            echo "$changes"
-            git --no-pager diff --stat -- dist
-            exit 1
-          fi
-          echo "dist/ matches a fresh build."
 
   # ------------------------------------------------------------------
   # TUI parity gate: src/Armada.Tui/parity.json matches the dashboard

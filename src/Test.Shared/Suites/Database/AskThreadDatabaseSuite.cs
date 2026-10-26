@@ -200,6 +200,12 @@ namespace Test.Shared.Suites.Database
                 AssertEqual(1, (await db.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false))!.UnreadCount, "unread set to one");
                 AssertTrue(await db.AskThreads.MarkUnreadAsync(Constants.DefaultTenantId, "usr_seq", thread.Id).ConfigureAwait(false), "marking unread again");
                 AssertEqual(1, (await db.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false))!.UnreadCount, "marking unread again keeps one");
+
+                AssertTrue(await db.AskThreads.IncrementUnreadAsync(Constants.DefaultTenantId, thread.Id).ConfigureAwait(false), "increment unread");
+                AssertEqual(2, (await db.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false))!.UnreadCount, "increment adds one");
+                AssertFalse(await db.AskThreads.IncrementUnreadAsync(Constants.DefaultTenantId, "ath_missing").ConfigureAwait(false), "increment on a missing thread");
+                AssertFalse(await db.AskThreads.IncrementUnreadAsync("ten_other", thread.Id).ConfigureAwait(false), "increment is tenant scoped");
+                AssertEqual(2, (await db.AskThreads.ReadByIdAsync(thread.Id).ConfigureAwait(false))!.UnreadCount, "other tenant left it alone");
             }));
 
             cases.Add(CaseAsync("message_turn_metrics_roundtrip", "A reply's turn telemetry (migration 82) round-trips through create, update, read, and enumerate", TestTags.Positive, async () =>

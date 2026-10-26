@@ -288,6 +288,26 @@ namespace Armada.Core.Database.Sqlite.Implementations
             return updated > 0;
         }
 
+        /// <inheritdoc />
+        public async Task<bool> IncrementUnreadAsync(string tenantId, string id, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (String.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
+
+            int updated = 0;
+            await SqliteCommandHelper.WriteAsync(_ConnectionString, _WriteGate, async (SqliteConnection conn, SqliteTransaction tx) =>
+            {
+                updated = await SqliteCommandHelper.ExecuteAsync(conn, tx,
+                    "UPDATE ask_threads SET unread_count = unread_count + 1 WHERE tenant_id = @tenant_id AND id = @id;",
+                    cmd =>
+                    {
+                        SqliteCommandHelper.Add(cmd, "@tenant_id", tenantId);
+                        SqliteCommandHelper.Add(cmd, "@id", id);
+                    }, token).ConfigureAwait(false);
+            }, token).ConfigureAwait(false);
+            return updated > 0;
+        }
+
         #endregion
 
         #region Private-Methods

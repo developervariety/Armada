@@ -24,8 +24,8 @@ dotnet test src/Test.Nunit --framework net10.0
 npm ci && npm run build && npm run test:run
 ```
 
-The dashboard's `dist/` is committed on purpose (deploy scripts fall back to it when Node is not
-installed). Rebuild and commit it whenever dashboard source changes.
+The dashboard's `dist/` is build output and is not committed (it is in `.gitignore`). The Docker images,
+release workflow, and deploy scripts build it from source.
 
 ## Architecture
 - `Armada.Core` - Domain models, database interfaces and providers, service interfaces, settings
@@ -34,7 +34,7 @@ installed). Rebuild and commit it whenever dashboard source changes.
 - `Armada.Helm` - CLI (Spectre.Console), thin HTTP client to Admiral; hosts `armada tui`
 - `Armada.Tui` - Terminal UI (TUIKit), the dashboard in a terminal
 - `Armada.Client` - Typed .NET client for the REST API and WebSocket (used by the TUI)
-- `Armada.Dashboard` - React dashboard (Vite); `dist/` is committed and served by the Admiral at `/dashboard`
+- `Armada.Dashboard` - React dashboard (Vite); its build (`dist/`) is served by the Admiral at `/dashboard`
 - `Armada.Harbor` - Avalonia tray app that runs captains, git, and worktrees on the developer's machine (split mode)
 - `Armada.Proxy` - Remote-access portal and tunnel relay
 - `Armada.Publisher` - Packaging orchestrator for installers (reads `publisher.json`)

@@ -16,6 +16,12 @@ artifacts/
 # Dashboard dependencies are installed per machine (npm ci); never commit them.
 node_modules/
 
+# Build output (for example the dashboard's Vite build); every build path rebuilds it from source.
+dist/
+
 # Python bytecode caches from repository scripts
 __pycache__/
 *.pyc
+
+# macOS Finder metadata
+.DS_Store

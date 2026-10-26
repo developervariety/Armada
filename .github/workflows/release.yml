@@ -45,6 +45,17 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      # dist/ is not committed; build the dashboard so the server packages ship it under dashboard/.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: src/Armada.Dashboard/package-lock.json
+      - name: Build the dashboard
+        working-directory: src/Armada.Dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
@@ -76,6 +87,17 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      # dist/ is not committed; build the dashboard so the server packages ship it under dashboard/.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: src/Armada.Dashboard/package-lock.json
+      - name: Build the dashboard
+        working-directory: src/Armada.Dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
@@ -111,6 +133,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # dist/ is not committed; build the dashboard so the server packages ship it under dashboard/.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: src/Armada.Dashboard/package-lock.json
+      - name: Build the dashboard
+        working-directory: src/Armada.Dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}

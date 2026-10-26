@@ -140,6 +140,46 @@ namespace Test.Shared.Suites.Services
                 AssertNull(await h.Threads.MarkUnreadAsync(owner, "").ConfigureAwait(false), "blank id");
             }));
 
+            cases.Add(CaseAsync("reserved_reply_counts_unread_when_completed", "A reply reserved at turn start is not unread until its content lands, so a reply that arrives after the user marked the thread read shows as unread", TestTags.Positive, async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                AuthContext owner = AskTestHarness.User("usr_reserved");
+                AskThread thread = await h.Threads.CreateThreadAsync(owner, null).ConfigureAwait(false);
+                AskThread fresh = (await h.Threads.ReadThreadInternalAsync(thread.Id).ConfigureAwait(false))!;
+
+                AskMessage placeholder = await h.Threads.AppendMessageAsync(fresh, new AskMessage { Role = AskMessageRoleEnum.Assistant, Kind = AskMessageKindEnum.Text, ContentText = String.Empty }, false).ConfigureAwait(false);
+                AssertEqual(0, (await h.Threads.GetThreadAsync(owner, thread.Id).ConfigureAwait(false))!.UnreadCount, "the empty reservation is not unread");
+
+                // The user is looking at the thread while the captain works, then leaves; the open view marks it read.
+                await h.Threads.MarkReadAsync(owner, thread.Id).ConfigureAwait(false);
+                int threadEvents = h.EventsFor("usr_reserved", "ask.thread").Count();
+
+                placeholder.ContentText = "Here is the answer.";
+                await h.Threads.CompleteMessageAsync(fresh, placeholder, true).ConfigureAwait(false);
+                AskThread? after = await h.Threads.GetThreadAsync(owner, thread.Id).ConfigureAwait(false);
+                AssertEqual(1, after!.UnreadCount, "the finished reply is unread");
+                AssertEqual(1, after.MessageCount, "completing does not add a message");
+                AssertTrue(h.EventsFor("usr_reserved", "ask.thread").Count() > threadEvents, "ask.thread announced with the new count");
+
+                AskMessage second = await h.Threads.AppendMessageAsync(fresh, new AskMessage { Role = AskMessageRoleEnum.Assistant, Kind = AskMessageKindEnum.Text, ContentText = String.Empty }, false).ConfigureAwait(false);
+                second.ContentText = "And a follow-up.";
+                await h.Threads.CompleteMessageAsync(fresh, second, true).ConfigureAwait(false);
+                AssertEqual(2, (await h.Threads.GetThreadAsync(owner, thread.Id).ConfigureAwait(false))!.UnreadCount, "unread replies accumulate");
+            }));
+
+            cases.Add(CaseAsync("completed_message_not_counted_when_flag_false", "Completing a reserved message with countsAsUnread false leaves the unread count alone", TestTags.Negative, async () =>
+            {
+                using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);
+                AuthContext owner = AskTestHarness.User("usr_reserved_read");
+                AskThread thread = await h.Threads.CreateThreadAsync(owner, null).ConfigureAwait(false);
+                AskThread fresh = (await h.Threads.ReadThreadInternalAsync(thread.Id).ConfigureAwait(false))!;
+
+                AskMessage placeholder = await h.Threads.AppendMessageAsync(fresh, new AskMessage { Role = AskMessageRoleEnum.Assistant, Kind = AskMessageKindEnum.Text, ContentText = String.Empty }, false).ConfigureAwait(false);
+                placeholder.ContentText = "Quiet edit.";
+                await h.Threads.CompleteMessageAsync(fresh, placeholder, false).ConfigureAwait(false);
+                AssertEqual(0, (await h.Threads.GetThreadAsync(owner, thread.Id).ConfigureAwait(false))!.UnreadCount, "not counted");
+            }));
+
             cases.Add(CaseAsync("update_semantics_and_captain_clear", "Updates change only given fields; CaptainId present with null clears the captain", TestTags.Positive, async () =>
             {
                 using AskTestHarness h = await AskTestHarness.CreateAsync().ConfigureAwait(false);

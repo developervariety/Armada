@@ -24,7 +24,7 @@ if not exist "%DASHBOARD_DIR%\package.json" (
 )
 
 REM Building the dashboard requires Node.js. When Node is unavailable, fall back to the pre-built
-REM dist that ships in the repository so install still works on a machine without Node installed.
+REM dist left by an earlier build (dist\ is not committed) so install still works without Node.
 where node >nul 2>nul
 if errorlevel 1 (
     if exist "%DIST_DIR%\index.html" (

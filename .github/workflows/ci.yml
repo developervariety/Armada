@@ -1,7 +1,7 @@
 name: ci
 
 # Every push/PR runs a warning-free Linux build, fast unit suites, targeted pipeline contract/routing regressions,
-# and a check that committed dashboard dist/ matches its source. Other Services, E2E and TUI suites, other operating
+# and a dashboard build. Other Services, E2E and TUI suites, other operating
 # systems/net8.0, dashboard/mobile tests, parity, install and security checks run on demand through full.yml,
 # install-verify.yml, db-parity.yml and security.yml. Nothing runs on a schedule.
 on:
@@ -54,7 +54,7 @@ jobs:
       - name: Pipeline and lifecycle regressions
         run: dotnet run --project src/Test.Automated -c Release --no-build --framework net10.0 -- --suites Services.GitService,Services.ArchitectPlanParser,Services.PromptTemplateService,Services.PromptSignalConsistency,Services.RecorderSeeding,Services.MissionPrompt,Services.MultiRuntimeFlow,Services.CaptainRouting,Services.AgentLifecycleHandler,Services.PipelineDispatch,Services.AdmiralService,Services.StallRecovery,Services.HarborMetricsRecorder,Services.HarborJobOutbox,Services.HarborJobReconcile,Services.HarborLinkResilience,Services.HarborDockAffinityLaunch,Services.CaptainService,Services.CaptainStopRoute
 
-  dashboard-dist:
+  dashboard-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -75,14 +75,3 @@ jobs:
       - name: Build
         run: npm run build
 
-      # dist/ is committed (deploy scripts fall back to it), so dashboard source changed without a rebuilt dist/
-      # would ship a stale dashboard.
-      - name: Committed dist/ matches the source
-        shell: bash
-        run: |
-          changes="$(git status --porcelain --untracked-files=all -- dist)"
-          if [ -n "$changes" ]; then
-            echo "::error::src/Armada.Dashboard/dist is out of date. Run 'npm ci && npm run build' in src/Armada.Dashboard and commit dist/."
-            echo "$changes"
-            exit 1
-          fi

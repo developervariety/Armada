@@ -113,5 +113,15 @@ namespace Armada.Core.Database.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>True when the thread exists and was updated.</returns>
         Task<bool> MarkUnreadAsync(string tenantId, string userId, string id, CancellationToken token = default);
+
+        /// <summary>
+        /// Count one more unread message on a thread (atomic), for a message whose content arrives after it was
+        /// created, such as a captain reply that fills in its reserved placeholder.
+        /// </summary>
+        /// <param name="tenantId">Tenant identifier.</param>
+        /// <param name="id">Thread identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the thread exists and was updated.</returns>
+        Task<bool> IncrementUnreadAsync(string tenantId, string id, CancellationToken token = default);
     }
 }
