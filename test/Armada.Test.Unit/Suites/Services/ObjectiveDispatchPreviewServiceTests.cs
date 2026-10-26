@@ -1410,6 +1410,25 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreflightFact kindFact = result.Preflight.Facts.Single(fact => fact.QuestionNumber == 2);
                     AssertEqual(PreflightFactStatusEnum.Pass, kindFact.Status, "a committed document under a non-Research kind passes question 2");
 
+                    Dictionary<string, PreflightFactStatusEnum> deliveryCases = new Dictionary<string, PreflightFactStatusEnum>
+                    {
+                        ["Deliver committed tests, not a report-only audit."] = PreflightFactStatusEnum.Pass,
+                        ["Deliver a report-only audit."] = PreflightFactStatusEnum.Fail,
+                        ["Deliver committed tests, not a report-only audit. Produce a report to the owner as well."] = PreflightFactStatusEnum.Unknown
+                    };
+                    foreach (KeyValuePair<string, PreflightFactStatusEnum> delivery in deliveryCases)
+                    {
+                        objective.Description = delivery.Key;
+                        ObjectiveDispatchPreview deliveryResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                        AssertEqual(delivery.Value, deliveryResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 2).Status,
+                            "delivery negation keeps positive obligations and conflicting evidence distinct: " + delivery.Key);
+                    }
+                    objective.Kind = ObjectiveKindEnum.Research;
+                    objective.Description = "Deliver committed tests, not a report-only audit.";
+                    ObjectiveDispatchPreview committedResearch = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, committedResearch.Preflight.Facts.Single(fact => fact.QuestionNumber == 2).Status,
+                        "a negated report phrase does not hide a committed-test duty from the Research kind check");
+
                     objective.Description = "Produce a report to the owner.";
                     objective.Kind = ObjectiveKindEnum.Feature;
                     ObjectiveDispatchPreview reportResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
