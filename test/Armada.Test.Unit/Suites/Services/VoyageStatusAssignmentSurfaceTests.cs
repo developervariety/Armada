@@ -417,13 +417,32 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    object? dispatchSchema = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
+                        (name, _, schema, handler) =>
+                        {
+                            if (name == "armada_dispatch")
+                            {
+                                dispatchHandler = McpTestCaller.Wrap(handler);
+                                dispatchSchema = schema;
+                            }
+                        },
                         testDb.Driver,
                         admiralDouble,
                         null);
 
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
+                    object missingDescription = await dispatchHandler!(JsonSerializer.SerializeToElement(new
+                    {
+                        title = "title-only voyage", vesselId = "vsl_does_not_exist",
+                        missions = new object[] { new { title = "title-only task" } }
+                    })).ConfigureAwait(false);
+                    AssertContains("missing_mission_description", JsonSerializer.Serialize(missingDescription), "runtime rejects a task without its required description before dispatch");
+                    JsonElement schema = JsonSerializer.SerializeToElement(dispatchSchema);
+                    JsonElement required = schema.GetProperty("properties").GetProperty("missions").GetProperty("items").GetProperty("required");
+                    AssertTrue(required.EnumerateArray().Any(value => value.GetString() == "title"), "nested mission title is declared required");
+                    AssertTrue(required.EnumerateArray().Any(value => value.GetString() == "description"), "nested description contract agrees with runtime validation");
+
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
                     {
