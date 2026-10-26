@@ -204,9 +204,13 @@ namespace Armada.Runtimes
         private void CaptureReplyRecord(CursorEvent evt)
         {
             if (!FinalReplyRequested || !_ReplyRecordsUsable) return;
-            bool partial = evt.TimestampMs.ValueKind != JsonValueKind.Undefined && evt.TimestampMs.ValueKind != JsonValueKind.Null
-                || evt.ModelCallId.ValueKind != JsonValueKind.Undefined && evt.ModelCallId.ValueKind != JsonValueKind.Null
-                || String.Equals(evt.Subtype, "delta", StringComparison.Ordinal);
+            // Whole pre-tool flushes carry both metadata fields; per-delta output carries only a timestamp.
+            bool wholeFlush = evt.TimestampMs.ValueKind == JsonValueKind.Number
+                && evt.TimestampMs.TryGetInt64(out long timestamp) && timestamp > 0
+                && evt.ModelCallId.ValueKind == JsonValueKind.String && !String.IsNullOrWhiteSpace(evt.ModelCallId.GetString());
+            bool hasMetadata = evt.TimestampMs.ValueKind != JsonValueKind.Undefined && evt.TimestampMs.ValueKind != JsonValueKind.Null
+                || evt.ModelCallId.ValueKind != JsonValueKind.Undefined && evt.ModelCallId.ValueKind != JsonValueKind.Null;
+            bool partial = hasMetadata && !wholeFlush || String.Equals(evt.Subtype, "delta", StringComparison.Ordinal);
             string text = AssistantText(evt);
             int separator = _ReplyRecords.Count == 0 ? 0 : 2;
             if (partial || text.Length > MaximumFinalReplyCharacters - _ReplyCharacters - separator)

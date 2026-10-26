@@ -287,6 +287,10 @@ namespace Armada.Core.Services
                     paragraphLead = String.Empty;
                     continue;
                 }
+                if (inProposal && raw.StartsWith("#", StringComparison.Ordinal)
+                    && JudgeSection(raw).Length > 0
+                    && (priorHeadingDepth == 0 || raw.TakeWhile(character => character == '#').Count() <= priorHeadingDepth))
+                    inProposal = false;
                 if (inProposal)
                 {
                     section = String.Empty;

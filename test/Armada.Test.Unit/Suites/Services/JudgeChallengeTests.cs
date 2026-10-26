@@ -166,6 +166,12 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 string afterProposal = "## Correctness\n[CLAUDE.MD-PROPOSAL]\nPreserve the existing instructions.\n[/CLAUDE.MD-PROPOSAL]\nThe new reader is incorrect because it drops the final record.\n## Verdict\n[ARMADA:VERDICT] NEEDS_REVISION";
                 AssertContains("drops the final record", String.Join("\n", JudgeChallenge.ExtractFindings(afterProposal, out _)), "closing a proposal restores the surrounding correctness context");
+                string openProposal = "## Correctness\n[CLAUDE.MD-PROPOSAL]\nPreserve the existing instructions.\n## Examples\nPreserve these examples.\n## Tests\nThe new reader is incorrect because it drops the final record.\n## Verdict\nRequired revision: fix the reader.\n[ARMADA:VERDICT] NEEDS_REVISION";
+                string afterOpenProposal = String.Join("\n", JudgeChallenge.ExtractFindings(openProposal, out _));
+                AssertContains("drops the final record", afterOpenProposal, "a peer review section ends an unclosed instruction proposal");
+                AssertContains("Required revision: fix the reader", afterOpenProposal, "the later verdict keeps its required work");
+                AssertFalse(afterOpenProposal.Contains("Preserve these examples", StringComparison.Ordinal), "an arbitrary proposal heading does not introduce findings");
+
             });
 
             await RunTest("Items under a lead-in that reports agreement are not findings, and every blocking and NOT MET item still is", () =>
