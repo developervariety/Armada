@@ -510,6 +510,39 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A failed native exit delivery remains retryable and retains trusted failure evidence", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                StubAdmiralService admiral = new();
+                int calls = 0;
+                admiral.OnHandleProcessExit = (pid, code, captainId, missionId) =>
+                {
+                    AssertEqual(74, code, "the effective exit survives retry");
+                    if (Interlocked.Increment(ref calls) == 1) throw new IOException("simulated database storage failure");
+                    return Task.CompletedTask;
+                };
+                AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, admiralOverride: admiral);
+                const int processId = 4345;
+                Armada.Core.ProcessSupervisor.RecordLaunchedProcess(processId, DateTime.UtcNow);
+                Armada.Core.RuntimeProcessExitEvidence evidence = Armada.Core.ProcessSupervisor.TrackRuntimeExit(processId);
+                evidence.Complete(74, true);
+                try
+                {
+                    bool failed = false;
+                    try { await handler.HandleAgentProcessExitedAsync(processId, 74, "cpt_retry", "msn_retry").ConfigureAwait(false); }
+                    catch (IOException) { failed = true; }
+                    AssertTrue(failed, "the storage failure remains visible");
+                    AssertFalse(handler.IsProcessExitHandled(processId), "failed durable delivery is not marked handled");
+                    AssertTrue(Object.ReferenceEquals(evidence, Armada.Core.ProcessSupervisor.GetRuntimeExitEvidence(processId)),
+                        "trusted outcome remains available to recovery");
+                    await handler.HandleAgentProcessExitedAsync(processId, 74, "cpt_retry", "msn_retry").ConfigureAwait(false);
+                    AssertEqual(2, calls, "one retry delivers the original failure");
+                    AssertTrue(handler.IsProcessExitHandled(processId), "successful retry is marked handled");
+                    AssertTrue(Armada.Core.ProcessSupervisor.GetRuntimeExitEvidence(processId) == null, "successful retry releases consumed evidence");
+                }
+                finally { Armada.Core.ProcessSupervisor.ForgetLaunchedProcess(processId); }
+            });
+
             await RunTest("IsProcessExitHandled recognises a completed exit within the retention window and not a foreign PID", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
