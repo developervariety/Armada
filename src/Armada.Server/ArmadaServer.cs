@@ -161,6 +161,7 @@ namespace Armada.Server
         private Armada.Core.Services.Health.VesselHealthService _VesselHealthService = null!;
         private DeploymentEnvironmentService _EnvironmentService = null!;
         private StageOutcomeService _StageOutcomeService = null!;
+        private StageOutcomeAccessService _StageOutcomeAccess = null!;
         private CheckRunService _CheckRunService = null!;
         private ObjectiveService _ObjectiveService = null!;
         private ReleaseService _ReleaseService = null!;
@@ -379,6 +380,7 @@ namespace Armada.Server
 
             _StageOutcomeService = new StageOutcomeService(_Database, _Logging);
             await _StageOutcomeService.EnsureBuiltInRulesAsync().ConfigureAwait(false);
+            _StageOutcomeAccess = new StageOutcomeAccessService(_Database, _StageOutcomeService, _Logging);
             _Logging.Debug(_Header + "failure-cause rule seeding completed");
 
             // Fleet actions: runner (owned here, started below) and service; seed built-ins into every tenant.
@@ -1342,6 +1344,10 @@ namespace Armada.Server
             new CliPermissionRoutes(_CliPermissions, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Stage outcomes and failure-cause rules
+            new StageOutcomeRoutes(_StageOutcomeAccess, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Push notification devices (mobile apps)
             new PushRoutes(_PushDevices, _PushNotifications!, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -1883,7 +1889,8 @@ namespace Armada.Server
                 _AskTurns,
                 _AskActions,
                 _MissionService,
-                _HarborJobControl);
+                _HarborJobControl,
+                _StageOutcomeAccess);
         }
 
         /// <summary>

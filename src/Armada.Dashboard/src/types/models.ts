@@ -3729,3 +3729,136 @@ export interface VesselCommitQuery {
 export interface TokenUsageSyntheticRecord { model: string; runtime?: string | null; createdUtc: string; inputTokens: number; outputTokens: number; cachedTokens: number }
 export interface TokenUsageSyntheticRequest { batchId: string; records: TokenUsageSyntheticRecord[] }
 export interface TokenUsageSyntheticResult { batchId: string; sourceId: string; created: number; existing: number; fromUtc: string; toUtc: string; totalTokens: number }
+
+// ==================== Stage outcomes and failure-cause rules ====================
+
+/** Suspected cause of a stage attempt that fell short (FailureCauseEnum). */
+export type FailureCause = 'None' | 'Protocol' | 'InstructionFollowing' | 'ToolUse' | 'Context' | 'Capability' | 'NotTheModel' | 'Unknown' | 'Mixed';
+
+/** Where a stage outcome's cause came from (FailureCauseSourceEnum). */
+export type FailureCauseSource = 'None' | 'Rule' | 'Judge' | 'Manual';
+
+/** What Armada did after a stage attempt (StageDispositionEnum). */
+export type StageDisposition = 'Completed' | 'Relaunched' | 'OutputRepair' | 'Escalated' | 'Failed' | 'Interrupted' | 'Cancelled' | 'Pending';
+
+/** One stage attempt: who ran it, what was observed, what Armada did next, and the suspected cause. */
+export interface StageOutcome {
+  id: string;
+  tenantId?: string | null;
+  userId?: string | null;
+  missionId: string;
+  voyageId?: string | null;
+  vesselId?: string | null;
+  captainId?: string | null;
+  captainName?: string | null;
+  persona?: string | null;
+  attempt: number;
+  reworkRound: number;
+  runtime?: string | null;
+  model?: string | null;
+  modelProvider?: string | null;
+  modelEndpointId?: string | null;
+  harborId?: string | null;
+  contextTokens?: number | null;
+  temperature?: number | null;
+  topP?: number | null;
+  toolsEnabled?: boolean | null;
+  mcpToolsEnabled?: boolean | null;
+  reasoningEffort?: string | null;
+  runtimeVersion?: string | null;
+  modelDigest?: string | null;
+  promptVersion?: string | null;
+  armadaVersion?: string | null;
+  exitCode?: number | null;
+  runtimeFailureKind?: string | null;
+  stageCheckStatus?: string | null;
+  stageCheckReason?: string | null;
+  disposition: StageDisposition;
+  failureKind?: string | null;
+  failureReason?: string | null;
+  judgeVerdict?: string | null;
+  reviewedMissionId?: string | null;
+  nextCaptainId?: string | null;
+  suspectedCause: FailureCause;
+  causeSource: FailureCauseSource;
+  causeRuleId?: string | null;
+  causeNote?: string | null;
+  classifiedByUserId?: string | null;
+  classifiedUtc?: string | null;
+  isEvaluation: boolean;
+  startedUtc?: string | null;
+  endedUtc: string;
+  durationMs?: number | null;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+/** Filters for `listStageOutcomes` and `reclassifyStageOutcomes` (every field optional; reclassify ignores paging). */
+export interface StageOutcomeQuery {
+  /** Global admins only; ignored for everyone else. */
+  tenantId?: string | null;
+  missionId?: string | null;
+  voyageId?: string | null;
+  vesselId?: string | null;
+  captainId?: string | null;
+  persona?: string | null;
+  model?: string | null;
+  suspectedCause?: FailureCause | null;
+  causeSource?: FailureCauseSource | null;
+  disposition?: StageDisposition | null;
+  isEvaluation?: boolean | null;
+  /** ISO 8601 UTC, inclusive. */
+  fromUtc?: string | null;
+  /** ISO 8601 UTC, exclusive. */
+  toUtc?: string | null;
+  pageNumber?: number;
+  /** 1..1000 (server default 100). */
+  pageSize?: number;
+}
+
+/** What re-applying the rules did. */
+export interface StageOutcomeReclassifyResult {
+  examined: number;
+  changed: number;
+  skippedManual: number;
+}
+
+/** What a failure-cause rule matches: every criterion given must match; within a list any value matches. */
+export interface FailureCauseRuleMatch {
+  personas: string[];
+  runtimes: string[];
+  failureKinds: string[];
+  runtimeFailureKinds: string[];
+  stageCheckStatuses: string[];
+  stageCheckReasons: string[];
+  dispositions: StageDisposition[];
+  textPattern?: string | null;
+}
+
+/** A rule that assigns a suspected cause to a stage attempt that fell short. */
+export interface FailureCauseRule {
+  id: string;
+  /** Null applies the rule to every tenant. */
+  tenantId?: string | null;
+  name: string;
+  description?: string | null;
+  priority: number;
+  enabled: boolean;
+  isBuiltIn: boolean;
+  match: FailureCauseRuleMatch;
+  cause: FailureCause;
+  createdByUserId?: string | null;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+/** Body of `createFailureCauseRule` / `updateFailureCauseRule` (update replaces every field; tenantId is create-only). */
+export interface FailureCauseRuleUpsertRequest {
+  tenantId?: string | null;
+  name: string;
+  description?: string | null;
+  priority?: number;
+  enabled?: boolean;
+  match: Partial<FailureCauseRuleMatch>;
+  cause: FailureCause;
+}

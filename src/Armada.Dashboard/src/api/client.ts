@@ -181,6 +181,13 @@ import type {
   CliPermissionRule,
   CliPermissionRuleCreateRequest,
   CliPermissionRuleScope,
+  FailureCause,
+  FailureCauseRule,
+  FailureCauseRuleMatch,
+  FailureCauseRuleUpsertRequest,
+  StageOutcome,
+  StageOutcomeQuery,
+  StageOutcomeReclassifyResult,
 } from '../types/models';
 import { fetchAllPages } from './paging';
 
@@ -1370,6 +1377,99 @@ export const setCaptainCliPermissionPolicy = (captainId: string, policy: CliPerm
 /** Set (or clear with null) an Ask thread's CLI tool permission override. Owner only; Bypass requires an admin. */
 export const setAskThreadCliPermissionPolicy = (threadId: string, policy: CliPermissionPolicy | null) =>
   put<AskThread>(`${askThreadPath(threadId)}/cli-permission-policy`, { Policy: policy });
+
+// ==================== Stage outcomes and failure-cause rules ====================
+// One outcome per stage attempt with its suspected cause; rules assign the cause. Bodies are PascalCase for the C#
+// server; responses are camelized by `request`.
+
+const STAGE_OUTCOMES = '/api/v1/stage-outcomes';
+const FAILURE_CAUSE_RULES = '/api/v1/failure-cause-rules';
+
+function stageOutcomeFilterBody(query?: StageOutcomeQuery): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  if (!query) return body;
+  if (query.tenantId) body.TenantId = query.tenantId;
+  if (query.missionId) body.MissionId = query.missionId;
+  if (query.voyageId) body.VoyageId = query.voyageId;
+  if (query.vesselId) body.VesselId = query.vesselId;
+  if (query.captainId) body.CaptainId = query.captainId;
+  if (query.persona) body.Persona = query.persona;
+  if (query.model) body.Model = query.model;
+  if (query.suspectedCause) body.SuspectedCause = query.suspectedCause;
+  if (query.causeSource) body.CauseSource = query.causeSource;
+  if (query.disposition) body.Disposition = query.disposition;
+  if (query.isEvaluation !== undefined && query.isEvaluation !== null) body.IsEvaluation = query.isEvaluation;
+  if (query.fromUtc) body.FromUtc = query.fromUtc;
+  if (query.toUtc) body.ToUtc = query.toUtc;
+  return body;
+}
+
+function failureCauseRuleBody(rule: FailureCauseRuleUpsertRequest): Record<string, unknown> {
+  const match: Partial<FailureCauseRuleMatch> = rule.match || {};
+  const payload: Record<string, unknown> = {
+    Name: rule.name,
+    Description: rule.description ?? null,
+    Cause: rule.cause,
+    Match: {
+      Personas: match.personas ?? [],
+      Runtimes: match.runtimes ?? [],
+      FailureKinds: match.failureKinds ?? [],
+      RuntimeFailureKinds: match.runtimeFailureKinds ?? [],
+      StageCheckStatuses: match.stageCheckStatuses ?? [],
+      StageCheckReasons: match.stageCheckReasons ?? [],
+      Dispositions: match.dispositions ?? [],
+      TextPattern: match.textPattern ?? null,
+    },
+  };
+  if (rule.priority !== undefined) payload.Priority = rule.priority;
+  if (rule.enabled !== undefined) payload.Enabled = rule.enabled;
+  if (rule.tenantId) payload.TenantId = rule.tenantId;
+  return payload;
+}
+
+/** One page of the stage outcomes visible to the caller (global admins every tenant, others their own), newest first. */
+export const listStageOutcomes = (query?: StageOutcomeQuery) =>
+  get<EnumerationResult<StageOutcome>>(`${STAGE_OUTCOMES}${cliQuery({
+    tenantId: query?.tenantId, missionId: query?.missionId, voyageId: query?.voyageId, vesselId: query?.vesselId,
+    captainId: query?.captainId, persona: query?.persona, model: query?.model, suspectedCause: query?.suspectedCause,
+    causeSource: query?.causeSource, disposition: query?.disposition,
+    isEvaluation: query?.isEvaluation === undefined || query?.isEvaluation === null ? undefined : String(query.isEvaluation),
+    fromUtc: query?.fromUtc, toUtc: query?.toUtc, pageNumber: query?.pageNumber, pageSize: query?.pageSize,
+  })}`);
+
+export const getStageOutcome = (id: string) =>
+  get<StageOutcome>(`${STAGE_OUTCOMES}/${encodeURIComponent(id)}`);
+
+/** Classify an outcome by hand; a null cause hands it back to the rules. 400 for cause None. */
+export const classifyStageOutcome = (id: string, cause: FailureCause | null, note?: string | null) =>
+  put<StageOutcome>(`${STAGE_OUTCOMES}/${encodeURIComponent(id)}/cause`, { Cause: cause, Note: note ?? null });
+
+/** Re-apply the rules to every outcome matching the filter (manual causes are kept). Global admin or tenant admin. */
+export const reclassifyStageOutcomes = (query?: StageOutcomeQuery) =>
+  post<StageOutcomeReclassifyResult>(`${STAGE_OUTCOMES}/reclassify`, stageOutcomeFilterBody(query));
+
+/** An unsaved rule drafted from the outcome's cause and signals; edit it and pass it to createFailureCauseRule. */
+export const draftFailureCauseRule = (outcomeId: string) =>
+  post<FailureCauseRule>(`${STAGE_OUTCOMES}/${encodeURIComponent(outcomeId)}/rule`);
+
+/** One page of the rules visible to the caller (own tenant plus all-tenant rules) in evaluation order. */
+export const listFailureCauseRules = (params?: { pageNumber?: number; pageSize?: number }) =>
+  get<EnumerationResult<FailureCauseRule>>(`${FAILURE_CAUSE_RULES}${buildQuery(params)}`);
+
+export const getFailureCauseRule = (id: string) =>
+  get<FailureCauseRule>(`${FAILURE_CAUSE_RULES}/${encodeURIComponent(id)}`);
+
+/** Create a rule (global admins may set tenantId or omit it for every tenant). 400 when invalid; 409 for a duplicate name. */
+export const createFailureCauseRule = (rule: FailureCauseRuleUpsertRequest) =>
+  post<FailureCauseRule>(`${FAILURE_CAUSE_RULES}`, failureCauseRuleBody(rule));
+
+/** Replace a rule's fields. Rules for every tenant and built-in rules need a global admin (403). */
+export const updateFailureCauseRule = (id: string, rule: FailureCauseRuleUpsertRequest) =>
+  put<FailureCauseRule>(`${FAILURE_CAUSE_RULES}/${encodeURIComponent(id)}`, failureCauseRuleBody(rule));
+
+/** Delete a rule. A deleted built-in rule is restored when the Admiral next starts; disable it to keep it off. */
+export const deleteFailureCauseRule = (id: string) =>
+  del<void>(`${FAILURE_CAUSE_RULES}/${encodeURIComponent(id)}`);
 
 // Workspace terminal
 export const execWorkspaceCommand = (vesselId: string, command: string, timeoutSeconds?: number) =>

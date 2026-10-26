@@ -64,6 +64,12 @@ namespace Test.Shared.Suites.E2E
             ["decide_cli_permission_request"] = "CLI permission request (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
             ["update_cli_permission_rule"] = "CLI permission rule (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
             ["delete_cli_permission_rule"] = "CLI permission rule (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
+            ["get_stage_outcome"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
+            ["classify_stage_outcome"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
+            ["draft_failure_cause_rule"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
+            ["get_failure_cause_rule"] = "Failure-cause rule (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
+            ["update_failure_cause_rule"] = "Failure-cause rule (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
+            ["delete_failure_cause_rule"] = "Failure-cause rule (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
             ["approve_ask_proposal"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
             ["cancel_ask_turn"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
             ["delete_ask_thread"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
@@ -93,6 +99,8 @@ namespace Test.Shared.Suites.E2E
             "inbox",
             "list_cli_permission_requests",
             "list_cli_permission_rules",
+            "list_stage_outcomes",
+            "reclassify_stage_outcomes",
             "discover_vessels"
         };
 

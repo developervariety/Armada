@@ -1640,6 +1640,95 @@
       "experimental": false
     },
     {
+      "method": "GET",
+      "route": "/api/v1/failure-cause-rules",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<FailureCauseRule>"
+      },
+      "tags": [
+        "FailureCauseRules"
+      ],
+      "summary": "List failure-cause rules",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/failure-cause-rules",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Create",
+      "requestType": "FailureCauseRule",
+      "requestRequired": true,
+      "responses": {
+        "201": "FailureCauseRule",
+        "400": "",
+        "409": "ApiErrorResponse"
+      },
+      "tags": [
+        "FailureCauseRules"
+      ],
+      "summary": "Create a failure-cause rule",
+      "experimental": false
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/v1/failure-cause-rules/{id}",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Delete",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "204": "",
+        "403": "ApiErrorResponse",
+        "404": ""
+      },
+      "tags": [
+        "FailureCauseRules"
+      ],
+      "summary": "Delete a failure-cause rule",
+      "experimental": false
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/failure-cause-rules/{id}",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "FailureCauseRule",
+        "404": ""
+      },
+      "tags": [
+        "FailureCauseRules"
+      ],
+      "summary": "Get a failure-cause rule",
+      "experimental": false
+    },
+    {
+      "method": "PUT",
+      "route": "/api/v1/failure-cause-rules/{id}",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Update",
+      "requestType": "FailureCauseRule",
+      "requestRequired": true,
+      "responses": {
+        "200": "FailureCauseRule",
+        "400": "",
+        "403": "ApiErrorResponse",
+        "404": "",
+        "409": "ApiErrorResponse"
+      },
+      "tags": [
+        "FailureCauseRules"
+      ],
+      "summary": "Update a failure-cause rule",
+      "experimental": false
+    },
+    {
       "method": "POST",
       "route": "/api/v1/fleet-action-runs/enumerate",
       "auth": "Authenticated",
@@ -5164,6 +5253,94 @@
     },
     {
       "method": "GET",
+      "route": "/api/v1/stage-outcomes",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<StageOutcome>",
+        "400": ""
+      },
+      "tags": [
+        "StageOutcomes"
+      ],
+      "summary": "List stage outcomes",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/stage-outcomes/reclassify",
+      "auth": "TenantAdmin",
+      "resource": "StageOutcome:Execute",
+      "requestType": "StageOutcomeQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "StageOutcomeReclassifyResult",
+        "400": "",
+        "403": "ApiErrorResponse"
+      },
+      "tags": [
+        "StageOutcomes"
+      ],
+      "summary": "Re-apply the failure-cause rules",
+      "experimental": false
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/stage-outcomes/{id}",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "StageOutcome",
+        "404": ""
+      },
+      "tags": [
+        "StageOutcomes"
+      ],
+      "summary": "Get a stage outcome",
+      "experimental": false
+    },
+    {
+      "method": "PUT",
+      "route": "/api/v1/stage-outcomes/{id}/cause",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Update",
+      "requestType": "StageOutcomeClassifyRequest",
+      "requestRequired": true,
+      "responses": {
+        "200": "StageOutcome",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "StageOutcomes"
+      ],
+      "summary": "Classify a stage outcome by hand",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/stage-outcomes/{id}/rule",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "FailureCauseRule",
+        "404": "",
+        "409": "ApiErrorResponse"
+      },
+      "tags": [
+        "StageOutcomes"
+      ],
+      "summary": "Draft a failure-cause rule from a stage outcome",
+      "experimental": false
+    },
+    {
+      "method": "GET",
       "route": "/api/v1/status",
       "auth": "Authenticated",
       "resource": "Status:Read",
@@ -6865,6 +7042,30 @@
       "experimental": false
     },
     {
+      "name": "classify_stage_outcome",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Update",
+      "arguments": [
+        {
+          "name": "cause",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "note",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "outcomeId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Classify a stage outcome's suspected cause by hand (causeSource Manual, recorded with the caller as classifier); the rules never overwrite a manual cause. Omit cause to clear the manual cause and hand the outcome back to the rules.",
+      "experimental": false
+    },
+    {
       "name": "cli_permission_prompt",
       "auth": "Authenticated",
       "resource": "CliPermission:Execute",
@@ -7369,6 +7570,50 @@
         }
       ],
       "description": "Create a bounded deployment record and execute it immediately when approval is not required.",
+      "experimental": false
+    },
+    {
+      "name": "create_failure_cause_rule",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Create",
+      "arguments": [
+        {
+          "name": "cause",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "match",
+          "type": "object",
+          "required": true
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "priority",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "tenantId",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Create a failure-cause rule. A global admin may set tenantId (omit for every tenant); anyone else creates a rule for their own tenant. Every match criterion given must match (AND); within a list any value matches (OR). Invalid when the name is missing or over 200 characters, the match has no criterion, the cause is None, or textPattern is not a valid regular expression.",
       "experimental": false
     },
     {
@@ -8239,6 +8484,20 @@
       "experimental": false
     },
     {
+      "name": "delete_failure_cause_rule",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Delete",
+      "arguments": [
+        {
+          "name": "ruleId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Delete a failure-cause rule. Rules for every tenant and built-in rules need a global admin. A deleted built-in rule is stored again the next time the Admiral starts; disable it (enabled false) to keep it out of classification.",
+      "experimental": false
+    },
+    {
       "name": "delete_fleet",
       "auth": "TenantAdmin",
       "resource": "Fleet:Delete",
@@ -8606,6 +8865,20 @@
         }
       ],
       "description": "Dispatch a voyage from a planning session and keep the linked backlog item associated with the resulting voyage.",
+      "experimental": false
+    },
+    {
+      "name": "draft_failure_cause_rule",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Read",
+      "arguments": [
+        {
+          "name": "outcomeId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Draft (without storing) a failure-cause rule from a classified stage outcome: its cause and tenant, priority 5, and a match on its failure kind, runtime failure kind, stage-check status and reason, disposition and persona. Edit the draft and pass it to create_failure_cause_rule.",
       "experimental": false
     },
     {
@@ -9036,6 +9309,20 @@
       "experimental": false
     },
     {
+      "name": "get_failure_cause_rule",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Read",
+      "arguments": [
+        {
+          "name": "ruleId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Get one failure-cause rule visible to the caller.",
+      "experimental": false
+    },
+    {
       "name": "get_fleet",
       "auth": "Authenticated",
       "resource": "Fleet:Read",
@@ -9277,6 +9564,20 @@
         }
       ],
       "description": "Inspect one runbook execution including completed steps, notes, and deployment or incident linkage.",
+      "experimental": false
+    },
+    {
+      "name": "get_stage_outcome",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Read",
+      "arguments": [
+        {
+          "name": "outcomeId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Get one stage outcome visible to the caller.",
       "experimental": false
     },
     {
@@ -9596,6 +9897,25 @@
       "experimental": false
     },
     {
+      "name": "list_failure_cause_rules",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Read",
+      "arguments": [
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        }
+      ],
+      "description": "List the failure-cause rules visible to the caller in evaluation order (priority ascending, then name), one page at a time: the caller's tenant plus the rules for every tenant, built-in rules included. The first enabled matching rule assigns a stage outcome's suspected cause.",
+      "experimental": false
+    },
+    {
       "name": "list_harbor_jobs",
       "auth": "Authenticated",
       "resource": "Harbor:Read",
@@ -9725,6 +10045,90 @@
         }
       ],
       "description": "List prompt templates (lightweight, paginated), optionally filtered by category. Returns metadata only -- name, category, description, active flag, and a contentLength hint -- not the template body. Fetch a single template's full content with get_prompt_template.",
+      "experimental": false
+    },
+    {
+      "name": "list_stage_outcomes",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Read",
+      "arguments": [
+        {
+          "name": "captainId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "causeSource",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "disposition",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "fromUtc",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "isEvaluation",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "missionId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "persona",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "suspectedCause",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "tenantId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "toUtc",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "vesselId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "voyageId",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "List stage outcomes (one per stage attempt: who ran it, what was observed, what Armada did next, and the suspected cause of a shortfall), newest first, one page at a time. A global admin sees every tenant; everyone else sees their own tenant. Returns an enumeration result (objects, totalRecords, totalPages).",
       "experimental": false
     },
     {
@@ -9908,6 +10312,90 @@
         }
       ],
       "description": "Permanently delete a voyage and all its missions from the database. This cannot be undone.",
+      "experimental": false
+    },
+    {
+      "name": "reclassify_stage_outcomes",
+      "auth": "TenantAdmin",
+      "resource": "StageOutcome:Execute",
+      "arguments": [
+        {
+          "name": "captainId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "causeSource",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "disposition",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "fromUtc",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "isEvaluation",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "missionId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "persona",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "suspectedCause",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "tenantId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "toUtc",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "vesselId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "voyageId",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Re-apply the enabled failure-cause rules to every stage outcome matching the filter (paging is ignored), so a new or edited rule takes effect on past attempts; outcomes classified by hand are left alone. Global admins and tenant admins (their own tenant) only. Returns examined, changed and skippedManual.",
       "experimental": false
     },
     {
@@ -11008,6 +11496,50 @@
         }
       ],
       "description": "Update a CLI permission rule's pattern, action, and description (admins of the rule's tenant).",
+      "experimental": false
+    },
+    {
+      "name": "update_failure_cause_rule",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Update",
+      "arguments": [
+        {
+          "name": "cause",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "match",
+          "type": "object",
+          "required": false
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "priority",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "ruleId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Update a failure-cause rule; omitted fields keep their stored values and match, when given, replaces the whole match. Rules for every tenant and built-in rules need a global admin. An edited built-in rule is never overwritten when the Admiral seeds the built-ins.",
       "experimental": false
     },
     {

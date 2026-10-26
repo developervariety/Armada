@@ -127,6 +127,17 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [update_cli_permission_rule](#update_cli_permission_rule)
     - [delete_cli_permission_rule](#delete_cli_permission_rule)
     - [set_captain_cli_permission_policy](#set_captain_cli_permission_policy)
+  - **Stage Outcomes**
+    - [list_stage_outcomes](#list_stage_outcomes)
+    - [get_stage_outcome](#get_stage_outcome)
+    - [classify_stage_outcome](#classify_stage_outcome)
+    - [reclassify_stage_outcomes](#reclassify_stage_outcomes)
+    - [draft_failure_cause_rule](#draft_failure_cause_rule)
+    - [list_failure_cause_rules](#list_failure_cause_rules)
+    - [get_failure_cause_rule](#get_failure_cause_rule)
+    - [create_failure_cause_rule](#create_failure_cause_rule)
+    - [update_failure_cause_rule](#update_failure_cause_rule)
+    - [delete_failure_cause_rule](#delete_failure_cause_rule)
   - **Ask Armada**
     - [list_ask_threads](#list_ask_threads)
     - [get_ask_thread](#get_ask_thread)
@@ -1135,6 +1146,119 @@ Set or clear a captain's CLI tool permission policy. `Bypass` runs the CLI with 
 | `policy` | string | No | `Refuse`, `ApproveInArmada`, or `Bypass`; omit to clear (inherit) |
 
 **Response:** the [Captain](REST_API.md#captain) with `CliPermissionPolicy`.
+
+---
+
+## Stage Outcomes
+
+A stage outcome (`sto_`) records one stage attempt: who ran it, what was observed, what Armada did next, and the
+suspected cause of a shortfall, assigned by the first enabled failure-cause rule (`fcr_`) that matches or by a person.
+The REST equivalents, the outcome and rule shapes, the match semantics, and the built-in rules are in
+[REST_API.md](REST_API.md#stage-outcomes-and-failure-cause-rules); the tools enforce the same access rules through the
+same service. Errors are `McpToolError`s: `NotFound` (missing, or another tenant's), `Forbidden` (the caller may not
+act, or a captain session), `InvalidArgument` (bad enum value, date, or an invalid rule: no name, a name over 200
+characters, no criterion, cause `None`, or an invalid `textPattern`), `Conflict` (a duplicate rule name, or drafting
+from an outcome without a cause), and `Unavailable` on the stdio server, which registers the tools without the service.
+These tools are not on the Ask read-only list, so inside an Ask conversation each call becomes a proposal.
+
+| Tool | Caller |
+|---|---|
+| `list_stage_outcomes`, `get_stage_outcome`, `classify_stage_outcome`, `draft_failure_cause_rule` | Any authenticated person: global admins every tenant, everyone else their own tenant |
+| `reclassify_stage_outcomes` | TenantAdmin: global admins (any tenant, or every tenant), tenant admins (their own tenant) |
+| `list_failure_cause_rules`, `get_failure_cause_rule` | Any authenticated person (the caller's tenant plus rules for every tenant; global admins see all) |
+| `create_failure_cause_rule`, `update_failure_cause_rule`, `delete_failure_cause_rule` | Any authenticated person for their tenant's rules; rules for every tenant and built-in rules need a global admin |
+
+### list_stage_outcomes
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `tenantId` | string | No | Tenant filter (global admins only; ignored otherwise) |
+| `missionId`, `voyageId`, `vesselId`, `captainId` | string | No | Filters |
+| `persona`, `model` | string | No | Exact, case-insensitive |
+| `suspectedCause` | string | No | `Protocol`, `InstructionFollowing`, `ToolUse`, `Context`, `Capability`, `NotTheModel`, `Unknown`, `Mixed`, or `None` |
+| `causeSource` | string | No | `None`, `Rule`, `Judge`, or `Manual` |
+| `disposition` | string | No | `Completed`, `Relaunched`, `OutputRepair`, `Escalated`, `Failed`, `Interrupted`, `Cancelled`, or `Pending` |
+| `isEvaluation` | boolean | No | Evaluation attempts only (true) or production only (false) |
+| `fromUtc`, `toUtc` | string | No | Ended at or after / before (ISO 8601 UTC) |
+| `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 25) |
+
+**Response:** `EnumerationResult<StageOutcome>` (`objects`, `totalRecords`, `totalPages`), newest first.
+
+### get_stage_outcome
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `outcomeId` | string | Yes | Outcome ID (`sto_`) |
+
+**Response:** the StageOutcome.
+
+### classify_stage_outcome
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `outcomeId` | string | Yes | Outcome ID (`sto_`) |
+| `cause` | string | No | The cause to set by hand (any cause except `None`); omit to clear the manual cause and re-apply the rules |
+| `note` | string | No | Evidence (at most 2000 characters kept) |
+
+**Response:** the updated StageOutcome (`causeSource` `Manual` and `classifiedByUserId` the caller when a cause was set).
+
+### reclassify_stage_outcomes
+
+Takes the `list_stage_outcomes` filters (paging ignored) and re-applies the enabled rules to every match; outcomes
+classified by hand are left alone. **Response:** `{ "examined": 12, "changed": 3, "skippedManual": 1 }`.
+
+### draft_failure_cause_rule
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `outcomeId` | string | Yes | Outcome ID (`sto_`) |
+
+**Response:** an unsaved FailureCauseRule with the outcome's cause and tenant, priority 5, and a match on its failure
+kind, runtime failure kind, stage-check status and reason, disposition, and persona. Nothing is stored; edit it and pass
+it to `create_failure_cause_rule`. `Conflict` when the outcome's cause is `None`.
+
+### list_failure_cause_rules
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 100) |
+
+**Response:** `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name), built-in rules included.
+
+### get_failure_cause_rule
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `ruleId` | string | Yes | Rule ID (`fcr_`) |
+
+### create_failure_cause_rule
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | Yes | Unique per tenant, at most 200 characters |
+| `cause` | string | Yes | Any cause except `None` |
+| `match` | object | Yes | `personas`, `runtimes`, `failureKinds`, `runtimeFailureKinds`, `stageCheckStatuses`, `stageCheckReasons`, `dispositions` (string arrays of enum names) and `textPattern` (regular expression); at least one criterion |
+| `description` | string | No | What the rule recognizes and why |
+| `priority` | integer | No | Evaluation order, lowest first (default 100; built-ins use 10 to 111) |
+| `enabled` | boolean | No | Default true |
+| `tenantId` | string | No | Global admins: the tenant, or omit for every tenant. Everyone else's rules belong to their tenant |
+
+**Response:** the created FailureCauseRule.
+
+### update_failure_cause_rule
+
+Takes `ruleId` (required) and any of `name`, `description`, `priority`, `enabled`, `cause`, `match`; omitted fields keep
+their stored values, and `match` replaces the whole match. Rules for every tenant and built-in rules need a global admin;
+an edited built-in is never overwritten by seeding. **Response:** the updated FailureCauseRule.
+
+### delete_failure_cause_rule
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `ruleId` | string | Yes | Rule ID (`fcr_`) |
+
+**Response:** `{ "deleted": true, "ruleId": "fcr_...", "isBuiltIn": false }`. A deleted built-in rule is stored again the
+next time the Admiral starts; disable it (`enabled` false) to keep it out of classification.
 
 ---
 
