@@ -10,6 +10,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Deliverable-kind preview facts distinguish negated report-only wording from an explicit committed-test duty. Facts remain informational; dispatch preparation gates are unchanged.
+
 - Dispatch tool schemas require a task title and description, matching runtime validation before objective context is appended.
 
 - Judge briefs name exact-commit native Check identities and statuses, distinguish adopted evidence, and direct reviewers to current receipts before repeating work.

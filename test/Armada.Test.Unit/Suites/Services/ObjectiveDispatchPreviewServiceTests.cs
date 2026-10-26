@@ -1414,6 +1414,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         ["Deliver committed tests, not a report-only audit."] = PreflightFactStatusEnum.Pass,
                         ["Deliver a report-only audit."] = PreflightFactStatusEnum.Fail,
+                        ["Review uncommitted tests, not a report-only audit."] = PreflightFactStatusEnum.Unknown,
                         ["Deliver committed tests, not a report-only audit. Produce a report to the owner as well."] = PreflightFactStatusEnum.Unknown
                     };
                     foreach (KeyValuePair<string, PreflightFactStatusEnum> delivery in deliveryCases)
@@ -1435,6 +1436,20 @@ namespace Armada.Test.Unit.Suites.Services
                     ObjectiveDispatchPreflightFact reportKindFact = reportResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 2);
                     AssertEqual(PreflightFactStatusEnum.Fail, reportKindFact.Status, "a report-only deliverable that is not Research fails question 2");
                     objective.Kind = ObjectiveKindEnum.Research;
+                    Dictionary<string, PreflightFactStatusEnum> deniedTests = new Dictionary<string, PreflightFactStatusEnum>
+                    {
+                        ["Produce a report to the owner. No committed tests."] = PreflightFactStatusEnum.Pass,
+                        ["No committed tests; deliver a report-only audit."] = PreflightFactStatusEnum.Pass,
+                        ["Produce a report to the owner. Do not deliver any committed tests."] = PreflightFactStatusEnum.Pass,
+                        ["Produce a report to the owner. No committed tests. Deliver committed tests."] = PreflightFactStatusEnum.Unknown
+                    };
+                    foreach (KeyValuePair<string, PreflightFactStatusEnum> denied in deniedTests)
+                    {
+                        objective.Description = denied.Key;
+                        ObjectiveDispatchPreview deniedResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                        AssertEqual(denied.Value, deniedResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 2).Status,
+                            "a denied test commitment does not erase another positive obligation: " + denied.Key);
+                    }
                     foreach (var sample in new[]
                     {
                         (Description: "Inspect the existing export and report exact counts. Documentation writes, if needed, are separate committed document work after review.", Expected: PreflightFactStatusEnum.Unknown),

@@ -500,16 +500,23 @@ namespace Armada.Core.Services
         {
             const int question = 2;
             string[] reportWords = { "report-only", "report only", "a report", "produce a report", "findings report", "report to the owner" };
-            string[] committedWords = { "commit a", "commit the", "committed doc", "committed document", "census", "ledger row", "discoveries.d", "write a file", "record a file" };
+            string[] committedWords = { "commit a", "commit the", "committed doc", "committed document", "committed test", "census", "ledger row", "discoveries.d", "write a file", "record a file" };
+            string committedPattern = @"\b(?:" + String.Join("|", committedWords.Select(Regex.Escape)) + ")";
+            string described = Regex.Replace(description.ToLowerInvariant(),
+                @"\b(?:no|without)\s+committed\s+tests?\b|\b(?:not|never)\s+(?:(?:add|write|deliver|produce|create|include|require|commit)\s+)?(?:any\s+)?committed\s+tests?\b",
+                String.Empty, RegexOptions.CultureInvariant);
             // Separate optional document work after review is not the current delivery contract.
             // A current commit duty before that condition must still participate in classification.
-            string lower = String.Join(" ", Regex.Split(description.ToLowerInvariant(), @"(?<=[.!?;])\s+|\r?\n")
-                .Where(statement => committedWords.Any(word => statement.Split(',', 2)[0].Contains(word))
+            string lower = String.Join(" ", Regex.Split(described, @"(?<=[.!?;])\s+|\r?\n")
+                .Where(statement => Regex.IsMatch(statement.Split(',', 2)[0], committedPattern, RegexOptions.CultureInvariant)
                     || !Regex.IsMatch(statement.Trim(),
                         @"^[^,;.!?\r\n]+\b(?:writes|updates|changes),\s*if\s+needed,\s+(?:is|are)\s+separate\s+committed\s+document\s+work\s+after\s+review[.!]?$",
                         RegexOptions.CultureInvariant)));
-            bool report = reportWords.Any(word => lower.Contains(word));
-            bool committed = committedWords.Any(word => lower.Contains(word));
+            // A negated report deliverable does not cancel a later positive report obligation.
+            string positiveReport = Regex.Replace(lower, @"\b(?:not|never)\s+(?:a\s+)?report(?:[- ]only)?(?:\s+audit)?\b",
+                String.Empty, RegexOptions.CultureInvariant);
+            bool report = reportWords.Any(word => positiveReport.Contains(word));
+            bool committed = Regex.IsMatch(lower, committedPattern, RegexOptions.CultureInvariant);
 
             PreflightFactStatusEnum status;
             string detail;
@@ -521,12 +528,12 @@ namespace Armada.Core.Services
             else if (committed && !report)
             {
                 status = objective.Kind == ObjectiveKindEnum.Research ? PreflightFactStatusEnum.Fail : PreflightFactStatusEnum.Pass;
-                detail = "The description commits a document; a committed deliverable must not be Kind Research (Kind is " + objective.Kind + ").";
+                detail = "The description requires committed work; a committed deliverable must not be Kind Research (Kind is " + objective.Kind + ").";
             }
             else
             {
                 status = PreflightFactStatusEnum.Unknown;
-                detail = "The description does not clearly indicate report-only or committed-document delivery (Kind is " + objective.Kind + ").";
+                detail = "The description does not clearly indicate report-only or committed delivery (Kind is " + objective.Kind + ").";
             }
 
             return new ObjectiveDispatchPreflightFact
