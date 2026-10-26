@@ -348,6 +348,27 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("ask_system_completion_recap_and_upgrade", "ask.system tells the captain to recap what finished and what remains when work completes; an untouched dispatch-era built-in is upgraded", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, new LoggingModule());
+                    await templates.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? ask = await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false);
+                    AssertContains("- When work completes, reiterate what was done", ask!.Content, "new installs recap completed work");
+
+                    string dispatch = (string)typeof(PromptTemplateService).GetField("_AskSystemDispatchDefault", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null)!;
+                    AssertFalse(dispatch.Contains("When work completes"), "the earlier default lacks the guidance");
+
+                    ask.Content = dispatch;
+                    await testDb.Driver.PromptTemplates.UpdateAsync(ask).ConfigureAwait(false);
+                    await templates.SeedDefaultsAsync().ConfigureAwait(false);
+                    ask = await testDb.Driver.PromptTemplates.ReadByNameAsync("ask.system").ConfigureAwait(false);
+                    AssertContains("- When work completes, reiterate what was done", ask!.Content, "untouched earlier built-in upgraded");
+                }
+            }));
+
             cases.Add(CaseAsync("persona_execution_upgrade_preserves_customization", "Untouched persona defaults upgrade once while operator edits and non-built-in templates remain unchanged", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
