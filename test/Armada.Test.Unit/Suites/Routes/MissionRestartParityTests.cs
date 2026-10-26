@@ -226,6 +226,7 @@ namespace Armada.Test.Unit.Suites.Routes
 
         private async Task VerifyRestartAssignmentFromPreservedCommitAsync(SurfaceParityHarness harness, string surface, bool missingCommit = false, bool branchPresent = false)
         {
+            string variant = missingCommit ? "missing-commit" : branchPresent ? "branch-present" : "normal";
             string root = Path.Combine(Path.GetTempPath(), "armada-restart-anchor-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             try
@@ -247,7 +248,7 @@ namespace Armada.Test.Unit.Suites.Routes
                 await RunGitAsync(source, "branch", "-D", "produced-fixture").ConfigureAwait(false);
                 await RunGitAsync(bare, "symbolic-ref", "HEAD", "refs/heads/" + defaultBranch).ConfigureAwait(false);
 
-                UpstreamFailureChain chain = await SeedUpstreamFailureChainAsync(harness, surface + "-real", producedHead).ConfigureAwait(false);
+                UpstreamFailureChain chain = await SeedUpstreamFailureChainAsync(harness, surface + "-real-" + variant, producedHead).ConfigureAwait(false);
                 Vessel vessel = (await harness.Driver.Vessels.ReadAsync(chain.FailedStage.VesselId!).ConfigureAwait(false))!;
                 vessel.RepoUrl = source;
                 vessel.LocalPath = bare;
@@ -286,7 +287,7 @@ namespace Armada.Test.Unit.Suites.Routes
                 captains.OnLaunchAgent = (_, _, _) => { launches++; return Task.FromResult(Int32.MaxValue - 20); };
                 MissionService missions = new MissionService(logging, harness.Driver, harness.Settings, docks, captains,
                     git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(harness.Settings));
-                Captain captain = await harness.Driver.Captains.CreateAsync(new Captain("restart-real-" + surface)
+                Captain captain = await harness.Driver.Captains.CreateAsync(new Captain("restart-real-" + surface + "-" + variant)
                 {
                     TenantId = vessel.TenantId, UserId = vessel.UserId, Model = "claude-opus-5",
                     AllowedPersonas = "[\"Worker\"]"
