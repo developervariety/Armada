@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Text.RegularExpressions;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// The report sections a persona's built-in template requires before its result line. A finished,
@@ -31,10 +32,16 @@ namespace Armada.Core.Services
         /// The sections a persona's report must hold, in template order.
         /// </summary>
         /// <param name="persona">Persona name; the legacy Test Engineer name is accepted.</param>
+        /// <param name="mode">Report-only modes use their generated report contract.</param>
         /// <returns>The required section names, or an empty list when the persona has no fixed contract.</returns>
-        public static IReadOnlyList<string> RequiredSections(string? persona)
+        public static IReadOnlyList<string> RequiredSections(string? persona, MissionModeEnum mode = MissionModeEnum.Implementation)
         {
             string normalized = PersonaCatalog.NormalizeName(persona);
+            // The generated Audit/Research prompts replace these producing personas' fixed
+            // Implementation headings. Report content is still judged against the mission.
+            if ((mode == MissionModeEnum.Audit || mode == MissionModeEnum.Research)
+                && (normalized == PersonaCatalog.TestEngineer || normalized == PersonaCatalog.ProductManager))
+                return Array.Empty<string>();
             return _Sections.TryGetValue(normalized, out string[]? sections) ? sections : Array.Empty<string>();
         }
 
@@ -44,10 +51,11 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="persona">Persona name.</param>
         /// <param name="report">The stage's report text.</param>
+        /// <param name="mode">Mission mode that selects the generated output contract.</param>
         /// <returns>The missing section names in template order; empty when none is missing.</returns>
-        public static List<string> MissingSections(string? persona, string? report)
+        public static List<string> MissingSections(string? persona, string? report, MissionModeEnum mode = MissionModeEnum.Implementation)
         {
-            IReadOnlyList<string> required = RequiredSections(persona);
+            IReadOnlyList<string> required = RequiredSections(persona, mode);
             if (required.Count == 0) return new List<string>();
             List<string> headings = String.IsNullOrEmpty(report)
                 ? new List<string>()

@@ -99,7 +99,7 @@ namespace Armada.Core.Services
                     : new List<string>();
             }
             return IsSuccessful(mission.Status)
-                ? StageReportContract.MissingSections(mission.Persona, output)
+                ? StageReportContract.MissingSections(mission.Persona, output, mission.Mode)
                 : new List<string>();
         }
 
