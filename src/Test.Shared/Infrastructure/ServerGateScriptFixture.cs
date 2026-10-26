@@ -61,7 +61,7 @@ namespace Test.Shared.Infrastructure
                 /usr/bin/rmdir "$@" || exit $?
                 if [ "$FIXTURE_SCENARIO" = queued ] && [ "$FIXTURE_ROLE" = first ] && [ "$1" = "$FIXTURE_ROOT/host.lock" ]; then
                   for ((attempt=0; attempt<200; attempt++)); do
-                    [ ! -f "$FIXTURE_ROOT/queued-scratch-checked" ] || exit 0
+                    [ ! -f "$FIXTURE_ROOT/queued-scratch-checked" ] || { printf 'queued scratch handoff observed\n'; exit 0; }
                     /bin/sleep 0.05
                   done
                   printf 'queued scratch handoff barrier timed out\n' >&2; exit 99
@@ -233,6 +233,8 @@ namespace Test.Shared.Infrastructure
                 await exited.ConfigureAwait(false);
                 string firstText = await firstOutput.ConfigureAwait(false) + await firstErrors.ConfigureAwait(false);
                 string secondText = await secondOutput.ConfigureAwait(false) + await secondErrors.ConfigureAwait(false);
+                AssertTrue(firstText.Contains("queued scratch handoff observed", StringComparison.Ordinal)
+                    && !firstText.Contains("queued scratch handoff barrier timed out", StringComparison.Ordinal), "the first gate stays alive until the queued scratch-lock attempt\n" + firstText);
                 AssertEqual(0, first.ExitCode, "first gate succeeds before handing off its scratch directory\n" + firstText);
                 AssertEqual(0, second.ExitCode, "queued gate owns its scratch lock and build temp after the holder cleans up\n" + secondText);
                 AssertTrue(!Directory.Exists(Path.Combine(scratch, "tmp")), "the final holder cleans up its own temp");
