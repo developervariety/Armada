@@ -26,12 +26,16 @@ namespace Armada.Core.Services
                 HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
                 while (visited.Add(current.Id))
                 {
-                    List<Mission> children = rows.Where(item => item.DependsOnMissionId == current.Id
+                    List<Mission> dependents = rows.Where(item => item.DependsOnMissionId == current.Id
                             && !IsChainBoundaryDependent(item)
-                            && (!rootIds.Contains(item.Id) || item.Id == root.Id)
-                            && String.Equals(item.Title, branchTitle + " [" + (item.Persona ?? "Worker") + "]", StringComparison.OrdinalIgnoreCase))
+                            && !rootIds.Contains(item.Id))
                         .OrderBy(item => item.CreatedUtc)
                         .ToList();
+                    List<Mission> children = dependents.Where(item =>
+                            String.Equals(item.Title, branchTitle + " [" + (item.Persona ?? "Worker") + "]", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    if (children.Count != dependents.Count)
+                        throw new ArchitectRecoveryUnsafeException("a slice has a dependent with an unexpected pipeline stage title");
                     if (children.Count > 1)
                         throw new ArchitectRecoveryUnsafeException("a slice has multiple pipeline children with the same stage title");
                     if (children.Count == 0) break;

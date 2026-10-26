@@ -1547,6 +1547,42 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("RecoverDanglingHandoffs_UnexpectedPipelineChildStaysPreparing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                        new Voyage("Unexpected pipeline child") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    string output = CreateVersionedArchitectPlan(includeSecondBranch: false, singleIntegration: false);
+                    Mission architect = new Mission("[Architect] Unexpected child", "Plan work.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Architect",
+                        Status = MissionStatusEnum.WorkProduced,
+                        AgentOutput = output
+                    };
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+                    string brief = GetVersionedSliceBrief(output, 0);
+                    Mission worker = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch A [Worker]", "Worker", "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + brief, architect.Id).ConfigureAwait(false);
+                    await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Unexpected [TestEngineer]", "TestEngineer", brief, worker.Id).ConfigureAwait(false);
+
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    Mission? heldArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+                    Mission integration = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false))
+                        .Single(mission => mission.Title == "Final integration [Worker]");
+                    AssertTrue(heldArchitect!.HeldForOperatorReview,
+                        "Recovery must not treat an earlier completed stage as terminal when an unexpected child exists.");
+                    AssertEqual(MissionIntegrationBarrierPhaseEnum.Preparing, integration.IntegrationBarrier!.Phase,
+                        "An unexpected pipeline child leaves the integration barrier unaccepted.");
+                }
+            });
+
             await RunTest("RecoverDanglingHandoffs_ArchitectRetriesCreateAfterLostAcknowledgement", async () =>
             {
                 string[] lostCreateTitles =

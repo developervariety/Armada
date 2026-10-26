@@ -62,40 +62,24 @@ namespace Armada.Core.Services
                 || (String.IsNullOrWhiteSpace(replacement.ParentMissionId)
                     && String.IsNullOrWhiteSpace(replacement.DependsOnMissionId))) return false;
 
-            HashSet<string> acceptedPath = new HashSet<string>(StringComparer.Ordinal)
-            {
-                member.RootMissionId,
-                member.AcceptedTerminalMissionId,
-                member.CurrentTerminalMissionId
-            };
-            Mission? cursor = await _Database.Missions.ReadAsync(member.AcceptedTerminalMissionId, token).ConfigureAwait(false);
-            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
-            bool reachedRoot = false;
-            while (cursor != null && visited.Add(cursor.Id) && acceptedPath.Count < 128)
-            {
-                if (cursor.Id == member.RootMissionId)
-                {
-                    reachedRoot = String.Equals(cursor.VoyageId, barrier.OriginVoyageId, StringComparison.Ordinal);
-                    break;
-                }
-                if (String.IsNullOrWhiteSpace(cursor.DependsOnMissionId)) break;
-                cursor = await _Database.Missions.ReadAsync(cursor.DependsOnMissionId!, token).ConfigureAwait(false);
-                if (cursor != null) acceptedPath.Add(cursor.Id);
-            }
-            if (!reachedRoot) return false;
+            HashSet<string>? acceptedPath = await GetVerifiedAcceptedBranchPathAsync(member, barrier, token).ConfigureAwait(false);
+            if (acceptedPath == null) return false;
+            HashSet<string>? currentPath = await GetVerifiedCurrentRescuePathAsync(member, barrier, acceptedPath, token).ConfigureAwait(false);
+            if (currentPath == null) return false;
 
             Mission? lineage = replacement;
-            visited.Clear();
+            HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
             for (int depth = 0; depth < 24 && lineage != null && visited.Add(lineage.Id); depth++)
             {
-                if (acceptedPath.Contains(lineage.Id)) return true;
+                if (!HasBarrierOwner(lineage, barrier)) return false;
+                if (acceptedPath.Contains(lineage.Id) || currentPath.Contains(lineage.Id)) return true;
                 if (barrier.Members.Any(other => other.BranchKey != member.BranchKey && other.RootMissionId == lineage.Id)) return false;
+                if (!RescueMissionMarker.IsAutoRescue(lineage) || String.IsNullOrWhiteSpace(lineage.VoyageId)) return false;
                 string? parentId = !String.IsNullOrWhiteSpace(lineage.ParentMissionId)
                     ? lineage.ParentMissionId : lineage.DependsOnMissionId;
                 if (String.IsNullOrWhiteSpace(parentId)) return false;
                 Mission? parent = await _Database.Missions.ReadAsync(parentId!, token).ConfigureAwait(false);
                 if (parent == null) return false;
-                if (!acceptedPath.Contains(parent.Id) && !RescueMissionMarker.IsAutoRescue(lineage)) return false;
                 lineage = parent;
             }
             return false;

@@ -31,10 +31,11 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("WorkProducedMember_HoldsBeforeProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.WorkProduced, true, false)).ConfigureAwait(false);
             await RunTest("UnlandedMember_HoldsBeforeProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.Complete, false, false)).ConfigureAwait(false);
             await RunTest("LandedMember_UsesFreshTargetForProvisioning", () => RunAssignmentCaseAsync(MissionStatusEnum.Complete, true, true)).ConfigureAwait(false);
-            await RunTest("AcceptedRescue_IsRecordedAndWaitsForFreshTargetPass", () => RunRescueCaseAsync()).ConfigureAwait(false);
+            await RunTest("AcceptedRescue_IsRecordedAndWaitsForFreshTargetPass", () => RunRescueCaseAsync(false)).ConfigureAwait(false);
+            await RunTest("CurrentRescue_RevalidatesEveryLineageOwner", () => RunRescueCaseAsync(true)).ConfigureAwait(false);
         }
 
-        private async Task RunRescueCaseAsync()
+        private async Task RunRescueCaseAsync(bool corruptAcceptedRescue)
         {
             using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
             {
@@ -100,6 +101,28 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("integration_barrier_waiting", stored.AssignmentHoldReason,
                     "the rescue CAS ends with the named wait for a fresh target pass");
                 AssertEqual(0, git.WorktreeCalls.Count, "the rescue update does not provision against the old target snapshot");
+
+                if (corruptAcceptedRescue)
+                {
+                    Mission bridge = new Mission("Cross-owner bridge", "Invalid lineage hop.")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, TenantId = "other-tenant", Persona = "Worker",
+                        Status = MissionStatusEnum.Complete, DependsOnMissionId = failed.Id
+                    };
+                    bridge = await testDb.Driver.Missions.CreateAsync(bridge).ConfigureAwait(false);
+                    rescue.ParentMissionId = bridge.Id;
+                    rescue.DependsOnMissionId = bridge.Id;
+                    await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
+                    AssertFalse(await missions.TryAssignAsync(stored, vessel).ConfigureAwait(false),
+                        "a persisted current rescue must revalidate its full parent lineage");
+                    Mission rejected = (await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false))!;
+                    AssertEqual("integration_barrier_unverifiable", rejected.AssignmentHoldReason,
+                        "a cross-owner lineage hop receives an unverifiable hold");
+                    AssertEqual(rescue.Id, rejected.AssignmentHoldEntityId,
+                        "the bad current rescue is named in the hold");
+                    AssertEqual(0, git.WorktreeCalls.Count, "invalid rescue lineage cannot start integration");
+                    return;
+                }
 
                 git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/main"] = NewTargetSha;
                 AssertTrue(await missions.TryAssignAsync(stored, vessel).ConfigureAwait(false),
