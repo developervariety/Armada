@@ -159,6 +159,7 @@ namespace Armada.Test.Unit.Suites.Routes
                             surface + ": one voyage.reopened event: " + String.Join(",", harness.EventTypes()));
                         await VerifyRestartAssignmentFromPreservedCommitAsync(harness, surface).ConfigureAwait(false);
                         await VerifyRestartAssignmentFromPreservedCommitAsync(harness, surface, missingCommit: true).ConfigureAwait(false);
+                        await VerifyRestartAssignmentFromPreservedCommitAsync(harness, surface, branchPresent: true).ConfigureAwait(false);
                         await VerifyRestartCaptureBoundariesAsync(harness, surface).ConfigureAwait(false);
 
                     }
@@ -223,7 +224,7 @@ namespace Armada.Test.Unit.Suites.Routes
             }).ConfigureAwait(false);
         }
 
-        private async Task VerifyRestartAssignmentFromPreservedCommitAsync(SurfaceParityHarness harness, string surface, bool missingCommit = false)
+        private async Task VerifyRestartAssignmentFromPreservedCommitAsync(SurfaceParityHarness harness, string surface, bool missingCommit = false, bool branchPresent = false)
         {
             string root = Path.Combine(Path.GetTempPath(), "armada-restart-anchor-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
@@ -260,6 +261,8 @@ namespace Armada.Test.Unit.Suites.Routes
                 await RunGitAsync(bare, "update-ref", "refs/armada/missions/" + chain.Producer.Id, producedHead).ConfigureAwait(false);
                 await RunGitAsync(bare, "update-ref", "refs/armada-preserved/" + chain.Producer.BranchName, producedHead).ConfigureAwait(false);
                 await RunGitAsync(bare, "branch", "-D", "produced-fixture").ConfigureAwait(false);
+                if (branchPresent)
+                    await RunGitAsync(bare, "update-ref", "refs/heads/" + chain.Producer.BranchName, defaultHead).ConfigureAwait(false);
 
                 Dock priorDock = await harness.Driver.Docks.CreateAsync(new Dock(vessel.Id)
                 {
@@ -289,6 +292,14 @@ namespace Armada.Test.Unit.Suites.Routes
                     AllowedPersonas = "[\"Worker\"]"
                 }).ConfigureAwait(false);
                 bool didAssign = await missions.TryAssignAsync(pending, vessel).ConfigureAwait(false);
+                if (branchPresent)
+                {
+                    AssertFalse(didAssign, "An existing branch without the captured source must not launch.");
+                    AssertEqual(defaultHead, (await RunGitAsync(bare, "rev-parse", "refs/heads/" + chain.Producer.BranchName).ConfigureAwait(false)).Trim(),
+                        "Restart must not reset an existing branch to repair its base.");
+                    AssertEqual(0, launches);
+                    return;
+                }
                 if (missingCommit)
                 {
                     AssertFalse(didAssign, "A missing captured commit must fail before checkout or launch.");
