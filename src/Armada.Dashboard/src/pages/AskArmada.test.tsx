@@ -229,6 +229,28 @@ describe('AskArmada thread list', () => {
   });
 });
 
+describe('AskArmada list resizing', () => {
+  it('offers a keyboard-operable splitter that sizes the list and remembers the width', async () => {
+    const { unmount } = renderAt('/ask/ath_1');
+    const splitter = await screen.findByRole('separator', { name: 'Resize conversation list' });
+    expect(splitter).toHaveAttribute('aria-orientation', 'vertical');
+    expect(splitter).toHaveAttribute('aria-controls', 'ask-thread-drawer');
+    const home = splitter.closest<HTMLElement>('.ask-home')!;
+    expect(home.style.getPropertyValue('--ask-list-width')).toBe('');
+    fireEvent.keyDown(splitter, { key: 'End' });
+    expect(home.style.getPropertyValue('--ask-list-width')).toBe('640px');
+    expect(splitter).toHaveAttribute('aria-valuenow', '640');
+    unmount();
+
+    renderAt('/ask/ath_1');
+    const again = await screen.findByRole('separator', { name: 'Resize conversation list' });
+    expect(again.closest<HTMLElement>('.ask-home')!.style.getPropertyValue('--ask-list-width')).toBe('640px');
+    fireEvent.doubleClick(again);
+    expect(again.closest<HTMLElement>('.ask-home')!.style.getPropertyValue('--ask-list-width')).toBe('');
+    expect(again).not.toHaveAttribute('aria-valuenow');
+  });
+});
+
 describe('AskArmada conversation', () => {
   it('renders every message kind', async () => {
     renderAt('/ask/ath_1');

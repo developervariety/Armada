@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { AskNavigationState } from '../lib/askNavigation';
 import {
@@ -60,6 +60,7 @@ import { DEFAULT_QUICK_ACTIONS, mergeQuickActions } from '../lib/askQuickActions
 import { runLocalCommand, type AskCommandOutcome, type AskLocalCommand } from '../lib/askCommands';
 import { isWorkActive, workRoute } from '../lib/askWork';
 import { useFocusTrap } from '../lib/useFocusTrap';
+import { ASK_LIST_MAX_WIDTH, ASK_LIST_MIN_WIDTH, useAskListResize } from '../lib/askListResize';
 import { askCaptainAccess, instructionsDocUrl } from '../lib/askCaptain';
 import { fallbackReasonText, isPendingRequest, parseCliPermissionEvent } from '../lib/cliPermissions';
 
@@ -190,6 +191,8 @@ export default function AskArmada() {
   const drawerRef = useRef<HTMLDivElement>(null);
   // On narrow screens the list is a modal drawer: keep focus inside it and close it with Escape.
   useFocusTrap(drawerRef, drawerOpen, () => setDrawerOpen(false));
+  const homeRef = useRef<HTMLDivElement>(null);
+  const listResize = useAskListResize(homeRef, drawerRef);
 
   const thread = conv.thread;
   const activeCaptainId = thread ? (thread.captainId ?? '') : draftCaptainId;
@@ -743,7 +746,11 @@ export default function AskArmada() {
   );
 
   return (
-    <div className={`ask-home${drawerOpen ? ' is-drawer-open' : ''}`}>
+    <div
+      ref={homeRef}
+      className={`ask-home${drawerOpen ? ' is-drawer-open' : ''}${listResize.dragging ? ' is-resizing' : ''}`}
+      style={listResize.width !== null ? { '--ask-list-width': `${listResize.width}px` } as CSSProperties : undefined}
+    >
       <div className="ask-home-list" id="ask-thread-drawer" ref={drawerRef} role={drawerOpen ? 'dialog' : undefined} aria-modal={drawerOpen || undefined} aria-label={drawerOpen ? t('Conversations') : undefined}>
         <AskThreadList
           threads={threads}
@@ -775,6 +782,20 @@ export default function AskArmada() {
           onClose={drawerOpen ? () => setDrawerOpen(false) : undefined}
         />
       </div>
+      <div
+        className="ask-list-splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-controls="ask-thread-drawer"
+        aria-label={t('Resize conversation list')}
+        aria-valuemin={ASK_LIST_MIN_WIDTH}
+        aria-valuemax={ASK_LIST_MAX_WIDTH}
+        aria-valuenow={listResize.width ?? undefined}
+        title={t('Drag to resize. Double-click to reset.')}
+        tabIndex={0}
+        data-testid="ask-list-splitter"
+        {...listResize.splitterProps}
+      />
       {drawerOpen && <div className="ask-drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-hidden="true" />}
 
       <section className="ask-home-conv" aria-label={thread?.title || t('New conversation')}>

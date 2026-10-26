@@ -6022,7 +6022,9 @@
         "Mark read": "Marcar como leída",
         "Mark unread": "Marcar como no leída",
         "The conversation could not be marked read.": "No se pudo marcar la conversación como leída.",
-        "The conversation could not be marked unread.": "No se pudo marcar la conversación como no leída."
+        "The conversation could not be marked unread.": "No se pudo marcar la conversación como no leída.",
+        "Resize conversation list": "Cambiar el tamaño de la lista de conversaciones",
+        "Drag to resize. Double-click to reset.": "Arrastre para cambiar el tamaño. Haga doble clic para restablecerlo."
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -10981,7 +10983,9 @@
         "Mark read": "标为已读",
         "Mark unread": "标为未读",
         "The conversation could not be marked read.": "无法将对话标为已读。",
-        "The conversation could not be marked unread.": "无法将对话标为未读。"
+        "The conversation could not be marked unread.": "无法将对话标为未读。",
+        "Resize conversation list": "调整对话列表大小",
+        "Drag to resize. Double-click to reset.": "拖动以调整大小。双击可恢复默认。"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15903,7 +15907,9 @@
         "Mark read": "標為已讀",
         "Mark unread": "標為未讀",
         "The conversation could not be marked read.": "無法將對話標為已讀。",
-        "The conversation could not be marked unread.": "無法將對話標為未讀。"
+        "The conversation could not be marked unread.": "無法將對話標為未讀。",
+        "Resize conversation list": "調整對話清單大小",
+        "Drag to resize. Double-click to reset.": "拖曳以調整大小。按兩下可還原預設。"
       },
       "sections": {}
     },
@@ -20785,7 +20791,9 @@
         "Mark read": "標為已讀",
         "Mark unread": "標為未讀",
         "The conversation could not be marked read.": "冇辦法將對話標為已讀。",
-        "The conversation could not be marked unread.": "冇辦法將對話標為未讀。"
+        "The conversation could not be marked unread.": "冇辦法將對話標為未讀。",
+        "Resize conversation list": "調整對話清單大小",
+        "Drag to resize. Double-click to reset.": "拖動嚟調整大小。㩒兩下就還原預設。"
       },
       "sections": {}
     },
@@ -25683,7 +25691,9 @@
         "Mark read": "既読にする",
         "Mark unread": "未読にする",
         "The conversation could not be marked read.": "会話を既読にできませんでした。",
-        "The conversation could not be marked unread.": "会話を未読にできませんでした。"
+        "The conversation could not be marked unread.": "会話を未読にできませんでした。",
+        "Resize conversation list": "会話リストのサイズを変更",
+        "Drag to resize. Double-click to reset.": "ドラッグしてサイズを変更します。ダブルクリックで元に戻します。"
       },
       "sections": {}
     },
@@ -30572,7 +30582,9 @@
         "Mark read": "Als gelesen markieren",
         "Mark unread": "Als ungelesen markieren",
         "The conversation could not be marked read.": "Die Unterhaltung konnte nicht als gelesen markiert werden.",
-        "The conversation could not be marked unread.": "Die Unterhaltung konnte nicht als ungelesen markiert werden."
+        "The conversation could not be marked unread.": "Die Unterhaltung konnte nicht als ungelesen markiert werden.",
+        "Resize conversation list": "Größe der Unterhaltungsliste ändern",
+        "Drag to resize. Double-click to reset.": "Zum Ändern der Größe ziehen. Doppelklicken zum Zurücksetzen."
       },
       "sections": {}
     },
@@ -35461,7 +35473,9 @@
         "Mark read": "Marquer comme lue",
         "Mark unread": "Marquer comme non lue",
         "The conversation could not be marked read.": "La conversation n'a pas pu être marquée comme lue.",
-        "The conversation could not be marked unread.": "La conversation n'a pas pu être marquée comme non lue."
+        "The conversation could not be marked unread.": "La conversation n'a pas pu être marquée comme non lue.",
+        "Resize conversation list": "Redimensionner la liste des conversations",
+        "Drag to resize. Double-click to reset.": "Faites glisser pour redimensionner. Double-cliquez pour réinitialiser."
       },
       "sections": {}
     },
@@ -40350,7 +40364,9 @@
         "Mark read": "Segna come letta",
         "Mark unread": "Segna come non letta",
         "The conversation could not be marked read.": "Impossibile segnare la conversazione come letta.",
-        "The conversation could not be marked unread.": "Impossibile segnare la conversazione come non letta."
+        "The conversation could not be marked unread.": "Impossibile segnare la conversazione come non letta.",
+        "Resize conversation list": "Ridimensiona l'elenco delle conversazioni",
+        "Drag to resize. Double-click to reset.": "Trascina per ridimensionare. Fai doppio clic per ripristinare."
       },
       "sections": {}
     }

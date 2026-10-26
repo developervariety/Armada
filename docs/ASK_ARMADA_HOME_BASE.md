@@ -314,7 +314,10 @@ default.
 - `/ask` becomes a two-pane layout: a **thread list** (search, New conversation, pinned first, unread badge,
   live "working" dot when the thread has active tracked work, row menu: Rename, Pin, Summarize, Archive,
   Delete with confirm) and the **conversation**. `/ask/:threadId` deep-links a thread. On narrow screens
-  the list becomes a drawer.
+  the list becomes a drawer. On wider screens a splitter between the two panes sets the list width (200 to 640
+  px, always leaving 360 px for the conversation): drag it, or focus it and use the arrow keys (Shift for larger
+  steps), Home, and End; double-click or Enter restores the default. The width is kept in localStorage
+  (`armada_ask_list_width`).
 - Conversation header: editable title, captain picker, **Auto-approve** toggle (with a clear warning),
   Summarize, overflow menu. A collapsible **Work in this conversation** strip lists tracked items with live
   status chips; clicking one scrolls to its card.

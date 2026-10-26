@@ -8397,8 +8397,7 @@ tr.row-muted td { opacity: 0.72; }
    --------------------------------------------------------------------------- */
 .ask-home {
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
-    gap: 1rem;
+    grid-template-columns: min(var(--ask-list-width, 280px), calc(100% - 360px - 1rem)) 1rem minmax(0, 1fr);
     height: calc(100dvh - var(--shell-chrome-height) - 1.5rem);
     min-height: 0;
     padding-bottom: 0.75rem;
@@ -8420,6 +8419,29 @@ tr.row-muted td { opacity: 0.72; }
     min-width: 0;
 }
 .ask-drawer-backdrop { display: none; }
+.ask-home.is-resizing { cursor: col-resize; user-select: none; }
+/* Splitter between the list and the conversation: drag, or focus it and use the arrow keys. */
+.ask-list-splitter {
+    position: relative;
+    cursor: col-resize;
+    touch-action: none;
+    outline: none;
+}
+.ask-list-splitter::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    border-radius: 1px;
+    background: transparent;
+    transition: background 0.15s ease;
+}
+.ask-list-splitter:hover::after,
+.ask-list-splitter:focus-visible::after,
+.ask-home.is-resizing .ask-list-splitter::after { background: var(--accent, var(--border)); }
 
 /* Thread list */
 .ask-threads { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -8983,10 +9005,11 @@ tr.row-muted td { opacity: 0.72; }
 .ask-inline-form-actions > span { margin-right: auto; font-size: 0.74rem; }
 
 @media (max-width: 1180px) {
-    .ask-home { grid-template-columns: 240px minmax(0, 1fr); }
+    .ask-home { grid-template-columns: min(var(--ask-list-width, 240px), calc(100% - 360px - 1rem)) 1rem minmax(0, 1fr); }
 }
 @media (max-width: 900px) {
     .ask-home { grid-template-columns: minmax(0, 1fr); }
+    .ask-list-splitter { display: none; }
     .ask-home-list {
         position: fixed;
         top: 0;
