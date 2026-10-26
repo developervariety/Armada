@@ -66,7 +66,7 @@ namespace Armada.Core.Services
         // that labels minor or follow-up items introduces lesser items, which a rescue does not fix.
         private static readonly Regex _LesserLeadIn = new Regex(
             @"\b(?:minor|nits?|nitpicks?|follow-?ups?|non-?blocking|not\s+(?:a\s+)?blockers?|cosmetic|optional|lesser)\b"
-            + @"|\A(?:remaining|pre-existing)\s+(?:inconsistencies|observations|notes)\s+(?:are|remain)\s+outside\s+(?:the\s+)?allowed\s+(?:edit\s+)?scope:\z",
+            + @"|\A(?:remaining|pre-existing)\s+(?:inconsistencies|observations|notes)\s+(?:are|remain)\s+outside\s+(?:the\s+)?allowed\s+(?:edit\s+)?scope\z",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex _RequiredLeadIn = new Regex(
@@ -256,6 +256,7 @@ namespace Armada.Core.Services
             string paragraphLead = String.Empty;
             int protectedHeadingDepth = 0;
             bool inProposal = false;
+            bool proposalHasClose = false;
             string priorSection = String.Empty;
             int priorHeadingDepth = 0;
             for (int i = 0; i < lines.Length; i++)
@@ -267,6 +268,7 @@ namespace Armada.Core.Services
                     {
                         priorSection = section;
                         priorHeadingDepth = protectedHeadingDepth;
+                        proposalHasClose = lines.Skip(i + 1).Any(line => String.Equals(line.Trim(), "[/CLAUDE.MD-PROPOSAL]", StringComparison.OrdinalIgnoreCase));
                     }
                     inProposal = true;
                     section = String.Empty;
@@ -287,7 +289,7 @@ namespace Armada.Core.Services
                     paragraphLead = String.Empty;
                     continue;
                 }
-                if (inProposal && raw.StartsWith("#", StringComparison.Ordinal)
+                if (inProposal && !proposalHasClose && raw.StartsWith("#", StringComparison.Ordinal)
                     && JudgeSection(raw).Length > 0
                     && (priorHeadingDepth == 0 || raw.TakeWhile(character => character == '#').Count() <= priorHeadingDepth))
                     inProposal = false;

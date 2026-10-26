@@ -2329,6 +2329,16 @@ namespace Armada.Test.Unit.Suites.Services
                         ExitCode = 0
                     }).ConfigureAwait(false);
 
+                    CheckRun adoptedBuild = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VoyageId = voyage.Id, Label = "Build", Type = CheckRunTypeEnum.Build,
+                        Status = CheckRunStatusEnum.Passed, Command = "dotnet build", CommitHash = reviewedCommit,
+                        SatisfiedBy = new CheckRunSatisfiedBy
+                        {
+                            MissionId = worker.Id, Label = "build", CommitHash = reviewedCommit
+                        }
+                    }).ConfigureAwait(false);
+
                     CheckRun nativeSlop = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
                     {
                         VoyageId = voyage.Id, Label = "Slop", Type = CheckRunTypeEnum.Slop,
@@ -2353,9 +2363,13 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains(nativeSlop.Id, evidenceBrief, "the Judge receives the exact native Slop Check identity");
                         AssertContains("Slop", evidenceBrief, "the native classifier type is named");
                         AssertContains("Pending", evidenceBrief, "a pending native gate is not reported green");
-                        AssertContains("get_check_run", evidenceBrief, "the launch snapshot names the supported current receipt lookup");
+                        AssertContains("armada_enumerate entityType=checks", evidenceBrief, "the launch snapshot names the mission-accessible current receipt lookup");
+                        AssertFalse(evidenceBrief.Contains("get_check_run", StringComparison.Ordinal), "the Judge is not directed to an operator-only tool");
                         AssertContains("not a substitute", evidenceBrief, "a separate local tool cannot replace a native gate");
                         AssertContains("Snapshot only", evidenceBrief, "a launch-time snapshot does not claim current results");
+                        AssertContains(adoptedBuild.Id, evidenceBrief, "an adopted Build receipt is named");
+                        AssertContains("this Check ran no command", evidenceBrief, "adoption is not described as another execution");
+
 
 
                         // The Worker committed again: the green now measures an older commit than the one under review.

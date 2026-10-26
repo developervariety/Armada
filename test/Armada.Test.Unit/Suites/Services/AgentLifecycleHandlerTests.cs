@@ -2235,7 +2235,9 @@ namespace Armada.Test.Unit.Suites.Services
                         }
                         if (scenario == "foreign-review")
                         {
-                            rig.JudgeStage!.UserId = "other-review-owner";
+                            UserMaster reviewer = new UserMaster(rig.JudgeStage!.TenantId!, "other-review-owner@armada.test", "password");
+                            await testDb.Driver.Users.CreateAsync(reviewer).ConfigureAwait(false);
+                            rig.JudgeStage.UserId = reviewer.Id;
                             await testDb.Driver.Missions.UpdateAsync(rig.JudgeStage).ConfigureAwait(false);
                         }
                         if (scenario == "cancelled-review")

@@ -10,6 +10,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Judge briefs name exact-commit native Check identities and statuses, distinguish adopted evidence, and direct reviewers to current receipts before repeating work.
+- Cursor whole-message flush metadata preserves report boundaries while partial and mismatched aggregates keep the terminal text unchanged.
+
 - Review finding extraction leaves outside-scope observations and instruction proposals out of revision work. Explicit blockers and unmet criteria remain findings.
 
 - Archive uploads and verification retry transient server or transport failures within a bounded operation. Failed uploads are checked before another PUT; successful uploads retry verification only.

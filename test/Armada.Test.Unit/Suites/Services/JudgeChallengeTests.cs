@@ -171,6 +171,11 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("drops the final record", afterOpenProposal, "a peer review section ends an unclosed instruction proposal");
                 AssertContains("Required revision: fix the reader", afterOpenProposal, "the later verdict keeps its required work");
                 AssertFalse(afterOpenProposal.Contains("Preserve these examples", StringComparison.Ordinal), "an arbitrary proposal heading does not introduce findings");
+                string completeProposal = "## Correctness\n[CLAUDE.MD-PROPOSAL]\n## Tests\n- Add tests for the sample runner.\n[/CLAUDE.MD-PROPOSAL]\nThe new reader is incorrect because it drops the final record.\n## Verdict\n[ARMADA:VERDICT] NEEDS_REVISION";
+                string afterCompleteProposal = String.Join("\n", JudgeChallenge.ExtractFindings(completeProposal, out _));
+                AssertFalse(afterCompleteProposal.Contains("Add tests for the sample runner", StringComparison.Ordinal), "a matched proposal keeps its own recognized headings inside the proposal");
+                AssertContains("drops the final record", afterCompleteProposal, "the matched proposal restores review context after its close");
+
 
             });
 
