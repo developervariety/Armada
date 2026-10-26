@@ -8,7 +8,8 @@ namespace Armada.Core.Database
 
     /// <summary>
     /// The missions row-to-model contract, shared by every provider. Every provider's schema carries every mission
-    /// column and every mission read selects the whole row, so each column is read as present. The process
+    /// column and every mission read selects the whole row, so each mapped column is read as present. Barrier JSON
+    /// is read here but is bound separately on create and changed only by its conditional persistence method. The process
     /// identifier is read before its start time, because a new identifier clears the start time on the model, and
     /// the start and completion times are read before the stored runtime, because setting either recomputes it.
     /// </summary>
@@ -83,12 +84,14 @@ namespace Armada.Core.Database
             mission.RetrySkipCaptainIds = row.NullableText("retry_skip_captain_ids");
             mission.PreservedRunOutput = row.NullableText("preserved_run_output");
             mission.LastRecoveryActionUtc = row.NullableUtc("last_recovery_action_utc");
+            MissionIntegrationBarrierPersistence.Read(record, mission);
             return mission;
         }
 
         /// <summary>
-        /// Bind every stored missions column, each in the form its provider stores it. The operator-hold reason is
-        /// stored only while the mission is held, and a prestaged-file list is stored only when it has an entry.
+        /// Bind the ordinary mission columns, each in the form its provider stores it. Barrier control columns are
+        /// not bound here because generic updates must preserve the current stored barrier. The operator-hold reason
+        /// is stored only while the mission is held, and a prestaged-file list is stored only when it has an entry.
         /// </summary>
         /// <param name="parameters">Parameters of a command addressing the missions table.</param>
         /// <param name="mission">Mission to bind.</param>

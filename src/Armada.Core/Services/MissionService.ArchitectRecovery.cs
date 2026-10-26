@@ -135,7 +135,8 @@ namespace Armada.Core.Services
                     return await TryHandoffToNextStageAsync(architect, token).ConfigureAwait(false);
                 }
                 if (templates.Count > 0) throw new ArchitectRecoveryUnsafeException("the first Worker template is ambiguous");
-                List<ParsedArchitectMission> parsed = ParseArchitectOutput(architect, out string? fallbackReason);
+                ArchitectAsyncParseResult parseResult = await ParseArchitectOutputAsync(architect, token).ConfigureAwait(false);
+                List<ParsedArchitectMission> parsed = parseResult.Missions;
                 if (parsed.Count == 0) throw new ArchitectRecoveryUnsafeException("the stored Architect output has no valid plan");
                 if (await FailPlannerThatCommittedCodeAsync(architect, token).ConfigureAwait(false)) return false;
 
@@ -152,6 +153,7 @@ namespace Armada.Core.Services
                         throw new ArchitectRecoveryUnsafeException("a stored slice brief differs from the plan");
                     found.Add(matches.SingleOrDefault());
                 }
+                ValidateBarrierSliceTitlesBeforeRepair(rows, found, parsed);
                 Mission firstTemplate = found[0]!;
                 ValidateStartedArchitectTemplate(rows, firstTemplate, parsed[0], new HashSet<string>(StringComparer.Ordinal));
                 for (int index = 1; index < found.Count; index++)
@@ -187,6 +189,8 @@ namespace Armada.Core.Services
                     worker.DependsOnMissionId = architect.Id;
                     worker.Mode = architect.Mode;
                     worker.StartFromRef = startRef;
+                    if (parsed[index].WaitForOtherMissions)
+                        worker.IntegrationBarrier = CreatePreparingIntegrationBarrier(architect, worker, parsed);
                     worker = await _Database.Missions.CreateAsync(worker, token).ConfigureAwait(false);
                     roots.Add(worker);
                     rows.Add(worker);
@@ -199,7 +203,13 @@ namespace Armada.Core.Services
                     await RepairArchitectCloneAsync(rows, template, roots[index], parsed[index], frozen,
                         new HashSet<string>(StringComparer.Ordinal), token).ConfigureAwait(false);
                 }
+                if (parsed[parsed.Count - 1].WaitForOtherMissions
+                    && !await EnsurePreparingIntegrationBarrierAsync(architect, roots[roots.Count - 1], parsed, token).ConfigureAwait(false))
+                    throw new ArchitectRecoveryUnsafeException("the integration root has no matching preparing barrier");
+                List<Mission> acceptedTerminals = GetArchitectBarrierTerminals(rows, roots);
                 await ApplyRecoveredArchitectDependenciesAsync(architect, rows, roots, parsed, token).ConfigureAwait(false);
+                if (parsed[parsed.Count - 1].WaitForOtherMissions)
+                    await AcceptArchitectIntegrationBarrierAsync(architect, parsed, roots, acceptedTerminals, token).ConfigureAwait(false);
                 foreach (Signal signal in unreadSignals)
                 {
                     List<Mission> applicableRoots = roots.Where(root => GetApplicableMailboxSignals(new List<Signal> { signal }, root.Id, architect.VoyageId).Count > 0).ToList();

@@ -225,6 +225,13 @@ evidence gap.
 | Destructive | `delete_objective`, `delete_backlog_item`, `delete_backlog_refinement_session` |
 | Execute | `dispatch_backlog_planning_session`, `armada_decompose_plan`, `armada_parse_architect_output` |
 
+`armada_parse_architect_output` accepts the existing mission markers and opt-in
+version 2 or 3 `armada-plan` JSON contracts. The last structured revision must
+pass validation; an invalid revision does not fall back to an earlier plan.
+The result preserves the final mission's `WaitForOtherMissions` flag for the
+explicit parallel integration barrier. Parsing does not dispatch or land work.
+See [Structured Architect plans](PIPELINES.md#structured-architect-plans).
+
 An objective and a backlog item are the same record. Each objective tool has a
 backlog-named twin that calls the same service operation with the same
 arguments and returns the same result. Only the not-found text and the error

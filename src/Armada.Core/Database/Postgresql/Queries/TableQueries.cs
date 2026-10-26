@@ -1228,7 +1228,10 @@ $convert$;"),
                 new SchemaMigration(128, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.PostgresqlStatements),
                 new SchemaMigration(129, "Persist saved Ask threads and durable turns", AskThreadSchema.PostgresqlStatements),
                 new SchemaMigration(130, "Persist owner-scoped Ask action proposals", AskActionProposalSchema.PostgresqlStatements),
-                new SchemaMigration(131, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.PostgresqlStatements)
+                new SchemaMigration(131, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.PostgresqlStatements),
+                new SchemaMigration(132, "Persist bounded Architect integration barrier membership",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS integration_barrier_json TEXT NULL;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS integration_barrier_revision BIGINT NOT NULL DEFAULT 0;")
             };
         }
 

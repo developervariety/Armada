@@ -12,7 +12,7 @@ namespace Armada.Core.Services
     /// Extracts the plan-level narrative + N [ARMADA:MISSION] blocks into
     /// structured form. No I/O, no DI dependencies.
     /// </summary>
-    public sealed class ArchitectOutputParser : IArchitectOutputParser
+    public sealed partial class ArchitectOutputParser : IArchitectOutputParser
     {
         private static readonly HashSet<string> _KnownTierValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -58,6 +58,16 @@ namespace Armada.Core.Services
                 }
                 return result;
             }
+
+            if (maxMissions < 1)
+            {
+                result.Verdict = ArchitectParseVerdict.StructuralFailure;
+                result.Errors.Add(new ArchitectParseError("invalid_mission_cap", "", "maxMissions", "Mission cap must be at least one"));
+                return result;
+            }
+
+            if (ArchitectVersionedPlanParser.ContainsPlanFence(agentOutput))
+                return ArchitectVersionedPlanParser.Parse(agentOutput, maxMissions);
 
             ArchitectMissionBlockSplit split = ArchitectMissionBlocks.Split(agentOutput);
             if (split.Blocks.Count == 0)

@@ -11,6 +11,10 @@ upstream integrations and excludes changes already present at that baseline.
 ## Unreleased
 
 - Report section checks recognize an explicit Markdown heading joined to a known progress-status line outside code examples. Stored report text and artifact digests stay unchanged.
+- Architect handoff accepts opt-in version 2 and 3 JSON plan contracts through
+  the same parser as MCP. Invalid final revisions cannot fall back to older
+  plans. Parallel branches use a durable integration barrier with fixed accepted
+  membership, verified rescue identity and proof of landing on the current target.
 
 - Restarted dependent stages retain the verified upstream commit and can restore a missing inherited branch from that commit before checkout provisioning.
 

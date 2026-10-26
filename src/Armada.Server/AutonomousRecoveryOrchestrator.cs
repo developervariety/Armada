@@ -2672,8 +2672,10 @@ namespace Armada.Server
             }, token).ConfigureAwait(false);
 
             workerRescue.VoyageId = rescueVoyage.Id;
+            bool hasIntegrationBarrier = false;
             try
             {
+                hasIntegrationBarrier = MissionIntegrationBarrierRescue.Prepare(workerRescue, failedMission);
                 rescueVoyage.SelectedPlaybooks = ClonePlaybookSelections(rescuePlaybooks);
                 if (rescueVoyage.SelectedPlaybooks.Count > 0)
                 {
@@ -2684,6 +2686,14 @@ namespace Armada.Server
                 }
 
                 Mission dispatchedWorker = await _Admiral.DispatchMissionQueuedAsync(workerRescue, token).ConfigureAwait(false);
+                if (hasIntegrationBarrier)
+                {
+                    Mission storedRescue = await _Database.Missions.ReadAsync(dispatchedWorker.Id, token).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("The integration rescue mission disappeared before its barrier was accepted.");
+                    MissionIntegrationBarrier accepted = MissionIntegrationBarrierRescue.Accept(failedMission, storedRescue);
+                    if (!await _Database.Missions.TryUpdateIntegrationBarrierAsync(storedRescue, accepted, token).ConfigureAwait(false))
+                        throw new InvalidOperationException("The integration rescue barrier changed before acceptance.");
+                }
 
                 await LinkRescueVoyageToObjectivesAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
 

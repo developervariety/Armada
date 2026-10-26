@@ -22,6 +22,26 @@ namespace Armada.Test.Unit.Suites.Services
         private static string MakePlanPrefix() =>
             "**Goal:** Build something great\n\n## File structure\n\n| File | Role |\n|---|---|\n\n## Task dispatch graph\n\nM1 -> M2\n\n";
 
+        private static string MakeVersionedPlan(int contractVersion = 3) =>
+            "```armada-plan\n{\"contractVersion\":" + contractVersion
+            + ",\"requirements\":[\"REQ-1\"],\"decisions\":[\"Use routing defaults\"],\"missions\":["
+            + MissionJson("Branch A", "Implement A", "implementation", "null", "AC-1", "A") + ","
+            + MissionJson("Branch B", "Implement B independently", "implementation", "null", "AC-2", "B") + ","
+            + MissionJson("Integrate", "Join branches", "integration", "1", "AC-3", "integration")
+            + "]}\n```";
+
+        private static string MissionJson(string title, string description, string kind, string dependency, string criterionId, string label)
+        {
+            string barrier = kind == "integration" ? ",\"waitForOtherMissions\":true" : "";
+            string command = kind == "integration" ? "dotnet test" : "dotnet test " + label;
+            return "{\"title\":\"" + title + "\",\"description\":\"" + description + "\",\"kind\":\"" + kind
+                + "\",\"dependsOn\":" + dependency + barrier + ",\"validationCommands\":[\"" + command
+                + "\"],\"decisionIndexes\":[1],\"acceptanceCriteria\":[{\"id\":\"" + criterionId
+                + "\",\"requirementIds\":[\"REQ-1\"],\"decisionIndexes\":[1],\"scenario\":\"Run " + label
+                + "\",\"expected\":\"" + label + " passes\",\"verification\":\"" + label
+                + " test\",\"negativeCases\":[\"" + label + " failure blocks integration\"]}]}";
+        }
+
         /// <summary>Builds <paramref name="count"/> dependency-free, structurally valid mission blocks joined by newlines.</summary>
         private static string MakeValidMissionBlocks(int count)
         {
@@ -37,6 +57,99 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Parse_VersionedPlanMapsParallelBarrierAndEvidence", () =>
+            {
+                ArchitectParseResult result = CreateSut().Parse(MakeVersionedPlan());
+                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "valid version 3 plan parses");
+                AssertEqual("M1", result.Missions[0].Id, "first list item gets stable M1 alias");
+                AssertEqual("", result.Missions[1].DependsOnMissionAlias, "independent second branch has no dependency");
+                AssertEqual("M1", result.Missions[2].DependsOnMissionAlias, "1-based dependency maps to alias");
+                AssertTrue(result.Missions[0].PreferredModel.Length == 0, "versioned plan inherits routing defaults");
+                AssertTrue(!result.Missions[0].WaitForOtherMissions && !result.Missions[1].WaitForOtherMissions
+                    && result.Missions[2].WaitForOtherMissions,
+                    "only explicit final barrier flag is retained");
+                AssertContains("Failure/boundary: integration failure blocks integration", result.Missions[2].Description,
+                    "negative case is rendered into the slice brief");
+                AssertContains("dotnet test", result.Missions[2].Description, "validation command is rendered");
+                AssertContains("Decisions checked: D1", result.Missions[2].Description, "decision-to-check link is rendered");
+                AssertContains("\"contractVersion\":3", result.Plan!.FullMarkdown, "selected JSON remains available for inspection");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_VersionTwoPlanIsSupported", () =>
+            {
+                ArchitectParseResult result = CreateSut().Parse(MakeVersionedPlan(2));
+                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "version 2 plan parses");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_UnsupportedVersionIsTerminal", () =>
+            {
+                ArchitectParseResult result = CreateSut().Parse(MakeVersionedPlan(4) + "\n" + MakeMissionBlock("M1", "Fallback", "mid"));
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, result.Verdict, "unsupported structured plan fails closed");
+                AssertEqual("invalid_plan_contract", result.Errors[0].Type, "version error is actionable");
+                string unversioned = MakeVersionedPlan().Replace("\"contractVersion\":3,", "");
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, CreateSut().Parse(unversioned).Verdict,
+                    "unversioned JSON has a clear terminal rejection");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_InvalidBarrierAndForwardDependencyAreRejected", () =>
+            {
+                string noBarrier = MakeVersionedPlan().Replace("\"waitForOtherMissions\":true", "\"waitForOtherMissions\":false");
+                string forwardDependency = MakeVersionedPlan().Replace("\"dependsOn\":1,\"waitForOtherMissions\":true",
+                    "\"dependsOn\":3,\"waitForOtherMissions\":true");
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, CreateSut().Parse(noBarrier).Verdict,
+                    "final integration must declare the barrier");
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, CreateSut().Parse(forwardDependency).Verdict,
+                    "dependencies can only name earlier plan entries");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_NullNegativeCasesWithReasonAreRejected", () =>
+            {
+                string input = MakeVersionedPlan().Replace("\"negativeCases\":[\"A failure blocks integration\"]",
+                    "\"negativeCases\":null,\"negativeCasesNotApplicableReason\":\"none apply\"");
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, CreateSut().Parse(input).Verdict,
+                    "explicit null is invalid even when a reason is supplied");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_AngleBracketTitleWithSuffixIsNotPlaceholder", () =>
+            {
+                string input = MakeVersionedPlan().Replace("\"title\":\"Branch A\"", "\"title\":\"<tag> follow-up\"");
+                AssertEqual(ArchitectParseVerdict.Valid, CreateSut().Parse(input).Verdict,
+                    "only a complete angle-bracket placeholder is rejected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_MalformedFinalPlanDoesNotUseEarlierRevision", () =>
+            {
+                string input = MakeVersionedPlan() + "\n```armada-plan\n{bad json}\n```\n" + MakeMissionBlock("M1", "Fallback", "mid");
+                ArchitectParseResult result = CreateSut().Parse(input);
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, result.Verdict, "malformed final plan is terminal");
+                AssertEqual("invalid_plan_json", result.Errors[0].Type, "final JSON error is reported");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_UnclosedPlanFenceIsStructuredFailure", () =>
+            {
+                ArchitectParseResult result = CreateSut().Parse("```armada-plan\n{" + MakeMissionBlock("M1", "Fallback", "mid"));
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, result.Verdict, "unclosed plan never falls back to markers");
+                AssertTrue(ArchitectVersionedPlanParser.ContainsPlanFence("```armada-plan\n{"), "unclosed fence is detected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Parse_VersionedPlanUsesMissionCap", () =>
+            {
+                ArchitectParseResult result = CreateSut().Parse(MakeVersionedPlan(), 1);
+                AssertEqual(ArchitectParseVerdict.OverCap, result.Verdict, "cap applies after contract validation");
+                AssertEqual(3, result.MissionCount, "cap reports all parsed plan missions");
+                AssertEqual(ArchitectParseVerdict.StructuralFailure, CreateSut().Parse(MakeVersionedPlan(), 0).Verdict,
+                    "zero cap fails explicitly without division by zero");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Parse_ValidSingleMission_ReturnsValid", () =>
             {
                 ArchitectOutputParser sut = CreateSut();

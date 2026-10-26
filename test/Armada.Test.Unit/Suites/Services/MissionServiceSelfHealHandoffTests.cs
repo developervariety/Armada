@@ -30,6 +30,61 @@ namespace Armada.Test.Unit.Suites.Services
             return logging;
         }
 
+        private static string CreateVersionedArchitectPlan(bool includeSecondBranch, bool singleIntegration)
+        {
+            VersionedArchitectPlan plan = new VersionedArchitectPlan
+            {
+                ContractVersion = 2,
+                Requirements = new List<string> { "REQ-1" },
+                Decisions = new List<string> { "Keep routing defaults" }
+            };
+            if (singleIntegration)
+            {
+                plan.Missions.Add(CreateVersionedPlanMission("Solo integration", "integration", "Join existing work.", null, true, "AC-1"));
+            }
+            else
+            {
+                plan.Missions.Add(CreateVersionedPlanMission("Branch A", "implementation", "Implement branch A.", null, false, "AC-1"));
+                if (includeSecondBranch)
+                    plan.Missions.Add(CreateVersionedPlanMission("Branch B", "implementation", "Implement branch B.", null, false, "AC-2"));
+                plan.Missions.Add(CreateVersionedPlanMission("Final integration", "integration", "Join the branches.", null, true,
+                    includeSecondBranch ? "AC-3" : "AC-2"));
+            }
+            return "```armada-plan\n" + System.Text.Json.JsonSerializer.Serialize(plan) + "\n```";
+        }
+
+        private static VersionedArchitectPlanMission CreateVersionedPlanMission(
+            string title, string kind, string description, int? dependsOn, bool waitForOtherMissions, string criterionId)
+        {
+            return new VersionedArchitectPlanMission
+            {
+                Title = title,
+                Kind = kind,
+                Description = description,
+                DependsOn = dependsOn,
+                WaitForOtherMissions = waitForOtherMissions,
+                ValidationCommands = new List<string> { "dotnet test" },
+                AcceptanceCriteria = new List<VersionedArchitectAcceptanceCriterion>
+                {
+                    new VersionedArchitectAcceptanceCriterion
+                    {
+                        Id = criterionId,
+                        RequirementIds = new List<string> { "REQ-1" },
+                        Scenario = "Run the mission check.",
+                        Expected = "The check passes.",
+                        Verification = "The named test passes.",
+                        NegativeCases = new List<string> { "Invalid input fails." }
+                    }
+                }
+            };
+        }
+
+        private static string GetVersionedSliceBrief(string planOutput, int index)
+        {
+            ArchitectParseResult parsed = new ArchitectOutputParser().Parse(planOutput);
+            return MissionService.ArchitectDerivedBriefPreamble + "\n\n" + parsed.Missions[index].Description;
+        }
+
         private ArmadaSettings CreateSettings()
         {
             string id = Guid.NewGuid().ToString("N");
@@ -1357,6 +1412,175 @@ namespace Armada.Test.Unit.Suites.Services
                         "The completion marker cannot certify a different stored plan.");
                     AssertEqual(missionCountAfterRepair, (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false)).Count);
 
+                }
+            });
+
+            await RunTest("RecoverDanglingHandoffs_VersionedParallelPlanAcceptsExactTerminalMembers", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                        new Voyage("Versioned parallel recovery") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    string output = CreateVersionedArchitectPlan(includeSecondBranch: true, singleIntegration: false);
+                    Mission architect = new Mission("[Architect] Versioned plan", "Plan parallel work.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Architect",
+                        Status = MissionStatusEnum.WorkProduced,
+                        AgentOutput = output
+                    };
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+
+                    string firstBrief = GetVersionedSliceBrief(output, 0);
+                    string secondBrief = GetVersionedSliceBrief(output, 1);
+                    Mission firstWorker = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch A [Worker]", "Worker", "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + firstBrief, architect.Id).ConfigureAwait(false);
+                    Mission firstTest = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch A [TestEngineer]", "TestEngineer", firstBrief, firstWorker.Id).ConfigureAwait(false);
+                    Mission firstJudge = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch A [Judge]", "Judge", firstBrief, firstTest.Id).ConfigureAwait(false);
+                    Mission secondWorker = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch B [Worker]", "Worker", "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + secondBrief, architect.Id).ConfigureAwait(false);
+                    Mission secondTest = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch B [TestEngineer]", "TestEngineer", secondBrief, secondWorker.Id).ConfigureAwait(false);
+
+                    AssertTrue(await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false) > 0,
+                        "Recovery repairs and accepts the interrupted versioned fan-out.");
+                    List<Mission> rows = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    Mission secondJudge = rows.Single(m => m.Title == "Branch B [Judge]");
+                    Mission integration = rows.Single(m => m.Title == "Final integration [Worker]");
+                    MissionIntegrationBarrier barrier = integration.IntegrationBarrier!;
+                    AssertEqual(MissionIntegrationBarrierPhaseEnum.Accepted, barrier.Phase,
+                        "The final integration accepts membership only after recovery repairs its branch chain.");
+                    AssertEqual(2, barrier.Members.Count, "Each independent Architect branch has one accepted terminal.");
+                    AssertEqual(firstWorker.Id, barrier.Members[0].RootMissionId);
+                    AssertEqual(firstJudge.Id, barrier.Members[0].AcceptedTerminalMissionId);
+                    AssertEqual(secondWorker.Id, barrier.Members[1].RootMissionId);
+                    AssertEqual(secondJudge.Id, barrier.Members[1].AcceptedTerminalMissionId);
+                    AssertEqual(secondTest.Id, secondJudge.DependsOnMissionId, "The repaired terminal continues the partial chain.");
+
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    Mission? repeated = await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false);
+                    AssertEqual(2, repeated!.IntegrationBarrier!.Members.Count, "Repeated recovery preserves the accepted member count.");
+                    AssertEqual(firstJudge.Id, repeated.IntegrationBarrier.Members[0].AcceptedTerminalMissionId,
+                        "Repeated recovery cannot replace the first terminal ID.");
+                    AssertEqual(secondJudge.Id, repeated.IntegrationBarrier.Members[1].AcceptedTerminalMissionId,
+                        "Repeated recovery cannot replace the repaired terminal ID.");
+                }
+            });
+
+            await RunTest("RecoverDanglingHandoffs_SingleIntegrationAcceptsEmptyBarrier", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                        new Voyage("Zero prior branches") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    string output = CreateVersionedArchitectPlan(includeSecondBranch: false, singleIntegration: true);
+                    Mission architect = new Mission("[Architect] Single integration", "Plan integration.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Architect",
+                        Status = MissionStatusEnum.WorkProduced,
+                        AgentOutput = output
+                    };
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+                    string brief = GetVersionedSliceBrief(output, 0);
+                    Mission integration = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Solo integration [Worker]", "Worker", "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + brief, architect.Id).ConfigureAwait(false);
+
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    Mission? accepted = await testDb.Driver.Missions.ReadAsync(integration.Id).ConfigureAwait(false);
+                    AssertEqual(MissionIntegrationBarrierPhaseEnum.Accepted, accepted!.IntegrationBarrier!.Phase,
+                        "A zero-branch final integration accepts its empty barrier during recovery.");
+                    AssertEqual(0, accepted.IntegrationBarrier.Members.Count, "No prior branch means an empty member list.");
+                    AssertEqual(MissionStatusEnum.Pending, accepted.Status, "Acceptance does not complete or dispatch the integration mission.");
+                }
+            });
+
+            await RunTest("RecoverDanglingHandoffs_AmbiguousTerminalPathsStayPreparing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                        new Voyage("Ambiguous terminal paths") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    string output = CreateVersionedArchitectPlan(includeSecondBranch: false, singleIntegration: false);
+                    Mission architect = new Mission("[Architect] Ambiguous plan", "Plan work.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Architect",
+                        Status = MissionStatusEnum.WorkProduced,
+                        AgentOutput = output
+                    };
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+                    string brief = GetVersionedSliceBrief(output, 0);
+                    Mission worker = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch A [Worker]", "Worker", "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + brief, architect.Id).ConfigureAwait(false);
+                    Mission reviewerA = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch A [TestEngineer]", "TestEngineer", brief, worker.Id).ConfigureAwait(false);
+                    Mission reviewerB = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch A [Judge]", "Judge", brief, worker.Id).ConfigureAwait(false);
+                    reviewerA.StageOrder = 2;
+                    reviewerB.StageOrder = 2;
+                    await testDb.Driver.Missions.UpdateAsync(reviewerA).ConfigureAwait(false);
+                    await testDb.Driver.Missions.UpdateAsync(reviewerB).ConfigureAwait(false);
+
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    Mission? heldArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+                    List<Mission> rows = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertTrue(heldArchitect!.HeldForOperatorReview,
+                        "Recovery must not accept a guessed terminal when a branch has two terminal paths.");
+                    AssertFalse(rows.Any(mission => mission.IntegrationBarrier?.Phase == MissionIntegrationBarrierPhaseEnum.Accepted),
+                        "Ambiguous branch paths must not produce an accepted integration barrier.");
+                }
+            });
+
+            await RunTest("RecoverDanglingHandoffs_UnexpectedPipelineChildStaysPreparing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(
+                        new Voyage("Unexpected pipeline child") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    string output = CreateVersionedArchitectPlan(includeSecondBranch: false, singleIntegration: false);
+                    Mission architect = new Mission("[Architect] Unexpected child", "Plan work.")
+                    {
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Persona = "Architect",
+                        Status = MissionStatusEnum.WorkProduced,
+                        AgentOutput = output
+                    };
+                    architect = await testDb.Driver.Missions.CreateAsync(architect).ConfigureAwait(false);
+                    string brief = GetVersionedSliceBrief(output, 0);
+                    Mission worker = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Branch A [Worker]", "Worker", "<!-- ARMADA:ARCHITECT-HANDOFF -->\n" + brief, architect.Id).ConfigureAwait(false);
+                    Mission unexpected = await CreateArchitectSliceStageAsync(testDb.Driver, vessel, voyage, architect,
+                        "Unexpected [TestEngineer]", "TestEngineer", brief, worker.Id).ConfigureAwait(false);
+
+                    await missions.RecoverDanglingHandoffsAsync().ConfigureAwait(false);
+                    Mission? heldArchitect = await testDb.Driver.Missions.ReadAsync(architect.Id).ConfigureAwait(false);
+                    Mission? unchanged = await testDb.Driver.Missions.ReadAsync(unexpected.Id).ConfigureAwait(false);
+                    List<Mission> rows = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertTrue(heldArchitect!.HeldForOperatorReview,
+                        "Recovery must not treat an earlier completed stage as terminal when an unexpected child exists.");
+                    AssertEqual("Unexpected [TestEngineer]", unchanged!.Title,
+                        "Recovery must hold before retitling the unexpected child into the accepted pipeline.");
+                    AssertFalse(rows.Any(mission => mission.IntegrationBarrier?.Phase == MissionIntegrationBarrierPhaseEnum.Accepted),
+                        "An unexpected pipeline child must not produce an accepted integration barrier.");
                 }
             });
 

@@ -68,6 +68,13 @@ namespace Armada.Core.Database.Interfaces
         /// <returns>True when the row was written; false when the stored status had changed and nothing was written.</returns>
         Task<bool> TryUpdateIfStatusAsync(Mission mission, MissionStatusEnum expectedStatus, CancellationToken token = default);
 
+        /// <summary>Conditionally accept or rewire one exact integration barrier from a loaded pending mission snapshot.</summary>
+        Task<bool> TryUpdateIntegrationBarrierAsync(Mission expected, MissionIntegrationBarrier next,
+            CancellationToken token = default)
+        {
+            throw new System.NotSupportedException("Integration barrier persistence is not implemented by this database.");
+        }
+
         /// <summary>Atomically bind an assigned mission and its captain to a durable Harbor job before launch.</summary>
         /// <param name="update">Exact owner, assignment and process identity.</param>
         /// <param name="token">Cancellation token.</param>

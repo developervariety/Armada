@@ -386,6 +386,9 @@ namespace Armada.Core.Services
             /// Optional dependency reference emitted by the architect.
             /// </summary>
             public string? DependsOnReference { get; set; } = null;
+
+            [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+            public bool WaitForOtherMissions { get; set; }
         }
 
         /// <summary>
@@ -692,7 +695,16 @@ namespace Armada.Core.Services
             // Captured for the stage-base check after provisioning: a stage must be cut from the
             // commit its predecessor actually produced, and proving that needs the hash here.
             string? upstreamCommitHash = null;
-            if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
+            string? integrationTargetSha = null;
+            if (HasIntegrationBarrierRecord(mission))
+            {
+                integrationTargetSha = await PrepareIntegrationBarrierAssignmentAsync(mission, vessel, token).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(integrationTargetSha)) return false;
+                dependencyIsCrossVessel = false;
+                dependencyBranchName = null;
+                upstreamCommitHash = null;
+            }
+            else if (!String.IsNullOrEmpty(mission.DependsOnMissionId))
             {
                 Mission? dependency = await _Database.Missions.ReadAsync(mission.DependsOnMissionId, token).ConfigureAwait(false);
                 if (dependency == null)
@@ -1051,6 +1063,14 @@ namespace Armada.Core.Services
             _UnassignableTicks.TryRemove(mission.Id, out int _);
             _CaptainWaitReasons.TryRemove(mission.Id, out string? _);
 
+            if (HasIntegrationBarrierRecord(mission)
+                && HarborMissionRouting.ResolveConfigured(_Settings.Harbor, captain, mission)?.CheckoutMode == HarborCheckoutModeEnum.HarborOwned)
+            {
+                await HoldForAssignmentAsync(mission, IntegrationBarrierUnverifiable, mission.VesselId,
+                    "The configured Harbor checkout cannot prove the local landing target commit for this integration barrier.", token).ConfigureAwait(false);
+                return false;
+            }
+
             HarborMissionRoute? harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
             if (await TryHoldForHarborCapacityAsync(mission, harborRoute, token).ConfigureAwait(false)) return false;
             if (IsHarborCapacityHold(mission)
@@ -1107,8 +1127,10 @@ namespace Armada.Core.Services
             HarborMissionRoute? checkoutRoute = HarborMissionRouting.ResolveConfigured(_Settings.Harbor, captain, mission);
             bool harborOwnedCheckout = checkoutRoute?.CheckoutMode == HarborCheckoutModeEnum.HarborOwned;
             bool preserveReassignedRootBranch = false;
+            // A barrier's dependency names its planner. Its own saved integration branch
+            // uses the root continuation proof instead of inheriting that planner's branch.
             if (persistedHarborAttempt == null
-                && String.IsNullOrEmpty(mission.DependsOnMissionId)
+                && (String.IsNullOrEmpty(mission.DependsOnMissionId) || integrationTargetSha != null)
                 && !String.IsNullOrEmpty(mission.BranchName))
             {
                 bool activeDockAuthorizes = await HasActiveDockForBranchAsync(mission.VesselId!, vessel.TenantId, mission.BranchName!, token).ConfigureAwait(false);
@@ -1154,6 +1176,7 @@ namespace Armada.Core.Services
             // branch. Branch-retention on a later failure/revert keys on this same combined flag.
             bool preserveHarborAttemptBranch = persistedHarborAttempt != null;
             bool preserveSavedBranch = preserveInheritedBranch || preserveReassignedRootBranch || preserveHarborAttemptBranch;
+            if (integrationTargetSha != null && !preserveSavedBranch) mission.StartFromRef = integrationTargetSha;
             string branchName = preserveHarborAttemptBranch
                 ? persistedHarborAttempt!.BranchName
                 : preserveSavedBranch
@@ -7250,7 +7273,9 @@ namespace Armada.Core.Services
             if (storedUpstream?.Status == MissionStatusEnum.Cancelled) return false;
             List<Mission> dependentMissions = voyageMissions.Where(m =>
                 m.DependsOnMissionId == completedMission.Id &&
-                m.Status == MissionStatusEnum.Pending).ToList();
+                m.Status == MissionStatusEnum.Pending &&
+                (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase)
+                    || !HasIntegrationBarrierRecord(m))).ToList();
 
             if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
@@ -7284,21 +7309,31 @@ namespace Armada.Core.Services
             // Special handling for Architect stage: parse output into new missions
             if (String.Equals(completedMission.Persona, "Architect", StringComparison.OrdinalIgnoreCase))
             {
-                List<ParsedArchitectMission> parsed = ParseArchitectOutput(completedMission, out string? fallbackReason);
-                if (fallbackReason != null)
-                    await RecordArchitectPlanFallbackAsync(completedMission, parsed.Count, fallbackReason, token).ConfigureAwait(false);
+                ArchitectAsyncParseResult parseResult = await ParseArchitectOutputAsync(completedMission, token).ConfigureAwait(false);
+                List<ParsedArchitectMission> parsed = parseResult.Missions;
+                if (parseResult.FallbackReason != null && parsed.Count > 0)
+                    await RecordArchitectPlanFallbackAsync(completedMission, parsed.Count, parseResult.FallbackReason, token).ConfigureAwait(false);
+                if (parseResult.InvalidPlanReason != null)
+                    _Logging.Warn(_Header + "architect " + completedMission.Id + " versioned plan rejected: " + parseResult.InvalidPlanReason);
                 if (parsed.Count > 0)
                 {
                     await ProjectArchitectMissionsToLogAsync(completedMission, parsed, token).ConfigureAwait(false);
                     await RecordArchitectPlanGateInputsAsync(completedMission, parsed, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "architect produced " + parsed.Count + " mission definitions");
 
+                    List<Mission> roots = new List<Mission>();
                     foreach (Mission nextMission in dependentMissions)
                     {
                 if (String.Equals(nextMission.Persona, "Worker", StringComparison.OrdinalIgnoreCase))
                 {
                     // Update the first parsed mission into this existing Worker mission slot
                     ParsedArchitectMission first = parsed[0];
+                    if (first.WaitForOtherMissions && !await EnsurePreparingIntegrationBarrierAsync(
+                        completedMission, nextMission, parsed, token).ConfigureAwait(false))
+                    {
+                        await HoldUnsafeArchitectRecoveryAsync(completedMission, "the single-slice integration barrier could not be initialized", token).ConfigureAwait(false);
+                        return false;
+                    }
                     nextMission.Title = first.Title + " [Worker]";
                     string architectFirstDesc = ArchitectHandoffMarker + "\n" + first.Description;
                     List<Signal> firstApplicable = GetApplicableMailboxSignals(unreadMailboxSignals, nextMission.Id, nextMission.VoyageId);
@@ -7313,6 +7348,7 @@ namespace Armada.Core.Services
                     nextMission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(nextMission, token).ConfigureAwait(false);
                     await RetitleDependentChainAsync(voyageMissions, nextMission, first.Title, first.Description, token).ConfigureAwait(false);
+                    roots.Add(nextMission);
 
                     // Find what depends on this worker mission (Judge, TestEngineer stages)
                     // Create additional worker missions for remaining parsed items
@@ -7340,7 +7376,10 @@ namespace Armada.Core.Services
                         // Architect's plan inherit the Architect mission's mode, so an audit or research
                         // voyage never silently turns its plan blocks into implementing missions.
                         additionalWorker.Mode = completedMission.Mode;
+                        if (parsed[i].WaitForOtherMissions)
+                            additionalWorker.IntegrationBarrier = CreatePreparingIntegrationBarrier(completedMission, additionalWorker, parsed);
                         additionalWorker = await _Database.Missions.CreateAsync(additionalWorker, token).ConfigureAwait(false);
+                        roots.Add(additionalWorker);
                         _Logging.Info(_Header + "architect created additional worker mission " + additionalWorker.Id + ": " + parsed[i].Title);
 
                         await CloneDependentChainAsync(voyageMissions, nextMission, additionalWorker, parsed[i].Title, parsed[i].Description, token).ConfigureAwait(false);
@@ -7348,7 +7387,11 @@ namespace Armada.Core.Services
                 }
             }
 
+                    voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(completedMission.VoyageId!, token).ConfigureAwait(false);
+                    List<Mission> acceptedTerminals = GetArchitectBarrierTerminals(voyageMissions, roots);
                     await ApplyArchitectMissionDependenciesAsync(completedMission, parsed, token).ConfigureAwait(false);
+                    if (parsed[parsed.Count - 1].WaitForOtherMissions)
+                        await AcceptArchitectIntegrationBarrierAsync(completedMission, parsed, roots, acceptedTerminals, token).ConfigureAwait(false);
                     foreach (string signalId in appliedSignalIds)
                         await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
                     await MarkArchitectFanOutCompleteAsync(completedMission, token).ConfigureAwait(false);
@@ -7357,7 +7400,9 @@ namespace Armada.Core.Services
 
                 bool hadArchitectMarkers = ArchitectMissionBlocks.ContainsAnyMarker(completedMission.AgentOutput);
 
-                string failureReason = hadArchitectMarkers
+                string failureReason = parseResult.InvalidPlanReason != null
+                    ? "Architect versioned plan was rejected: " + parseResult.InvalidPlanReason
+                    : hadArchitectMarkers
                     ? "Architect produced no valid [ARMADA:MISSION] definitions in output: it carries a mission marker but no block that opens with [ARMADA:MISSION] at the start of a line and holds a title"
                     : "Architect produced no [ARMADA:MISSION] markers in output";
 
@@ -7430,6 +7475,7 @@ namespace Armada.Core.Services
 
             foreach (Mission nextMission in dependentMissions)
             {
+                if (HasIntegrationBarrierRecord(nextMission)) continue;
                 await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, voyageMissions, token).ConfigureAwait(false);
             }
 
@@ -11630,6 +11676,13 @@ namespace Armada.Core.Services
                 architectMission.DiffSnapshot,
                 RemoveArchitectFanOutCompletionRecords(architectMission.Description)
             };
+
+            foreach (string? candidateSource in candidateSources.Take(2))
+            {
+                if (!String.IsNullOrWhiteSpace(candidateSource)
+                    && ArchitectVersionedPlanParser.ContainsPlanFence(candidateSource))
+                    return ParseVersionedArchitectOutput(candidateSource, Int32.MaxValue, out string? _);
+            }
 
             foreach (string? candidateSource in candidateSources)
             {
