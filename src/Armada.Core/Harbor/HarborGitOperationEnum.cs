@@ -77,5 +77,6 @@ namespace Armada.Core.Harbor
         /** <summary>TryGetCommitTimeUtc operation.</summary> */ TryGetCommitTimeUtc,
         /** <summary>DeleteRefIfAt operation.</summary> */ DeleteRefIfAt,
         /** <summary>DeleteRemoteRefIfAt operation.</summary> */ DeleteRemoteRefIfAt,
+        /** <summary>Net tracked working-tree diff, including uncommitted changes.</summary> */ DiffWorkingTree,
     }
 }

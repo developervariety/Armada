@@ -206,7 +206,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     MissionDiffResult diff = await MissionDiffReader.ReadAsync(
                         harness.Driver, harness.Settings.LogDirectory, harness.Git, mission).ConfigureAwait(false);
                     AssertTrue(diff.Available, "a bound dock can provide a live diff with no Admiral worktree");
-                    AssertEqual(sourceCheckoutAddress, harness.Git.DiffCalls[harness.Git.DiffCalls.Count - 1], "live diff uses the agent-owned source checkout root, not the primary landing checkout");
+                    AssertEqual(sourceCheckoutAddress, harness.Git.LiveDiffCalls[harness.Git.LiveDiffCalls.Count - 1], "live diff uses the agent-owned source checkout root, not the primary landing checkout");
                     AssertEqual("REMOTE-WORKTREE-DIFF", diff.Diff, "the remote diff result is returned");
 
                     string repositoryAddress = HarborCheckoutAddress.ForDock(dock.Id) + "/repository";

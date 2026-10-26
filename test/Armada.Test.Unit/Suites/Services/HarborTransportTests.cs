@@ -1991,6 +1991,26 @@ namespace Armada.Test.Unit.Suites.Services
                 hostGit, run.Mission).ConfigureAwait(false);
             AssertTrue(diff.Available && diff.Diff.Contains("owned-result.txt", StringComparison.Ordinal), "MissionDiffReader reads the runner's committed changes through the Harbor Git facade");
 
+            string privateUntracked = Path.Combine(run.CheckoutPath, "private-live-diff.txt");
+            try
+            {
+                await File.AppendAllTextAsync(Path.Combine(run.CheckoutPath, "README.md"), "HARBOR_STAGED_EDIT\n").ConfigureAwait(false);
+                await RunGitFixtureAsync(run.CheckoutPath, "add", "README.md").ConfigureAwait(false);
+                await File.AppendAllTextAsync(Path.Combine(run.CheckoutPath, "owned-result.txt"), "HARBOR_UNSTAGED_EDIT\n").ConfigureAwait(false);
+                await File.WriteAllTextAsync(privateUntracked, "HARBOR_UNTRACKED_PRIVATE\n").ConfigureAwait(false);
+                MissionDiffResult live = await Armada.Server.MissionDiffReader.ReadAsync(harness.Driver, run.Settings.LogDirectory,
+                    hostGit, run.Mission).ConfigureAwait(false);
+                AssertTrue(live.Available, "the owned Harbor checkout supplies its live tracked diff");
+                AssertContains("HARBOR_STAGED_EDIT", live.Diff);
+                AssertContains("HARBOR_UNSTAGED_EDIT", live.Diff);
+                AssertFalse(live.Diff.Contains("HARBOR_UNTRACKED_PRIVATE", StringComparison.Ordinal), "private untracked content stays outside the Harbor diff");
+            }
+            finally
+            {
+                await RunGitFixtureAsync(run.CheckoutPath, "restore", "--source=HEAD", "--staged", "--worktree", "--", "README.md", "owned-result.txt").ConfigureAwait(false);
+                if (File.Exists(privateUntracked)) File.Delete(privateUntracked);
+            }
+
             LandingService landing = new LandingService(run.Logging, harness.Driver, run.Settings, hostGit);
             landing.SetHarborCheckouts(checkouts);
             AssertTrue(await landing.MergeInDedicatedWorktreeAsync(vessel, run.Mission, "main", run.Mission.BranchName).ConfigureAwait(false), "landing merges the remote-owned branch through a dedicated runner checkout: " + run.Mission.FailureReason);

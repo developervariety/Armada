@@ -725,7 +725,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Get the diff of all changes in a worktree against the base branch.
+        /// Get the committed branch diff against the base branch.
         /// </summary>
         public async Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
         {
@@ -745,6 +745,24 @@ namespace Armada.Core.Services
                 // Branches with unrelated history still need a stable diff snapshot for landing.
                 // Fall back to a direct tree-to-tree comparison against the base tip.
                 return await RunGitAsync(worktreePath, token, "diff", baseBranch + "..HEAD").ConfigureAwait(false);
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<string> DiffWorkingTreeAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrWhiteSpace(baseBranch)) throw new ArgumentNullException(nameof(baseBranch));
+            // Resolve first so an invalid base stays an error and cannot become a Git option.
+            string baseline = (await RunGitAsync(worktreePath, token, "rev-parse", "--verify", "--end-of-options", baseBranch + "^{commit}").ConfigureAwait(false)).Trim();
+            try
+            {
+                return await RunGitAsync(worktreePath, token, "diff", "--no-ext-diff", "--no-textconv", "--merge-base", baseline, "--").ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (IsNoMergeBase(ex))
+            {
+                // Unrelated histories have no common ancestor; compare the base tree to the live tree.
+                return await RunGitAsync(worktreePath, token, "diff", "--no-ext-diff", "--no-textconv", baseline, "--").ConfigureAwait(false);
             }
         }
 

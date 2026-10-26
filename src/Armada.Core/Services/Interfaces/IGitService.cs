@@ -329,13 +329,22 @@ namespace Armada.Core.Services.Interfaces
         Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default);
 
         /// <summary>
-        /// Get the diff of all changes in a worktree against the base branch.
+        /// Get the committed branch diff against the base branch.
         /// </summary>
         /// <param name="worktreePath">Path to the worktree.</param>
         /// <param name="baseBranch">Base branch to diff against.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Unified diff output.</returns>
         Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default);
+
+        /// <summary>Get the net tracked working-tree diff, including committed, staged and unstaged changes.</summary>
+        /// <param name="worktreePath">Owned worktree path or opaque checkout address.</param>
+        /// <param name="baseBranch">Base revision whose common ancestor with HEAD is compared.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Unified diff; untracked files are excluded.</returns>
+        Task<string> DiffWorkingTreeAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+            => throw new NotSupportedException("live_worktree_diff_unavailable");
+
 
         /// <summary>
         /// Get the HEAD commit hash of a worktree.

@@ -35,6 +35,7 @@ namespace Test.Shared.Infrastructure
         public List<string> PullFastForwardOnlyCalls { get; } = new List<string>();
         public List<string> PruneWorktreeCalls { get; } = new List<string>();
         public List<string> DiffCalls { get; } = new List<string>();
+        public List<string> LiveDiffCalls { get; } = new List<string>();
         public List<string> RepositoryHeadCalls { get; } = new List<string>();
         public List<string> OperationCalls { get; } = new List<string>();
 
@@ -320,6 +321,13 @@ namespace Test.Shared.Infrastructure
             if (ShouldThrowOnDiff) throw new InvalidOperationException("Simulated diff failure");
             DiffCalls.Add(worktreePath);
             return DiffReader == null ? Task.FromResult(DiffResult) : DiffReader.DiffAsync(worktreePath, baseBranch, token);
+        }
+
+        public Task<string> DiffWorkingTreeAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            if (ShouldThrowOnDiff) throw new InvalidOperationException("Simulated live diff failure");
+            LiveDiffCalls.Add(worktreePath);
+            return DiffReader == null ? Task.FromResult(DiffResult) : DiffReader.DiffWorkingTreeAsync(worktreePath, baseBranch, token);
         }
 
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)

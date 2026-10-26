@@ -86,6 +86,15 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public Task<string> DiffWorkingTreeAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            if (!IsRemote(worktreePath)) return _Local.DiffWorkingTreeAsync(worktreePath, baseBranch, token);
+            HarborGitOperationRequest request = NewRequest(HarborGitOperationEnum.DiffWorkingTree, worktreePath);
+            request.BaseBranch = baseBranch;
+            return SendValueAsync(worktreePath, request, token, result => RequireText(result, "text"));
+        }
+
+        /// <inheritdoc />
         public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default)
         {
             if (!IsRemote(worktreePath)) return _Local.GetHeadCommitHashAsync(worktreePath, token);
