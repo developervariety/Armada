@@ -126,9 +126,9 @@ namespace Armada.Core.Database
         internal static StoredFilter Scope(StoredFilter filter, CheckRunQuery? query)
         {
             if (query == null) return filter;
+            filter = Owner(filter, "tenant_id", query.TenantId, Constants.DefaultTenantId);
+            filter = Owner(filter, "user_id", query.UserId, Constants.DefaultUserId);
             return filter
-                .Text("tenant_id", query.TenantId)
-                .Text("user_id", query.UserId)
                 .Text("workflow_profile_id", query.WorkflowProfileId)
                 .Text("vessel_id", query.VesselId)
                 .Text("mission_id", query.MissionId)
@@ -142,6 +142,16 @@ namespace Armada.Core.Database
                 .Text("environment_name", query.EnvironmentName)
                 .Time("created_utc", ">=", "@from_utc", query.FromUtc)
                 .Time("created_utc", "<=", "@to_utc", query.ToUtc);
+        }
+
+        // Legacy Check rows store an absent owner as NULL. Only the default owner includes those rows;
+        // every other tenant or user keeps its exact predicate, and an absent query remains unscoped.
+        private static StoredFilter Owner(StoredFilter filter, string column, string? value, string defaultId)
+        {
+            if (!String.Equals(value, defaultId, StringComparison.Ordinal)) return filter.Text(column, value);
+            string parameter = "@" + column;
+            return filter.Condition("(" + column + " = " + parameter + " OR " + column + " IS NULL)",
+                p => p.Text(parameter, column, value));
         }
 
         #endregion
