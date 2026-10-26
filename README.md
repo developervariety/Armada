@@ -97,6 +97,10 @@ completion and handoff paths when they observe cancellation.
 Both versions recover interrupted Architect fan-out. The fork also repairs partial
 stage chains, preserves started work and holds ambiguous graphs for review. A
 completion record is tied to the stored plan so a changed plan is checked again.
+The fork also accepts opt-in version 2 and 3 JSON plans. Their final integration
+mission uses an explicit barrier for parallel branches and starts only after
+every accepted branch has landed on the current target. See
+[Architect plans](docs/PIPELINES.md#structured-architect-plans).
 
 Both versions parse Jest and Vitest test totals and Windows summary lines. The
 fork keeps aggregate .NET project counts and prefers structured test artifacts

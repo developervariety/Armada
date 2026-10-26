@@ -726,7 +726,10 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(117, "Persist Harbor-owned checkout identity on docks", HarborCheckoutBindingPersistence.MysqlStatements),
                 new SchemaMigration(118, "Persist saved Ask threads and durable turns", AskThreadSchema.MysqlStatements),
                 new SchemaMigration(119, "Persist owner-scoped Ask action proposals", AskActionProposalSchema.MysqlStatements),
-                new SchemaMigration(120, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.MysqlStatements)
+                new SchemaMigration(120, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.MysqlStatements),
+                new SchemaMigration(121, "Persist bounded Architect integration barrier membership",
+                    @"ALTER TABLE missions ADD COLUMN integration_barrier_json LONGTEXT NULL;",
+                    @"ALTER TABLE missions ADD COLUMN integration_barrier_revision BIGINT NOT NULL DEFAULT 0;")
             };
         }
 

@@ -10,6 +10,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Architect handoff accepts opt-in version 2 and 3 JSON plan contracts through
+  the same parser as MCP. Invalid final revisions cannot fall back to older
+  plans. Parallel branches use a durable integration barrier with fixed accepted
+  membership, verified rescue identity and proof of landing on the current target.
+
 - Local POSIX server publish fails when Dashboard deployment fails and no
   Dashboard is available. It continues only when an existing Dashboard remains.
   Dashboard copies are staged before replacement, with rollback on install failure.

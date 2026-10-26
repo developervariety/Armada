@@ -166,6 +166,40 @@ mission. Stored output is redacted for secrets, and a quoted span that is not
 a JSON string is treated as prose: it keeps its text and plan markers, and only
 key-shaped values inside it are removed.
 
+### Structured Architect plans
+
+Architect output can also use a fenced `armada-plan` JSON contract with an
+explicit `contractVersion` of `2` or `3`. This format is opt-in; the default
+Architect brief still requests mission markers. The parser and handoff use the
+same contract checks and the vessel's mission limit. The last structured revision
+is authoritative. An invalid, unsupported or unclosed last revision stops
+handoff; it cannot fall back to an older revision or a numbered summary.
+
+The JSON plan names requirements, resolved decisions and ordered missions.
+Each mission supplies its kind, title, description, acceptance criteria and
+validation commands. Criteria name the requirements they cover, a scenario,
+an expected result, a verification method, and negative cases or a reason that
+none apply. Version 3 also links criteria to decisions and requires decision
+coverage. Optional numeric `dependsOn` values refer to earlier missions.
+The JSON format does not select a model; normal routing supplies that choice.
+
+The final mission has kind `integration` and sets `waitForOtherMissions` to
+`true`. It uses an explicit integration barrier. The barrier records the exact
+branch roots and terminal stages before fan-out is complete. It does not add
+unrelated or later voyage missions to that set. Accepted branch membership is
+fixed; a verified rescue can replace only a branch's current terminal identity.
+Each plan branch must have one unambiguous pipeline chain. A branch with
+multiple terminal paths is held for review instead of selecting one path.
+
+Integration waits until every accepted branch is `Complete` and its source
+commit is proved present on the vessel's current landing target. `WorkProduced`
+and an open pull request do not satisfy this rule. Integration starts from the
+captured target commit, with no inherited branch from one parallel mission.
+This path requires provable local `LocalMerge` or `MergeQueue` landing.
+An unavailable repository, uncertain ancestry or Harbor-owned checkout holds
+integration with a named reason. It does not fall back to another host.
+Legacy marker plans keep their existing dependency and handoff rules.
+
 When the vessel's workflow profile declares `gateInputPaths`, the Architect
 brief lists them in a `Gate Input Files` section, and a plan whose blocks name
 none of an entry records `mission.architect_plan_gate_inputs_missing` with the

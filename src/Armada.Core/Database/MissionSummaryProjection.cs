@@ -22,6 +22,6 @@ namespace Armada.Core.Database
             "NULL AS preserved_run_output, " +
             "tier, requested_captain_id, held_for_operator_review, held_for_operator_review_reason, " +
             "assignment_hold_reason, assignment_hold_entity_id, " +
-            "last_admission_json, admission_revision";
+            "last_admission_json, admission_revision, integration_barrier_json, integration_barrier_revision";
     }
 }

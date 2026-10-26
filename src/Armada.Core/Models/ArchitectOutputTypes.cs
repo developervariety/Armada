@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System.Collections.Generic;
+    using System.Text.Json.Serialization;
 
     /// <summary>Verdict from parsing an Architect captain's AgentOutput.</summary>
     public enum ArchitectParseVerdict
@@ -54,6 +55,10 @@ namespace Armada.Core.Models
 
         /// <summary>M-alias of a mission this one depends on, or empty if none. Orchestrator resolves at dispatch.</summary>
         public string DependsOnMissionAlias { get; set; } = "";
+
+        /// <summary>Whether the final integration waits for every parallel branch.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public bool WaitForOtherMissions { get; set; }
 
         /// <summary>Files to prestage into the dock worktree before the captain starts.</summary>
         public List<PrestagedFile> PrestagedFiles { get; set; } = new List<PrestagedFile>();

@@ -14,9 +14,19 @@ namespace Armada.Core.Models
         /// <summary>Last recorded admission evaluation; null for missing or unsupported old evidence.</summary>
         public MissionAdmissionObservation? LastAdmissionObservation { get; internal set; }
 
+        /// <summary>Durable branch membership used only by a final Architect integration mission.</summary>
+        [JsonIgnore]
+        public MissionIntegrationBarrier? IntegrationBarrier { get; internal set; }
+
         internal long AdmissionWriteRevision { get; set; }
         internal object? AdmissionWriteStamp { get; set; }
         internal string? AdmissionWriteJson { get; set; }
+
+        internal long IntegrationBarrierWriteRevision { get; set; }
+        internal object? IntegrationBarrierWriteStamp { get; set; }
+        internal string? IntegrationBarrierRawJson { get; set; }
+        internal bool IntegrationBarrierRawJsonPresent { get; set; }
+        internal bool IntegrationBarrierInvalid { get; set; }
 
 
         /// <summary>

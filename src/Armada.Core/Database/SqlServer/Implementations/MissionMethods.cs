@@ -51,6 +51,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
         public async Task<Mission> CreateAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
+            MissionIntegrationBarrierPersistence.ValidateForCreate(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
 
             using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
@@ -58,14 +59,18 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, dock_provision_attempt_id, harbor_job_id, process_id, process_started_utc, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, reconciled_utc, reconciled_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, start_from_ref, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, retry_skip_captain_ids, preserved_run_output, tier, requested_captain_id, held_for_operator_review, held_for_operator_review_reason, assignment_hold_reason, assignment_hold_entity_id)
-                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @dock_provision_attempt_id, @harbor_job_id, @process_id, @process_started_utc, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @reconciled_utc, @reconciled_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @mission_mode, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @start_from_ref, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc, @retry_skip_captain_ids, @preserved_run_output, @tier, @requested_captain_id, @held_for_operator_review, @held_for_operator_review_reason, @assignment_hold_reason, @assignment_hold_entity_id);";
+                    cmd.CommandText = @"INSERT INTO missions (id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, description, status, mission_assignment_state, priority, parent_mission_id, branch_name, dock_id, dock_provision_attempt_id, harbor_job_id, process_id, process_started_utc, pr_url, commit_hash, diff_snapshot, agent_output, persona, depends_on_mission_id, stage_order, failure_reason, reconciled_utc, reconciled_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, requires_review, review_deny_action, review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc, recovery_attempts, landing_retry_count, start_from_ref, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, retry_skip_captain_ids, preserved_run_output, tier, requested_captain_id, held_for_operator_review, held_for_operator_review_reason, assignment_hold_reason, assignment_hold_entity_id, integration_barrier_json, integration_barrier_revision)
+                        VALUES (@id, @tenant_id, @user_id, @voyage_id, @vessel_id, @captain_id, @title, @description, @status, @mission_assignment_state, @priority, @parent_mission_id, @branch_name, @dock_id, @dock_provision_attempt_id, @harbor_job_id, @process_id, @process_started_utc, @pr_url, @commit_hash, @diff_snapshot, @agent_output, @persona, @depends_on_mission_id, @stage_order, @failure_reason, @reconciled_utc, @reconciled_reason, @total_runtime_ms, @prestaged_files, @preferred_model, @capabilityhint, @mission_mode, @requires_review, @review_deny_action, @review_comment, @reviewed_by_user_id, @review_requested_utc, @reviewed_utc, @recovery_attempts, @landing_retry_count, @start_from_ref, @last_recovery_action_utc, @created_utc, @started_utc, @completed_utc, @last_update_utc, @retry_skip_captain_ids, @preserved_run_output, @tier, @requested_captain_id, @held_for_operator_review, @held_for_operator_review_reason, @assignment_hold_reason, @assignment_hold_entity_id, @integration_barrier_json, @integration_barrier_revision);";
                     MissionColumns.Write(SqlServerDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
+                    MissionIntegrationBarrierPersistence.BindCreate(SqlServerDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
                 await TouchVoyageAsync(conn, mission.VoyageId, mission.LastUpdateUtc, token).ConfigureAwait(false);
             }
+
+            if (mission.IntegrationBarrier != null)
+                return await ReadAsync(mission.Id, token).ConfigureAwait(false) ?? mission;
 
             return mission;
         }
