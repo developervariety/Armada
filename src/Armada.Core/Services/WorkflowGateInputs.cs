@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Text;
     using System.Text.RegularExpressions;
     using Microsoft.Extensions.FileSystemGlobbing;
+    using Armada.Core.Models;
 
     /// <summary>
     /// The rule for a workflow profile's <c>GateInputPaths</c>: repository-relative paths or glob patterns that the
@@ -165,6 +166,40 @@ namespace Armada.Core.Services
                 if (!named) unplanned.Add(entry);
             }
             return unplanned;
+        }
+
+        // Shared by objective persistence and preview: mappings are bounded and never infer dependencies.
+        internal static string? ValidateSources(IReadOnlyList<ObjectiveGateInputSources>? mappings)
+        {
+            if (mappings == null) return null;
+            if (mappings.Count > MaxEntries) return "Gate-input mappings may contain at most 50 inputs.";
+            HashSet<string> inputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int sources = 0;
+            foreach (ObjectiveGateInputSources mapping in mappings)
+            {
+                if (mapping == null || !IsMappingPath(mapping.InputPath)) return "Each gate-input mapping needs a repository-relative input path.";
+                if (!inputs.Add(NormalizeEntry(mapping.InputPath))) return "Gate-input mapping input paths must be unique.";
+                if (mapping.SourcePaths == null || mapping.SourcePaths.Count == 0) return "Each gate-input mapping needs source paths.";
+                sources += mapping.SourcePaths.Count;
+                if (sources > MaxEntries) return "Gate-input mappings may contain at most 50 source paths in total.";
+                if (mapping.SourcePaths.Any(path => !IsMappingPath(path))) return "Gate-input mapping source paths must be repository-relative paths or globs.";
+            }
+            return null;
+        }
+
+        internal static List<string> FindMappedSources(ObjectiveGateInputSources mapping, IEnumerable<string> plannedPaths)
+        {
+            Matcher matcher = new Matcher(StringComparison.OrdinalIgnoreCase);
+            foreach (string path in Normalize(mapping.SourcePaths)) matcher.AddInclude(path);
+            return plannedPaths.Where(path => matcher.Match(path).HasMatches).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static bool IsMappingPath(string? path)
+        {
+            if (String.IsNullOrWhiteSpace(path)) return false;
+            string normalized = NormalizeEntry(path);
+            return !normalized.Contains(':') && !normalized.Any(Char.IsControl)
+                && Validate(new[] { normalized }) == null;
         }
 
         // Concrete repository-relative paths supplied by the plan, not inferred dependencies.

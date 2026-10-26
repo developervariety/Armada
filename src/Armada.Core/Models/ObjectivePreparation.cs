@@ -17,6 +17,9 @@ namespace Armada.Core.Models
         /// <summary>Sibling repository inputs that the target vessel must provision.</summary>
         public List<ObjectivePreparationSiblingInput> RequiredSiblingInputs { get; set; } = new List<ObjectivePreparationSiblingInput>();
 
+        /// <summary>Explicit input-to-source dependency mappings used to explain or exclude gate-input planning warnings.</summary>
+        public List<ObjectiveGateInputSources> GateInputSources { get; set; } = new List<ObjectiveGateInputSources>();
+
         /// <summary>
         /// What the captain execution environment must provide. Dispatch preview checks each requirement
         /// against the environment captains launch in and blocks on every one that is unavailable.
