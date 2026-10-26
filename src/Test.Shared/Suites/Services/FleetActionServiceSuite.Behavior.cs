@@ -17,7 +17,9 @@ namespace Test.Shared.Suites.Services
             {
                 Fixture fixture = await CreateFixtureAsync(testDb.Driver).ConfigureAwait(false);
                 Vessel vessel = await CreateVesselAsync(fixture, "Snapshot vessel").ConfigureAwait(false);
-                FleetAction action = await fixture.Service.CreateAsync(fixture.Owner, Definition()).ConfigureAwait(false);
+                FleetActionUpsertRequest definition = Definition();
+                definition.PromptTemplate += " Preserve literal JSON {\"status\":\"ok\"}, code { return true; }, and {literal}.";
+                FleetAction action = await fixture.Service.CreateAsync(fixture.Owner, definition).ConfigureAwait(false);
                 FleetActionRun run = await fixture.Service.StartRunAsync(fixture.Owner, action.Id,
                     new FleetActionRunRequest { RequestId = "request_" + Guid.NewGuid().ToString("N"), VesselIds = new List<string> { vessel.Id } }).ConfigureAwait(false);
                 AssertEqual(fixture.Tenant.Id, run.TenantId);
@@ -28,6 +30,9 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(vessel.Name, run.Snapshot.Targets[0].VesselNameSnapshot);
                 AssertContains(vessel.Name, run.Snapshot.Targets[0].RenderedPrompt);
                 AssertContains(vessel.Id, run.Snapshot.Targets[0].RenderedPrompt);
+                AssertContains("{\"status\":\"ok\"}", run.Snapshot.Targets[0].RenderedPrompt, "JSON braces remain literal prompt text");
+                AssertContains("{ return true; }", run.Snapshot.Targets[0].RenderedPrompt, "code braces remain literal prompt text");
+                AssertContains("{literal}", run.Snapshot.Targets[0].RenderedPrompt, "only supported tokens are substituted");
                 AssertEqual(FleetActionTargetStatusEnum.Pending, run.State.TargetStates[0].Status);
                 vessel.Name = "Changed name";
                 await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
