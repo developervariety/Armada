@@ -197,6 +197,9 @@ and an open pull request do not satisfy this rule. A fresh integration starts fr
 captured target commit, with no inherited branch from one parallel mission.
 Verified retries keep their own integration branch and pinned start commit.
 Missing continuation evidence holds the mission instead of replacing its work.
+This continuation proof checks the saved branch and its active dock. It does
+not rebase the branch when the target moves; normal landing validation still
+checks integration against the target used for landing.
 This path requires provable local `LocalMerge` or `MergeQueue` landing.
 An unavailable repository, uncertain ancestry or Harbor-owned checkout holds
 integration with a named reason. It does not fall back to another host.
