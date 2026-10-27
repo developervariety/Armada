@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Merge queue purge follows BranchCleanupPolicy
+
+- A landed merge-queue entry keeps its mission branch when the policy is `None`, deletes only the local ref when the policy is `LocalOnly`, and deletes the local and origin refs when the policy is `LocalAndRemote`. The vessel policy overrides the global setting. A landed branch that git does not show as contained in the target stays. A cancelled entry loses both refs when git shows that the branch is merged. The queue removes the temporary integration worktree when it finishes an entry.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
