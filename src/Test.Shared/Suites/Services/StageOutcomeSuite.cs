@@ -916,6 +916,49 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(done.Id, (await db.StageOutcomes.ReadAsync(escalated.Id).ConfigureAwait(false))!.FinishedByOutcomeId, "first finisher kept, not " + later!.Id);
             }));
 
+            cases.Add(CaseAsync("escalation_record_links_every_page", "A mission with more escalations than one page links every escalated attempt to the finisher", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                StageOutcomeService service = new StageOutcomeService(db, CreateLogging());
+                Mission mission = await CreateMissionAsync(db, MissionStatusEnum.Complete, null, null).ConfigureAwait(false);
+                Mission other = await CreateMissionAsync(db, MissionStatusEnum.Complete, null, null).ConfigureAwait(false);
+                const int escalations = 201;
+                for (int i = 0; i < escalations; i++)
+                {
+                    StageOutcome prior = StoredOutcome(mission.Id, null);
+                    prior.Disposition = StageDispositionEnum.Escalated;
+                    prior.Attempt = i + 1;
+                    await db.StageOutcomes.CreateAsync(prior).ConfigureAwait(false);
+                }
+
+                StageOutcome otherEscalated = StoredOutcome(other.Id, null);
+                otherEscalated.Disposition = StageDispositionEnum.Escalated;
+                await db.StageOutcomes.CreateAsync(otherEscalated).ConfigureAwait(false);
+
+                StageAttemptCapture strong = Capture(exitCode: 0);
+                strong.MissionId = mission.Id;
+                strong.Captain = new Captain("strong") { Id = "cpt_strong" };
+                StageOutcome? done = await service.RecordAttemptAsync(strong).ConfigureAwait(false);
+                AssertNotNull(done, "finishing attempt recorded");
+
+                List<StageOutcome> linked = new List<StageOutcome>();
+                int page = 1;
+                while (true)
+                {
+                    StageOutcomeQuery query = new StageOutcomeQuery { MissionId = mission.Id, Disposition = StageDispositionEnum.Escalated, PageNumber = page, PageSize = 100 };
+                    EnumerationResult<StageOutcome> batch = await db.StageOutcomes.EnumerateAsync(query).ConfigureAwait(false);
+                    if (batch.Objects == null || batch.Objects.Count == 0) break;
+                    linked.AddRange(batch.Objects);
+                    page++;
+                }
+
+                AssertEqual(escalations, linked.Count, "every escalated attempt read back");
+                AssertEqual(escalations, linked.Count(o => o.FinishedByOutcomeId == done!.Id && o.FinishedByCaptainId == "cpt_strong"), "every escalated attempt names the finisher");
+                StageOutcome? untouched = await db.StageOutcomes.ReadAsync(otherEscalated.Id).ConfigureAwait(false);
+                AssertNull(untouched!.FinishedByOutcomeId, "another mission's escalation is not linked");
+            }));
+
             cases.Add(CaseAsync("purge_mission_deletes_its_outcomes", "Deleting a mission by any of its delete paths deletes its stage outcomes and no one else's", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

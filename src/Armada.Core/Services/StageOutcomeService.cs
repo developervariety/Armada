@@ -365,16 +365,26 @@ namespace Armada.Core.Services
         {
             try
             {
-                StageOutcomeQuery query = new StageOutcomeQuery
+                // Read every page first, so a mission with more escalations than one page links all of them.
+                List<StageOutcome> escalated = new List<StageOutcome>();
+                int page = 1;
+                while (true)
                 {
-                    MissionId = mission.Id,
-                    Disposition = StageDispositionEnum.Escalated,
-                    PageNumber = 1,
-                    PageSize = 100
-                };
-                EnumerationResult<StageOutcome> escalated = await _Database.StageOutcomes.EnumerateAsync(query, token).ConfigureAwait(false);
-                if (escalated.Objects == null) return;
-                foreach (StageOutcome prior in escalated.Objects)
+                    StageOutcomeQuery query = new StageOutcomeQuery
+                    {
+                        MissionId = mission.Id,
+                        Disposition = StageDispositionEnum.Escalated,
+                        PageNumber = page,
+                        PageSize = 100
+                    };
+                    EnumerationResult<StageOutcome> batch = await _Database.StageOutcomes.EnumerateAsync(query, token).ConfigureAwait(false);
+                    if (batch.Objects == null || batch.Objects.Count == 0) break;
+                    escalated.AddRange(batch.Objects);
+                    if (batch.Objects.Count < query.PageSize) break;
+                    page++;
+                }
+
+                foreach (StageOutcome prior in escalated)
                 {
                     if (!String.IsNullOrEmpty(prior.FinishedByOutcomeId) || String.Equals(prior.Id, finished.Id, StringComparison.Ordinal)) continue;
                     prior.FinishedByOutcomeId = finished.Id;
