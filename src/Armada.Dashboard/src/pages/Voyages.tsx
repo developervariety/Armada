@@ -5,6 +5,7 @@ import type { Voyage } from '../types/models';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
+import EvaluationBadge from '../components/shared/EvaluationBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
@@ -181,7 +182,7 @@ export default function Voyages() {
       key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Name of the voyage, a batch of related missions dispatched together. Click to sort.'),
       cellClassName: 'cell-title', cellTitle: (v) => v.title,
       filter: <input type="text" className="col-filter" aria-label={t('Title')} title={t('Show only voyages on this page whose title contains this text. Not case sensitive.')} value={table.colFilters.title ?? ''} onChange={e => table.setColFilter('title', e.target.value)} placeholder={t('Search...')} />,
-      render: (v) => <strong className="line-clamp-2">{v.title}</strong>,
+      render: (v) => <><strong className="line-clamp-2">{v.title}</strong>{v.isEvaluation && <EvaluationBadge isEvaluation />}</>,
     },
     {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique voyage ID (vyg_ prefix). Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',

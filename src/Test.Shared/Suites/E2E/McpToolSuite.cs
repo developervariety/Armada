@@ -739,6 +739,51 @@ namespace Test.Shared.Suites.E2E
                 AssertStartsWith("vyg_", voyage.Id);
             }));
 
+            cases.Add(CaseAsync("armada_dispatch_evaluation_flag", "dispatch and create_mission accept isEvaluation; voyage missions inherit it and the default stays false", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                HttpClient mcpClient = fx.McpClient;
+                string sessionId = await InitMcpSessionAsync(mcpClient);
+                string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "EvalDispatchFleet").ConfigureAwait(false);
+                string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "EvalDispatchVessel").ConfigureAwait(false);
+
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "dispatch", new
+                {
+                    title = "Evaluation Voyage",
+                    vesselId = vesselId,
+                    isEvaluation = true,
+                    missions = new[] { new { title = "Eval A", description = "Desc A" }, new { title = "Eval B", description = "Desc B" } }
+                }).ConfigureAwait(false);
+                AssertToolResultValid(result);
+                Voyage voyage = JsonHelper.Deserialize<Voyage>(GetToolResultText(result));
+                AssertTrue(voyage.IsEvaluation, "dispatch reply flagged");
+                VoyageDetailResponse detail = JsonHelper.Deserialize<VoyageDetailResponse>(GetToolResultText(await CallToolAsync(mcpClient, sessionId, "voyage_status", new { voyageId = voyage.Id, summary = false, includeMissions = true }).ConfigureAwait(false)));
+                AssertTrue(detail.Voyage!.IsEvaluation, "persisted voyage flagged");
+                JsonElement summaryStatus = await CallToolAsync(mcpClient, sessionId, "voyage_status", new { voyageId = voyage.Id }).ConfigureAwait(false);
+                AssertTrue(JsonHelper.Deserialize<VoyageDetailResponse>(GetToolResultText(summaryStatus)).Voyage!.IsEvaluation, "the summary-mode voyage carries the flag");
+                AssertEqual(2, detail.Missions!.Count, "both missions created");
+                AssertTrue(detail.Missions.All(m => m.IsEvaluation), "every mission inherits the voyage flag");
+
+                JsonElement added = await CallToolAsync(mcpClient, sessionId, "create_mission", new { title = "Added", description = "x", vesselId = vesselId, voyageId = voyage.Id }).ConfigureAwait(false);
+                AssertToolResultValid(added);
+                AssertTrue(Armada.Client.Models.MissionDispatchResult.Parse(GetToolResultText(added))!.Mission!.IsEvaluation, "a mission added to an evaluation voyage inherits the flag");
+                JsonElement standalone = await CallToolAsync(mcpClient, sessionId, "create_mission", new { title = "Standalone eval", description = "x", vesselId = vesselId, isEvaluation = true }).ConfigureAwait(false);
+                AssertTrue(Armada.Client.Models.MissionDispatchResult.Parse(GetToolResultText(standalone))!.Mission!.IsEvaluation, "create_mission keeps an explicit flag");
+
+                JsonElement normal = await CallToolAsync(mcpClient, sessionId, "dispatch", new
+                {
+                    title = "Production Voyage",
+                    vesselId = vesselId,
+                    missions = new[] { new { title = "Prod A", description = "Desc A" } }
+                }).ConfigureAwait(false);
+                Voyage prod = JsonHelper.Deserialize<Voyage>(GetToolResultText(normal));
+                VoyageDetailResponse prodDetail = JsonHelper.Deserialize<VoyageDetailResponse>(GetToolResultText(await CallToolAsync(mcpClient, sessionId, "voyage_status", new { voyageId = prod.Id, summary = false, includeMissions = true }).ConfigureAwait(false)));
+                AssertFalse(prodDetail.Voyage!.IsEvaluation, "a normal dispatch is not evaluation");
+                AssertTrue(prodDetail.Missions!.All(m => !m.IsEvaluation), "normal missions are not evaluation");
+                JsonElement plain = await CallToolAsync(mcpClient, sessionId, "create_mission", new { title = "Plain", description = "x", vesselId = vesselId }).ConfigureAwait(false);
+                AssertFalse(Armada.Client.Models.MissionDispatchResult.Parse(GetToolResultText(plain))!.Mission!.IsEvaluation, "create_mission defaults to production");
+            }));
+
             cases.Add(CaseAsync("armada_dispatch_with_multiple_missions_creates_all", "ArmadaDispatch_WithMultipleMissions_CreatesAll", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);

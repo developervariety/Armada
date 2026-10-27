@@ -244,26 +244,6 @@ namespace Armada.Core.Services
             return vessel;
         }
 
-        /// <summary>
-        /// Whether a mission is evaluation work: it ran on a vessel whose default pipeline is the built-in
-        /// ModelEvaluation pipeline (every fixture vessel). Its stage outcomes are tagged IsEvaluation.
-        /// </summary>
-        /// <param name="database">Database driver.</param>
-        /// <param name="mission">Mission.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>True for evaluation missions.</returns>
-        /// <exception cref="ArgumentNullException">Thrown when database or mission is null.</exception>
-        public static async Task<bool> IsEvaluationMissionAsync(DatabaseDriver database, Mission mission, CancellationToken token = default)
-        {
-            if (database == null) throw new ArgumentNullException(nameof(database));
-            if (mission == null) throw new ArgumentNullException(nameof(mission));
-            if (String.IsNullOrEmpty(mission.VesselId)) return false;
-            Vessel? vessel = await database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
-            if (vessel == null || String.IsNullOrEmpty(vessel.DefaultPipelineId)) return false;
-            Pipeline? pipeline = await database.Pipelines.ReadAsync(vessel.DefaultPipelineId!, token).ConfigureAwait(false);
-            return pipeline != null && pipeline.IsBuiltIn && String.Equals(pipeline.Name, PipelineName, StringComparison.Ordinal);
-        }
-
         #endregion
 
         #region Private-Methods

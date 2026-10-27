@@ -333,6 +333,8 @@ export interface Mission {
   playbookSnapshots?: MissionPlaybookSnapshot[];
   /** Server-computed: why a Pending mission is still waiting for a captain (single mission and voyage reads only). */
   assignmentBlocker?: MissionAssignmentBlocker | null;
+  /** True for evaluation work (fixture battery, model evaluation); its stage outcomes never count as production data. */
+  isEvaluation?: boolean;
 }
 
 export type MissionAssignmentBlockerReason =
@@ -406,6 +408,8 @@ export interface MissionSummary {
   completedUtc: string | null;
   totalRuntimeMs: number | null;
   lastUpdateUtc: string;
+  /** True for evaluation work (fixture battery, model evaluation); its stage outcomes never count as production data. */
+  isEvaluation?: boolean;
 }
 
 export interface MissionHistoryBucket {
@@ -478,6 +482,8 @@ export interface Voyage {
   sourcePlanningMessageId?: string | null;
   selectedPlaybooks?: SelectedPlaybook[];
   captainOverridesJson?: string | null;
+  /** True for evaluation work (fixture battery, model evaluation); its stage outcomes never count as production data. */
+  isEvaluation?: boolean;
 }
 
 /** Capability tier used for fallback routing when a preferred captain is busy. */

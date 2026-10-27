@@ -63,6 +63,7 @@ namespace Armada.Server.Mcp.Tools
                             }
                         },
                         landingMode = new { type = "string", description = "Optional landing mode for this voyage: LocalMerge, MergeAndPush, PullRequest, MergeQueue, or None (overrides the vessel and server default)" },
+                        isEvaluation = new { type = "boolean", description = "True for evaluation work (fixture battery, model evaluation): the voyage and its missions are flagged and their stage outcomes never count as production data. Default false." },
                         pipelineId = new { type = "string", description = "Pipeline ID to use for this dispatch (overrides vessel/fleet default)" },
                         pipeline = new { type = "string", description = "Pipeline name to use (convenience alias for pipelineId -- resolves by name)" },
                         objectiveId = new { type = "string", description = "Optional objective (obj_ prefix) to link this voyage to; must exist. Parity with REST dispatch." },
@@ -142,6 +143,7 @@ namespace Armada.Server.Mcp.Tools
                         voyage.TenantId = String.IsNullOrEmpty(caller.TenantId) ? ArmadaConstants.DefaultTenantId : caller.TenantId;
                         voyage.UserId = caller.UserId;
                         voyage.ApprovalOptions = request.ApprovalOptions?.Snapshot();
+                        voyage.IsEvaluation = request.IsEvaluation;
                         voyage = await database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
                         if (selectedPlaybooks.Count > 0)
                         {
@@ -156,7 +158,7 @@ namespace Armada.Server.Mcp.Tools
                         string? overridesJson = request.CaptainAssignments != null && request.CaptainAssignments.Count > 0
                             ? Armada.Core.Services.MissionService.SerializeCaptainOverrides(request.CaptainAssignments)
                             : null;
-                        voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks, overridesJson, request.LandingMode, approvalOptions: request.ApprovalOptions).ConfigureAwait(false);
+                        voyage = await admiral.DispatchVoyageAsync(title, description, vesselId, missions, pipelineId, selectedPlaybooks, overridesJson, request.LandingMode, approvalOptions: request.ApprovalOptions, isEvaluation: request.IsEvaluation).ConfigureAwait(false);
                     }
 
                     // A bare voyage has no missions yet: keep its overrides for the missions added to it later.
@@ -211,7 +213,7 @@ namespace Armada.Server.Mcp.Tools
                             .ToDictionary(g => g.Key, g => g.Count());
                         return (object)new
                         {
-                            Voyage = new { voyage.Id, voyage.Title, voyage.Description, voyage.Status, voyage.CreatedUtc, voyage.LastUpdateUtc, voyage.ApprovalOptions },
+                            Voyage = new { voyage.Id, voyage.Title, voyage.Description, voyage.Status, voyage.CreatedUtc, voyage.LastUpdateUtc, voyage.ApprovalOptions, voyage.IsEvaluation },
                             TotalMissions = missionSummaries.Count,
                             MissionCountsByStatus = counts
                         };

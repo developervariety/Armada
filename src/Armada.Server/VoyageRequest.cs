@@ -81,5 +81,11 @@ namespace Armada.Server
         /// Null inherits the vessel's landing mode, then the global default.
         /// </summary>
         public LandingModeEnum? LandingMode { get; set; } = null;
+
+        /// <summary>
+        /// True for evaluation work (fixture battery, model evaluation). The voyage and every mission it creates are
+        /// flagged IsEvaluation, so their stage outcomes never count as production data. Default false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
     }
 }

@@ -4,6 +4,7 @@ namespace Test.Shared.Suites.Services
     using System.Collections.Generic;
     using System.Globalization;
     using System.IO;
+    using System.Linq;
     using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
@@ -250,6 +251,70 @@ namespace Test.Shared.Suites.Services
 
                     List<Mission> missions = await db.Missions.EnumerateByVoyageAsync(result.Id);
                     AssertEqual(2, missions.Count);
+                }
+            }));
+
+            cases.Add(CaseAsync("dispatch_voyage_evaluation_flag_propagates", "DispatchVoyageAsync with isEvaluation flags the voyage, every mission (standard and pipeline paths) and their stage outcomes", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), new StubGitService());
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("EvalVessel", "https://github.com/test/eval")).ConfigureAwait(false);
+                    Pipeline pipeline = new Pipeline("EvalTwoStage");
+                    pipeline.Stages = new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, "Judge") };
+                    pipeline = await db.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    Voyage standard = await service.DispatchVoyageAsync("Eval", "d", vessel.Id,
+                        new List<MissionDescription> { new MissionDescription("m1", "d1"), new MissionDescription("m2", "d2") },
+                        null, null, null, null, CancellationToken.None, null, true).ConfigureAwait(false);
+                    Voyage staged = await service.DispatchVoyageAsync("Eval staged", "d", vessel.Id,
+                        new List<MissionDescription> { new MissionDescription("m3", "d3") },
+                        pipeline.Id, null, null, null, CancellationToken.None, null, true).ConfigureAwait(false);
+
+                    foreach (Voyage voyage in new[] { standard, staged })
+                    {
+                        AssertTrue(voyage.IsEvaluation, "returned voyage flagged");
+                        AssertTrue((await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!.IsEvaluation, "persisted voyage flagged");
+                        List<Mission> missions = await db.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                        AssertTrue(missions.Count > 0, "missions created");
+                        foreach (Mission m in missions) AssertTrue(m.IsEvaluation, "mission inherits the voyage flag: " + m.Title);
+                    }
+                    AssertEqual(2, (await db.Missions.EnumerateByVoyageAsync(staged.Id).ConfigureAwait(false)).Count, "pipeline path created both stages");
+
+                    Captain captain = await db.Captains.CreateAsync(new Captain("eval-captain")).ConfigureAwait(false);
+                    Mission first = (await db.Missions.EnumerateByVoyageAsync(standard.Id).ConfigureAwait(false))[0];
+                    StageOutcome? outcome = await new StageOutcomeService(db, CreateLogging()).RecordAttemptAsync(new StageAttemptCapture { Claimed = true, MissionId = first.Id, Captain = captain, ExitCode = 0 }).ConfigureAwait(false);
+                    AssertNotNull(outcome, "outcome recorded");
+                    AssertTrue(outcome!.IsEvaluation, "stage outcome tagged from the mission flag");
+                    AssertTrue((await db.StageOutcomes.ReadAsync(outcome.Id).ConfigureAwait(false))!.IsEvaluation, "persisted outcome tagged");
+
+                    Mission added = await service.DispatchMissionAsync(new Mission("late", "d") { VoyageId = standard.Id, VesselId = vessel.Id }).ConfigureAwait(false);
+                    AssertTrue(added.IsEvaluation, "a mission added to an evaluation voyage inherits the flag");
+                }
+            }));
+
+            cases.Add(CaseAsync("dispatch_voyage_default_is_not_evaluation", "DispatchVoyageAsync without the flag leaves the voyage, missions and stage outcomes as production", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), new StubGitService());
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("ProdVessel", "https://github.com/test/prod")).ConfigureAwait(false);
+
+                    Voyage voyage = await service.DispatchVoyageAsync("Prod", "d", vessel.Id,
+                        new List<MissionDescription> { new MissionDescription("m1", "d1") }, (string?)null).ConfigureAwait(false);
+                    AssertFalse(voyage.IsEvaluation, "voyage not flagged");
+                    AssertFalse((await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!.IsEvaluation, "persisted voyage not flagged");
+                    Mission mission = (await db.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false)).Single();
+                    AssertFalse(mission.IsEvaluation, "mission not flagged");
+
+                    Captain captain = await db.Captains.CreateAsync(new Captain("prod-captain")).ConfigureAwait(false);
+                    StageOutcome? outcome = await new StageOutcomeService(db, CreateLogging()).RecordAttemptAsync(new StageAttemptCapture { Claimed = true, MissionId = mission.Id, Captain = captain, ExitCode = 0 }).ConfigureAwait(false);
+                    AssertFalse(outcome!.IsEvaluation, "production stage outcome not tagged");
+
+                    Mission added = await service.DispatchMissionAsync(new Mission("late", "d") { VoyageId = voyage.Id, VesselId = vessel.Id }).ConfigureAwait(false);
+                    AssertFalse(added.IsEvaluation, "a mission added to a production voyage stays production");
                 }
             }));
 

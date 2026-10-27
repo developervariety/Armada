@@ -9420,3 +9420,6 @@ details.readiness-issue-collapsible { padding-top: 0.45rem; padding-bottom: 0.45
 .run-approval-fields { margin-top: 1rem; }
 .run-approval-fields .checkbox-row { display: flex; align-items: center; margin: 0.4rem 0 0.75rem; }
 .run-approval-fields > p { font-size: 0.8rem; line-height: 1.5; margin: 0 0 0.85rem; }
+
+/* Evaluation badge: marks missions and voyages flagged IsEvaluation */
+.tag.evaluation-badge { margin-left: 0.4rem; vertical-align: middle; background: var(--tag-review-bg); color: var(--tag-review-fg); }

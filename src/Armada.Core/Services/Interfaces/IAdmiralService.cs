@@ -119,6 +119,8 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="landingMode">Optional per-voyage landing mode, persisted before any mission is created; null
         /// inherits the vessel's or the global landing mode.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="isEvaluation">True for evaluation work (fixture battery, model evaluation): the voyage and every
+        /// mission it creates are flagged IsEvaluation, so their stage outcomes never count as production data.</param>
         /// <returns>The created voyage.</returns>
         Task<Voyage> DispatchVoyageAsync(
             string title,
@@ -130,7 +132,8 @@ namespace Armada.Core.Services.Interfaces
             string? captainOverridesJson = null,
             LandingModeEnum? landingMode = null,
             CancellationToken token = default,
-            RunApprovalOptions? approvalOptions = null);
+            RunApprovalOptions? approvalOptions = null,
+            bool isEvaluation = false);
 
         /// <summary>
         /// Dispatch a single mission.

@@ -58,8 +58,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, source_planning_session_id, source_planning_message_id, captain_overrides_json, approval_options_json)
-                            VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @source_planning_session_id, @source_planning_message_id, @captain_overrides_json, @approval_options_json);";
+                    cmd.CommandText = @"INSERT INTO voyages (id, tenant_id, user_id, title, description, status, created_utc, completed_utc, last_update_utc, auto_push, auto_create_pull_requests, auto_merge_pull_requests, landing_mode, source_planning_session_id, source_planning_message_id, captain_overrides_json, approval_options_json, is_evaluation)
+                            VALUES (@id, @tenant_id, @user_id, @title, @description, @status, @created_utc, @completed_utc, @last_update_utc, @auto_push, @auto_create_pull_requests, @auto_merge_pull_requests, @landing_mode, @source_planning_session_id, @source_planning_message_id, @captain_overrides_json, @approval_options_json, @is_evaluation);";
                     cmd.Parameters.AddWithValue("@id", voyage.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)voyage.UserId ?? DBNull.Value);
@@ -77,6 +77,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@source_planning_message_id", (object?)voyage.SourcePlanningMessageId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@approval_options_json", (object?)RunApprovalOptions.ToJson(voyage.ApprovalOptions) ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@is_evaluation", (voyage.IsEvaluation ? 1 : 0));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -133,7 +134,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             landing_mode = @landing_mode,
                             source_planning_session_id = @source_planning_session_id,
                             source_planning_message_id = @source_planning_message_id,
-                            captain_overrides_json = @captain_overrides_json, approval_options_json = @approval_options_json
+                            captain_overrides_json = @captain_overrides_json, approval_options_json = @approval_options_json, is_evaluation = @is_evaluation
                             WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", voyage.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)voyage.TenantId ?? DBNull.Value);
@@ -151,6 +152,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@source_planning_message_id", (object?)voyage.SourcePlanningMessageId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@captain_overrides_json", (object?)voyage.CaptainOverridesJson ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@approval_options_json", (object?)RunApprovalOptions.ToJson(voyage.ApprovalOptions) ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@is_evaluation", (voyage.IsEvaluation ? 1 : 0));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }

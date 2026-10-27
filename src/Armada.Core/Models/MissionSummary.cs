@@ -106,6 +106,11 @@ namespace Armada.Core.Models
         public MissionFailureKindEnum? FailureKind { get; set; } = null;
 
         /// <summary>
+        /// True for evaluation work (see <see cref="Mission.IsEvaluation"/>).
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
+
+        /// <summary>
         /// Whether this mission requires explicit review approval.
         /// </summary>
         public bool RequiresReview { get; set; } = false;

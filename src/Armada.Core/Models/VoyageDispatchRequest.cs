@@ -45,5 +45,10 @@ namespace Armada.Core.Models
         /// Ordered playbooks to apply during dispatch.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
+
+        /// <summary>
+        /// True for evaluation work: the voyage and its missions are flagged IsEvaluation. Default false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
     }
 }

@@ -62,5 +62,10 @@ namespace Armada.Server.Mcp
         /// Landing mode for this voyage, overriding the vessel and server default; null keeps them.
         /// </summary>
         public Armada.Core.Enums.LandingModeEnum? LandingMode { get; set; } = null;
+
+        /// <summary>
+        /// True for evaluation work: the voyage and every mission it creates are flagged IsEvaluation. Default false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
     }
 }

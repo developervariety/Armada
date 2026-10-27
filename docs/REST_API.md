@@ -2938,6 +2938,7 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 | `PipelineId` | string | no | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
 | `Pipeline` | string | no | Pipeline name to use for this voyage (alternative to `PipelineId`) |
 | `LandingMode` | string | no | [LandingModeEnum](#landingmodeenum) for this voyage's missions; omit to inherit the vessel's, then the global default |
+| `IsEvaluation` | bool | no | `true` for evaluation work (fixture battery, model evaluation). The voyage and every mission it creates (including later pipeline stages, architect fan-out and rework) are flagged, and their stage outcomes are tagged `IsEvaluation` so they never count as production data. Default `false` |
 
 **Response:** `201 Created` - [Voyage](#voyage)
 
@@ -4385,8 +4386,9 @@ captain for every stage, and uses landing mode `None`. Each task is graded per i
 A task whose toolchain the Harbor lacks is `CouldNotRun`, never `Failed`, and later tasks of the run that need the
 same tool are not dispatched. Each run records its seed, sampling settings, run count (default 3, at most 10), battery
 version (`csharp@1`) and configuration revision (SHA-256 of the full configuration, also returned as
-`ConfigurationJson`). Stage outcomes of battery missions are tagged `IsEvaluation` and never count in production
-outcomes. Runs share Evaluate's concurrency limits. `Evaluation.BatteryDirectory` overrides where packs are read from,
+`ConfigurationJson`). Battery voyages and missions are dispatched with `IsEvaluation` set, so their stage outcomes are
+tagged `IsEvaluation` and never count in production outcomes; the mission flag, not the `ModelEvaluation` pipeline,
+decides the tag. Quick probes create no missions or voyages. Runs share Evaluate's concurrency limits. `Evaluation.BatteryDirectory` overrides where packs are read from,
 and `Evaluation.BatteryTaskTimeoutMinutes` (default 60) bounds each task's mission.
 
 | Method | Path | Body | Response |
@@ -8657,6 +8659,7 @@ A batch of related missions tracked together.
 | `AutoCreatePullRequests` | bool? | null | Legacy; ignored since 1.0.1 (use `LandingMode` `PullRequest`) |
 | `AutoMergePullRequests` | bool? | null | Per-voyage auto-merge override for pull requests opened by the `PullRequest` landing mode (null = use the global setting) |
 | `LandingMode` | [LandingModeEnum](#landingmodeenum)? | null | Per-voyage landing policy override (null = use vessel/global setting) |
+| `IsEvaluation` | bool | false | Evaluation work (fixture battery, model evaluation), set at dispatch. Every mission of the voyage inherits it |
 
 ---
 
@@ -8727,6 +8730,7 @@ An atomic unit of work assigned to a captain.
 | `DiffSnapshot` | string? | null | Always `null` in list/status responses to keep payloads compact. Use `GET /api/v1/missions/{id}/diff` to retrieve the full diff. |
 | `FailureReason` | string? | null | Human-readable reason for a failure or landing failure. Display text only; never parsed |
 | `FailureKind` | string? | null | Structured failure classification set where the failure happens: `Compile`, `TestFail`, `Timeout`, `LandingConflict`, `Crash`, `NoOp`, `Boundary`, `ScopeViolation`, `JudgeRejected`, `Infra`, `Unknown`, `ReviewDenied`, `DependencyFailed`, `MaxRuntimeExceeded`, `StallRecoveryExhausted`, `OperatorAction`, `InvalidOutput`. Autonomous recovery reads this field |
+| `IsEvaluation` | bool | false | Evaluation work (fixture battery, model evaluation). Set at dispatch (`POST /api/v1/missions` body or the voyage's `IsEvaluation`); a mission created in an evaluation voyage, and every mission derived from it, is flagged too. Its stage outcomes are tagged `IsEvaluation` and excluded from production outcomes (`isEvaluation=false`). Also returned on mission summaries |
 | `WaitForVoyageWorkers` | bool | false | When true, a Worker waits for other implementation pipelines, including reviews and checks, to settle. Its own downstream stages and the Architect are excluded; reworks inherit the barrier (set from an architect plan's `waitForOtherMissions`) |
 | `Persona` | string? | null | Persona for this mission (`Worker`, `Architect`, `Judge`, ...); null means `Worker` |
 | `Tier` | string? | null | Required capability tier (`CaptainTierEnum`); dispatch picks an idle captain at or above it. Null means `Standard` |
@@ -9757,6 +9761,7 @@ Request body for creating a voyage with missions.
 | `ObjectiveId` | string? | null | Objective (backlog item) to link the voyage to |
 | `CaptainAssignments` | array? | null | Per-persona captain overrides: each entry binds a persona to a preferred captain and a fallback tier for every mission of that persona in the voyage |
 | `LandingMode` | [LandingModeEnum](#landingmodeenum)? | null | Landing mode for this voyage's missions; null inherits the vessel's, then the global default |
+| `IsEvaluation` | bool | false | Evaluation work: the voyage and its missions are flagged and their stage outcomes never count as production data |
 
 ---
 

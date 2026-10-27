@@ -77,7 +77,8 @@ namespace Test.Shared.Infrastructure
             lock (Dispatches) Dispatches.Add(args);
             if (DispatchError != null) throw DispatchError;
             List<MissionDescription> missions = (List<MissionDescription>)args[3]!;
-            Voyage voyage = await Database.Voyages.CreateAsync(new Voyage((string)args[0]!, (string?)args[1])).ConfigureAwait(false);
+            bool isEvaluation = args.Length > 10 && args[10] is bool flag && flag;
+            Voyage voyage = await Database.Voyages.CreateAsync(new Voyage((string)args[0]!, (string?)args[1]) { IsEvaluation = isEvaluation }).ConfigureAwait(false);
             foreach (MissionDescription description in missions)
             {
                 Mission mission = new Mission(description.Title, description.Description)
@@ -85,6 +86,7 @@ namespace Test.Shared.Infrastructure
                     VoyageId = voyage.Id,
                     VesselId = (string)args[2]!,
                     Persona = description.Persona,
+                    IsEvaluation = voyage.IsEvaluation,
                     Status = MissionStatusEnum.InProgress
                 };
                 await Database.Missions.CreateAsync(mission).ConfigureAwait(false);

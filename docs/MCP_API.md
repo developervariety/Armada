@@ -1326,7 +1326,8 @@ The fixture battery runs data-defined packs of fixed tasks (`battery/<pack>/batt
 vessel under the built-in `ModelEvaluation` pipeline, after the fixture is reset, and is graded per its manifest. A task
 whose toolchain the Harbor lacks is `CouldNotRun`, never `Failed`. Rubric-graded tasks are `PendingEvaluation` with the
 raw output stored. Runs (`bat_`) record the seed, sampling settings, run count, battery version and configuration
-revision. Battery missions never count in production stage outcomes. The REST equivalents are in
+revision. Battery voyages and missions are dispatched with `isEvaluation` set, so their stage outcomes are tagged
+`IsEvaluation` and never count in production stage outcomes; the flag, not the pipeline, decides the tag. The REST equivalents are in
 [REST_API.md](REST_API.md#fixture-battery), and the tools enforce the same rules through the same service.
 
 Errors are `McpToolError`s:
@@ -1639,6 +1640,7 @@ Optional `approvalOptions` has `approveAll` (default false), `timeoutSeconds` (1
 | `selectedPlaybooks` | array | No | Ordered playbook selections with `playbookId` and `deliveryMode` |
 | `captainAssignments` | array | No | Per-persona captain overrides. Array of `{ persona` (required)`, captainId, fallbackTier` (`Economy`/`Standard`/`Premium`)` }` -- binds a pipeline step (persona) to a preferred captain and a fallback tier. Applied before the first stage is assigned. |
 | `landingMode` | string | No | `LocalMerge`, `MergeAndPush`, `PullRequest`, `MergeQueue`, or `None` for this voyage (overrides the vessel and server default) |
+| `isEvaluation` | boolean | No | `true` for evaluation work (fixture battery, model evaluation): the voyage and every mission it creates are flagged `IsEvaluation`, and their stage outcomes never count as production data. Default `false` |
 
 > **Parity with REST.** This tool and `POST /api/v1/voyages` funnel through the same validation: a linked
 > objective must exist, a pipeline name must resolve, and a request with no vessel or no missions is created
@@ -2973,6 +2975,7 @@ Create and dispatch a standalone mission to a vessel. The Admiral assigns a capt
     "persona": { "type": "string", "description": "Persona for this mission (e.g. Worker, Architect, Judge, Test Engineer)" },
     "mode": { "type": "string", "description": "Execution mode: Implementation (default), Audit, or Research. Audit and Research are read-only modes that produce a written report instead of a commit; their empty diff is treated as success, not a no-op failure." },
     "tier": { "type": "string", "description": "Optional minimum captain tier for this mission (Economy, Standard, or Premium); only captains at or above it are assigned" },
+    "isEvaluation": { "type": "boolean", "description": "True for evaluation work: the mission's stage outcomes never count as production data. A mission added to an evaluation voyage is flagged regardless. Default false." },
     "selectedPlaybooks": {
       "type": "array",
       "description": "Optional ordered playbook selections for this mission",
@@ -2991,6 +2994,7 @@ Create and dispatch a standalone mission to a vessel. The Admiral assigns a capt
 ```
 
 **Response:** [Mission](#mission) object. Without `tier` the mission routes to any idle captain (treated as `Standard`).
+The returned mission carries `isEvaluation`: true when the argument was set or `voyageId` names an evaluation voyage.
 
 ---
 
