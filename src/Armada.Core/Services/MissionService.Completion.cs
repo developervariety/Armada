@@ -223,10 +223,29 @@ namespace Armada.Core.Services
         {
             // A work stage that ended without a commit, a diff or its completion line stopped early (a model ending its
             // turn mid-task), however long it ran. Review and planning stages never commit, so they are exempt.
+            // The stored diff is against the vessel default branch and can predate this dock. File changes since the
+            // dock start commit are the work signal. The stored diff is left unchanged for landing display.
             bool workStage = String.IsNullOrEmpty(mission.Persona) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Worker);
+            string? startCommit = dock == null ? null : TryReadDockStartCommit(dock.Id);
+            string? changeEvidence = mission.DiffSnapshot;
+            if (dock != null)
+            {
+                bool? changedSinceStart = await TryReadFilesChangedSinceDockStartAsync(dock, startCommit, token).ConfigureAwait(false);
+                if (changedSinceStart == null)
+                {
+                    _Logging.Warn(_Header + "no-op check skipped for mission " + mission.Id +
+                        " because changes since dock " + dock.Id + " are unknown");
+                    return false;
+                }
+
+                changeEvidence = changedSinceStart.Value
+                    ? (String.IsNullOrWhiteSpace(changeEvidence) ? "changed" : changeEvidence)
+                    : null;
+            }
+
             bool unfinished = workStage && dock != null
-                && NoOpCompletionDetector.IsUnfinishedWork(mission.DiffSnapshot, mission.AgentOutput, TryReadDockStartCommit(dock.Id), mission.CommitHash);
-            if (!unfinished && !NoOpCompletionDetector.IsNoOp(mission.DiffSnapshot, mission.AgentOutput, mission.TotalRuntimeMs))
+                && NoOpCompletionDetector.IsUnfinishedWork(changeEvidence, mission.AgentOutput, startCommit, mission.CommitHash);
+            if (!unfinished && !NoOpCompletionDetector.IsNoOp(changeEvidence, mission.AgentOutput, mission.TotalRuntimeMs))
                 return false;
 
             // Release the dock/captain before re-dispatching or failing.
@@ -285,6 +304,41 @@ namespace Armada.Core.Services
             await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
             await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
             return true;
+        }
+
+        /// <summary>
+        /// Whether any file changed in the dock after <paramref name="startCommit"/>. Null means the start commit
+        /// is missing or Git could not answer. Callers must not treat that unknown as an empty change list, and
+        /// must not substitute the default-branch diff.
+        /// </summary>
+        /// <param name="dock">Dock whose worktree is compared.</param>
+        /// <param name="startCommit">Commit recorded when the dock was provisioned, or null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when at least one file changed, false when none changed, null when unknown.</returns>
+        private async Task<bool?> TryReadFilesChangedSinceDockStartAsync(Dock dock, string? startCommit, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(dock.WorktreePath) || String.IsNullOrWhiteSpace(startCommit))
+                return null;
+
+            DockHost? harborHost = HarborHostFor(dock);
+            IGitService? git = harborHost != null ? harborHost.Git : _Git;
+            if (git == null)
+                return null;
+
+            try
+            {
+                IReadOnlyList<string> changedFiles = await git.GetChangedFilesSinceAsync(dock.WorktreePath, startCommit, token).ConfigureAwait(false);
+                return changedFiles.Count > 0;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read files changed since dock " + dock.Id + " started: " + ex.Message);
+                return null;
+            }
         }
 
         private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token)

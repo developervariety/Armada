@@ -4,6 +4,15 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### No-op completion follows the dock start commit
+
+- A completion is judged from files changed since the dock start commit. The diff stored for landing is still taken
+  against the vessel default branch, so earlier commits on that branch do not count as work by this dock. A missing
+  start commit or a Git error is unknown and does not reject the mission. Audit and Research missions still skip the
+  check. Untracked files are part of the file query, so they are not treated as no change.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
