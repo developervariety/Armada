@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Objective refinement
+
+- **Stored session status:** an empty status still reads as `Created`. An unknown non-empty status now fails the read with the session id and stored value, so a later update cannot replace the damaged value with `Created`.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
