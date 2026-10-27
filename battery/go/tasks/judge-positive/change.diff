@@ -1,0 +1,45 @@
+diff --git a/stock.go b/stock.go
+--- a/stock.go
++++ b/stock.go
+@@ -61,3 +61,9 @@
+ 	}
+ 	return total
+ }
++
++// Contains reports whether an item with the SKU is in stock (known, even at zero units).
++func (s *Stock) Contains(sku string) bool {
++	_, ok := s.items[sku]
++	return ok
++}
+diff --git a/stock_test.go b/stock_test.go
+--- a/stock_test.go
++++ b/stock_test.go
+@@ -50,3 +50,17 @@
+ 		t.Fatalf("expected ErrUnknownSku, got %v", err)
+ 	}
+ }
++
++// stockContainsKnownAndUnknown checks that Contains finds a known SKU and not an unknown one.
++func stockContainsKnownAndUnknown(t *testing.T) {
++	stock := NewStock()
++	if err := stock.Add(mustItem(t, "A-1", "Anchor", 100, 0)); err != nil {
++		t.Fatal(err)
++	}
++	if !stock.Contains("A-1") {
++		t.Fatal("A-1 should be known")
++	}
++	if stock.Contains("B-1") {
++		t.Fatal("B-1 should be unknown")
++	}
++}
+diff --git a/registry_test.go b/registry_test.go
+--- a/registry_test.go
++++ b/registry_test.go
+@@ -16,6 +16,7 @@
+ 		{"stockAddSameSkuMergesQuantity", stockAddSameSkuMergesQuantity},
+ 		{"stockRemoveReducesQuantity", stockRemoveReducesQuantity},
+ 		{"stockRemoveUnknownSkuFails", stockRemoveUnknownSkuFails},
++		{"stockContainsKnownAndUnknown", stockContainsKnownAndUnknown},
+ 		{"priceCalculatorLineTotalMultiplies", priceCalculatorLineTotalMultiplies},
+ 	}
+ }

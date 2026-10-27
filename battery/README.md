@@ -162,6 +162,24 @@ The `Battery.CSharpPack` test suite runs the real `dotnet` and `git` on this pac
 checks that the reset fixture fails the grader for the reason the task is about, and that a reference solution
 passes.
 
+## Language packs
+
+Each language pack ports the same inventory fixture and the ten template tasks of the C# pack, with the same ids,
+personas and grader types. Each fixture has a dependency-free test runner: a test runs only when it is registered,
+`--require NAME` fails when NAME is not registered, and nothing is downloaded or installed. The
+`Services.BatteryPacks` test suite validates every pack in this folder and checks every file it references. Where this
+machine has a pack's toolchain, it also runs the baseline test command on the clean fixture and checks that each
+command-graded task fails before the work is done. When the toolchain is missing, the pack's case is skipped and the
+missing tool is named.
+
+| Pack | Toolchain | Tests (registry) | Pack-specific tasks |
+|---|---|---|---|
+| `csharp` | `dotnet`, `git` | `dotnet run --project tests/Inventory.Tests` (`TestRegistry.cs`) | See above. |
+| `javascript` | `node`, `git` | `node tests/run.js` (`tests/registry.js`); `npm test` runs the same | Hidden check `item.totalValue`; BOM+CRLF `src/legacyCodes.js`; mutants of `truncate` (null guard returns `''`, `RangeError` becomes `TypeError`, boundary, cut length); Judge defects off-by-one, `find` returning null dereferenced, `Math.floor(percentOff / 100)`; lint `var`, missing JSDoc, `!=`, `console.log` |
+| `python` | `python3`, `git` | `python3 -B -m tests.run`, stdlib `unittest` only (`tests/registry.py`) | Hidden check `Item.total_value`; BOM+CRLF `inventory/legacy_codes.py`; mutants of `truncate` (None guard returns `""`, `ValueError` becomes `TypeError`, boundary, cut length); Judge defects off-by-one, `find` returning None dereferenced, `percent_off // 100`; lint missing docstring, missing type hints, bare `except:`, `print`. `-B` keeps stale bytecode out of mutation runs |
+| `go` | `go`, `git` | `go test -count=1 .`, flags after `-args` (`registry_test.go`) | Hidden check `(*Item).TotalValueCents`; BOM+CRLF `legacy_codes.go`; mutants of `Truncate` (empty guard returns nil, wrong sentinel error, boundary, cut length); Judge defects off-by-one, nil `Find` result dereferenced, integer `percentOff / 100`; lint missing doc comment, `reorder_list`, `panic`, `fmt.Println` |
+| `rust` | `cargo`, `git` | `cargo test --offline`, flags after `--` (`tests/registry.rs`, `harness = false`) | Hidden check `Item::total_value_cents` (an overlay example); BOM+CRLF `src/legacy_codes.rs`; mutants of `truncate` (empty guard returns `Ok`, wrong error variant, boundary, cut length), each run after `cargo clean -p inventory` so a coarse file timestamp cannot hide a mutant; Judge defects off-by-one, `unwrap()` on an unknown SKU, integer `percent_off / 100`; lint missing `///` doc, `reorderList`, `unwrap()`, `println!` |
+
 ## Adding a pack
 
 1. Create `battery/<id>/fixture/` with the fixture repository content. Add a `.gitattributes` there if any file must

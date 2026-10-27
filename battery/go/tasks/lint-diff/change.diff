@@ -1,0 +1,37 @@
+diff --git a/reorder.go b/reorder.go
+new file mode 100644
+--- /dev/null
++++ b/reorder.go
+@@ -0,0 +1,32 @@
++package inventory
++
++import "fmt"
++
++// Reorder suggests which items to reorder.
++type Reorder struct {
++	threshold int
++}
++
++// NewReorder creates a reorder policy that reorders when fewer units than threshold are on hand. It returns
++// ErrInvalidArgument when threshold is negative.
++func NewReorder(threshold int) (*Reorder, error) {
++	if threshold < 0 {
++		return nil, fmt.Errorf("%w: threshold must not be negative", ErrInvalidArgument)
++	}
++	return &Reorder{threshold: threshold}, nil
++}
++
++func (r *Reorder) Suggest(stock *Stock, skus []string) []string {
++	if stock == nil {
++		panic("stock must not be nil")
++	}
++	reorder_list := []string{}
++	for _, sku := range skus {
++		item := stock.Find(sku)
++		if item != nil && item.Quantity < r.threshold {
++			fmt.Println("Reorder " + sku)
++			reorder_list = append(reorder_list, sku)
++		}
++	}
++	return reorder_list
++}

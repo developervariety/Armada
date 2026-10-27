@@ -1,0 +1,26 @@
+diff --git a/src/stock.rs b/src/stock.rs
+--- a/src/stock.rs
++++ b/src/stock.rs
+@@ -64,4 +64,22 @@
+         }
+         total
+     }
++
++    /// Value on hand, in cents, of the listed SKUs: unit price times quantity, summed.
++    pub fn value_of(&self, skus: &[&str]) -> Result<i64, InventoryError> {
++        let mut total: i64 = 0;
++        for i in 1..skus.len() {
++            let item = self.find(skus[i]).unwrap();
++            total += item.unit_price_cents * i64::from(item.quantity);
++        }
++        Ok(total)
++    }
++
++    /// Price, in cents, of a bulk order after a whole-number percentage discount (0 to 100).
++    pub fn bulk_price_cents(&self, sku: &str, quantity: u32, percent_off: u32) -> Result<i64, InventoryError> {
++        let item = self.find(sku).ok_or_else(|| InventoryError::UnknownSku(sku.to_string()))?;
++        let rate = i64::from(percent_off / 100);
++        let total = item.unit_price_cents * i64::from(quantity);
++        Ok(total - total * rate)
++    }
+ }

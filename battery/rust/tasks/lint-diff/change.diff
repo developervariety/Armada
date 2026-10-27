@@ -1,0 +1,43 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -4,6 +4,7 @@
+ pub mod item;
+ pub mod legacy_codes;
+ pub mod price_calculator;
++pub mod reorder;
+ pub mod stock;
+ pub mod text_util;
+ 
+diff --git a/src/reorder.rs b/src/reorder.rs
+new file mode 100644
+--- /dev/null
++++ b/src/reorder.rs
+@@ -0,0 +1,27 @@
++//! Reorder suggestions.
++
++use crate::stock::Stock;
++
++/// Suggests which items to reorder.
++pub struct Reorder {
++    threshold: u32,
++}
++
++impl Reorder {
++    /// Creates a reorder policy that reorders when fewer units than `threshold` are on hand.
++    pub fn new(threshold: u32) -> Reorder {
++        Reorder { threshold }
++    }
++
++    pub fn suggest(&self, stock: &Stock, skus: &[&str]) -> Vec<String> {
++        let mut reorderList = Vec::new();
++        for sku in skus {
++            let item = stock.find(sku).unwrap();
++            if item.quantity < self.threshold {
++                println!("Reorder {}", sku);
++                reorderList.push(sku.to_string());
++            }
++        }
++        reorderList
++    }
++}

@@ -1,0 +1,2 @@
+# Keep every byte as committed. src/legacyCodes.js is UTF-8 with a BOM and CRLF line endings on purpose.
+* -text

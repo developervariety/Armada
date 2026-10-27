@@ -1,0 +1,56 @@
+diff --git a/src/stock.js b/src/stock.js
+--- a/src/stock.js
++++ b/src/stock.js
+@@ -77,6 +77,17 @@
+     for (const item of this._items.values()) total += item.quantity;
+     return total;
+   }
++
++  /**
++   * Whether an item with the SKU is in stock (known, even at zero units).
++   * @param {string} sku SKU.
++   * @returns {boolean} True when the SKU is known.
++   * @throws {TypeError} When sku is not a string.
++   */
++  contains(sku) {
++    if (typeof sku !== 'string') throw new TypeError('sku must be a string');
++    return this._items.has(sku);
++  }
+ }
+ 
+ module.exports = { Stock };
+diff --git a/tests/stockTests.js b/tests/stockTests.js
+--- a/tests/stockTests.js
++++ b/tests/stockTests.js
+@@ -34,4 +34,19 @@
+   assert.throws(() => stock.remove('missing', 1), UnknownSkuError);
+ }
+ 
+-module.exports = { stockAddSameSkuMergesQuantity, stockRemoveReducesQuantity, stockRemoveUnknownSkuThrows };
++/**
++ * contains finds a known SKU and not an unknown one.
++ */
++function stockContainsKnownAndUnknown() {
++  const stock = new Stock();
++  stock.add(new Item('A-1', 'Anchor', 1, 0));
++  assert.equal(stock.contains('A-1'), true);
++  assert.equal(stock.contains('B-1'), false);
++}
++
++module.exports = {
++  stockAddSameSkuMergesQuantity,
++  stockRemoveReducesQuantity,
++  stockRemoveUnknownSkuThrows,
++  stockContainsKnownAndUnknown
++};
+diff --git a/tests/registry.js b/tests/registry.js
+--- a/tests/registry.js
++++ b/tests/registry.js
+@@ -15,6 +15,7 @@
+     { name: 'stockAddSameSkuMergesQuantity', body: stockTests.stockAddSameSkuMergesQuantity },
+     { name: 'stockRemoveReducesQuantity', body: stockTests.stockRemoveReducesQuantity },
+     { name: 'stockRemoveUnknownSkuThrows', body: stockTests.stockRemoveUnknownSkuThrows },
++    { name: 'stockContainsKnownAndUnknown', body: stockTests.stockContainsKnownAndUnknown },
+     { name: 'priceCalculatorLineTotalMultiplies', body: priceCalculatorTests.priceCalculatorLineTotalMultiplies }
+   ];
+ }
