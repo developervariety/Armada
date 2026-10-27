@@ -6024,7 +6024,9 @@
         "The conversation could not be marked read.": "No se pudo marcar la conversación como leída.",
         "The conversation could not be marked unread.": "No se pudo marcar la conversación como no leída.",
         "Resize conversation list": "Cambiar el tamaño de la lista de conversaciones",
-        "Drag to resize. Double-click to reset.": "Arrastre para cambiar el tamaño. Haga doble clic para restablecerlo."
+        "Drag to resize. Double-click to reset.": "Arrastre para cambiar el tamaño. Haga doble clic para restablecerlo.",
+        "{{count}} conversations have unread messages. Click to open Ask Armada.": "{{count}} conversaciones tienen mensajes sin leer. Haz clic para abrir Ask Armada.",
+        "{{count}} unread conversations": "{{count}} conversaciones sin leer"
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -10985,7 +10987,9 @@
         "The conversation could not be marked read.": "无法将对话标为已读。",
         "The conversation could not be marked unread.": "无法将对话标为未读。",
         "Resize conversation list": "调整对话列表大小",
-        "Drag to resize. Double-click to reset.": "拖动以调整大小。双击可恢复默认。"
+        "Drag to resize. Double-click to reset.": "拖动以调整大小。双击可恢复默认。",
+        "{{count}} conversations have unread messages. Click to open Ask Armada.": "有 {{count}} 个对话有未读消息。点击打开 Ask Armada。",
+        "{{count}} unread conversations": "{{count}} 个未读对话"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15909,7 +15913,9 @@
         "The conversation could not be marked read.": "無法將對話標為已讀。",
         "The conversation could not be marked unread.": "無法將對話標為未讀。",
         "Resize conversation list": "調整對話清單大小",
-        "Drag to resize. Double-click to reset.": "拖曳以調整大小。按兩下可還原預設。"
+        "Drag to resize. Double-click to reset.": "拖曳以調整大小。按兩下可還原預設。",
+        "{{count}} conversations have unread messages. Click to open Ask Armada.": "有 {{count}} 個對話有未讀訊息。按一下以開啟 Ask Armada。",
+        "{{count}} unread conversations": "{{count}} 個未讀對話"
       },
       "sections": {}
     },
@@ -20793,7 +20799,9 @@
         "The conversation could not be marked read.": "冇辦法將對話標為已讀。",
         "The conversation could not be marked unread.": "冇辦法將對話標為未讀。",
         "Resize conversation list": "調整對話清單大小",
-        "Drag to resize. Double-click to reset.": "拖動嚟調整大小。㩒兩下就還原預設。"
+        "Drag to resize. Double-click to reset.": "拖動嚟調整大小。㩒兩下就還原預設。",
+        "{{count}} conversations have unread messages. Click to open Ask Armada.": "有 {{count}} 個對話有未讀訊息。撳一下打開 Ask Armada。",
+        "{{count}} unread conversations": "{{count}} 個未讀對話"
       },
       "sections": {}
     },
@@ -25693,7 +25701,9 @@
         "The conversation could not be marked read.": "会話を既読にできませんでした。",
         "The conversation could not be marked unread.": "会話を未読にできませんでした。",
         "Resize conversation list": "会話リストのサイズを変更",
-        "Drag to resize. Double-click to reset.": "ドラッグしてサイズを変更します。ダブルクリックで元に戻します。"
+        "Drag to resize. Double-click to reset.": "ドラッグしてサイズを変更します。ダブルクリックで元に戻します。",
+        "{{count}} conversations have unread messages. Click to open Ask Armada.": "{{count}} 件の会話に未読メッセージがあります。クリックすると Ask Armada を開きます。",
+        "{{count}} unread conversations": "未読の会話 {{count}} 件"
       },
       "sections": {}
     },
@@ -30584,7 +30594,9 @@
         "The conversation could not be marked read.": "Die Unterhaltung konnte nicht als gelesen markiert werden.",
         "The conversation could not be marked unread.": "Die Unterhaltung konnte nicht als ungelesen markiert werden.",
         "Resize conversation list": "Größe der Unterhaltungsliste ändern",
-        "Drag to resize. Double-click to reset.": "Zum Ändern der Größe ziehen. Doppelklicken zum Zurücksetzen."
+        "Drag to resize. Double-click to reset.": "Zum Ändern der Größe ziehen. Doppelklicken zum Zurücksetzen.",
+        "{{count}} conversations have unread messages. Click to open Ask Armada.": "{{count}} Unterhaltungen haben ungelesene Nachrichten. Klicken, um Ask Armada zu öffnen.",
+        "{{count}} unread conversations": "{{count}} ungelesene Unterhaltungen"
       },
       "sections": {}
     },
@@ -35475,7 +35487,9 @@
         "The conversation could not be marked read.": "La conversation n'a pas pu être marquée comme lue.",
         "The conversation could not be marked unread.": "La conversation n'a pas pu être marquée comme non lue.",
         "Resize conversation list": "Redimensionner la liste des conversations",
-        "Drag to resize. Double-click to reset.": "Faites glisser pour redimensionner. Double-cliquez pour réinitialiser."
+        "Drag to resize. Double-click to reset.": "Faites glisser pour redimensionner. Double-cliquez pour réinitialiser.",
+        "{{count}} conversations have unread messages. Click to open Ask Armada.": "{{count}} conversations ont des messages non lus. Cliquez pour ouvrir Ask Armada.",
+        "{{count}} unread conversations": "{{count}} conversations non lues"
       },
       "sections": {}
     },
@@ -40366,7 +40380,9 @@
         "The conversation could not be marked read.": "Impossibile segnare la conversazione come letta.",
         "The conversation could not be marked unread.": "Impossibile segnare la conversazione come non letta.",
         "Resize conversation list": "Ridimensiona l'elenco delle conversazioni",
-        "Drag to resize. Double-click to reset.": "Trascina per ridimensionare. Fai doppio clic per ripristinare."
+        "Drag to resize. Double-click to reset.": "Trascina per ridimensionare. Fai doppio clic per ripristinare.",
+        "{{count}} conversations have unread messages. Click to open Ask Armada.": "{{count}} conversazioni hanno messaggi non letti. Fai clic per aprire Ask Armada.",
+        "{{count}} unread conversations": "{{count}} conversazioni non lette"
       },
       "sections": {}
     }
