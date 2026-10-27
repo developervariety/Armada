@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Rescue briefs keep the prior-stage handoff
+
+- **A rescue brief keeps an appended prior-stage handoff.** The brief keeps the first 3000 characters of the task text and the complete prior-stage handoff block. A description without that block keeps the existing 3000-character trim.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
