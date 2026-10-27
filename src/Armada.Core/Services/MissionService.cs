@@ -892,6 +892,16 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Cancel the definition-of-done command registered for a mission, when one is running.
+        /// </summary>
+        /// <param name="missionId">Mission identifier.</param>
+        internal void CancelActiveDefinitionOfDone(string missionId)
+        {
+            if (String.IsNullOrEmpty(missionId)) return;
+            _DefinitionOfDone?.CancelMission(missionId);
+        }
+
         /// <inheritdoc />
         public Task<bool> HasStrictCaptainAssignmentAsync(Mission mission, CancellationToken token = default)
         {
