@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- A voyage whose every mission is cancelled finishes as Cancelled. A settled voyage with a cancelled mission and no completed mission finishes as Failed. A voyage with a completed mission and no failed or landing-failed mission still finishes as Complete, and a voyage whose missions are only WorkProduced still finishes as Complete.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
