@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- The token usage page shows an error and a retry control when the summary request fails. A successful response with no usage still says the time range is empty. A failed load for a new filter does not keep the previous filter's chart.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

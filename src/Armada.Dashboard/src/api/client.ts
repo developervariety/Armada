@@ -1066,14 +1066,14 @@ export const getMissionHistory = (params?: { fromUtc?: string; toUtc?: string; b
         .map(([key, value]) => [key, String(value)]),
     ),
   } : undefined)}`);
-export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; model?: string; runtime?: string; source?: string; sourceId?: string; vesselId?: string; captainId?: string; harborId?: string }) =>
+export const getTokenUsage = (params?: { fromUtc?: string; toUtc?: string; bucketMinutes?: number; model?: string; runtime?: string; source?: string; sourceId?: string; vesselId?: string; captainId?: string; harborId?: string }, opts?: RequestOptions) =>
   get<TokenUsageSummaryResult>(`/api/v1/token-usage/summary${buildQuery(params ? {
     filters: Object.fromEntries(
       Object.entries(params)
         .filter(([, value]) => value !== undefined && value !== null && value !== '')
         .map(([key, value]) => [key, String(value)]),
     ),
-  } : undefined)}`);
+  } : undefined)}`, opts);
 export const getMissionLandingPreview = (id: string) => get<LandingPreviewResult>(`/api/v1/missions/${encodeURIComponent(id)}/landing-preview`);
 export const getMissionGitHubPullRequest = (id: string) => get<GitHubPullRequestDetail>(`/api/v1/missions/${encodeURIComponent(id)}/github/pull-request`);
 export const createMission = (data: Partial<Mission>) => post<Mission>('/api/v1/missions', data);
