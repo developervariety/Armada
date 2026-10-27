@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Readiness
+
+- Command-dependency probes treat shell syntax as syntax. A requested check recognizes `exit`, `return`, `:`, `source`, `unset`, `shift`, `eval`, `exec`, `trap`, `wait`, `local`, `readonly`, `declare`, `ulimit`, `umask`, `shopt`, `esac`, conditional and loop keywords, and `for`/`select`/`case` headers. A command name that is a shell variable is not probed. A program later in the same segment, and a program in a later `&&`, `||`, or `;` segment, is still probed. A missing program remains a blocking `command_dependency_missing` error.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
