@@ -313,6 +313,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     conditions.Add("captain_id = @captain_id");
                     parameters.Add(new NpgsqlParameter("@captain_id", query.CaptainId));
                 }
+                if (!string.IsNullOrEmpty(query.MissionId))
+                {
+                    conditions.Add("id = @mission_id");
+                    parameters.Add(new NpgsqlParameter("@mission_id", query.MissionId));
+                }
 
                 string whereClause = conditions.Count > 0
                     ? " WHERE " + string.Join(" AND ", conditions)
@@ -528,6 +533,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     conditions.Add("captain_id = @captain_id");
                     parameters.Add(new NpgsqlParameter("@captain_id", query.CaptainId));
                 }
+                if (!string.IsNullOrEmpty(query.MissionId))
+                {
+                    conditions.Add("id = @mission_id");
+                    parameters.Add(new NpgsqlParameter("@mission_id", query.MissionId));
+                }
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
                 string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
                 long totalCount = 0;
@@ -717,6 +727,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     conditions.Add("captain_id = @captain_id");
                     parameters.Add(new NpgsqlParameter("@captain_id", query.CaptainId));
+                }
+                if (!string.IsNullOrEmpty(query.MissionId))
+                {
+                    conditions.Add("id = @mission_id");
+                    parameters.Add(new NpgsqlParameter("@mission_id", query.MissionId));
                 }
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
                 string orderDirection = query.Order == EnumerationOrderEnum.CreatedAscending ? "ASC" : "DESC";
