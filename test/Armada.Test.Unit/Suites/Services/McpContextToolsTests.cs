@@ -189,7 +189,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Leaf("leaf.general", new List<string> { "all" }, null, "General leaf about alpha and review and general."),
                 Leaf("leaf.alpha", new List<string> { "all" }, null, "Alpha leaf mentioning alpha."),
                 Leaf("leaf.beta", new List<string> { "all" }, null, "Beta leaf mentioning beta and general."),
-                Leaf("leaf.safety.example", new List<string> { "all" }, new List<string> { "vessel:ExampleVessel" }, "Safety leaf for ExampleVessel."),
+                Leaf("leaf.safety.example", new List<string> { "vessel:ExampleVessel" }, new List<string> { "vessel:ExampleVessel" }, "Safety leaf for ExampleVessel."),
             };
         }
 
