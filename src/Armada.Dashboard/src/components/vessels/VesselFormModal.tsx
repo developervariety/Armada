@@ -93,7 +93,7 @@ export default function VesselFormModal({ vessel, fleets, pipelines, onClose, on
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <form className="modal" aria-label={editing ? t('Edit Vessel') : t('Create Vessel')} style={{ width: 'min(1080px, 95vw)', maxWidth: 'min(1080px, 95vw)', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+      <form className="modal" aria-label={editing ? t('Edit Vessel') : t('Create Vessel')} style={{ width: '95vw', maxWidth: '95vw', height: '95vh', maxHeight: '95vh', overflowY: 'auto', boxSizing: 'border-box' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
         <h3>{editing ? t('Edit Vessel') : t('Create Vessel')}</h3>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 1.5rem' }}>
