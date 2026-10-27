@@ -362,11 +362,17 @@ namespace Armada.Core.Services
                     return blocker;
                 }
 
+                // Authors of the reviewed work are named as a cause only when the exclusion is what removed them.
+                HashSet<string> excludedAuthors = _Settings.ExcludeReviewAuthorsFromJudge
+                    ? await ReviewAuthorCaptainIdsAsync(mission, token).ConfigureAwait(false)
+                    : new HashSet<string>(StringComparer.Ordinal);
+                bool authorsIdle = idleCaptains.Any(c => excludedAuthors.Contains(c.Id));
                 blocker.Reason = MissionAssignmentBlockerReasonEnum.NoEligibleCaptain;
                 blocker.Summary = "Waiting for a captain: no idle captain may take this mission"
                     + (!String.IsNullOrEmpty(mission.Persona) ? " (persona " + mission.Persona + ")" : "")
                     + (mission.Tier.HasValue ? " (tier " + mission.Tier.Value + " or higher)" : "")
-                    + ". Check the persona's captain priorities and the captains' allowed personas and tiers.";
+                    + ". Check the persona's captain priorities and the captains' allowed personas and tiers."
+                    + (authorsIdle ? " Idle captains that ran an earlier stage of the reviewed work are excluded because ExcludeReviewAuthorsFromJudge is on." : "");
                 await DescribeCaptainsAsync(blocker, allCaptains, mission.TenantId, token).ConfigureAwait(false);
                 return blocker;
             }

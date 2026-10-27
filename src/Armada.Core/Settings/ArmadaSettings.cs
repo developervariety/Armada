@@ -338,6 +338,14 @@ namespace Armada.Core.Settings
         public bool BlockDependentsOfFailedStages { get; set; } = false;
 
         /// <summary>
+        /// When true, a Judge is never assigned to a captain that ran an earlier stage (Worker, Test Engineer and so on)
+        /// of the chain it reviews, even when that captain is requested; the Judge waits for an independent captain.
+        /// When false (the default), an idle non-author captain is still preferred, but an author captain reviews the
+        /// work when no other eligible captain is idle, and a requested author captain is honored.
+        /// </summary>
+        public bool ExcludeReviewAuthorsFromJudge { get; set; } = false;
+
+        /// <summary>
         /// Base delay, in seconds, before a captain is resumed in place after a transient model or endpoint failure. Each
         /// further attempt doubles it (with jitter), up to 60 seconds, so a struggling local model server is not hit with
         /// an immediate retry storm. 0 resumes immediately. Must be in range [0, 60].

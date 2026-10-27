@@ -165,8 +165,8 @@ PASS is rejected.
   Coding knowledge matters for reading, not writing. Speed matters little.
 - **Failure looks like:** rubber-stamp PASS verdicts, vague NEEDS_REVISION verdicts with no affected case, missing or
   duplicated verdict lines, verdicts based on prose instead of a build or test run.
-- **Good choice:** a strong reasoning model from a different model family than the Worker. Armada already prevents a
-  captain from reviewing its own work; a different family also avoids shared blind spots. Check that the Judge's
+- **Good choice:** a strong reasoning model from a different model family than the Worker. Armada prefers a captain
+  that did not author the work (set `ExcludeReviewAuthorsFromJudge` to forbid self-review); a different family also avoids shared blind spots. Check that the Judge's
   runtime can actually build and test on the Harbor: in the hybrid trial the Codex Judge's sandbox could not run
   `dotnet`, so its verdicts came from reading source and earlier stages' reports.
 - **Public signals:** reasoning benchmarks (Epoch AI's hub, Artificial Analysis). Your own data is far better: how
