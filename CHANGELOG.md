@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- An open check run reloads when that run changes, without replacing the page with a loading message. When the comparison page contains fewer runs than the total, the page says how many runs it searched.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
