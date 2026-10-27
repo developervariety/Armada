@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Judge headings tolerate wrapped Markdown decoration
+
+- Required Judge sections are recognized when emphasis marks wrap the heading marks. Decorated section headings also end the preceding section body, so a following lens or conflict section does not become part of the previous section.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
