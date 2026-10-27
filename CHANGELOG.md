@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Landing preview uses the effective landing mode
+
+- **Preview checks follow the landing handler.** A mission preview resolves the landing mode before it describes the action or applies branch policy: the voyage mode, then the vessel mode, then the server setting, then MergeAndPush. A vessel preview uses the same order without a voyage. The reported landing mode is that resolved mode. The inherited-mode warning still appears when the stored vessel mode is empty and, for a mission, the stored voyage mode is empty. The warning text is unchanged. Branch cleanup policy and the landing handler are unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
