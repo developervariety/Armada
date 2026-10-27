@@ -435,8 +435,9 @@ namespace Armada.Core.Services
                 args.Add(message);
                 await RunGitAsync(targetWorkDir, token, args.ToArray()).ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                if (await ChangelogLandingConflict.TryResolveAsync(new LocalHostCommandExecutor(), targetWorkDir, OperatingSystem.IsWindows(), token).ConfigureAwait(false)) return;
                 await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
                 throw;
             }
@@ -698,6 +699,8 @@ namespace Armada.Core.Services
                 failure = (merge.StandardError + "\n" + merge.StandardOutput).Trim();
             }
             if (merge.Succeeded) return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Merged);
+            if (await ChangelogLandingConflict.TryResolveAsync(new LocalHostCommandExecutor(), worktreePath, OperatingSystem.IsWindows(), token).ConfigureAwait(false))
+                return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Merged);
 
             IReadOnlyList<string> conflicted = await GetConflictedFilesAsync(worktreePath, token).ConfigureAwait(false);
             // Never leave the worktree mid-merge. Not cancellable, so a shutdown cannot strand conflict markers.

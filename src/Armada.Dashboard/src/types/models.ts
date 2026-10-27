@@ -195,6 +195,7 @@ export type MissionStatus =
   | 'WorkProduced'
   | 'PullRequestOpen'
   | 'Testing'
+  | 'Verifying'
   | 'Review'
   | 'Complete'
   | 'Failed'

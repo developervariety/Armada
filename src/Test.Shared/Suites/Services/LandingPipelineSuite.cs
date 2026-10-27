@@ -49,7 +49,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
 
@@ -76,7 +76,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
 
@@ -110,7 +110,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     git.ShouldThrowOnMergeLocal = true;
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
@@ -318,7 +318,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
 
@@ -352,7 +352,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
@@ -398,7 +398,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
@@ -426,7 +426,7 @@ namespace Test.Shared.Suites.Services
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
-                    StubGitService git = new StubGitService();
+                    StubGitService git = new StubGitService { ResolveBranchTipResult = "abc123def456" };
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);

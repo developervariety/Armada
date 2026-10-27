@@ -35,6 +35,10 @@ namespace Armada.Core.Services
                     return target == MissionStatusEnum.InProgress
                         || target == MissionStatusEnum.Cancelled;
 
+                case MissionStatusEnum.Verifying:
+                    return target == MissionStatusEnum.InProgress || target == MissionStatusEnum.WorkProduced || target == MissionStatusEnum.Complete
+                        || target == MissionStatusEnum.Failed || target == MissionStatusEnum.Cancelled;
+
                 case MissionStatusEnum.InProgress:
                     return target == MissionStatusEnum.WorkProduced
                         || target == MissionStatusEnum.Testing
@@ -128,7 +132,8 @@ namespace Armada.Core.Services
         /// <returns>True if the mission is actively in progress.</returns>
         public static bool IsActive(MissionStatusEnum status)
         {
-            return status == MissionStatusEnum.InProgress
+            return status == MissionStatusEnum.Verifying
+                || status == MissionStatusEnum.InProgress
                 || status == MissionStatusEnum.Assigned
                 || status == MissionStatusEnum.Review
                 || status == MissionStatusEnum.Testing;

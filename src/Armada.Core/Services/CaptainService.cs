@@ -202,6 +202,8 @@ namespace Armada.Core.Services
                     ? await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false)
                     : null;
 
+                if (mission.Status == MissionStatusEnum.Verifying) return; // A queued/running check owns this captain.
+
                 bool voyageCancelled = voyage != null && voyage.Status == VoyageStatusEnum.Cancelled;
                 bool missionRecoverable =
                     mission.Status == MissionStatusEnum.Assigned ||

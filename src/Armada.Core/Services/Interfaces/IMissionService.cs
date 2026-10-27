@@ -70,6 +70,11 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         Task HandleCompletionAsync(Captain captain, string missionId, CancellationToken token = default);
 
+        /// <summary>Complete only the row version owned by the agent exit handler.</summary>
+        Task HandleClaimedCompletionAsync(Captain captain, string missionId, DateTime expectedVersion, CancellationToken token = default)
+            => HandleCompletionAsync(captain, missionId, token);
+
+
         /// <summary>
         /// Whether a mission's completion is still being processed. Its status reads WorkProduced from the first step of
         /// completion, before the flow has decided what follows (a handoff, a rework, an output repair, landing), so voyage

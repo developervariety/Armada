@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Handoff and landing resilience
+
+- Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

@@ -15,13 +15,15 @@ namespace Armada.Core.Services
     /// </summary>
     public partial class MissionService
     {
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _StageCheckGates = new();
+
         #region Private-Methods
 
         /// <inheritdoc />
         public async Task<string?> VerifyStageWorkAsync(Mission mission, Captain captain, CancellationToken token = default)
         {
             StageCheckResult result = await CheckStageWorkAsync(mission, captain, token).ConfigureAwait(false);
-            return result.FailureMessage;
+            return result.IsBlocking ? result.FailureMessage : null;
         }
 
         /// <inheritdoc />
@@ -30,13 +32,26 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             DateTime started = DateTime.UtcNow;
-            StageCheckResult result = await RunStageCheckAsync(mission, captain, token).ConfigureAwait(false);
+            Dock? dock = String.IsNullOrEmpty(mission.DockId) ? null : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+            SemaphoreSlim gate = _StageCheckGates.GetOrAdd(dock?.HarborId ?? "local", _ => new SemaphoreSlim(_Settings.StageCheckConcurrencyPerHarbor));
+            await gate.WaitAsync(token).ConfigureAwait(false);
+            StageCheckResult result;
+            try
+            {
+                // Queue time does not consume the execution budget; head and baseline share it.
+                DateTime deadline = DateTime.UtcNow.AddMinutes(_Settings.StageCheckTimeoutMinutes);
+                result = await RunStageCheckAsync(mission, captain, deadline, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                gate.Release();
+            }
             result.CheckedUtc = DateTime.UtcNow;
             result.DurationMs = (long)(result.CheckedUtc - started).TotalMilliseconds;
             return result;
         }
 
-        private async Task<StageCheckResult> RunStageCheckAsync(Mission mission, Captain captain, CancellationToken token)
+        private async Task<StageCheckResult> RunStageCheckAsync(Mission mission, Captain captain, DateTime deadline, CancellationToken token)
         {
             bool checkedRuntime = captain.Runtime == AgentRuntimeEnum.Mux || captain.Runtime == AgentRuntimeEnum.ApiEndpoint;
             if (!checkedRuntime && !_Settings.VerifyAllStageRuntimes) return StageCheckResult.Skip(StageCheckReasonEnum.RuntimeNotChecked);
@@ -107,14 +122,16 @@ namespace Armada.Core.Services
                 {
                     foreach (string command in commands)
                     {
-                        HostCommandResult commandResult = await RunStageCommandAsync(executor, windows, dock.WorktreePath!, command, token).ConfigureAwait(false);
-                        if (commandResult.TimedOut)
+                        HostCommandResult commandResult = await RunStageCommandAsync(executor, windows, dock.WorktreePath!, command, deadline, token).ConfigureAwait(false);
+                        if (commandResult.TimedOut || commandResult.ExitCode == -1 || commandResult.ExitCode == 126 || commandResult.ExitCode == 127)
                         {
                             _Logging.Warn(_Header + "stage check for mission " + mission.Id + " timed out running " + command);
                             result.Status = StageCheckStatusEnum.CouldNotRun;
-                            result.Reason = StageCheckReasonEnum.TimedOut;
+                            result.Reason = commandResult.TimedOut ? StageCheckReasonEnum.TimedOut : StageCheckReasonEnum.Error;
                             result.FailedCommand = command;
-                            result.FailureMessage = "The stage check timed out after " + _Settings.StageCheckTimeoutMinutes + " minutes: " + command + ". Its success has not been verified. "
+                            result.FailureMessage = !commandResult.TimedOut
+                                ? "The stage check command could not start (exit " + commandResult.ExitCode + "): " + command + ". Its success has not been verified."
+                                : "The stage check timed out after " + _Settings.StageCheckTimeoutMinutes + " minutes: " + command + ". Its success has not been verified. "
                                 + "Investigate and rerun the check. If the command is simply slower than that, an operator can raise stageCheckTimeoutMinutes or give the vessel's workflow profile a narrower test command.";
                             return result;
                         }
@@ -123,12 +140,21 @@ namespace Armada.Core.Services
                         {
                             // A check that fails on the stage's starting commit as well is a pre-existing failure, not
                             // something this stage broke: report it in the log and do not send the captain back over it.
-                            if (!String.IsNullOrEmpty(startCommit)
-                                && await FailsOnBaseCommitAsync(executor, windows, vessel.Id, dock.WorktreePath!, startCommit!, command, token).ConfigureAwait(false))
+                            bool? baseFails = String.IsNullOrEmpty(startCommit) ? null
+                                : await FailsOnBaseCommitAsync(executor, windows, vessel.Id, dock.WorktreePath!, startCommit!, command, deadline, token).ConfigureAwait(false);
+                            if (baseFails == true)
                             {
-                                _Logging.Warn(_Header + "stage check for mission " + mission.Id + " fails on its base commit " + startCommit + " too (" + command + "); not blocking the stage");
+                                _Logging.Warn(_Header + "stage check for mission " + mission.Id + " fails on its base commit too: " + command);
                                 result.PreExistingFailures.Add(command);
                                 continue;
+                            }
+                            if (baseFails == null)
+                            {
+                                result.Status = StageCheckStatusEnum.CouldNotRun;
+                                result.FailedCommand = command;
+                                result.Reason = StageCheckReasonEnum.Error;
+                                result.FailureMessage = "The head check failed, but its base could not be verified within the shared budget. Rerun the checks; this is not a confirmed regression.";
+                                return result;
                             }
 
                             string output = ((commandResult.StandardOutput ?? "") + "\n" + (commandResult.StandardError ?? "")).Trim();
@@ -153,7 +179,7 @@ namespace Armada.Core.Services
                 result.Status = StageCheckStatusEnum.Passed;
                 return result;
             }
-            catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is TimeoutException)
+            catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is TimeoutException || ex is System.ComponentModel.Win32Exception)
             {
                 _Logging.Warn(_Header + "stage check for mission " + mission.Id + " could not run: " + ex.Message);
                 result.Status = StageCheckStatusEnum.CouldNotRun;

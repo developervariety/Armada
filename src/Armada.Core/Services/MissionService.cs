@@ -893,6 +893,28 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task HandleClaimedCompletionAsync(Captain captain, string missionId, DateTime expectedVersion, CancellationToken token = default)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (String.IsNullOrEmpty(missionId)) return;
+
+            // Deduplication is not keyed by mission id here: a mission-id gate (held past the handler) also swallowed
+            // the completion of a later attempt of the same mission. Each process exit is claimed once by its caller
+            // (IMissionMethods.TryClaimProcessExitAsync), and the core's first write is a compare-and-set on the status
+            // it read, so a duplicate for the same attempt loses that write and stops.
+            _CompletionsInFlight.AddOrUpdate(missionId, 1, (_, count) => count + 1);
+            try
+            {
+                await HandleCompletionCoreAsync(captain, missionId, token, expectedVersion).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (_CompletionsInFlight.AddOrUpdate(missionId, 0, (_, count) => count - 1) <= 0)
+                    _CompletionsInFlight.TryRemove(new KeyValuePair<string, int>(missionId, 0));
+            }
+        }
+
+        /// <inheritdoc />
         public Task<bool> HasStrictCaptainAssignmentAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
