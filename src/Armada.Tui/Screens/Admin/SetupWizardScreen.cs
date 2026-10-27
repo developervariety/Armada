@@ -461,7 +461,7 @@ namespace Armada.Tui.Screens.Admin
                 case 4:
                     return new List<string> { "/dispatch" };
                 case 5:
-                    return new List<string> { "/vessels", "/dispatch", "/planning", "/configuration", "/delivery" };
+                    return new List<string> { "/vessels", "/dispatch", "/configuration", "/delivery" };
                 default:
                     return new List<string>();
             }
@@ -977,6 +977,13 @@ namespace Armada.Tui.Screens.Admin
 
         #region Private-Methods
 
+        private static string PlanningHandoff(string vesselId, string fleetId)
+        {
+            Dictionary<string, string> query = new Dictionary<string, string>(StringComparer.Ordinal) { ["fromSetupWizard"] = "true", ["vesselId"] = vesselId };
+            if (fleetId.Length > 0) query["fleetId"] = fleetId;
+            return TabLinks.Planning(null, query);
+        }
+
         private static string NavLabel(string route)
         {
             switch (route)
@@ -984,7 +991,6 @@ namespace Armada.Tui.Screens.Admin
                 case "/vessels": return "Vessels";
                 case "/captains": return "Captains";
                 case "/dispatch": return "Dispatch";
-                case "/planning": return "Planning";
                 case "/configuration": return "Configuration";
                 case "/delivery": return "Delivery";
                 default: return route;
@@ -1809,7 +1815,7 @@ namespace Armada.Tui.Screens.Admin
                 string fleetId = ActiveFleetId.Length > 0 ? ActiveFleetId : vessel.FleetId ?? "";
                 panel.Actions.Add("Open Vessel Onboarding", () => FinishAndNavigate("/vessels/" + vesselId + "/onboarding"));
                 panel.Actions.Add("Open Backlog", () => FinishAndNavigate(HandoffBacklogPath()));
-                panel.Actions.Add("Open Planning", () => FinishAndNavigate("/planning?fromSetupWizard=true&vesselId=" + Uri.EscapeDataString(vesselId) + (fleetId.Length > 0 ? "&fleetId=" + Uri.EscapeDataString(fleetId) : "")));
+                panel.Actions.Add("Open Planning", () => FinishAndNavigate(PlanningHandoff(vesselId, fleetId)));
                 panel.Actions.Add("Open Workspace", () => FinishAndNavigate("/workspace/" + vesselId));
                 bool hasProfiles = MatchingProfiles.Count > 0;
                 panel.Actions.Add(hasProfiles ? "Open Workflow Profiles" : "Create Workflow Profile", () => FinishAndNavigate(hasProfiles ? "/configuration?tab=workflow-profiles" : "/workflow-profiles/new?scope=Vessel&vesselId=" + Uri.EscapeDataString(vesselId)));

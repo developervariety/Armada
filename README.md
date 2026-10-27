@@ -273,7 +273,7 @@ To let Claude Code (or Codex, Gemini, Cursor, Mux, OpenCode) drive Armada, run `
 
 ### Planning Before Dispatch
 
-To negotiate a plan with a captain first, open **Planning** in the dashboard, choose a captain, vessel, optional pipeline, and playbooks, and chat until the plan is ready. Select a reply and summarize it into a dispatch draft, open it on the Dispatch page, or dispatch directly.
+To negotiate a plan with a captain first, open **Dispatch > Planning** in the dashboard (`/dispatch?tab=planning`), choose a captain, vessel, optional pipeline, and playbooks, and chat until the plan is ready. Select a reply and summarize it into a dispatch draft, open it on the Dispatch tab, or dispatch directly.
 
 - Planning supports the `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, and `OpenCode` runtimes (not `ApiEndpoint` or `Custom`).
 - A session reserves its captain and a dock on the vessel. The captain can read and modify the repository while planning; treat it as tool-capable, not read-only.
@@ -596,12 +596,12 @@ armada tui --server http://127.0.0.1:7890  # a specific server (saved as a profi
 armada tui --profile work --route /missions
 ```
 
-Every dashboard screen opens a real TUI screen (Ask Armada, Home, Needs You, Planning, Dispatch, Backlog, Fleet Actions, Missions, Voyages, Merge Queue, Jobs, Vessels, Captains and Docks, Delivery, Configuration, Activity, API Explorer, Settings), plus an Approvals center. Profiles live in `~/.armada/tui.json` with tokens in the OS keychain, and are shared with `armada profile`.
+Every dashboard screen opens a real TUI screen (Ask Armada, Home, Needs You, Dispatch with its Planning and Backlog tabs, Fleet Actions, Missions, Voyages, Merge Queue, Activity with its Jobs tab, Vessels, Captains and Docks, Delivery, Configuration, API Explorer, Settings with its Storage and CLI Tool Permissions tabs), plus an Approvals center. Profiles live in `~/.armada/tui.json` with tokens in the OS keychain, and are shared with `armada profile`.
 
 | Key | Does |
 |-----|------|
 | `Ctrl+K` | Command palette: every screen, tab, and command; type an id (`msn_...`, `vsl_...`) to open it |
-| `g` then a letter | Go to: `g a` Ask, `g h` Home, `g i` Needs You, `g m` Missions, `g v` Vessels, `g c` Captains, `g d` Delivery, `g s` Settings, `g k` CLI Tool Permissions |
+| `g` then a letter | Go to: `g a` Ask, `g h` Home, `g i` Needs You, `g m` Missions, `g v` Vessels, `g c` Captains, `g d` Delivery, `g s` Settings, `g k` Settings > CLI Tool Permissions |
 | `Ctrl+A` | Approvals center |
 | `Ctrl+J` | Ask dock on any screen |
 | `Alt+A` | Ask about this: a new conversation about the current screen's subject |
@@ -620,23 +620,23 @@ Dark, Light, High contrast, and Auto themes; Unicode or ASCII icons; works from 
 |> Ask Armada          ||----------------------------------------------------------------------------------------------|
 |- OPERATIONS          ||  You                                                                                   1m ago|
 |   Needs You          ||    What is left before we cut the 1.0 release?                                               |
-|   Planning           ||                                                                                              |
-|   Dispatch           ||  claude-1  3.8s                                                                        1m ago|
-|   Fleet Actions      ||  Two things are open:                                                                        |
-|   Missions           ||                                                                                              |
-|- DELIVERY            ||  1. Fix column widths is in progress on DemoRepo.                                            |
-|   Delivery           ||  2. Broken failed its tests; I can restart it.                                               |
-|- BUILD               ||                                                                                              |
-|   Vessels            ||  Want me to dispatch a voyage for the remaining docs work?                                   |
-|   Captains           ||                                                                                              |
-|- CONFIGURATION       ||  You                                                                                   1m ago|
-|   Configuration      ||    Yes, one mission for the README.                                                          |
-|- ACTIVITY            ||                                                                                              |
+|   Dispatch           ||                                                                                              |
+|   Fleet Actions      ||  claude-1  3.8s                                                                        1m ago|
+|   Missions           ||  Two things are open:                                                                        |
 |   Activity           ||                                                                                              |
-|   Jobs               ||                                                                                              |
-|- SYSTEM              ||                                                                                              |
+|- BUILD               ||  1. Fix column widths is in progress on DemoRepo.                                            |
+|   Vessels            ||  2. Broken failed its tests; I can restart it.                                               |
+|   Captains           ||                                                                                              |
+|   Delivery           ||  Want me to dispatch a voyage for the remaining docs work?                                   |
+|- CONFIGURATION       ||                                                                                              |
+|   Configuration      ||  You                                                                                   1m ago|
+|- SYSTEM              ||    Yes, one mission for the README.                                                          |
 |   API Explorer       ||                                                                                              |
 |   Settings           ||                                                                                              |
+|                      ||                                                                                              |
+|                      ||                                                                                              |
+|                      ||                                                                                              |
+|                      ||                                                                                              |
 |                      ||                                                                                              |
 |                      ||                                                                                              |
 |                      ||                                                                                              |
@@ -1258,6 +1258,6 @@ Armada is released under the [MIT License](LICENSE.md). See the LICENSE.md file 
 
 ### Administrator storage inventory
 
-System administrators can open **System > Storage** (also **Settings > Storage**) to inspect managed file sizes, log categories, database allocation and record counts, host coverage, containing volumes, largest-file samples, retention policies and recent growth. Use **Collect now** for a bounded background scan, or **Count records exactly** to opt in to database table scans. Normal page refreshes only read cached data.
+System administrators can open **Settings > Storage** (`/server?tab=storage`; the old `/storage` URL redirects there) to inspect managed file sizes, log categories, database allocation and record counts, host coverage, containing volumes, largest-file samples, retention policies and recent growth. Use **Collect now** for a bounded background scan, or **Count records exactly** to opt in to database table scans. Normal page refreshes only read cached data.
 
 Storage includes configured roots outside the default data directory. Updated Harbors collect on their own machines and attach cached reports to heartbeats; older or offline Harbors show unavailable or stale coverage. File bytes describe logical lengths, database allocation is separate, and volume usage includes unrelated files. Recent history resets on Admiral restart. See [the storage API and configuration](docs/REST_API.md#storage-inventory) and [the implementation plan](archive/STORAGE_MGMT_PLAN.md) for limits and review checks.

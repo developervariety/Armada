@@ -721,6 +721,14 @@
     },
     {
       "kind": "tab",
+      "key": "Activity:jobs",
+      "status": "implemented",
+      "tui": "JobsScreen",
+      "workstream": "W3.11",
+      "notes": "Jobs"
+    },
+    {
+      "kind": "tab",
       "key": "Activity:requests",
       "status": "implemented",
       "tui": "RequestHistoryScreen",
@@ -921,6 +929,14 @@
     },
     {
       "kind": "tab",
+      "key": "DispatchHub:planning",
+      "status": "implemented",
+      "tui": "PlanningScreen",
+      "workstream": "W3.4",
+      "notes": "Planning"
+    },
+    {
+      "kind": "tab",
       "key": "FleetActions:actions",
       "status": "implemented",
       "tui": "FleetActionsScreen",
@@ -958,6 +974,14 @@
       "tui": "VoyagesScreen",
       "workstream": "W3.9",
       "notes": "Voyages"
+    },
+    {
+      "kind": "tab",
+      "key": "ServerHub:cli-permissions",
+      "status": "implemented",
+      "tui": "CliPermissionsScreen",
+      "workstream": "W3.3",
+      "notes": "CLI Tool Permissions"
     },
     {
       "kind": "tab",

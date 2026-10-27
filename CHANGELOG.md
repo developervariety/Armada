@@ -17,6 +17,28 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
 - Ask Armada conversations now have a refresh control that preserves the open conversation and filters, shows loading progress, and retains the previous list on failure.
 
+### Dashboard: consolidated navigation
+
+- **Fewer sidebar sections.** The sidebar is now Dashboard, Ask Armada, then OPERATIONS (Needs You, Dispatch, Fleet
+  Actions, Missions, Activity), BUILD (Vessels, Captains, Delivery), CONFIGURATION (Configuration), and SYSTEM (API
+  Explorer, Settings). The ACTIVITY and DELIVERY sections are gone: Activity sits under Missions, and Delivery moved
+  into BUILD. The Activity, Dispatch, and Settings tooltips name their new tabs.
+- **Pages that became tabs.** Jobs is the Jobs tab of Activity (`/activity?source=jobs`). Planning is the Planning tab
+  of Dispatch (`/dispatch?tab=planning`, a session at `/dispatch?tab=planning&session=<id>`); Dispatch's tabs are now
+  Dispatch, Planning, and Backlog. Storage (still global-admin only) and CLI Tool Permissions are tabs of Settings
+  (`/server?tab=storage`, `/server?tab=cli-permissions`).
+- **CLI Tool Permissions fits in a tab.** The page header is gone; pending requests and allow/deny rules are
+  sub-sections (`section=requests|rules`), and `request=<id>` still highlights one request. Approving and denying
+  requests, creating and deleting rules, and captain policies work as before, and rules gain an **Edit** action
+  (pattern, action, and description; scope and target stay fixed). The server settings section links to the tab, and
+  the tab links back to the default policies for global admins.
+- **Old URLs redirect, nothing 404s.** `/jobs`, `/storage`, `/cli-permissions` (with its `tab` and `request` query, for
+  example `/cli-permissions?tab=rules&request=X` opens `/server?tab=cli-permissions&section=rules&request=X`),
+  `/planning`, and `/planning/<id>` (keeping the session id) redirect to the new tabs. In-app links, Needs You inbox
+  items, and push notifications for CLI permission requests point at the new locations.
+- **The command palette (Ctrl/Cmd+K) still finds Planning, Jobs, Storage, and CLI Tool Permissions** by name and opens
+  their tabs. The TUI (`armada tui`) and the mobile app mirror the same consolidation. No REST or MCP API changed.
+
 ### Restart starts a Pending mission when a captain is free
 
 - `POST /api/v1/missions/{id}/restart`, MCP `restart_mission`, the WebSocket `restart_mission` command, and
