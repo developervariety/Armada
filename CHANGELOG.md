@@ -4,6 +4,14 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Captain creation
+
+- REST and WebSocket captain creation keep the requested configuration and optional id. New captains start idle with empty
+  assignment, process, recovery, heartbeat and quarantine state, and with server creation timestamps. REST assigns tenant
+  and owner from the caller. WebSocket creation keeps the tenant and owner supplied by its global administrator.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
