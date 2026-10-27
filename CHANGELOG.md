@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### API-endpoint replies drop a complete think block
+
+- **A complete think block in assistant text is removed before the reply is emitted or stored.** The tool loop and plain chat both keep the remaining text for the reply event, the final text, and the final message file. The opening tag must be `think` with a tag boundary, so a longer name such as `thinking` stays. An unmatched tag stays. Text with no complete block is unchanged. The Judge parser is unchanged: one distinct standalone verdict line is a verdict, and two different lines are not.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
