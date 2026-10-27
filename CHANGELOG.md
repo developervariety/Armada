@@ -10,6 +10,11 @@ All notable changes to Armada are documented in this file.
 - After building and verifying both Harbor DMGs, `build-harbor-app.sh` installs the native app into `~/Applications`, staging and signature-checking a fresh bundle before replacement. `--no-install` opts out, and `--no-build` remains verification-only.
 - Helm's NuGet tool package preserves battery fixture `.gitignore` and `.gitattributes` files instead of excluding them with NU5119 warnings. Installer verification checks every packaged framework for those files.
 
+### Command process handling
+
+- Local check and gate commands stop when their caller cancels. Their output drains have a limit, and incomplete output cannot pass a gate.
+- Runtime detection stops commands that exceed its five-second probe limit.
+
 ### Handoff and landing integrity
 
 - Final landing verifies the integrated commit on the owning host and publishes that exact SHA. Failed, timed-out, unavailable or mutating checks refuse publication; merge-queue passes and explicit skips now have durable receipts with commit, command, exit code and timestamps. Armada additionally runs focused integration suites even with a smoke-only workflow profile.
