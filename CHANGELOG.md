@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- A dashboard notification for a deployment, an objective, or an incident opens that record. The notification stores the event time when the event time is usable. It stores the browser time when the event has no usable time.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
