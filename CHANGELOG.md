@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Pipeline stage writes commit together
+
+- **A pipeline and its stages are stored in one transaction.** Create, update, and delete write the parent row and every stage row on the connection those methods already open. This is the same on SQLite, PostgreSQL, MySQL, and SQL Server. A failure rolls the transaction back. A failed update keeps the previous stages. A failed create leaves no pipeline row. A failed delete keeps the parent row and its stages.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
