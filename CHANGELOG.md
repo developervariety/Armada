@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### WebSocket vessel deletion stops active captains
+
+- WebSocket vessel deletion now uses the shared mission cancellation service for Pending, Assigned, InProgress, Review, and Testing missions. It retains the existing Blocked mission cancellation. A failed agent stop does not block vessel deletion, and database failures in the mission loop now reach the command error path.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
