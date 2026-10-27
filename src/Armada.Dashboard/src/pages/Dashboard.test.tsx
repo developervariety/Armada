@@ -329,7 +329,7 @@ describe('Dashboard home refresh', () => {
     await act(async () => {
       releaseHistory(historyResult(9));
     });
-    expect(await within(historySection()).findByText('9')).toBeInTheDocument();
+    await waitFor(() => expect(within(historySection()).getAllByText('9').length).toBeGreaterThan(0));
   });
 
   it('reloads mission history once from the chart refresh control', async () => {
@@ -340,7 +340,7 @@ describe('Dashboard home refresh', () => {
     fireEvent.click(within(historySection()).getByRole('button', { name: 'Refresh' }));
 
     await waitFor(() => expect(getMissionHistory).toHaveBeenCalledTimes(2));
-    expect(getStatus.mock.calls.length).toBeGreaterThan(homeCalls);
+    expect(vi.mocked(getStatus).mock.calls.length).toBeGreaterThan(homeCalls);
     expect(getMissionHistory).toHaveBeenCalledTimes(2);
     const firstQuery = vi.mocked(getMissionHistory).mock.calls[0][0];
     const secondQuery = vi.mocked(getMissionHistory).mock.calls[1][0];
