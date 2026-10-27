@@ -20,7 +20,7 @@ namespace Armada.Core
         /// <summary>
         /// Product version.
         /// </summary>
-        public static readonly string ProductVersion = "1.1.0";
+        public static readonly string ProductVersion = "1.2.0";
 
         /// <summary>
         /// Environment variable that overrides the default data directory. When set to a non-empty path it is

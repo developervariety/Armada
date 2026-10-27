@@ -7,7 +7,7 @@
 <p align="center">
   <strong>Run a fleet of AI coding agents across all of your repositories: in parallel, isolated, reviewed, and on the record.</strong>
   <br />
-  <em>v1.1.0</em>
+  <em>v1.2.0</em>
 </p>
 
 <p align="center">
@@ -146,6 +146,15 @@ Armada does not replace your agent. It runs it. The comparison is with the work 
 **When you do not need Armada:** a quick one-off edit in a single repository. Run the agent directly.
 
 ---
+
+## What's New in v1.2.0
+
+- **Model evaluation.** Every stage attempt is recorded as a stage outcome with its provenance (runtime version, model digest, escalation record) and a suspected cause, with editable failure-cause rules over REST, MCP, and the clients.
+- **Evaluate a captain or model endpoint.** Quick probes check served context, output contract, format rules, tool calling, speed, and determinism; the fixture battery runs data-defined task packs (starting with C#) through real dispatch and grades the results.
+- **Reader-aware handoffs.** Work is handed to the next stage in a form suited to the model that reads it.
+- **Captain usage visibility and management**, and mobile interfaces for the new surfaces.
+
+Every change is in [CHANGELOG.md](CHANGELOG.md#v120-2026-10-27).
 
 ## What's New in v1.1.0
 
@@ -811,7 +820,7 @@ Installing from source (above) is the path the project uses day to day. Release 
 | Windows | Harbor `.exe` (Inno Setup) and the Admiral server `.msi` (WiX) |
 | macOS | `Armada Harbor.app` in a `.dmg`, and the Admiral server `.pkg` |
 | Linux | `.deb` and `.rpm` packages for the CLI, Harbor, and the server |
-| Docker | Admiral, dashboard, and proxy images on Docker Hub (`jchristn77/armada-server`, `jchristn77/armada-dashboard`, `jchristn77/armada-proxy`; tags `v1.1.0` and `latest`). `docker/update.sh` or `docker/update.bat` pulls them and recreates the stack without touching its data |
+| Docker | Admiral, dashboard, and proxy images on Docker Hub (`jchristn77/armada-server`, `jchristn77/armada-dashboard`, `jchristn77/armada-proxy`; tags `v1.2.0` and `latest`). `docker/update.sh` or `docker/update.bat` pulls them and recreates the stack without touching its data |
 
 Each release carries a `SHA256SUMS` file. Installers are code-signed only when the release was built with signing credentials; an unsigned Windows installer shows a SmartScreen prompt ("More info", then "Run anyway"), and an unsigned macOS app or package must be allowed once in **System Settings > Privacy & Security** ("Open Anyway"). See [BUILDING_INSTALLERS.md](BUILDING_INSTALLERS.md).
 
@@ -854,7 +863,7 @@ Sign in as `admin@armada` with the password you set. The compose file refuses to
 | `armada-dashboard` | 3000 | `http://localhost:3000/dashboard/` | Standalone React dashboard (nginx, proxies the API to `armada-server`) |
 | `prometheus` / `loki` / `grafana` | 9090 / 3100 / 3001 | `http://localhost:3001` | Observability stack (Grafana login `admin` / `admin`) |
 
-Data persists under `docker/armada/` (`db/`, `logs/`), and configuration is `docker/armada/armada.json` (restart `armada-server` after editing). `docker/armada/factory/reset.sh` (or `reset.bat`) deletes the local database and logs while keeping configuration. The compose files run the published `v1.1.0` images; to build images from source (`src/Armada.Server/Dockerfile`, `src/Armada.Dashboard/Dockerfile`, `src/Armada.Proxy/Dockerfile`) and for the volume layout, split mode, and the proxy stack, see [docs/DOCKER.md](docs/DOCKER.md).
+Data persists under `docker/armada/` (`db/`, `logs/`), and configuration is `docker/armada/armada.json` (restart `armada-server` after editing). `docker/armada/factory/reset.sh` (or `reset.bat`) deletes the local database and logs while keeping configuration. The compose files run the published `v1.2.0` images; to build images from source (`src/Armada.Server/Dockerfile`, `src/Armada.Dashboard/Dockerfile`, `src/Armada.Proxy/Dockerfile`) and for the volume layout, split mode, and the proxy stack, see [docs/DOCKER.md](docs/DOCKER.md).
 
 ### Harbor: run agents on your machine
 
@@ -913,7 +922,7 @@ When Armada's own source is one of its vessels, set **Self Vessel ID** on the Se
 
 ### Upgrading / Migration
 
-Schema migrations run automatically at startup, and SQLite is backed up first. Upgrade any 0.9.x release directly to 1.0, and any 1.0.x release directly to 1.1.0 (its migrations run automatically; update each Harbor along with the Admiral); downgrades are not supported. Backups, restores, supported paths, and the upgrade test are in [docs/UPGRADING.md](docs/UPGRADING.md), and the release-by-release notes (v0.1.0 through v1.1.0) are in [Version-by-version upgrade notes](docs/UPGRADING.md#version-by-version-upgrade-notes). Every change is in [CHANGELOG.md](CHANGELOG.md).
+Schema migrations run automatically at startup, and SQLite is backed up first. Upgrade any 0.9.x release directly to 1.0, any 1.0.x release directly to 1.1.0, and any 1.1.x release directly to 1.2.0 (their migrations run automatically; update each Harbor along with the Admiral); downgrades are not supported. Backups, restores, supported paths, and the upgrade test are in [docs/UPGRADING.md](docs/UPGRADING.md), and the release-by-release notes (v0.1.0 through v1.2.0) are in [Version-by-version upgrade notes](docs/UPGRADING.md#version-by-version-upgrade-notes). Every change is in [CHANGELOG.md](CHANGELOG.md).
 
 **From 1.0.0 to 1.0.1: check your landing modes.** `LocalMerge` no longer pushes; the new `MergeAndPush` mode merges and then pushes (what `LocalMerge` did in 1.0.0) and is the global default. Nothing is migrated, so switch any vessel, voyage, or global `landingMode` that should keep pushing from `LocalMerge` to `MergeAndPush`. See [docs/MERGING.md](docs/MERGING.md#upgrading-from-100-landing-modes-fixed-in-101).
 

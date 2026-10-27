@@ -479,3 +479,14 @@ v1.0.0 is the first stable release: security hardening, a frozen and documented 
 - An integration slice merges its sibling slices and leaves the planning stages (Architect, Product Manager) out of its merge list.
 
 **New settings worth reviewing:** `TransientOutageGraceMinutes` (default 10) and `BlockDependentsOfFailedStages` (default false; when true, the stages waiting on a failed stage show Blocked until it is restarted instead of being cancelled). Personas gain ordered captain priorities; an empty list keeps the 1.0 default-captain behavior. See [PIPELINES.md](PIPELINES.md) and [CAPTAIN_ROUTING.md](CAPTAIN_ROUTING.md).
+
+### v1.1.0 to v1.2.0
+
+**Nothing to migrate by hand.** The new schema migrations (96 and later) run automatically at startup, with SQLite backed up first, and every new column has a default. Docker installs pull the `v1.2.0` images (`jchristn77/armada-server:v1.2.0`, `jchristn77/armada-dashboard:v1.2.0`, `jchristn77/armada-proxy:v1.2.0`): `git pull`, then `docker/update.sh` (or `docker\update.bat`). Update each Harbor along with the Admiral.
+
+**Behavior changes worth knowing:**
+- Every stage attempt is recorded as a stage outcome with its provenance and a suspected cause; failure-cause rules are data you can edit, and the built-in rules are restored at startup if deleted.
+- A Judge may now review work its own captain authored when no other eligible captain is idle. Set `ExcludeReviewAuthorsFromJudge` to true to keep the old exclusion.
+- Whole-list GET routes and `list_*` MCP tools are deprecated in favor of paged `enumerate` replacements; they keep working until 2.0.
+
+**New settings worth reviewing:** `ExcludeReviewAuthorsFromJudge` (default false), `StageCheckTimeoutMinutes` (default 15), and the `Evaluation` group (budget and concurrency for Quick probes and the fixture battery, overall and per inference host, plus `BatteryDirectory`).
