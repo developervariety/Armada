@@ -149,7 +149,7 @@ the tier configuration.
 
 ## Unified retrieval and the `armada_search_context` tool
 
-`armada_search_context` is the first shared query path for applicable guidance,
+`armada_search_context` is the shared query path for applicable guidance,
 native memory and an existing vessel code index. It reads the current source
 stores. It adds no database, vector service or Memvid dependency. Native memory
 uses the configured SQLite, PostgreSQL, MySQL or SQL Server driver.
@@ -175,17 +175,41 @@ embedding or inference call and never creates an index. `Sources` distinguishes
 an available source with no matches from a missing or failed source. Set
 `includeCode` to false to omit code search.
 
-The existing `ContextRetrieval.FetchToolEnabled`, `MaxCallsPerMission` and
-`MaxLeafBytesPerCall` settings also govern this tool. Its mission call counter
-is process-local and separate from the older fetch tool's counter. A restart
-resets that counter. Required guidance is outside the optional byte cap.
+`ContextRetrieval.FetchToolEnabled` governs captain recall through the shared
+query and compatibility tools. `MaxLeafBytesPerCall` caps optional query text.
+Required guidance is outside the optional byte cap. `Sources` reports the
+actual search mode and the code index freshness even when there are no hits.
 
-This first change unifies reads. Native memory writes, version checks, code
-index refresh, and the external guidance snapshot keep their existing owners.
-The older tools remain available. Captain prompt migration, tool retirement,
-persistent shared budgets and portable semantic retrieval need later changes
-and migration checks. Large native stores also need bounded candidate reads;
-this version ranks the caller-visible native records in memory.
+One durable counter on each mission bounds calls across `armada_search_context`,
+`armada_fetch_context`, `armada_mission_code_search` and mission-token calls to
+`search_memory`. The effective maximum is `ContextRetrieval.MaxCallsPerMission`,
+also capped by `CodeIndex.CaptainSearchMaxCallsPerMission` while code indexing is
+enabled. This retains the existing code limit as a conservative installation
+cap. An atomic owner-scoped transaction spends each call. Concurrent calls
+cannot exceed the maximum. Restarts and normal mission updates cannot reset
+usage. A terminal mission cannot spend calls. Operator calls without a mission
+have no mission counter. A missing budget store fails the call.
+
+### Recall consumers and compatibility
+
+| Consumer | Retrieval contract |
+| --- | --- |
+| Built-in working personas, Recorder and Linter | Use `armada_search_context`; native results identify records for `get_memory` before reconciliation. The Linter states the lexical-search limit. |
+| Generated slimmed brief | Names the shared query for additional guidance, facts and code. Delivered required files remain complete. |
+| `armada_fetch_context` | Compatibility guidance-only response with exact topic preference. Uses the shared scope check and mission budget. |
+| `search_memory` and native REST memory listing | Retain substring, type/topic filtering, paging and salience order for record management. Mission-token MCP calls use the credential's owned vessel and shared budget. |
+| `armada_mission_code_search` | Compatibility code response with path/language filters and configured semantic behavior. Uses the shared scope check and budget. It can still call the configured embedding provider. |
+| Operator code, graph and fleet tools | Retain structural and graph contracts over the same existing code index. No second index is created for the shared query. |
+| Native memory writes | Keep key/upsert, version-conflict, ownership and provenance rules in `MemoryService`. |
+| External guidance and historical evidence | Guidance remains a loaded, approved source snapshot. Native result evidence points to its source; archive storage and retention keep their own contracts. |
+
+Only exact shipped prompt passages are upgraded inside operator-edited built-in
+templates; other text is preserved. Unknown custom wording remains unchanged.
+Compatibility tool names remain available for those clients. Tool removal
+requires a verified client and template cutover. Portable semantic retrieval,
+bounded database candidate reads, import/rebuild proof and scale measurements
+remain separate work. Native recall currently ranks caller-visible records in
+memory. Authoring authority stays with the existing source owners.
 
 ## Retrieval and the `armada_fetch_context` tool
 

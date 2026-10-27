@@ -48,7 +48,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Returns leaves for a query and writes no record", async () =>
+            await RunTest("Returns leaves for a query without creating events", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -63,7 +63,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(response.Contains("core.a", StringComparison.Ordinal), "the fetch tool returns leaves only, not core");
 
                     int after = (await testDb.Driver.Events.EnumerateRecentAsync(500).ConfigureAwait(false)).Count;
-                    AssertEqual(before, after, "the read-only fetch tool writes no Armada record");
+                    AssertEqual(before, after, "Guidance recall creates no event record");
                 }
             });
 
@@ -98,6 +98,23 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A credential fixes context safety scope and budget even when an administrator owner supplies another mission", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Harness harness = Harness.Create(db, maxCallsPerMission: 1);
+                    string own = await harness.SeedMissionAsync(db, "OwnVessel").ConfigureAwait(false);
+                    string other = await harness.SeedMissionAsync(db, "ExampleVessel").ConfigureAwait(false);
+                    AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, false, "test");
+                    captain.MissionId = own;
+                    string first = await harness.CallAsync("armada_fetch_context", new { query = "alpha", missionId = other }, captain).ConfigureAwait(false);
+                    AssertContains("\"available\":true", Compact(first), "The owned mission can recall");
+                    AssertFalse(first.Contains("leaf.safety.example", StringComparison.Ordinal), "A supplied mission cannot select another vessel's safety leaf");
+                    string second = await harness.CallAsync("armada_fetch_context", new { query = "alpha", missionId = own }, captain).ConfigureAwait(false);
+                    AssertContains("budget", second, "The forged identifier cannot divert the budget charge");
+                }
+            });
+
             await RunTest("Disabled: the tool returns unavailable", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -122,7 +139,6 @@ namespace Armada.Test.Unit.Suites.Services
 
             public static Harness Create(TestDatabase testDb, bool enabled = true, int maxCallsPerMission = 60)
             {
-                McpContextTools.ResetBudgetForTests();
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.ContextRetrieval.FetchToolEnabled = enabled;
                 settings.ContextRetrieval.MaxCallsPerMission = maxCallsPerMission;
@@ -138,10 +154,10 @@ namespace Armada.Test.Unit.Suites.Services
                 return harness;
             }
 
-            public async Task<string> CallAsync(string tool, object args)
+            public async Task<string> CallAsync(string tool, object args, AuthContext? identity = null)
             {
                 JsonElement element = JsonSerializer.SerializeToElement(args, _JsonOptions);
-                AuthContext caller = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
+                AuthContext caller = identity ?? AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
                 using (McpCallerContext.Begin(caller))
                 {
                     object result = await Handlers[tool](element).ConfigureAwait(false);
@@ -152,7 +168,7 @@ namespace Armada.Test.Unit.Suites.Services
             public async Task<string> SeedMissionAsync(TestDatabase testDb, string vesselName)
             {
                 Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                    new Vessel(vesselName, "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    new Vessel(vesselName, "https://github.com/test/repo.git") { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId }).ConfigureAwait(false);
 
                 Mission mission = new Mission();
                 mission.TenantId = Constants.DefaultTenantId;

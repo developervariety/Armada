@@ -101,7 +101,7 @@ namespace Armada.Test.Unit.Suites.Context
                 AssertTrue(t.FileBytes > 0, "telemetry counts the delivered bytes");
 
                 // The on-demand fetch pointer is present.
-                AssertContains("armada_fetch_context", on.Section, "the fetch-context pointer is present");
+                AssertContains("armada_search_context", on.Section, "the fetch-context pointer is present");
 
                 // It does NOT tell the captain to read every file under shared/.
                 AssertFalse(on.Section.Contains(ReadEveryFilePhrase), "slimmed section drops the read-every-file instruction");

@@ -1149,6 +1149,13 @@ Results retain source class, reference and version. Search makes no embedding
 call and never builds an index. A source can be unavailable; inspect `Sources`
 before treating an empty result as proof of absence. Existing context fetch
 settings control the kill switch, per-mission calls and optional byte cap.
+Mission recall shares one durable counter with `armada_fetch_context`,
+`armada_mission_code_search` and mission-token `search_memory` calls. The limit
+is the lower of `contextRetrieval.maxCallsPerMission` and, while code indexing
+is enabled, `codeIndex.captainSearchMaxCallsPerMission`. Restart, service
+registration and normal mission updates cannot reset the counter. A supplied
+mission or vessel cannot change a mission credential's scope or budget.
+`Sources` reports search mode and code-index freshness even without matches.
 See [unified retrieval](CONTEXT_INDEX.md#unified-retrieval-and-the-armada_search_context-tool)
 for details and current migration limits.
 
@@ -1172,6 +1179,11 @@ Ordered by salience, then newest.
 - `pageNumber`, `pageSize` (integer)
 
 Returns a paged `EnumerationResult` of memory records.
+
+This is a compatibility record-management query. Generated task instructions
+use `armada_search_context`. A mission token fixes the vessel and ordinary
+owner scope, ignores a different supplied vessel, and spends the shared recall
+budget. Operator listing retains its existing filters and ordering.
 
 ### get_memory
 
@@ -1369,8 +1381,8 @@ code is absent". The answer's `Readiness` names the remedy: a vessel is indexed
 for the first time only by `armada_index_update`, which an operator runs. The
 first such answer for a vessel in an hour records `code_index.search_unavailable`
 with the vessel and the remedy, so an unindexed vessel is visible to operators. A `Stale` or lexical-only index still searches and says so in
-`Warnings`. The tool writes no record, is budgeted per mission by
-`codeIndex.captainSearchMaxCallsPerMission` (reason `budget` when spent), and is
+`Warnings`. The tool changes no source record and spends the shared durable
+mission recall budget (reason `budget` when spent). It is
 caller-scoped like the other captain tools. The operator tools
 `armada_code_search` and `armada_fleet_code_search` stay outside mission scope.
 

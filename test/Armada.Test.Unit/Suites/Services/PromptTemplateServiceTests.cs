@@ -546,7 +546,7 @@ namespace Armada.Test.Unit.Suites.Services
                     PromptTemplate? linter = await service.ResolveAsync("persona.linter").ConfigureAwait(false);
                     AssertStartsWith("You are a linter. OPERATOR CUSTOM.", linter!.Content, "the operator edit is preserved");
                     AssertContains("## Duplication Check", linter.Content, "the duplication check reaches an existing built-in row");
-                    AssertContains("armada_mission_code_search", linter.Content, "the check names the captain search tool");
+                    AssertContains("armada_search_context", linter.Content, "the check names the captain search tool");
                     AssertContains("Never fix a duplicate", linter.Content, "the check is report-only");
                     AssertContains("do not report that no duplication exists", linter.Content, "an unavailable index is never read as no duplication");
                     AssertContains("## Test Check", linter.Content, "the test check reaches an existing built-in row");
@@ -664,7 +664,7 @@ namespace Armada.Test.Unit.Suites.Services
                         PromptTemplate? working = await service.ResolveAsync(name).ConfigureAwait(false);
                         AssertNotNull(working, "Template should resolve: " + name);
                         AssertContains("## Recall Existing Memory", working!.Content, name + " should carry the recall note");
-                        AssertContains("search_memory", working.Content, name + " should name the recall tool");
+                        AssertContains("armada_search_context", working.Content, name + " should name the recall tool");
                     }
 
                     PromptTemplate? recorder = await service.ResolveAsync("persona.recorder").ConfigureAwait(false);

@@ -600,6 +600,10 @@ separate from ranked recall. It uses the configured database and makes no query
 embedding call. See [unified retrieval](docs/CONTEXT_INDEX.md#unified-retrieval-and-the-armada_search_context-tool)
 for scope, limits and the remaining migration work.
 
+Generated persona and brief instructions use this shared query. Compatibility
+recall tools remain callable and share a durable mission budget. Their counters
+survive restart and cannot be reset by a normal mission update.
+
 Armada exposes the same operating model through multiple surfaces:
 
 - REST API for dashboards, scripts, and external services.

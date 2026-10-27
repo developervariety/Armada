@@ -729,7 +729,9 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(120, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.MysqlStatements),
                 new SchemaMigration(121, "Persist bounded Architect integration barrier membership",
                     @"ALTER TABLE missions ADD COLUMN integration_barrier_json LONGTEXT NULL;",
-                    @"ALTER TABLE missions ADD COLUMN integration_barrier_revision BIGINT NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN integration_barrier_revision BIGINT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(123, "Persist the shared mission context recall budget",
+                    @"ALTER TABLE missions ADD COLUMN context_recall_calls INT NOT NULL DEFAULT 0;")
             };
         }
 

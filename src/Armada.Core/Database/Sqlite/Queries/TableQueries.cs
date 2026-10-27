@@ -1682,7 +1682,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(127, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.SqliteStatements),
                 new SchemaMigration(128, "Persist bounded Architect integration barrier membership",
                     @"ALTER TABLE missions ADD COLUMN integration_barrier_json TEXT NULL;",
-                    @"ALTER TABLE missions ADD COLUMN integration_barrier_revision INTEGER NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN integration_barrier_revision INTEGER NOT NULL DEFAULT 0;"),
+                new SchemaMigration(130, "Persist the shared mission context recall budget",
+                    @"ALTER TABLE missions ADD COLUMN context_recall_calls INTEGER NOT NULL DEFAULT 0;")
             };
         }
 

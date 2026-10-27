@@ -77,5 +77,38 @@ namespace Armada.Test.Database
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
         }
+
+        internal async Task VerifyBudgetAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("recall", token: token).ConfigureAwait(false);
+                UserMaster owner = await fixture.CreateUserAsync(tenant.Id, "recall-owner", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, owner.Id, "recall", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, owner.Id, fleet.Id, "recall", token).ConfigureAwait(false);
+                Mission mission = await fixture.CreateMissionAsync(tenant.Id, owner.Id, null!, vessel.Id, null!, "recall", token,
+                    configure: value => value.Status = MissionStatusEnum.InProgress).ConfigureAwait(false);
+                DatabaseAssert.True(!(await _Driver.Missions.TryConsumeContextRecallAsync("foreign", owner.Id, mission.Id, 7, token).ConfigureAwait(false)).HasValue, "Foreign tenant cannot spend calls");
+                DatabaseAssert.True(!(await _Driver.Missions.TryConsumeContextRecallAsync(tenant.Id, "foreign", mission.Id, 7, token).ConfigureAwait(false)).HasValue, "Foreign owner cannot spend calls");
+                Task<int?>[] attempts = Enumerable.Range(0, 20).Select(index => _Driver.Missions.TryConsumeContextRecallAsync(tenant.Id, owner.Id, mission.Id, 7, token)).ToArray();
+                int?[] spent = await Task.WhenAll(attempts).ConfigureAwait(false);
+                int[] accepted = spent.Where(value => value.HasValue).Select(value => value!.Value).OrderBy(value => value).ToArray();
+                DatabaseAssert.Equal("1,2,3,4,5,6,7", String.Join(",", accepted), "Concurrent calls commit exactly the available budget");
+                mission.Title = "Updated from a stale mission snapshot";
+                await _Driver.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                using (DatabaseDriver reopened = DatabaseDriverFactory.Create(_Settings, logging))
+                {
+                    await reopened.InitializeAsync(token).ConfigureAwait(false);
+                    DatabaseAssert.True(!(await reopened.Missions.TryConsumeContextRecallAsync(tenant.Id, owner.Id, mission.Id, 7, token).ConfigureAwait(false)).HasValue, "Mission snapshot update and reopen cannot reset usage");
+                    DatabaseAssert.Equal(8, (await reopened.Missions.TryConsumeContextRecallAsync(tenant.Id, owner.Id, mission.Id, 8, token).ConfigureAwait(false))!.Value, "A raised limit preserves the existing count");
+                    mission.Status = MissionStatusEnum.Complete;
+                    await _Driver.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    DatabaseAssert.True(!(await reopened.Missions.TryConsumeContextRecallAsync(tenant.Id, owner.Id, mission.Id, 100, token).ConfigureAwait(false)).HasValue, "A terminal mission cannot spend calls");
+                }
+            }
+            finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
+        }
     }
 }

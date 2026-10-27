@@ -241,14 +241,14 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 MemoryTriageToolName,
-                "Before you write a memory record, triage the candidate. Describe the candidate in 'candidate' (and optionally the records 'search_memory' already returned in 'existingRecords'); the tool returns typed readings on whether the memory type fits, whether it duplicates an existing record, whether it will go stale because it carries an id, path, count, or date, and whether it is really a fleet rule that belongs in shared external memory rather than native memory. It never writes, corrects, or deletes a record; it informs your own call to create_memory. Dormant by default (returns unavailable) until an operator enables the memory-record decision. Pass your mission id in 'missionId'.",
+                "Before you write a memory record, triage the candidate. Describe the candidate in 'candidate' (and optionally the native records resolved from 'armada_search_context' results in 'existingRecords'); the tool returns typed readings on whether the memory type fits, whether it duplicates an existing record, whether it will go stale because it carries an id, path, count, or date, and whether it is really a fleet rule that belongs in shared external memory rather than native memory. It never writes, corrects, or deletes a record; it informs your own call to create_memory. Dormant by default (returns unavailable) until an operator enables the memory-record decision. Pass your mission id in 'missionId'.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
                         candidate = new { type = "string", description = "The candidate memory: the content you are considering recording, plus its intended type and topic." },
-                        existingRecords = new { description = "Records search_memory already returned for this subject, to check for duplication. Optional string or array." },
+                        existingRecords = new { description = "Native records resolved from armada_search_context results for this subject, to check for duplication. Optional string or array." },
                         missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
                     },
                     required = new[] { "candidate" }

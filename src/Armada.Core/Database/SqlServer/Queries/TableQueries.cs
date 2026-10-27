@@ -1021,7 +1021,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(123, "Persist fleet mission actions and durable run snapshots", FleetActionSchema.SqlServerStatements),
                 new SchemaMigration(124, "Persist bounded Architect integration barrier membership",
                     @"IF COL_LENGTH('missions', 'integration_barrier_json') IS NULL ALTER TABLE missions ADD integration_barrier_json NVARCHAR(MAX) NULL;",
-                    @"IF COL_LENGTH('missions', 'integration_barrier_revision') IS NULL ALTER TABLE missions ADD integration_barrier_revision BIGINT NOT NULL DEFAULT 0;")
+                    @"IF COL_LENGTH('missions', 'integration_barrier_revision') IS NULL ALTER TABLE missions ADD integration_barrier_revision BIGINT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(126, "Persist the shared mission context recall budget",
+                    @"IF COL_LENGTH('missions', 'context_recall_calls') IS NULL ALTER TABLE missions ADD context_recall_calls INT NOT NULL DEFAULT 0;")
             };
         }
 

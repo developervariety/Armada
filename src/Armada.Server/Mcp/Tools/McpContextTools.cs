@@ -1,7 +1,6 @@
 namespace Armada.Server.Mcp.Tools
 {
     using System;
-    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Globalization;
     using System.Security.Cryptography;
@@ -13,6 +12,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Settings;
+    using Armada.Core.Services;
     using Armada.Server.Mcp;
     using SyslogLogging;
 
@@ -23,12 +23,12 @@ namespace Armada.Server.Mcp.Tools
     /// relevant LEAF chunk bodies for that query. The core bundle already ships inline in the brief,
     /// so this tool returns only leaves and the matching-domain must-retrieve safety leaves.
     ///
-    /// Authority does not travel with the tool. It writes NOTHING to any Armada record, dispatches
-    /// nothing, lands nothing, and has no side effect beyond an optional log line. It never persists
+    /// Authority does not travel with the tool. It dispatches nothing, lands nothing, and changes no
+    /// source content. It records shared mission recall usage. It never persists
     /// the raw request query — only its length and a short hash reach a log. Its content is
     /// already-sanitized AI-Memory and docs text, so bodies pass through. It is bounded by a
     /// per-mission call budget from <c>contextRetrieval</c> settings; when the budget is spent it
-    /// returns a clear budget message.
+    /// returns a clear budget message. Usage is stored on the mission and survives restart.
     /// </summary>
     public static class McpContextTools
     {
@@ -47,11 +47,6 @@ namespace Armada.Server.Mcp.Tools
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        // Process-local per-mission call budget, keyed by mission id, else participant key, else a
-        // shared bucket. Reset on an admiral restart, which ends every running captain.
-        private static readonly ConcurrentDictionary<string, int> _CallsByBudgetKey =
-            new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
-
         #endregion
 
         #region Public-Methods
@@ -66,22 +61,24 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="settings">Armada settings supplying <c>contextRetrieval</c>.</param>
         /// <param name="logging">Optional logging module.</param>
         /// <param name="participantKeyProvider">Returns the calling captain's participant key, or null.
-        /// Used to bucket the budget when no mission id is supplied.</param>
+        /// Retained for source compatibility; operator calls have no mission counter.</param>
+        /// <param name="sharedBudget">Shared persistent recall budget.</param>
         public static void Register(
             RegisterToolDelegate register,
             ContextRetrievalService? retrieval,
             DatabaseDriver database,
             ArmadaSettings settings,
             LoggingModule? logging = null,
-            Func<string?>? participantKeyProvider = null)
+            Func<string?>? participantKeyProvider = null,
+            ContextRecallBudget? sharedBudget = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             if (settings == null) throw new ArgumentNullException(nameof(settings));
-            Func<string?> participantKey = participantKeyProvider ?? (() => null);
+            ContextRecallBudget budget = sharedBudget ?? new ContextRecallBudget(database, settings);
 
             register(
                 FetchContextToolName,
-                "Fetch the memory and docs context relevant to a topic or short task, on demand. Your brief already carries the always-on core rules; this tool returns the relevant LEAF chunks for what you name, so you can pull a procedure or a rule you need without carrying all of memory. Give a 'query' (a short task description) and/or a 'topic', and pass your mission id in 'missionId' so the tool scopes the result to your vessel and persona. It is read-only: it returns text you weigh, dispatches nothing, edits no record, and writes no memory. Its content is already sanitized. It is budgeted per mission; when the budget is spent it says so. Safety leaves for your vessel are always included.",
+                "Compatibility guidance-only query. Prefer armada_search_context for task recall across guidance, facts and code. Fetch the memory and docs context relevant to a topic or short task, on demand. Your brief already carries the always-on core rules; this tool returns the relevant LEAF chunks for what you name, so you can pull a procedure or a rule you need without carrying all of memory. Give a 'query' (a short task description) and/or a 'topic', and pass your mission id in 'missionId' so the tool scopes the result to your vessel and persona. It is read-only: it returns text you weigh, dispatches nothing, edits no record, and writes no memory. Its content is already sanitized. It shares the durable mission recall budget with the other recall tools; when the budget is spent it says so. Safety leaves for your vessel are always included.",
                 new
                 {
                     type = "object",
@@ -96,17 +93,8 @@ namespace Armada.Server.Mcp.Tools
                 {
                     McpCallerContext.Require();
                     if (retrieval == null) return McpToolUnavailable.Create("context retrieval");
-                    return await HandleAsync(args, retrieval, database, settings, logging, participantKey).ConfigureAwait(false);
+                    return await HandleAsync(args, retrieval, database, settings, logging, budget).ConfigureAwait(false);
                 });
-        }
-
-        /// <summary>
-        /// Reset the process-local per-mission call budget. For tests only; production resets it on an
-        /// admiral restart.
-        /// </summary>
-        public static void ResetBudgetForTests()
-        {
-            _CallsByBudgetKey.Clear();
         }
 
         #endregion
@@ -119,18 +107,16 @@ namespace Armada.Server.Mcp.Tools
             DatabaseDriver database,
             ArmadaSettings settings,
             LoggingModule? logging,
-            Func<string?> participantKeyProvider)
+            ContextRecallBudget budget)
         {
             try
             {
                 if (!args.HasValue || args.Value.ValueKind != JsonValueKind.Object)
                     return Unavailable("invalid", "The call carried no arguments object.");
 
-                JsonElement root = args.Value;
-                string? query = ReadOptionalString(root, "query");
-                string? topicArg = ReadOptionalString(root, "topic");
-                string? missionId = ReadOptionalString(root, "missionId");
-
+                ContextFetchArgs requestArgs = JsonSerializer.Deserialize<ContextFetchArgs>(args.Value, _JsonOptions) ?? new ContextFetchArgs();
+                string? query = requestArgs.Query;
+                string? topicArg = requestArgs.Topic;
                 if (String.IsNullOrWhiteSpace(query) && String.IsNullOrWhiteSpace(topicArg))
                     return Unavailable("invalid", "Give a query or a topic to fetch context for.");
 
@@ -138,49 +124,18 @@ namespace Armada.Server.Mcp.Tools
                 if (!toolSettings.FetchToolEnabled)
                     return Unavailable("disabled", "The context fetch tool is not enabled.");
 
-                // Resolve the calling mission's vessel and persona, so the leaf set is scoped. An
-                // unresolved id simply leaves the scope open; the read is best-effort and never throws
-                // into the caller.
-                string? vesselName = null;
-                string? persona = null;
-                if (!String.IsNullOrWhiteSpace(missionId))
-                {
-                    try
-                    {
-                        Mission? mission = await database.Missions.ReadAsync(missionId!, CancellationToken.None).ConfigureAwait(false);
-                        if (mission != null)
-                        {
-                            persona = String.IsNullOrWhiteSpace(mission.Persona) ? null : mission.Persona;
-                            if (!String.IsNullOrWhiteSpace(mission.VesselId))
-                            {
-                                Vessel? vessel = await database.Vessels.ReadAsync(mission.VesselId!, CancellationToken.None).ConfigureAwait(false);
-                                if (vessel != null && !String.IsNullOrWhiteSpace(vessel.Name)) vesselName = vessel.Name;
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logging?.Warn("[McpContextTools] mission resolve failed for " + missionId + ": " + ex.Message);
-                    }
-                }
-
-                string? participantKey = participantKeyProvider();
-                string budgetKey = !String.IsNullOrWhiteSpace(missionId)
-                    ? missionId!
-                    : (!String.IsNullOrWhiteSpace(participantKey) ? "participant:" + participantKey : "unscoped");
-
-                // The per-mission call budget. This is a served call, so it counts. When exhausted, no
-                // leaves are returned and the caller falls back to reading by hand.
-                int used = _CallsByBudgetKey.AddOrUpdate(budgetKey, 1, (_, previous) => previous + 1);
-                if (used > toolSettings.MaxCallsPerMission)
-                    return BudgetExhausted(used - 1, toolSettings.MaxCallsPerMission);
+                ContextRecallScope scope = await ContextRecallScope.ResolveAsync(database, McpCallerContext.Require(),
+                    null, requestArgs.MissionId, false, McpCallerContext.CallToken).ConfigureAwait(false);
+                int? consumed = await budget.ConsumeAsync(scope, McpCallerContext.CallToken).ConfigureAwait(false);
+                if (!consumed.HasValue) return BudgetExhausted(budget.Maximum, budget.Maximum);
+                int used = consumed.Value;
 
                 ContextRetrievalRequest request = new ContextRetrievalRequest
                 {
                     Query = query,
                     Topics = ParseTopics(topicArg),
-                    RequestingPersona = persona,
-                    Vessel = vesselName,
+                    RequestingPersona = scope.Mission?.Persona,
+                    Vessel = scope.Vessel?.Name,
                     MaxLeafBytes = toolSettings.MaxLeafBytesPerCall
                 };
 
@@ -195,8 +150,12 @@ namespace Armada.Server.Mcp.Tools
                     " leafBytes=" + result.LeafBytes +
                     (result.Degraded ? " degraded=1" : ""));
 
-                return BuildAnswer(result, used, toolSettings.MaxCallsPerMission);
+                return BuildAnswer(result, used, budget.Maximum);
             }
+            catch (OperationCanceledException) { throw; }
+            catch (KeyNotFoundException) { return Unavailable("not_found", "Mission or vessel not found in the caller's scope."); }
+            catch (UnauthorizedAccessException) { return Unavailable("forbidden", "An active owned mission is required."); }
+            catch (JsonException) { return Unavailable("invalid", "The query arguments are invalid."); }
             catch (Exception ex)
             {
                 // The tool must never throw into the captain's runtime.
@@ -280,12 +239,11 @@ namespace Armada.Server.Mcp.Tools
             }
         }
 
-        private static string? ReadOptionalString(JsonElement parent, string name)
+        private sealed class ContextFetchArgs
         {
-            if (!parent.TryGetProperty(name, out JsonElement element)) return null;
-            if (element.ValueKind == JsonValueKind.String) return element.GetString();
-            if (element.ValueKind == JsonValueKind.Null || element.ValueKind == JsonValueKind.Undefined) return null;
-            return element.GetRawText();
+            public string? Query { get; set; }
+            public string? Topic { get; set; }
+            public string? MissionId { get; set; }
         }
 
         #endregion

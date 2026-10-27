@@ -1288,6 +1288,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                         Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("NeverIndexedVessel", repo)
                         {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId,
                             WorkingDirectory = repo,
                             DefaultBranch = "main"
                         }).ConfigureAwait(false);
@@ -1474,7 +1476,7 @@ namespace Armada.Test.Unit.Suites.Services
             public async Task<string> SeedVesselAsync(string name)
             {
                 Vessel vessel = await _TestDb.Driver.Vessels.CreateAsync(
-                    new Vessel(name, "https://github.com/test/" + name + ".git")).ConfigureAwait(false);
+                    new Vessel(name, "https://github.com/test/" + name + ".git") { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId }).ConfigureAwait(false);
                 return vessel.Id;
             }
 

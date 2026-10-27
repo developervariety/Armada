@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Use unified context recall in generated persona and brief instructions. Share one durable, atomic mission call counter across unified recall and compatibility tools on all four database providers. Bind legacy recall to the authenticated mission and retain existing operator listing and code-filter contracts.
+
 - Add `armada_search_context`: one local query over applicable guidance, native memory and existing code indexes. Keep required guidance outside recall limits, retain source versions and enforce mission and owner scope. Use the existing database driver on SQLite, PostgreSQL, MySQL and SQL Server.
 
 ## v1.0.0 (2026-10-26)

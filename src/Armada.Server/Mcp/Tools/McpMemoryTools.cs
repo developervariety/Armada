@@ -9,6 +9,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -31,16 +32,21 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Tool registration delegate.</param>
         /// <param name="database">Database driver.</param>
         /// <param name="logging">Optional logging module.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, LoggingModule? logging = null)
+        /// <param name="settings">Live recall policy.</param>
+        /// <param name="sharedBudget">Shared durable mission recall budget.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, LoggingModule? logging = null,
+            ArmadaSettings? settings = null, ContextRecallBudget? sharedBudget = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             if (database == null) throw new ArgumentNullException(nameof(database));
 
             MemoryService service = new MemoryService(database, logging);
+            ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
+            ContextRecallBudget budget = sharedBudget ?? new ContextRecallBudget(database, effectiveSettings);
 
             register(
                 "search_memory",
-                "Search native captain memory (episodic, semantic, procedural). Use this before writing, to find a record to correct instead of creating a duplicate. Returns the highest salience first, then the newest.",
+                "Compatibility native-record listing with substring filters and paging. Prefer armada_search_context for task recall across guidance, facts and code. Returns the highest salience first, then the newest. Mission credentials use their owned vessel and the shared recall budget.",
                 new
                 {
                     type = "object",
@@ -69,7 +75,17 @@ namespace Armada.Server.Mcp.Tools
 
                     return await GuardAsync(async () =>
                     {
-                        EnumerationResult<Memory> result = await service.EnumerateAsync(McpCallerContext.Require(), query, request.Search, type, request.Topic).ConfigureAwait(false);
+                        AuthContext caller = McpCallerContext.Require();
+                        if (!String.IsNullOrWhiteSpace(caller.MissionId))
+                        {
+                            if (!effectiveSettings.ContextRetrieval.FetchToolEnabled) return Failure("disabled", "Context recall is disabled.");
+                            ContextRecallScope scope = await ContextRecallScope.ResolveAsync(database, caller, request.VesselId, null, true, McpCallerContext.CallToken).ConfigureAwait(false);
+                            if (!(await budget.ConsumeAsync(scope, McpCallerContext.CallToken).ConfigureAwait(false)).HasValue)
+                                return Failure("budget", "The mission has used its shared context recall budget.");
+                            caller = scope.Caller;
+                            query.VesselId = scope.Vessel!.Id;
+                        }
+                        EnumerationResult<Memory> result = await service.EnumerateAsync(caller, query, request.Search, type, request.Topic, McpCallerContext.CallToken).ConfigureAwait(false);
                         return (object)result;
                     }).ConfigureAwait(false);
                 });

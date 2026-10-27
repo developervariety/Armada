@@ -6,8 +6,10 @@ namespace Armada.Core.Settings
     /// Configuration for the captain-facing context fetch tool (<c>armada_fetch_context</c>) and the
     /// flagged brief-slimming path. The fetch tool is read-only and informative: it returns
     /// already-sanitized AI-Memory and docs leaf text for a query and has no side effect on any Armada
-    /// record. These settings bound it — a per-call leaf byte budget and a per-mission call budget —
-    /// and can turn it off without a code change. The brief-slimming flag replaces the full
+    /// source record. These settings also govern unified context recall and its compatibility tools.
+    /// One durable mission counter bounds their combined calls, with the legacy code-search maximum
+    /// acting as a conservative cap while code indexing is enabled. They also set a per-call leaf
+    /// byte budget and can turn recall off without a code change. The brief-slimming flag replaces the full
     /// read-every-file AI-Memory brief section with the always-on core plus the mission's retrieved
     /// leaves; it defaults OFF so brief generation is unchanged until it is deliberately enabled.
     /// </summary>
@@ -51,8 +53,9 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// The maximum number of fetch calls one mission may make. When exhausted, the tool returns a
-        /// clear budget message instead of more leaves.
+        /// The maximum combined recall calls one mission may make across unified and compatibility
+        /// tools. The code-search maximum also caps this while code indexing is enabled. Usage is
+        /// stored atomically on the mission and survives restart.
         /// </summary>
         public int MaxCallsPerMission
         {

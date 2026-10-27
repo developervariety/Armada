@@ -22,6 +22,9 @@ namespace Armada.Core.Services
     /// </summary>
     public sealed class ContextSearchService
     {
+        /// <summary>Canonical captain recall tool name shared with generated instructions.</summary>
+        public const string ToolName = "armada_search_context";
+
         #region Private-Members
 
         private readonly DatabaseDriver _Database;
@@ -68,26 +71,13 @@ namespace Armada.Core.Services
                 throw new ArgumentException("query must contain 1 through 4096 characters.");
             token.ThrowIfCancellationRequested();
 
-            AuthContext scope = caller;
-            string? vesselId = request.VesselId;
-            string? persona = null;
-            if (!String.IsNullOrWhiteSpace(caller.MissionId))
-            {
-                scope = AuthContext.Authenticated(OwnershipPolicy.TenantOf(caller), OwnershipPolicy.UserOf(caller), false, false, caller.AuthMethod ?? "Mission");
-                scope.MissionId = caller.MissionId;
-                Mission? mission = await CallerScopedRead.ReadMissionAsync(_Database, scope, caller.MissionId, token).ConfigureAwait(false);
-                if (mission == null || MissionStateMachine.IsTerminal(mission.Status))
-                    throw new UnauthorizedAccessException("An active owned mission is required.");
-                vesselId = mission.VesselId;
-                persona = mission.Persona;
-            }
-            Vessel? vessel = await CallerScopedRead.ReadVesselAsync(_Database, scope, vesselId, token).ConfigureAwait(false);
-            if (vessel == null) throw new KeyNotFoundException("Vessel not found in the caller's scope.");
+            ContextRecallScope scope = await ContextRecallScope.ResolveAsync(_Database, caller, request.VesselId, token: token).ConfigureAwait(false);
+            Vessel vessel = scope.Vessel!;
 
             ContextSearchResponse response = new ContextSearchResponse { VesselId = vessel.Id };
             List<ContextSearchItem> candidates = new List<ContextSearchItem>();
-            AddRules(response, candidates, request.Query, vessel.Name, persona, token);
-            await AddMemoriesAsync(response, candidates, scope, vessel, token).ConfigureAwait(false);
+            AddRules(response, candidates, request.Query, vessel.Name, scope.Mission?.Persona, token);
+            await AddMemoriesAsync(response, candidates, scope.Caller, vessel, token).ConfigureAwait(false);
 
             List<ContextSearchItem> ranked = ContextTextRanker.Rank(request.Query, candidates, token);
             AssignRanks(ranked);
@@ -126,7 +116,7 @@ namespace Armada.Core.Services
             {
                 Query = query, Vessel = vessel, RequestingPersona = persona, MaxLeafBytes = Int32.MaxValue
             });
-            response.Sources.Add(new ContextSearchStatus { Source = "rules", Available = !rules.Degraded, Reason = rules.Degraded ? "degraded_snapshot" : null });
+            response.Sources.Add(new ContextSearchStatus { Source = "rules", Available = !rules.Degraded, Reason = rules.Degraded ? "degraded_snapshot" : null, SearchMode = "bm25" });
             foreach (ContextChunk chunk in rules.Core.Concat(rules.MustRetrieve))
             {
                 token.ThrowIfCancellationRequested();
@@ -160,7 +150,7 @@ namespace Armada.Core.Services
                         SearchMetadata = memory.Key + " " + memory.Topic + " " + String.Join(" ", memory.Tags)
                     });
                 }
-                response.Sources.Add(new ContextSearchStatus { Source = "memory", Available = true });
+                response.Sources.Add(new ContextSearchStatus { Source = "memory", Available = true, SearchMode = "bm25" });
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -182,7 +172,7 @@ namespace Armada.Core.Services
                     VesselId = vesselId, Query = query, Limit = 40, IncludeContent = true
                 }, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
-                response.Sources.Add(new ContextSearchStatus { Source = "code", Available = code.Available, Reason = code.UnavailableReason });
+                response.Sources.Add(new ContextSearchStatus { Source = "code", Available = code.Available, Reason = code.UnavailableReason, SearchMode = "lexical", Freshness = code.Status.Freshness });
                 if (!code.Available) return;
                 int rank = 0;
                 foreach (CodeSearchResult hit in code.Results)

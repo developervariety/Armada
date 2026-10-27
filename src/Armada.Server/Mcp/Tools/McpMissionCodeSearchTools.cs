@@ -18,8 +18,7 @@ namespace Armada.Server.Mcp.Tools
     /// Registers the captain-facing code search tool <c>armada_mission_code_search</c>. It searches the
     /// code index of the calling mission's own vessel and no other: the vessel is resolved from the
     /// mission a captain credential was issued to (or, for a caller without one, the supplied mission
-    /// id), so the tool takes no vessel or fleet argument. It is read-only, writes no Armada
-    /// record, and is bounded by a per-mission call budget from <c>codeIndex</c> settings.
+    /// id), so the tool takes no vessel or fleet argument. It is read-only, changes no source record, and uses the shared durable mission recall budget.
     ///
     /// The index covers the vessel's default branch, not the captain's dock branch. When the index is
     /// missing, failed, or stale, or searches lexically only, the answer says so, because an empty result
@@ -42,15 +41,11 @@ namespace Armada.Server.Mcp.Tools
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        // Process-local per-mission call budget keyed by mission id. Reset on an admiral restart,
-        // which ends every running captain.
+        // Unavailable-index diagnostics are rate-limited separately from the durable recall budget.
         private static readonly ConcurrentDictionary<string, DateTime> _LastUnavailableEventByVessel =
             new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
 
         private static readonly TimeSpan _UnavailableEventInterval = TimeSpan.FromHours(1);
-
-        private static readonly ConcurrentDictionary<string, int> _CallsByMission =
-            new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
 
         #endregion
 
@@ -64,21 +59,24 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="database">Database driver, for resolving the calling mission's vessel.</param>
         /// <param name="settings">Armada settings supplying <c>codeIndex</c>.</param>
         /// <param name="logging">Optional logging module.</param>
+        /// <param name="sharedBudget">Shared durable recall budget.</param>
         public static void Register(
             RegisterToolDelegate register,
             ICodeIndexService codeIndex,
             DatabaseDriver database,
             ArmadaSettings settings,
-            LoggingModule? logging = null)
+            LoggingModule? logging = null,
+            ContextRecallBudget? sharedBudget = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             if (codeIndex == null) throw new ArgumentNullException(nameof(codeIndex));
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (settings == null) throw new ArgumentNullException(nameof(settings));
 
+            ContextRecallBudget budget = sharedBudget ?? new ContextRecallBudget(database, settings);
             register(
                 ToolName,
-                "Search the code index of your own mission's vessel. Use it to find existing code before you write new code, and to check whether a method you added duplicates one that already exists. Pass your mission id in 'missionId'; the tool resolves your vessel from it and searches no other vessel. A captain credential always searches the mission it was issued to and is charged to that mission's budget, whatever id is passed. The index covers the vessel's default branch, not your dock branch, so your own uncommitted changes are not in it. Results give path, line range, language, score, and an excerpt; set 'includeContent' for the full chunk. When the index is missing, failed, stale, or lexical-only, the answer says so: an empty result then does not mean the code is absent, so search the checkout by hand. It is read-only, writes no record, and is budgeted per mission.",
+                "Compatibility code query with index-specific filters. Prefer armada_search_context for local task recall across guidance, facts and code. Search the code index of your own mission's vessel. Use it to find existing code before you write new code, and to check whether a method you added duplicates one that already exists. Pass your mission id in 'missionId'; the tool resolves your vessel from it and searches no other vessel. A captain credential always searches the mission it was issued to and is charged to that mission's budget, whatever id is passed. The index covers the vessel's default branch, not your dock branch, so your own uncommitted changes are not in it. Results give path, line range, language, score, and an excerpt; set 'includeContent' for the full chunk. When the index is missing, failed, stale, or lexical-only, the answer says so: an empty result then does not mean the code is absent, so search the checkout by hand. It is read-only, writes no record, and shares the durable mission recall budget.",
                 new
                 {
                     type = "object",
@@ -93,16 +91,14 @@ namespace Armada.Server.Mcp.Tools
                     },
                     required = new[] { "missionId", "query" }
                 },
-                (args) => HandleAsync(args, codeIndex, database, settings, logging));
+                (args) => HandleAsync(args, codeIndex, database, settings, logging, budget));
         }
 
         /// <summary>
-        /// Reset the process-local per-mission call budget. For tests only; production resets it on an
-        /// admiral restart.
+        /// Reset the unavailable-index diagnostic throttle. Durable recall budgets are not reset.
         /// </summary>
         public static void ResetBudgetForTests()
         {
-            _CallsByMission.Clear();
             _LastUnavailableEventByVessel.Clear();
         }
 
@@ -115,7 +111,7 @@ namespace Armada.Server.Mcp.Tools
             ICodeIndexService codeIndex,
             DatabaseDriver database,
             ArmadaSettings settings,
-            LoggingModule? logging)
+            LoggingModule? logging, ContextRecallBudget budget)
         {
             try
             {
@@ -129,7 +125,7 @@ namespace Armada.Server.Mcp.Tools
                 // supplied id, so a captain searches its own vessel and spends its own budget only. This
                 // holds when the credential's owner is an administrator: a mission token never inherits
                 // its owner's operator rights. A caller without a mission credential uses the supplied id.
-                AuthContext? caller = McpCallerContext.Current;
+                AuthContext caller = McpCallerContext.Require();
                 string? missionId = McpCallerContext.ResolveMissionId(request.MissionId, out string? ignoredMissionId);
                 if (ignoredMissionId != null)
                     logging?.Warn("[McpMissionCodeSearchTools] ignored missionId " + ignoredMissionId
@@ -143,42 +139,30 @@ namespace Armada.Server.Mcp.Tools
                 if (!indexSettings.Enabled)
                     return Unavailable("disabled", "Code indexing is disabled on this admiral. Search the checkout by hand.");
 
-                Mission? mission = await database.Missions.ReadAsync(missionId, CancellationToken.None).ConfigureAwait(false);
-                if (mission == null)
-                    return Unavailable("mission_not_found", "No mission has that id.");
-
-                // Scope is the guard: a captain's own mission must have the credential's tenant and owner;
-                // an operator's mission must have the operator's tenant unless the operator is an
-                // administrator. The mission must still be live, and its vessel is the only one searched.
-                if (caller != null && !String.IsNullOrEmpty(caller.MissionId))
+                if (!settings.ContextRetrieval.FetchToolEnabled)
+                    return Unavailable("disabled", "Context recall is disabled.");
+                ContextRecallScope scope;
+                try
                 {
-                    if (!McpMissionEvidenceScope.SameOwner(caller, mission.TenantId, mission.UserId))
-                        return Unavailable("mission_not_found", "No mission has that id.");
+                    scope = await ContextRecallScope.ResolveAsync(database, caller, null, missionId, true, McpCallerContext.CallToken).ConfigureAwait(false);
                 }
-                else if (caller != null && !caller.IsAdmin
-                    && !String.Equals(caller.TenantId, mission.TenantId, StringComparison.Ordinal))
-                {
-                    return Unavailable("mission_not_found", "No mission has that id.");
-                }
-                if (MissionStateMachine.IsTerminal(mission.Status))
-                    return Unavailable("mission_not_active", "That mission is no longer active, so it has no vessel search scope.");
-                if (String.IsNullOrWhiteSpace(mission.VesselId))
-                    return Unavailable("no_vessel", "That mission has no vessel to search.");
-
-                int used = _CallsByMission.AddOrUpdate(mission.Id, 1, (_, previous) => previous + 1);
-                if (used > indexSettings.CaptainSearchMaxCallsPerMission)
+                catch (KeyNotFoundException) { return Unavailable("mission_not_found", "Mission or vessel not found in the caller's scope."); }
+                catch (UnauthorizedAccessException) { return Unavailable("mission_not_active", "An active owned mission is required."); }
+                Mission mission = scope.Mission!;
+                int? consumed = await budget.ConsumeAsync(scope, McpCallerContext.CallToken).ConfigureAwait(false);
+                if (!consumed.HasValue)
                 {
                     return new
                     {
                         Available = false,
                         UnavailableReason = "budget",
-                        Message = "This mission has used its code search budget. Search the checkout by hand.",
-                        CallsUsed = used - 1,
-                        MaxCallsPerMission = indexSettings.CaptainSearchMaxCallsPerMission
+                        Message = "This mission has used its shared context recall budget. Search the checkout by hand.",
+                        MaxCallsPerMission = budget.Maximum
                     };
                 }
+                int used = consumed.Value;
 
-                CodeIndexStatus status = await codeIndex.GetStatusAsync(mission.VesselId!).ConfigureAwait(false);
+                CodeIndexStatus status = await codeIndex.GetStatusAsync(mission.VesselId!, McpCallerContext.CallToken).ConfigureAwait(false);
                 if (!IsSearchable(status.Freshness))
                 {
                     // A vessel is indexed for the first time only by an explicit update, so a missing index
@@ -201,7 +185,7 @@ namespace Armada.Server.Mcp.Tools
                             Remedy = remedy
                         },
                         CallsUsed = used,
-                        MaxCallsPerMission = indexSettings.CaptainSearchMaxCallsPerMission
+                        MaxCallsPerMission = budget.Maximum
                     };
                 }
 
@@ -216,7 +200,7 @@ namespace Armada.Server.Mcp.Tools
                     Language = request.Language,
                     IncludeContent = request.IncludeContent,
                     IncludeReferenceOnly = false
-                }).ConfigureAwait(false);
+                }, McpCallerContext.CallToken).ConfigureAwait(false);
 
                 List<string> warnings = new List<string>();
                 if (ignoredMissionId != null)
@@ -249,9 +233,10 @@ namespace Armada.Server.Mcp.Tools
                     }).ToList(),
                     Warnings = warnings,
                     CallsUsed = used,
-                    MaxCallsPerMission = indexSettings.CaptainSearchMaxCallsPerMission
+                    MaxCallsPerMission = budget.Maximum
                 };
             }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 // The tool must never throw into the captain's runtime.

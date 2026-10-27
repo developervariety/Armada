@@ -29,6 +29,11 @@ profiles, environments, personas, pipelines, and their links.
 For captain evidence scope and complete papercut page traversal, use the
 [read contracts in MCP_API.md](MCP_API.md#captain-evidence-reads).
 
+Generated captain instructions use [unified context recall](CONTEXT_INDEX.md#unified-retrieval-and-the-armada_search_context-tool)
+for guidance, native facts and indexed code. Compatibility recall tools share
+the same durable mission call budget. Keep them available while custom client
+and template cutover is unverified.
+
 For a rescue after Judge rejection, the brief points to the full, safely
 redacted parent output and every rescue stage reads it with
 `armada_mission_output`. The tool returns pages with one digest for the full

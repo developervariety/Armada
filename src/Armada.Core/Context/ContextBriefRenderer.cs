@@ -4,6 +4,7 @@ namespace Armada.Core.Context
     using System.Collections.Generic;
     using System.Linq;
     using System.Text;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Renders a <see cref="ContextRetrievalResult"/> into the AI-Memory part of a captain brief: the
@@ -33,7 +34,7 @@ namespace Armada.Core.Context
         #region Public-Members
 
         /// <summary>The captain-facing on-demand fetch tool named in the section pointer.</summary>
-        public const string FetchToolName = "armada_fetch_context";
+        public const string FetchToolName = ContextSearchService.ToolName;
 
         /// <summary>Dock-relative folder the memory files are written to.</summary>
         public const string MemoryFolder = "_briefing/memory";
@@ -153,9 +154,9 @@ namespace Armada.Core.Context
             if (fetchToolEnabled)
             {
                 sb.Append("\n### More on demand\n");
-                sb.Append("Call `").Append(FetchToolName).Append("` with a short query or a topic id to pull any ");
-                sb.Append("other rule or procedure by topic, scoped to this vessel and persona. Pull what a task ");
-                sb.Append("needs; do not load all of memory.\n");
+                sb.Append("Call `").Append(FetchToolName).Append("` with a short `query` to find applicable guidance, native facts and indexed code. ");
+                sb.Append("Your credential fixes this vessel and persona. Read Required guidance before using Results, ");
+                sb.Append("and inspect Sources for missing or failed sources. Pull what a task needs; do not load all of memory.\n");
             }
 
             return sb.ToString();

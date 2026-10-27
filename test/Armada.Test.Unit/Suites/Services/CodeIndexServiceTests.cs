@@ -63,6 +63,10 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("src/Packet.cs:", hit.Reference, "Source line pointer is retained");
                         AssertEqual(repository.CommitSha, hit.Version, "Indexed commit is retained");
                         AssertEqual(buildCalls, embeddings.CallCount, "Unified recall makes no query embedding call");
+                        AssertEqual("lexical", result.Sources.Single(source => source.Source == "code").SearchMode, "The unified query reports its actual search mode even for a semantic index");
+                        ContextSearchResponse empty = await search.SearchAsync(caller, new ContextSearchRequest { VesselId = vessel.Id, Query = "absentxyz" }).ConfigureAwait(false);
+                        AssertEqual(0, empty.Results.Count, "An absent code term stays empty");
+                        AssertEqual("Fresh", empty.Sources.Single(source => source.Source == "code").Freshness, "Index freshness remains visible without hits");
                     }
                 }
                 finally

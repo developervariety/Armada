@@ -8,6 +8,18 @@ namespace Armada.Core.Database.Interfaces
     /// </summary>
     public interface IMissionMethods
     {
+        /// <summary>Atomically spend one shared context-recall call for an active, owned mission.</summary>
+        /// <param name="tenantId">Authorized mission tenant.</param>
+        /// <param name="userId">Authorized mission owner.</param>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="maximum">Maximum total calls across recall entry points.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The committed call count, or null when the row or remaining budget is absent.</returns>
+        Task<int?> TryConsumeContextRecallAsync(string tenantId, string userId, string missionId, int maximum, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Context recall budgets are not implemented by this database.");
+        }
+
         /// <summary>
         /// Read status counts across all visible voyage missions and a page of distinct vessel IDs.
         /// A null tenant selects global scope; a user scope requires a tenant. Callers must authorize

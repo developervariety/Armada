@@ -186,14 +186,15 @@ namespace Armada.Server.Mcp
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
-            McpMemoryTools.Register(register, database, logging);
+            ContextRecallBudget contextRecallBudget = new ContextRecallBudget(database, effectiveSettings);
+            McpMemoryTools.Register(register, database, logging, effectiveSettings, contextRecallBudget);
 
             // The captain-facing context fetch tool sits in the mission-scoped catalogue beside
             // the memory tools. Its handler reports when this host has no built context index.
-            McpContextTools.Register(register, contextRetrieval, database, effectiveSettings, logging, contextParticipantKeyProvider);
+            McpContextTools.Register(register, contextRetrieval, database, effectiveSettings, logging, contextParticipantKeyProvider, contextRecallBudget);
             McpContextSearchTools.Register(register,
                 new ContextSearchService(database, contextRetrieval, effectiveSettings.CodeIndex.Enabled ? codeIndexService : null, logging),
-                effectiveSettings.ContextRetrieval);
+                effectiveSettings.ContextRetrieval, database, contextRecallBudget);
 
             // The captain-facing typed-decision tools sit in the mission-scoped catalogue beside the
             // memory tools. They need the recorder, which needs a logging module; where none was
@@ -245,7 +246,7 @@ namespace Armada.Server.Mcp
 
                 // The captain-facing code search sits in the mission-scoped catalogue. It resolves the
                 // vessel from the calling mission, so a captain reaches its own vessel's index only.
-                McpMissionCodeSearchTools.Register(register, codeIndexService, database, effectiveSettings, logging);
+                McpMissionCodeSearchTools.Register(register, codeIndexService, database, effectiveSettings, logging, contextRecallBudget);
             }
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
             if (logging != null) McpTraceTools.Register(register, new TraceRecorder(database, logging));

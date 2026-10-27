@@ -1,10 +1,10 @@
 namespace Armada.Server.Mcp.Tools
 {
     using System;
-    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -13,20 +13,24 @@ namespace Armada.Server.Mcp.Tools
     public static class McpContextSearchTools
     {
         /// <summary>Name shared by tool registration and access policy.</summary>
-        public const string ToolName = "armada_search_context";
+        public const string ToolName = ContextSearchService.ToolName;
 
-        private static readonly ConcurrentDictionary<string, int> _CallsByMission = new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         /// <summary>Register the local retrieval tool without adding a write or operator capability.</summary>
         /// <param name="register">Transport registration delegate.</param>
         /// <param name="search">Shared service over the existing stores.</param>
         /// <param name="settings">Existing context call and byte limits.</param>
-        public static void Register(RegisterToolDelegate register, ContextSearchService search, ContextRetrievalSettings settings)
+        /// <param name="database">Configured store for authorization and budgets.</param>
+        /// <param name="budget">Shared mission budget.</param>
+        public static void Register(RegisterToolDelegate register, ContextSearchService search, ContextRetrievalSettings settings,
+            DatabaseDriver database, ContextRecallBudget budget)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             if (search == null) throw new ArgumentNullException(nameof(search));
             if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            if (budget == null) throw new ArgumentNullException(nameof(budget));
             register(ToolName,
                 "Search applicable rules, native working facts and existing vessel code in one local query. Required core and safety guidance is returned in full, outside optional result limits. Results name their source and version; working facts never override rules. Your mission credential fixes your vessel. Operators supply vesselId. This read-only tool makes no embedding call and never creates an index. Check Sources for missing or failed sources; an unavailable source does not prove content is absent.",
                 new
@@ -55,8 +59,9 @@ namespace Armada.Server.Mcp.Tools
                             return Failure("invalid", "query must contain 1 through 4096 characters.");
                         if (!String.IsNullOrWhiteSpace(caller.MissionId))
                         {
-                            int calls = _CallsByMission.AddOrUpdate(caller.MissionId, 1, (_, previous) => previous + 1);
-                            if (calls > settings.MaxCallsPerMission) return Failure("budget", "The mission has used its unified context search budget.");
+                            ContextRecallScope scope = await ContextRecallScope.ResolveAsync(database, caller, request.VesselId, null, true, McpCallerContext.CallToken).ConfigureAwait(false);
+                            if (!(await budget.ConsumeAsync(scope, McpCallerContext.CallToken).ConfigureAwait(false)).HasValue)
+                                return Failure("budget", "The mission has used its shared context recall budget.");
                         }
                         request.MaxBytes = Math.Clamp(request.MaxBytes, 0, settings.MaxLeafBytesPerCall);
                         return (object)await search.SearchAsync(caller, request, McpCallerContext.CallToken).ConfigureAwait(false);
