@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Legacy password upgrade
+
+- **A startup upgrade replaces a legacy password hash only while that hash is still stored.** The write changes `password_sha256` and no other column. A password change that lands after the read stays as stored, and startup continues with the next user. Login still replaces a legacy or weaker hash after a successful sign-in.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
