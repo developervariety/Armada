@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Helm waits for local server shutdown before deleting data
+
+- `armada reset` and the wipe path in `armada config init` now keep existing data when they cannot prove the local Admiral has stopped. They poll the local health endpoint for up to 30 seconds and treat every HTTP response, including an error response, as a live process. They delete data only after the endpoint refuses a connection.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
