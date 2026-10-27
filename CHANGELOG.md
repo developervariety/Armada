@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- The Needs You badge runs one inbox read at a time. The throttle starts when the read starts, so a slow or failed read does not start another read for socket activity inside that window. A failed read keeps the last count.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
