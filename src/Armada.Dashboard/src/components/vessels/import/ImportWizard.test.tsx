@@ -162,7 +162,7 @@ describe('ImportWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import 2 repositories' }));
 
     expect(await screen.findByText('Importing 2 repositories in the background.')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open the Jobs page' })).toHaveAttribute('href', '/jobs');
+    expect(screen.getByRole('link', { name: 'Open the Jobs page' })).toHaveAttribute('href', '/activity?source=jobs');
 
     await act(async () => { await vi.advanceTimersByTimeAsync(IMPORT_POLL_MS); });
     await waitFor(() => expect(getVesselImportBatch).toHaveBeenCalledTimes(1));

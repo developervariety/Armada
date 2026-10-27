@@ -4241,7 +4241,7 @@ turns).
 | PUT | `/api/v1/captains/{id}/cli-permission-policy` | `CliPermissionPolicyUpdateRequest` | `200` `Captain`; see [Captains](#put-apiv1captainsidcli-permission-policy) |
 | PUT | `/api/v1/ask/threads/{id}/cli-permission-policy` | `CliPermissionPolicyUpdateRequest` | `200` `AskThread`; see [Ask Armada threads](#ask-armada-threads) |
 
-Every list and decision is the same set of rows the dashboard's CLI Tool Permissions page, the TUI Approvals center,
+Every list and decision is the same set of rows the dashboard's Settings > CLI Tool Permissions tab, the TUI Approvals center,
 the inbox (`cli_permission`), MCP, and WebSocket show. Events: `cli_permission.requested` and `cli_permission.resolved`
 (see [WEBSOCKET_API.md](WEBSOCKET_API.md)).
 
@@ -4445,7 +4445,7 @@ appear on the lock screen. `data` is `{ "url": "/missions/msn_...", "kind": "fai
 "msn_...", "category": "MissionFailed", "deviceId": "pdv_..." }`, plus `threadId` for the owner of an Ask proposal or
 thread permission request. `deviceId` is the registered device the message was built for, so an app signed in to more
 than one Admiral can tell which server a notification came from. `url` is a dashboard path (`/missions/{id}`, `/voyages/{id}`, `/captains/{id}`, `/deployments/{id}`,
-`/ask/{threadId}`, `/cli-permissions?request={id}`). `badge` is the recipient's pending approvals (mission reviews,
+`/ask/{threadId}`, `/server?tab=cli-permissions&request={id}`; before v1.2.0 this was `/cli-permissions?request={id}`, which still redirects). `badge` is the recipient's pending approvals (mission reviews,
 deployment approvals, Ask proposals, and CLI permission requests in their inbox), `sound` is `default`, and recipients
 who may approve or deny an Ask proposal or CLI permission request get the iOS `categoryId` `armada_approve_deny`; the
 app performs the action through the existing approve, reject, and decide routes. Because the text is a truncated
@@ -5648,7 +5648,7 @@ then `Warning`), then by `Title`. Every item is returned (no category is capped)
 | `deployment_approval` | `Warning` | `deployment` | Deployment pending approval |
 | `deployment_failed` | `Critical` | `deployment` | Deployment `Failed` or `VerificationFailed` |
 | `ask_proposal` | `Warning` | `ask_proposal` | Pending, unexpired Ask Armada action proposal in one of the caller's own threads (`Href` is `/ask/{threadId}`) |
-| `cli_permission` | `Warning` | `cli_permission_request` | Pending, unexpired [CLI permission request](#cli-permissions) the caller may see (`Href` is `/ask/{threadId}` for a request from the caller's own Ask thread, otherwise `/cli-permissions?request={id}`) |
+| `cli_permission` | `Warning` | `cli_permission_request` | Pending, unexpired [CLI permission request](#cli-permissions) the caller may see (`Href` is `/ask/{threadId}` for a request from the caller's own Ask thread, otherwise `/server?tab=cli-permissions&request={id}`; the pre-v1.2.0 `/cli-permissions?request={id}` still redirects there) |
 
 Operational items are scoped like other reads: a global admin sees everything, a tenant admin sees the tenant, and a
 regular user sees only the items they own. Ask proposals are always limited to the caller's own threads (only the

@@ -349,7 +349,7 @@ namespace Armada.Core.Services
                 Description = "Planning session",
                 Status = session.Status.ToString(),
                 Severity = session.Status == PlanningSessionStatusEnum.Failed ? "error" : "info",
-                Route = "/planning/" + session.Id,
+                Route = "/dispatch?tab=planning&session=" + session.Id,
                 OccurredUtc = session.LastUpdateUtc,
                 MetadataJson = JsonSerializer.Serialize(new
                 {

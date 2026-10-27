@@ -27,6 +27,7 @@ import { supportsAutoApproveSwitch } from '../lib/captainApproval';
 import { CAPTAIN_AUTO_APPROVE_TOOLTIP, CAPTAIN_CLI_POLICY_TOOLTIP, CAPTAIN_INFERENCE_ENDPOINT_TOOLTIP, CAPTAIN_NAME_TOOLTIP, CAPTAIN_REASONING_EFFORT_TOOLTIP, CAPTAIN_RUNTIME_TOOLTIP, CAPTAIN_SYSTEM_INSTRUCTIONS_TOOLTIP, CAPTAIN_TIER_TOOLTIP, buildCaptainCreatePayload, buildCaptainPayload, captainFormError, captainFormErrorMessage, captainFormFromCaptain, captainModelPlaceholder, captainModelTooltip, cliPolicyChanged, emptyCaptainForm, type CaptainFormState } from '../lib/captainForm';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
+import { PLANNING_PATH } from '../lib/navTargets';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
@@ -338,7 +339,7 @@ export default function Captains() {
   }
 
   function handleStartPlanning(captain: Captain) {
-    navigate('/planning', {
+    navigate(PLANNING_PATH, {
       state: {
         captainId: captain.id,
       },

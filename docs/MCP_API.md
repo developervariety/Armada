@@ -583,7 +583,7 @@ Purely informational events (completions, normal progress) are deliberately excl
 | `deployment_failed` | Deployment failed or failed verification | `Critical` |
 | `stalled_captain` | Captain is stalled and may need recovery or a dock reclaim | `Warning` |
 | `ask_proposal` | Ask Armada action proposal waiting for your approval (`Href` is the conversation, `/ask/<threadId>`) | `Warning` |
-| `cli_permission` | CLI permission request waiting for an approver; visible to global admins, the tenant's tenant admins, and the owner of the thread or mission (`Href` is `/ask/<threadId>` for the caller's own conversation, otherwise `/cli-permissions?request=<id>`) | `Warning` |
+| `cli_permission` | CLI permission request waiting for an approver; visible to global admins, the tenant's tenant admins, and the owner of the thread or mission (`Href` is `/ask/<threadId>` for the caller's own conversation, otherwise `/server?tab=cli-permissions&request=<id>`; the pre-v1.2.0 `/cli-permissions?request=<id>` still redirects there) | `Warning` |
 
 **Input Schema:**
 
