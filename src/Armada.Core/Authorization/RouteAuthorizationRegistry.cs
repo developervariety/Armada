@@ -79,6 +79,9 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/model-endpoints/{id}/evaluate", "ModelProbeRun", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/model-probe-runs", "ModelProbeRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/model-probe-runs/{id}", "ModelProbeRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/battery/packs", "BatteryPack", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/battery/runs", "BatteryRun", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("GET", "/api/v1/battery/runs/{id}", "BatteryRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
 
             // PushRoutes (owner / tenant admin / global admin scoping is checked per device by PushDeviceAccess)
             Add("POST", "/api/v1/push/devices", "PushDevice", ResourceOperationEnum.Create, PermissionLevel.Authenticated);

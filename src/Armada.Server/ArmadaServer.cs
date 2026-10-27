@@ -107,6 +107,13 @@ namespace Armada.Server
         public IModelProbeExecutor? ModelProbeExecutorOverride { get; set; } = null;
 
         /// <summary>
+        /// Runs every fixture battery task instead of real dispatch when set. Null (the default) dispatches each task as a
+        /// mission to the captain. May be set before or after <see cref="StartAsync"/>; test hosts set a canned dispatcher
+        /// so tests never launch a real model.
+        /// </summary>
+        public IBatteryTaskDispatcher? BatteryTaskDispatcherOverride { get; set; } = null;
+
+        /// <summary>
         /// The push notification service (populated by <see cref="StartAsync"/>).
         /// </summary>
         public Armada.Core.Services.Push.PushNotificationService? PushNotifications
@@ -171,6 +178,8 @@ namespace Armada.Server
         private StageOutcomeAccessService _StageOutcomeAccess = null!;
         private ModelProbeService _ModelProbeService = null!;
         private ModelProbeAccessService _ModelProbeAccess = null!;
+        private BatteryRunService _BatteryRunService = null!;
+        private BatteryAccessService _BatteryAccess = null!;
         private CheckRunService _CheckRunService = null!;
         private ObjectiveService _ObjectiveService = null!;
         private ReleaseService _ReleaseService = null!;
@@ -511,6 +520,27 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not recover interrupted Evaluate runs: " + ex.Message);
+            }
+
+            // Fixture battery: packs are data under battery/; each task is reset, dispatched as a real mission on the pack's
+            // fixture vessel under the ModelEvaluation pipeline, and graded. It shares Evaluate's concurrency gate.
+            BatteryPackCatalog batteryCatalog = new BatteryPackCatalog(() => _Settings.Evaluation.BatteryDirectory);
+            BatteryFixtureService batteryFixtures = new BatteryFixtureService(_Database, _Logging, Path.Combine(_Settings.DataDirectory, "battery"));
+            AdmiralBatteryTaskDispatcher batteryDispatcher = new AdmiralBatteryTaskDispatcher(_Admiral, _Database, _Logging)
+            {
+                DockHosts = dockHosts,
+                OverrideSource = () => BatteryTaskDispatcherOverride
+            };
+            _BatteryRunService = new BatteryRunService(_Database, _Logging, batteryCatalog, batteryFixtures, batteryDispatcher, () => _Settings.Evaluation, _ModelProbeService.Gate);
+            _BatteryAccess = new BatteryAccessService(_Database, _BatteryRunService, _Logging);
+            try
+            {
+                int interruptedBattery = await _BatteryRunService.RecoverInterruptedAsync().ConfigureAwait(false);
+                if (interruptedBattery > 0) _Logging.Info(_Header + "marked " + interruptedBattery + " interrupted battery run(s) failed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not recover interrupted battery runs: " + ex.Message);
             }
             if (_MergeQueue is MergeQueueService mergeQueueImpl)
             {
@@ -1386,6 +1416,10 @@ namespace Armada.Server
             new ModelProbeRoutes(_ModelProbeAccess, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Fixture battery packs and runs
+            new BatteryRoutes(_BatteryAccess, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Push notification devices (mobile apps)
             new PushRoutes(_PushDevices, _PushNotifications!, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -1929,7 +1963,8 @@ namespace Armada.Server
                 _MissionService,
                 _HarborJobControl,
                 _StageOutcomeAccess,
-                _ModelProbeAccess);
+                _ModelProbeAccess,
+                _BatteryAccess);
         }
 
         /// <summary>

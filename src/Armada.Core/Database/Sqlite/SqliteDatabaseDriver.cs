@@ -128,6 +128,8 @@ namespace Armada.Core.Database.Sqlite
             FailureCauseRules = new FailureCauseRuleMethods(this, _Settings, _Logging);
             ModelProbeRuns = new ModelProbeRunMethods(this, _Settings, _Logging);
             ModelProbeResults = new ModelProbeResultMethods(this, _Settings, _Logging);
+            BatteryRuns = new BatteryRunMethods(this, _Settings, _Logging);
+            BatteryTaskResults = new BatteryTaskResultMethods(this, _Settings, _Logging);
             PushDevices = new PushDeviceMethods(this, _Settings, _Logging);
             HarborJobs = new HarborJobMethods(this, _Settings, _Logging);
             HarborLinkSamples = new HarborLinkSampleMethods(this, _Settings, _Logging);
@@ -204,6 +206,8 @@ namespace Armada.Core.Database.Sqlite
             FailureCauseRules = new FailureCauseRuleMethods(this, _Settings, _Logging);
             ModelProbeRuns = new ModelProbeRunMethods(this, _Settings, _Logging);
             ModelProbeResults = new ModelProbeResultMethods(this, _Settings, _Logging);
+            BatteryRuns = new BatteryRunMethods(this, _Settings, _Logging);
+            BatteryTaskResults = new BatteryTaskResultMethods(this, _Settings, _Logging);
             PushDevices = new PushDeviceMethods(this, _Settings, _Logging);
             HarborJobs = new HarborJobMethods(this, _Settings, _Logging);
             HarborLinkSamples = new HarborLinkSampleMethods(this, _Settings, _Logging);

@@ -111,6 +111,9 @@ namespace Armada.Core.Authorization
             Add("evaluate_captain", "ModelProbeRun", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
             Add("get_model_probe_run", "ModelProbeRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_model_probe_runs", "ModelProbeRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_battery_packs", "BatteryPack", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("run_battery", "BatteryRun", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("get_battery_run", "BatteryRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
 
             // Writes to caller-owned resources (memories, model endpoints, harbors), scoped to the caller in the tool handlers
             Add("create_memory", "Memory", ResourceOperationEnum.Create, PermissionLevel.Authenticated);

@@ -1,0 +1,42 @@
+diff --git a/src/Inventory/Stock.cs b/src/Inventory/Stock.cs
+--- a/src/Inventory/Stock.cs
++++ b/src/Inventory/Stock.cs
+@@ -76,5 +76,38 @@ namespace Inventory
+             foreach (Item item in _Items.Values) total += item.Quantity;
+             return total;
+         }
++
++        /// <summary>
++        /// Value on hand of the listed SKUs: unit price times quantity, summed.
++        /// </summary>
++        /// <param name="skus">SKUs to value.</param>
++        /// <returns>Total value.</returns>
++        /// <exception cref="ArgumentNullException">Thrown when skus is null.</exception>
++        public decimal ValueOf(IList<string> skus)
++        {
++            if (skus == null) throw new ArgumentNullException(nameof(skus));
++            decimal total = 0m;
++            for (int i = 1; i < skus.Count; i++)
++            {
++                Item? item = Find(skus[i]);
++                total += item!.UnitPrice * item.Quantity;
++            }
++
++            return total;
++        }
++
++        /// <summary>
++        /// Price of a bulk order after a whole-number percentage discount.
++        /// </summary>
++        /// <param name="sku">SKU.</param>
++        /// <param name="quantity">Units ordered.</param>
++        /// <param name="percentOff">Discount in whole percent, 0 to 100.</param>
++        /// <returns>The discounted order price.</returns>
++        public decimal BulkPrice(string sku, int quantity, int percentOff)
++        {
++            Item item = Find(sku) ?? throw new KeyNotFoundException("Unknown SKU " + sku + ".");
++            decimal rate = percentOff / 100;
++            return item.UnitPrice * quantity * (1 - rate);
++        }
+     }
+ }

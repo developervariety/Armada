@@ -6,6 +6,30 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Fixture battery: data-defined packs and the C# pack
+
+- **Packs as data.** A pack lives in `battery/<pack>/` and has a `battery-pack.json` manifest, documented in
+  `battery/README.md`. The manifest names the fixture, the tasks, the persona each task tests, how each task is graded
+  and the toolchain the Harbor needs. There are five graders: `command`, `byteComparison`, `mutation`, `seededSet` and
+  `rubric`. Adding a language or a non-code domain means adding a pack.
+- **The C# pack** (`battery/csharp`) holds a small inventory solution with a dependency-free test runner and the ten
+  template tasks: add a member, a coordinated two-place edit, fix a bug from a failing test, a BOM and CRLF edit
+  (checked byte for byte), write tests (checked with mutation), the Judge negative and positive controls, an
+  `armada-plan` request, a seeded lint and a voyage summary. `battery/** -text` in `.gitattributes` keeps the fixture
+  byte-exact.
+- **Runner.** Before each task the fixture is reset. The task is then dispatched as a real mission on the pack's
+  fixture vessel, which is created on request, under the new built-in `ModelEvaluation` pipeline with no landing. It is
+  graded in its worktree on the host that ran it. A missing toolchain makes a task could-not-run, never failed. Runs
+  record their seed, sampling settings, run count (default 3), battery version and configuration revision. They share
+  Evaluate's concurrency limits. Stage outcomes of battery missions are tagged `IsEvaluation`.
+- **REST, MCP and client.** The REST routes are `GET /api/v1/battery/packs`, `POST /api/v1/battery/runs` (global
+  admin or tenant admin) and `GET /api/v1/battery/runs/{id}`. The matching MCP tools are `list_battery_packs`,
+  `run_battery` and `get_battery_run`. The .NET client methods are `ListBatteryPacksAsync`, `RunBatteryAsync` and
+  `GetBatteryRunAsync`. Runs persist on all four database providers (migration 95: `battery_runs`,
+  `battery_task_results`).
+- **Settings.** `Evaluation.BatteryDirectory` overrides where packs are read from. `Evaluation.BatteryTaskTimeoutMinutes`
+  (default 60) bounds each task's mission.
+
 ### Evaluate: probe-only Quick model probes over REST, MCP and the .NET client
 
 - **Evaluate a captain or a model endpoint.** `POST /api/v1/captains/{id}/evaluate` (global admin or tenant admin of the captain's tenant) and `POST /api/v1/model-endpoints/{id}/evaluate` (anyone who can read the endpoint) start a Quick Evaluate and answer `201` with the queued `ModelProbeRun` (`mpr_` ids); depth `Full` is `400` ("not implemented until Phase 5"). The probes run in the background through the captain's own runtime as Harbor jobs of kind `ModelProbe` (an endpoint runs through the API endpoint runtime as a transient captain that is never saved), each in a fresh temporary directory; a runtime that cannot launch gives `CouldNotRun` results with the reason, never `Failed`.

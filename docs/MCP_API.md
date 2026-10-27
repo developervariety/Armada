@@ -142,6 +142,10 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [evaluate_captain](#evaluate_captain)
     - [get_model_probe_run](#get_model_probe_run)
     - [list_model_probe_runs](#list_model_probe_runs)
+  - **Fixture Battery**
+    - [list_battery_packs](#list_battery_packs)
+    - [run_battery](#run_battery)
+    - [get_battery_run](#get_battery_run)
   - **Ask Armada**
     - [list_ask_threads](#list_ask_threads)
     - [get_ask_thread](#get_ask_thread)
@@ -1312,6 +1316,64 @@ Ask read-only list; `evaluate_captain` becomes a proposal inside an Ask conversa
 | `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 25) |
 
 **Response:** `EnumerationResult<ModelProbeRun>` (without results), newest first.
+
+---
+
+## Fixture Battery
+
+The fixture battery runs data-defined packs of fixed tasks (`battery/<pack>/battery-pack.json`; schema in
+[battery/README.md](../battery/README.md)) against a captain. Each task goes through real dispatch on the pack's fixture
+vessel under the built-in `ModelEvaluation` pipeline, after the fixture is reset, and is graded per its manifest. A task
+whose toolchain the Harbor lacks is `CouldNotRun`, never `Failed`. Rubric-graded tasks are `PendingEvaluation` with the
+raw output stored. Runs (`bat_`) record the seed, sampling settings, run count, battery version and configuration
+revision. Battery missions never count in production stage outcomes. The REST equivalents are in
+[REST_API.md](REST_API.md#fixture-battery), and the tools enforce the same rules through the same service.
+
+Errors are `McpToolError`s:
+
+- `NotFound`: missing, or another tenant's captain or run.
+- `Forbidden`: not an admin for `run_battery`, or a captain session.
+- `InvalidArgument`: no packs, an unknown or malformed pack, a bad run count, or a missing fixture vessel without
+  `createFixtureVessel`.
+- `Unavailable`: on the stdio server.
+
+`list_battery_packs` and `get_battery_run` are on the Ask read-only list. `run_battery` becomes a proposal inside an
+Ask conversation.
+
+| Tool | Caller |
+|---|---|
+| `list_battery_packs` | Any authenticated person |
+| `run_battery` | Global admin, or a tenant admin of the captain's tenant |
+| `get_battery_run` | Any authenticated person: global admins every tenant, everyone else their own tenant |
+
+### list_battery_packs
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 100) |
+
+**Response:** `EnumerationResult<BatteryPackInfo>`, ordered by id. Malformed packs are listed with `valid: false` and
+their `errors`.
+
+### run_battery
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `packs` | string[] | Yes | Pack ids, for example `["csharp"]` |
+| `captainId` | string | Yes | Captain to run the tasks (`cpt_`) |
+| `runCount` | integer | No | Runs of each task (1-10, default 3) |
+| `seed` | integer | No | Seed to record (default: picked at random) |
+| `createFixtureVessel` | boolean | No | Create the pack's fixture vessel if it does not exist yet (default false) |
+
+**Response:** the queued BatteryRun. The tasks run in the background; poll `get_battery_run`.
+
+### get_battery_run
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | Yes | Run ID (`bat_`) |
+
+**Response:** the BatteryRun with `results` (one per task attempt, with the grader's evidence and the raw output).
 
 ---
 

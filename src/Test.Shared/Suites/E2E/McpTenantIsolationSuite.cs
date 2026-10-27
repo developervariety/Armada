@@ -72,6 +72,7 @@ namespace Test.Shared.Suites.E2E
             ["delete_failure_cause_rule"] = "Failure-cause rule (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
             ["evaluate_captain"] = "Captain or model endpoint (ModelProbeAccessService scopes by caller; starts an Evaluate run, so tenant isolation is covered by E2E.ModelProbes with canned probe answers)",
             ["get_model_probe_run"] = "Evaluate run (ModelProbeAccessService scopes by caller; tenant isolation covered by E2E.ModelProbes)",
+            ["get_battery_run"] = "Battery run (BatteryAccessService scopes by caller; tenant isolation covered by E2E.Battery)",
             ["approve_ask_proposal"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
             ["cancel_ask_turn"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",
             ["delete_ask_thread"] = "Ask conversation (AskThreadService scopes by owning user; covered by E2E.AskThreads)",

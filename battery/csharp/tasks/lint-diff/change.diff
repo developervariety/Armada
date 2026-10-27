@@ -1,0 +1,46 @@
+diff --git a/src/Inventory/Reorder.cs b/src/Inventory/Reorder.cs
+new file mode 100644
+--- /dev/null
++++ b/src/Inventory/Reorder.cs
+@@ -0,0 +1,40 @@
++namespace Inventory
++{
++    using System;
++    using System.Collections.Generic;
++
++    /// <summary>
++    /// Suggests which items to reorder.
++    /// </summary>
++    public class Reorder
++    {
++        private readonly int threshold;
++
++        /// <summary>
++        /// Instantiate.
++        /// </summary>
++        /// <param name="threshold">Reorder when fewer units than this are on hand.</param>
++        /// <exception cref="ArgumentOutOfRangeException">Thrown when threshold is negative.</exception>
++        public Reorder(int threshold)
++        {
++            if (threshold < 0) throw new ArgumentOutOfRangeException(nameof(threshold));
++            this.threshold = threshold;
++        }
++
++        public List<string> Suggest(Stock stock, IEnumerable<string> skus)
++        {
++            if (stock == null) throw new ArgumentNullException(nameof(stock));
++            if (skus == null) throw new ArgumentNullException(nameof(skus));
++            var result = new List<string>();
++            foreach (string sku in skus)
++            {
++                Item? item = stock.Find(sku);
++                if (item != null && item.Quantity < threshold)
++                {
++                    Console.WriteLine("Reorder " + sku);
++                    result.Add(sku);
++                }
++            }
++            return result;
++        }
++    }
++}

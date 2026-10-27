@@ -135,6 +135,12 @@ namespace Armada.Core.Services
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
+                BatteryFixtureService.PipelineName,
+                "Fixture battery and Evaluate: one stage whose persona each battery task sets; never counted in production stage outcomes or scorecards.",
+                new List<PipelineStage> { new PipelineStage(1, PersonaCatalog.Worker) },
+                token).ConfigureAwait(false);
+
+            await SeedPipelineAsync(
                 "Recorded",
                 "Worker then Recorder -- do the work, then distill durable memories from it.",
                 new List<PipelineStage>

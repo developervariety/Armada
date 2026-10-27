@@ -1,0 +1,148 @@
+namespace Armada.Server
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using SyslogLogging;
+    using Armada.Core.Database;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
+
+    /// <summary>
+    /// Caller-scoped rules for the fixture battery, shared by REST and MCP: any signed-in person lists packs; a global
+    /// admin, or a tenant admin of the captain's tenant, starts a run; runs are visible within their tenant (a global
+    /// admin sees every tenant). Captain sessions are refused. Errors are typed exceptions the route and tool layers map
+    /// to 400/403/404.
+    /// </summary>
+    public class BatteryAccessService
+    {
+        #region Private-Members
+
+        private string _Header = "[BatteryAccessService] ";
+        private readonly DatabaseDriver _Database;
+        private readonly BatteryRunService _Service;
+        private readonly LoggingModule _Logging;
+
+        #endregion
+
+        #region Constructors-and-Factories
+
+        /// <summary>
+        /// Instantiate.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="service">Battery run service.</param>
+        /// <param name="logging">Logging module.</param>
+        /// <exception cref="ArgumentNullException">Thrown when any argument is null.</exception>
+        public BatteryAccessService(DatabaseDriver database, BatteryRunService service, LoggingModule logging)
+        {
+            _Database = database ?? throw new ArgumentNullException(nameof(database));
+            _Service = service ?? throw new ArgumentNullException(nameof(service));
+            _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+        }
+
+        #endregion
+
+        #region Public-Methods
+
+        /// <summary>
+        /// One page of battery packs, valid or not (malformed packs carry their validation errors).
+        /// </summary>
+        /// <param name="caller">Caller.</param>
+        /// <param name="pageNumber">Page number (1-based; default 1).</param>
+        /// <param name="pageSize">Page size (1 to 1000; default 100).</param>
+        /// <returns>One page of packs, ordered by identifier.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when caller is null.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown for anonymous callers and captain sessions.</exception>
+        public EnumerationResult<BatteryPackInfo> ListPacks(AuthContext caller, int? pageNumber, int? pageSize)
+        {
+            RequirePerson(caller);
+            int size = Math.Clamp(pageSize ?? 100, 1, 1000);
+            int number = Math.Max(1, pageNumber ?? 1);
+            List<BatteryPackInfo> all = _Service.ListPacks().Select(p => p.ToInfo()).ToList();
+            EnumerationResult<BatteryPackInfo> result = new EnumerationResult<BatteryPackInfo>();
+            result.PageNumber = number;
+            result.PageSize = size;
+            result.TotalRecords = all.Count;
+            result.TotalPages = (int)Math.Ceiling((double)all.Count / size);
+            result.Objects = all.Skip((number - 1) * size).Take(size).ToList();
+            return result;
+        }
+
+        /// <summary>
+        /// Start a battery run against a captain.
+        /// </summary>
+        /// <param name="caller">Caller.</param>
+        /// <param name="request">Request.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The queued run.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when caller is null.</exception>
+        /// <exception cref="ArgumentException">Thrown for a missing body, no packs, an unknown or malformed pack, a bad run
+        /// count, or a missing fixture vessel that was not asked to be created.</exception>
+        /// <exception cref="KeyNotFoundException">Thrown when the captain does not exist or is in another tenant.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown when the caller is not an admin, or is a captain session.</exception>
+        public async Task<BatteryRun> RunAsync(AuthContext caller, BatteryRunRequest? request, CancellationToken token = default)
+        {
+            RequirePerson(caller);
+            if (request == null) throw new ArgumentException("A request body is required.");
+            if (String.IsNullOrWhiteSpace(request.CaptainId)) throw new ArgumentException("captainId is required.");
+
+            // Resolve and authorize the captain before validating the rest, so another tenant learns nothing but not-found.
+            Captain? captain = await _Database.Captains.ReadAsync(request.CaptainId.Trim(), token).ConfigureAwait(false);
+            if (captain == null || !CanSeeTenant(caller, captain.TenantId)) throw new KeyNotFoundException("Captain not found.");
+            if (!caller.IsAdmin && !caller.IsTenantAdmin) throw new UnauthorizedAccessException("Only an admin can run the battery.");
+            if (request.Packs.Count(p => !String.IsNullOrWhiteSpace(p)) == 0) throw new ArgumentException("packs must name at least one pack.");
+
+            ModelEndpoint? endpoint = null;
+            if (!String.IsNullOrWhiteSpace(captain.ModelEndpointId))
+                endpoint = await _Database.ModelEndpoints.ReadAsync(captain.ModelEndpointId!, token).ConfigureAwait(false);
+
+            BatteryRun run = await _Service.StartAsync(captain, endpoint, request.Packs, request.RunCount, request.Seed,
+                request.CreateFixtureVessel, caller.TenantId, caller.UserId, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "battery run " + run.Id + " of captain " + captain.Id + " started by " + caller.UserId);
+            return run;
+        }
+
+        /// <summary>
+        /// One run with its per-task results.
+        /// </summary>
+        /// <param name="caller">Caller.</param>
+        /// <param name="runId">Run identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The run.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when caller is null.</exception>
+        /// <exception cref="KeyNotFoundException">Thrown when the run does not exist or is in another tenant.</exception>
+        /// <exception cref="UnauthorizedAccessException">Thrown for anonymous callers and captain sessions.</exception>
+        public async Task<BatteryRun> GetRunAsync(AuthContext caller, string? runId, CancellationToken token = default)
+        {
+            RequirePerson(caller);
+            if (String.IsNullOrWhiteSpace(runId)) throw new KeyNotFoundException("Battery run not found.");
+            BatteryRun? run = await _Service.ReadAsync(runId.Trim(), token).ConfigureAwait(false);
+            if (run == null || !CanSeeTenant(caller, run.TenantId)) throw new KeyNotFoundException("Battery run not found.");
+            return run;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static void RequirePerson(AuthContext caller)
+        {
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+            if (!caller.IsAuthenticated) throw new UnauthorizedAccessException("Authentication required.");
+            if (!String.IsNullOrEmpty(caller.MissionId) || !String.IsNullOrEmpty(caller.AskThreadId))
+                throw new UnauthorizedAccessException("A captain session cannot use the battery.");
+            if (!caller.IsAdmin && String.IsNullOrEmpty(caller.TenantId)) throw new UnauthorizedAccessException("A tenant is required.");
+        }
+
+        private static bool CanSeeTenant(AuthContext caller, string? tenantId)
+        {
+            if (caller.IsAdmin) return true;
+            return !String.IsNullOrEmpty(tenantId) && String.Equals(caller.TenantId, tenantId, StringComparison.Ordinal);
+        }
+
+        #endregion
+    }
+}

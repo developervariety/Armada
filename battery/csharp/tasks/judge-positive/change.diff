@@ -1,0 +1,51 @@
+diff --git a/src/Inventory/Stock.cs b/src/Inventory/Stock.cs
+--- a/src/Inventory/Stock.cs
++++ b/src/Inventory/Stock.cs
+@@ -76,5 +76,17 @@ namespace Inventory
+             foreach (Item item in _Items.Values) total += item.Quantity;
+             return total;
+         }
++
++        /// <summary>
++        /// Whether an item with the SKU is in stock (known, even at zero units).
++        /// </summary>
++        /// <param name="sku">SKU.</param>
++        /// <returns>True when the SKU is known.</returns>
++        /// <exception cref="ArgumentNullException">Thrown when sku is null.</exception>
++        public bool Contains(string sku)
++        {
++            if (sku == null) throw new ArgumentNullException(nameof(sku));
++            return _Items.ContainsKey(sku);
++        }
+     }
+ }
+diff --git a/tests/Inventory.Tests/StockTests.cs b/tests/Inventory.Tests/StockTests.cs
+--- a/tests/Inventory.Tests/StockTests.cs
++++ b/tests/Inventory.Tests/StockTests.cs
+@@ -40,5 +40,16 @@ namespace Inventory.Tests
+             Stock stock = new Stock();
+             Check.Throws<KeyNotFoundException>(() => stock.Remove("missing", 1));
+         }
++
++        /// <summary>
++        /// Contains finds a known SKU and not an unknown one.
++        /// </summary>
++        public static void Stock_Contains_KnownAndUnknown()
++        {
++            Stock stock = new Stock();
++            stock.Add(new Item("A-1", "Anchor", 1m, 0));
++            Check.True(stock.Contains("A-1"), "A-1 should be known.");
++            Check.True(!stock.Contains("B-1"), "B-1 should be unknown.");
++        }
+     }
+ }
+diff --git a/tests/Inventory.Tests/TestRegistry.cs b/tests/Inventory.Tests/TestRegistry.cs
+--- a/tests/Inventory.Tests/TestRegistry.cs
++++ b/tests/Inventory.Tests/TestRegistry.cs
+@@ -22,6 +22,7 @@ namespace Inventory.Tests
+                 new TestCase(nameof(StockTests.Stock_Remove_ReducesQuantity), StockTests.Stock_Remove_ReducesQuantity),
+                 new TestCase(nameof(StockTests.Stock_Remove_UnknownSku_Throws), StockTests.Stock_Remove_UnknownSku_Throws),
++                new TestCase(nameof(StockTests.Stock_Contains_KnownAndUnknown), StockTests.Stock_Contains_KnownAndUnknown),
+                 new TestCase(nameof(PriceCalculatorTests.PriceCalculator_LineTotal_Multiplies), PriceCalculatorTests.PriceCalculator_LineTotal_Multiplies)
+             };
+         }

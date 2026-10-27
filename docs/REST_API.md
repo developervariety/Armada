@@ -48,6 +48,7 @@ camelizes REST responses.
   - [Ask](#ask)
   - [CLI Permissions](#cli-permissions)
   - [Evaluate (Model Probe Runs)](#evaluate-model-probe-runs)
+  - [Fixture Battery](#fixture-battery)
   - [Push Notifications](#push-notifications)
   - [Signals](#signals)
   - [Events](#events)
@@ -279,6 +280,9 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/captains/{id}/evaluate` | POST | TenantAdmin | Global admin, or a tenant admin of the captain's tenant (`404` for another tenant's captain). Captain sessions get `403` |
 | `/api/v1/model-endpoints/{id}/evaluate` | POST | Authenticated | Anyone who can read the endpoint (the `GET /api/v1/model-endpoints/{id}` rules); `404` otherwise |
 | `/api/v1/model-probe-runs` | GET; `GET .../{id}` | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
+| `/api/v1/battery/packs` | GET | Authenticated | Any signed-in person. Captain sessions get `403` |
+| `/api/v1/battery/runs` | POST | TenantAdmin | Global admin, or a tenant admin of the captain's tenant (`404` for another tenant's captain). Captain sessions get `403` |
+| `/api/v1/battery/runs/{id}` | GET | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
 | `/api/v1/ask/threads/{id}/cli-permission-policy` | PUT | Authenticated | Thread owner only (`404` otherwise); `Bypass` requires a global or tenant admin (`403`) |
 | `/api/v1/push/devices` | GET, POST | Authenticated | Register for yourself (captain sessions get `403`); list your own devices, or (`userId`) another user's as a tenant admin of their tenant or a global admin (`403` otherwise) |
 | `/api/v1/push/devices/{id}` | PUT, DELETE | Authenticated | Owner, tenant admins of the device's tenant, global admins; `404` otherwise (also `POST .../test`) |
@@ -4356,6 +4360,49 @@ A run is `Failed` only when the run itself could not finish (for example the Adm
 curl -X POST http://localhost:7890/api/v1/captains/cpt_abc123/evaluate \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"depth":"Quick"}'
 curl http://localhost:7890/api/v1/model-probe-runs/mpr_abc123 -H "Authorization: Bearer <token>"
+```
+
+---
+
+### Fixture Battery
+
+The **fixture battery** runs fixed, versioned tasks against a captain through real dispatch, Harbor execution, stage
+checks and completion parsing (docs/MODEL_HETEROGENEITY.md, Part 2). Tasks come in **packs**, defined as data under
+`battery/<pack>/battery-pack.json`; the manifest schema is in [battery/README.md](../battery/README.md). Before each
+task the pack's fixture is reset (a forward commit holding exactly the fixture plus the task's setup files). The task
+is then dispatched as a mission on the pack's fixture vessel (`battery-<pack>`, or `battery-<pack>-<tenantId>` outside
+the default tenant) under the built-in `ModelEvaluation` pipeline. It runs with the task's persona, is pinned to the
+captain for every stage, and uses landing mode `None`. Each task is graded per its manifest:
+
+- `Command`: build and test commands run in the worktree, optionally after a hidden overlay.
+- `ByteComparison`: git blob hashes; the reason names a dropped BOM or CRLF converted to LF.
+- `Mutation`: the tests must pass and kill every mutant.
+- `SeededSet`: findings matched against seeded defects; false positives are counted, and an expected Judge verdict
+  can be required.
+- `Rubric`: recorded as `PendingEvaluation` with the raw output for the evaluator (Phase 5), after an optional
+  `armada-plan` schema check.
+
+A task whose toolchain the Harbor lacks is `CouldNotRun`, never `Failed`, and later tasks of the run that need the
+same tool are not dispatched. Each run records its seed, sampling settings, run count (default 3, at most 10), battery
+version (`csharp@1`) and configuration revision (SHA-256 of the full configuration, also returned as
+`ConfigurationJson`). Stage outcomes of battery missions are tagged `IsEvaluation` and never count in production
+outcomes. Runs share Evaluate's concurrency limits. `Evaluation.BatteryDirectory` overrides where packs are read from,
+and `Evaluation.BatteryTaskTimeoutMinutes` (default 60) bounds each task's mission.
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/v1/battery/packs` | | `200` `EnumerationResult<BatteryPackInfo>` ordered by id: `Id`, `Version`, `Valid`, `Errors` (validation errors of a malformed manifest), `Toolchain`, `Tasks` (`Id`, `Persona`, `Grader`, `Toolchain`), `ManifestHash`. Query: `pageNumber`, `pageSize` (default 100) |
+| POST | `/api/v1/battery/runs` | `BatteryRunRequest`: `Packs` (required), `CaptainId` (required), `RunCount` (1-10, default 3), `Seed` (optional), `CreateFixtureVessel` (default false) | `201` `BatteryRun` (queued; the tasks run in the background); `400` for no packs, an unknown or malformed pack, a bad run count, or a missing fixture vessel without `CreateFixtureVessel`; `403` not an admin; `404` unknown captain |
+| GET | `/api/v1/battery/runs/{id}` | | `200` `BatteryRun` with `Results`, one per task attempt: `PackId`, `TaskId`, `Persona`, `Grader`, `Attempt`, `Outcome` (`Passed`/`Failed`/`CouldNotRun`/`PendingEvaluation`), `Score`, `Summary`, `Reason`, `Details` (commands, files, mutants, matched/missed seeded items, false positives, verdict, schema error, rubric), `Output`, `VoyageId`, `MissionId`, `FixtureCommit`; `404` |
+
+A run is `Failed` only when the run itself could not finish (for example the Admiral restarted while it ran). Poll
+`GET /api/v1/battery/runs/{id}` until `Status` is `Completed` or `Failed`.
+
+```bash
+curl -X POST http://localhost:7890/api/v1/battery/runs \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"packs":["csharp"],"captainId":"cpt_abc123","runCount":3,"createFixtureVessel":true}'
+curl http://localhost:7890/api/v1/battery/runs/bat_abc123 -H "Authorization: Bearer <token>"
 ```
 
 ---

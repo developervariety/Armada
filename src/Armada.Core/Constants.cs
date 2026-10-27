@@ -275,6 +275,16 @@ namespace Armada.Core
         public static readonly string ModelProbeResultIdPrefix = "mpo_";
 
         /// <summary>
+        /// ID prefix for battery runs (one run of the fixture battery against a captain).
+        /// </summary>
+        public static readonly string BatteryRunIdPrefix = "bat_";
+
+        /// <summary>
+        /// ID prefix for battery task results (one graded attempt of one battery task).
+        /// </summary>
+        public static readonly string BatteryTaskResultIdPrefix = "btr_";
+
+        /// <summary>
         /// ID prefix for push notification devices (a mobile app installation registered for push).
         /// </summary>
         public static readonly string PushDeviceIdPrefix = "pdv_";

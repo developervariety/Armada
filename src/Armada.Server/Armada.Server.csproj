@@ -20,6 +20,17 @@
           ExcludeFromSingleFile="true" />
   </ItemGroup>
 
+  <!-- Ship the fixture battery packs (battery/, data only) next to the server binary (battery/), so the Admiral finds
+       them without a source checkout. Build output of a locally built fixture is left out. -->
+  <ItemGroup Condition="Exists('..\..\battery')">
+    <None Include="..\..\battery\**\*"
+          Exclude="..\..\battery\**\bin\**;..\..\battery\**\obj\**"
+          Link="battery\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
+          ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="Test.Shared" />
   </ItemGroup>

@@ -457,6 +457,24 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Battery run methods (one row per run of the fixture battery).
+        /// </summary>
+        public IBatteryRunMethods BatteryRuns
+        {
+            get => _BatteryRuns;
+            protected set => _BatteryRuns = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
+        /// Battery task result methods (one row per graded task attempt).
+        /// </summary>
+        public IBatteryTaskResultMethods BatteryTaskResults
+        {
+            get => _BatteryTaskResults;
+            protected set => _BatteryTaskResults = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
         /// Push notification device methods.
         /// </summary>
         public IPushDeviceMethods PushDevices
@@ -608,6 +626,8 @@ namespace Armada.Core.Database
         private IFailureCauseRuleMethods _FailureCauseRules = null!;
         private IModelProbeRunMethods _ModelProbeRuns = null!;
         private IModelProbeResultMethods _ModelProbeResults = null!;
+        private IBatteryRunMethods _BatteryRuns = null!;
+        private IBatteryTaskResultMethods _BatteryTaskResults = null!;
         private IPushDeviceMethods _PushDevices = null!;
         private IHarborJobMethods _HarborJobs = null!;
         private IHarborLinkSampleMethods _HarborLinkSamples = null!;
