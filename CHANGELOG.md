@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Bounded run_process output
+
+- `run_process` captures stdout and stderr as UTF-8 byte streams with a separate 100 KB budget for each stream. Long output keeps its beginning and end, and the truncation note reports the number of omitted bytes. The reader keeps a bounded buffer while the process runs; the JSON result envelope is outside the per-stream budgets.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
