@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Record WebSocket events follow the record read
+
+- **Mission, voyage, captain, and check-run events reach the sockets that can read the record.** `mission.changed`, `mission.activity`, `approval-needed`, `voyage.changed`, `captain.changed`, and `check-run.changed` go to the owning user, a tenant administrator of that tenant, and a global administrator who already receives that tenant. A record with no user id still reaches that tenant's tenant administrators and those global administrators. A record with no tenant id reaches global administrators only. Objective, incident, deployment, runbook, and environment events stay on the tenant broadcast. Ask events stay with that user. CLI permission events stay with the viewers `CliPermissionAccess.CanView` admits.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
