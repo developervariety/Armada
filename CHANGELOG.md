@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Settled voyages announce their stored status
+
+- **A failed voyage is announced as failed.** When the health check settles a voyage, `voyage.changed` and the push title use the status already stored on the voyage. A voyage with a Failed or LandingFailed mission is stored as Failed and announced as Failed. A voyage whose missions finished without a failure is announced as Complete. Cancelling a voyage still announces Cancelled.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
