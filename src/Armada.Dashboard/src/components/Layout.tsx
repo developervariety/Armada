@@ -14,6 +14,7 @@ import BackgroundActivityIndicator from './shared/BackgroundActivityIndicator';
 import CommandPalette from './shared/CommandPalette';
 import { dashboardItem, askArmadaItem, navSections, DEFAULT_EXPANDED_SECTIONS, type NavItem } from './navConfig';
 import { useInboxCount } from '../lib/useInboxCount';
+import { useAskUnreadCount } from '../lib/useAskUnreadCount';
 import { serverHealthIndicator } from '../lib/dashboardStatus';
 
 type HealthStatus = 'healthy' | 'warning' | 'error' | 'unknown';
@@ -25,6 +26,7 @@ export default function Layout() {
   const { darkMode, toggleTheme } = useTheme();
   const { connected } = useWebSocket();
   const inboxAttention = useInboxCount();
+  const askUnreadCount = useAskUnreadCount();
   const { toasts, dismissToast } = useNotifications();
   const [showWizard, setShowWizard] = useState(false);
   const [wizardHighlights, setWizardHighlights] = useState<string[]>([]);
@@ -291,11 +293,20 @@ export default function Layout() {
 
           <NavLink
             to={askArmadaItem.to}
-            className={({ isActive }) => `sidebar-nav-item sidebar-nav-primary${isActive || location.pathname.startsWith('/ask') ? ' active' : ''}${wizardHighlights.includes(askArmadaItem.to) ? ' wizard-highlight' : ''}`}
+            className={({ isActive }) => `sidebar-nav-item sidebar-nav-primary${isActive || location.pathname.startsWith('/ask') ? ' active' : ''}${wizardHighlights.includes(askArmadaItem.to) ? ' wizard-highlight' : ''}${askUnreadCount > 0 ? ' has-attention' : ''}`}
             title={collapsed ? t(askArmadaItem.label) : t(askArmadaItem.tooltip || askArmadaItem.label)}
           >
             {askArmadaItem.icon}
             <span className="sidebar-label">{t(askArmadaItem.label)}</span>
+            {askUnreadCount > 0 && (
+              <span
+                className="sidebar-nav-badge"
+                title={t('{{count}} conversations have unread messages. Click to open Ask Armada.', { count: askUnreadCount })}
+                aria-label={t('{{count}} unread conversations', { count: askUnreadCount })}
+              >
+                {askUnreadCount > 99 ? '99+' : askUnreadCount}
+              </span>
+            )}
           </NavLink>
 
           {filteredSections.map((section) => (
