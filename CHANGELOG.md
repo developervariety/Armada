@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- The backlog item editor keeps unsaved edits when a live update arrives. A reload action applies the newer server copy. A form with no unsaved edits still takes the update.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
