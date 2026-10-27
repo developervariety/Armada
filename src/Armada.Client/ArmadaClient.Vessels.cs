@@ -157,6 +157,22 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>getVesselBranchCount</c>: POST /api/v1/vessels/{id}/branches/enumerate for a one-branch page,
+        /// returning TotalRecords. The server measures ahead/behind only for the branches on the page, so this costs
+        /// one git command instead of one per branch.
+        /// </summary>
+        /// <param name="id">Vessel id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of branches (0 when they could not be read).</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public async Task<int> GetVesselBranchCountAsync(string id, CancellationToken token = default)
+        {
+            BranchEnumerationResult? page = await PostAsync<BranchEnumerationResult>($"/api/v1/vessels/{E(id)}/branches/enumerate",
+                new { PageNumber = 1, PageSize = 1 }, null, token).ConfigureAwait(false);
+            return page == null ? 0 : (int)Math.Min(page.TotalRecords, Int32.MaxValue);
+        }
+
+        /// <summary>
         /// Dashboard <c>getVesselCommitActivity</c>: GET /api/v1/vessels/{id}/history/activity. Per-day commit counts
         /// for the history heatmap.
         /// </summary>

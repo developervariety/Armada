@@ -213,6 +213,24 @@ namespace Armada.Core.Services.Interfaces
         Task<IReadOnlyList<BranchInfo>> ListBranchesAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default);
 
         /// <summary>
+        /// List local branches with their tip commit, without measuring divergence (Ahead and Behind stay zero).
+        /// </summary>
+        /// <param name="repoPath">Repository path (bare repo or worktree).</param>
+        /// <param name="defaultBranch">Default branch, flagged in the result.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The branches, default branch first, then by name.</returns>
+        Task<IReadOnlyList<BranchInfo>> ListBranchTipsAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default);
+
+        /// <summary>
+        /// Fill Ahead and Behind on each branch relative to the default branch (one git command per non-default branch).
+        /// </summary>
+        /// <param name="repoPath">Repository path (bare repo or worktree).</param>
+        /// <param name="defaultBranch">Default branch to measure against.</param>
+        /// <param name="branches">Branches to measure.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task MeasureBranchDivergenceAsync(string repoPath, string defaultBranch, IReadOnlyList<BranchInfo> branches, CancellationToken token = default);
+
+        /// <summary>
         /// Push a named local branch to the remote.
         /// </summary>
         /// <param name="repoPath">Repository path.</param>

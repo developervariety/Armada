@@ -1807,7 +1807,7 @@ curl -X PATCH http://localhost:7890/api/v1/vessels/vsl_abc123/context \
 
 #### GET /api/v1/vessels/{id}/git-status
 
-Return how far the vessel working directory is ahead of and behind the remote default branch. Performs a best-effort `git fetch` first.
+Return how far the vessel working directory is ahead of and behind the remote default branch. Performs a best-effort `git fetch` first. The Admiral reuses a result for up to two minutes (15 seconds when it carries an `Error`), keyed by vessel and user, and concurrent requests share one read, so a list that asks for every vessel on each refresh does not run git (on a Harbor, processes on the developer's machine) each time.
 
 **Permission:** Authenticated
 
@@ -1834,7 +1834,7 @@ When no working directory is configured or a git error occurs, `CommitsAhead` an
 
 #### POST /api/v1/vessels/{id}/branches/enumerate
 
-One page of a vessel's branches as a `BranchEnumerationResult`: the page plus `VesselId`, `DefaultBranch`, and `Error` (set, with an empty page, when git could not list them; `404` for a vessel that is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters.
+One page of a vessel's branches as a `BranchEnumerationResult`: the page plus `VesselId`, `DefaultBranch`, and `Error` (set, with an empty page, when git could not list them; `404` for a vessel that is not visible). Paging and filters come from the JSON body (`EnumerationQuery`: `PageNumber`, `PageSize` 1 to 1000, default 10) or the matching querystring parameters. `Ahead` and `Behind` are measured (one `git rev-list` each) only for the branches on the returned page, so a one-branch page is a cheap way to read the count (`TotalRecords`).
 
 **Permission:** Authenticated (scoped exactly like the deprecated `GET /api/v1/vessels/{id}/branches`)
 

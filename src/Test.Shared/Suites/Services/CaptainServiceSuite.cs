@@ -406,6 +406,8 @@ namespace Test.Shared.Suites.Services
             public Task<IReadOnlyList<string>> GetRecentCommitsForPathsAsync(string worktreePath, IReadOnlyList<string> paths, int maxPerPath, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<IReadOnlyList<string>> FindExistingSubjectTermsAsync(string worktreePath, IReadOnlyList<string> terms, CancellationToken token = default) { throw new NotImplementedException(); }
             public Task<IReadOnlyList<Armada.Core.Models.BranchInfo>> ListBranchesAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default) => Task.FromResult<IReadOnlyList<Armada.Core.Models.BranchInfo>>(new List<Armada.Core.Models.BranchInfo>());
+            public Task<IReadOnlyList<Armada.Core.Models.BranchInfo>> ListBranchTipsAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default) => Task.FromResult<IReadOnlyList<Armada.Core.Models.BranchInfo>>(new List<Armada.Core.Models.BranchInfo>());
+            public Task MeasureBranchDivergenceAsync(string repoPath, string defaultBranch, IReadOnlyList<Armada.Core.Models.BranchInfo> branches, CancellationToken token = default) => Task.CompletedTask;
             public Task FetchRemotesAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
             public Task<Armada.Core.Models.GitDivergenceCounts?> GetDivergenceAsync(string repoPath, string baseRef, string headRef, CancellationToken token = default) => Task.FromResult<Armada.Core.Models.GitDivergenceCounts?>(null);
             public Task<bool?> IsAncestorAsync(string repoPath, string ancestorRef, string descendantRef, CancellationToken token = default) => Task.FromResult<bool?>(null);

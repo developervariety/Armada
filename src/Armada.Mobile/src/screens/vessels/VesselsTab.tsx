@@ -1,10 +1,11 @@
 import { useRouter, type Href } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { deleteVessel, getVesselBranches, getVesselGitStatus, listFleets, listPipelines, listUsers, listVessels } from '@dashboard/api/client';
+import { deleteVessel, listFleets, listPipelines, listUsers, listVessels } from '@dashboard/api/client';
 import type { Fleet, Pipeline, UserMaster, Vessel } from '@dashboard/types/models';
 import { findLandingMode, getLandingModes } from '@dashboard/lib/vesselForm';
 import { useResourceTable } from '@dashboard/lib/useResourceTable';
+import { useVesselSyncStatus } from '@dashboard/lib/useVesselSyncStatus';
 import { ListPane } from '../../build/ListPane';
 import { MasterDetail, useSelection } from '../../build/MasterDetail';
 import { useLiveResource } from '../../build/useLiveResource';
@@ -17,11 +18,11 @@ import { useTheme } from '../../theme/ThemeContext';
 import { spacing } from '../../theme/typography';
 import { useVesselActions } from './VesselActions';
 import { VesselDetailView } from './VesselDetailView';
-import { syncParts, vesselLinks, type GitSync } from './vesselLinks';
+import { syncParts, vesselLinks } from './vesselLinks';
 import { useHardwareBack } from '../../navigation/useHardwareBack';
 
-/** Parallel git-status / branch requests while filling the Sync and Branches columns. */
-const STATUS_CONCURRENCY = 4;
+/** Rows read for sync status before the list first reports which rows are on screen. */
+const INITIAL_SYNC_ROWS = 20;
 
 interface VesselsData {
   vessels: Vessel[];
@@ -30,19 +31,6 @@ interface VesselsData {
 }
 
 type SortField = 'name' | 'repoUrl' | 'fleetId' | 'defaultBranch' | 'createdUtc';
-
-/** Run `work` over `items` with at most `limit` in flight. */
-async function eachLimited<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
-  let next = 0;
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const item = items[next];
-      next += 1;
-      await work(item);
-    }
-  });
-  await Promise.all(runners);
-}
 
 function userLabel(user: UserMaster): string {
   const name = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
@@ -71,8 +59,7 @@ export function VesselsTab() {
   const [selecting, setSelecting] = useState(false);
   const [confirmBulk, setConfirmBulk] = useState(false);
   const [users, setUsers] = useState<UserMaster[]>([]);
-  const [gitStatus, setGitStatus] = useState<Record<string, GitSync>>({});
-  const [branchCounts, setBranchCounts] = useState<Record<string, number | null>>({});
+  const [visibleIds, setVisibleIds] = useState<string[] | null>(null);
 
   const data = useLiveResource<VesselsData>(async () => {
     const [v, f, p] = await Promise.all([
@@ -85,27 +72,6 @@ export function VesselsTab() {
 
   const vessels = useMemo(() => data.data?.vessels ?? [], [data.data]);
   const fleets = useMemo(() => data.data?.fleets ?? [], [data.data]);
-
-  // Sync and branch counts per vessel, in the background after each load (like the dashboard).
-  useEffect(() => {
-    if (vessels.length === 0) return undefined;
-    let live = true;
-    void eachLimited(vessels, STATUS_CONCURRENCY, async (v) => {
-      let sync: GitSync = { ahead: null, behind: null };
-      let count: number | null = null;
-      try {
-        const gs = await getVesselGitStatus(v.id);
-        sync = { ahead: gs.commitsAhead, behind: gs.commitsBehind };
-      } catch { /* unknown sync */ }
-      try {
-        count = (await getVesselBranches(v.id)).branchCount;
-      } catch { /* unknown count */ }
-      if (!live) return;
-      setGitStatus((prev) => ({ ...prev, [v.id]: sync }));
-      setBranchCounts((prev) => ({ ...prev, [v.id]: count }));
-    });
-    return () => { live = false; };
-  }, [vessels]);
 
   const canScope = isAdmin || isTenantAdmin;
   useEffect(() => {
@@ -138,6 +104,11 @@ export function VesselsTab() {
     initialSortDir: 'asc',
     initialPageSize: 100000,
   });
+
+  // Sync and branch counts for the rows on screen only (the first rows until the list reports what it shows), a few
+  // at a time and not again on every reload: each one runs git and a fetch on the vessel's host, a Harbor included.
+  const syncIds = useMemo(() => visibleIds ?? table.sorted.slice(0, INITIAL_SYNC_ROWS).map((v) => v.id), [visibleIds, table.sorted]);
+  const { gitStatus, branchCounts, refresh: refreshSync } = useVesselSyncStatus(syncIds, vessels);
 
   const selection = useSelection(vesselLinks.detail);
   const actions = useVesselActions({
@@ -264,7 +235,8 @@ export function VesselsTab() {
       loading={data.loading}
       refreshing={data.refreshing}
       error={data.error ? t('Failed to load vessels.') : null}
-      onRefresh={() => void data.refresh()}
+      onRefresh={() => { refreshSync(); void data.refresh(); }}
+      onVisibleItemsChange={(items) => setVisibleIds(items.map((v) => v.id))}
       search={{ value: table.search, onChange: table.setSearch, placeholder: t('Search vessels') }}
       actions={[
         { key: 'filters', icon: 'filter-outline', label: t('Filters'), onPress: () => setFiltersOpen(true), badge: activeFilters || undefined },

@@ -1,6 +1,7 @@
 namespace Armada.Harbor
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
@@ -70,6 +71,8 @@ namespace Armada.Harbor
         #region Private-Members
 
         private const int _MaxLogLines = 500;
+        // Busy links log dozens of entries a second; the log box is redrawn at most this often, never once per entry.
+        private static readonly TimeSpan _LogRenderInterval = TimeSpan.FromMilliseconds(250);
 
         private readonly HarborAppSettings _Settings;
         private readonly LoggingModule _Logging;
@@ -89,6 +92,10 @@ namespace Armada.Harbor
         private readonly HarborLinkHost _Host;
         private string? _LastRuntimeSummary = null;
         private readonly DispatcherTimer _JobsTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        // Entries logged from any thread wait here; the UI thread takes them in batches (DrainActivity).
+        private readonly ConcurrentQueue<HarborLogEntry> _PendingLog = new ConcurrentQueue<HarborLogEntry>();
+        private int _LogDrainScheduled = 0;
+        private bool _ActivityDirty = false;
         private IDisposable? _StatusDotBinding = null;
 
         #endregion
@@ -145,6 +152,8 @@ namespace Armada.Harbor
             PropertyChanged += (sender, args) =>
             {
                 if (args.Property == IsVisibleProperty && !IsVisible) _JobsTimer.Stop();
+                // The log is not redrawn while hidden or minimized; catch up when it shows again.
+                if ((args.Property == IsVisibleProperty || args.Property == WindowStateProperty) && _ActivityDirty) RenderActivityIfShown();
             };
             RefreshJobs();
         }
@@ -242,6 +251,7 @@ namespace Armada.Harbor
         /// <returns>Copy of the lines.</returns>
         public List<string> RecentActivity(int maxLines)
         {
+            if (Dispatcher.UIThread.CheckAccess()) DrainActivity();
             return _ActivityLog.Recent(maxLines, true);
         }
 
@@ -358,8 +368,9 @@ namespace Armada.Harbor
             try
             {
                 TopLevel? top = TopLevel.GetTopLevel(this);
+                DrainActivity();
                 if (top?.Clipboard != null)
-                    await top.Clipboard.SetTextAsync(LogBox.Text ?? string.Empty);
+                    await top.Clipboard.SetTextAsync(_ActivityLog.ToText());
             }
             catch
             {
@@ -368,7 +379,9 @@ namespace Armada.Harbor
 
         private void OnClearLogClick(object? sender, RoutedEventArgs e)
         {
+            _PendingLog.Clear();
             _ActivityLog.Clear();
+            _ActivityDirty = false;
             LogBox.Text = string.Empty;
         }
 
@@ -377,6 +390,7 @@ namespace Armada.Harbor
             if (_LoadingShowDetails) return;
             bool show = ShowDetailsBox.IsChecked == true;
             _ActivityLog.ShowDetails = show;
+            DrainActivity();
             RenderActivity();
             if (_Settings.ShowActivityDetails == show) return;
             _Settings.ShowActivityDetails = show;
@@ -385,8 +399,21 @@ namespace Armada.Harbor
                 _Logging.Warn("[Harbor] could not save the Show details preference: " + error);
         }
 
+        private void RenderActivityIfShown()
+        {
+            // Laying out the whole log box is the expensive part; skip it while nobody can see it.
+            if (!IsVisible || WindowState == WindowState.Minimized)
+            {
+                _ActivityDirty = true;
+                return;
+            }
+
+            RenderActivity();
+        }
+
         private void RenderActivity()
         {
+            _ActivityDirty = false;
             string text = _ActivityLog.ToText();
             LogBox.Text = text;
             // Follow the newest line from its start: a caret at the very end also scrolls a long last line
@@ -452,11 +479,25 @@ namespace Armada.Harbor
         private void AppendLog(HarborLogEntry entry)
         {
             _Logging.Info("[Harbor] " + (entry.Direction == HarborLogDirection.Info ? "" : entry.Direction + " ") + entry.Message);
-            Dispatcher.UIThread.Post(() =>
+            _PendingLog.Enqueue(entry);
+            // One drain is scheduled per batch, after a short wait so a burst of entries costs one redraw.
+            if (Interlocked.Exchange(ref _LogDrainScheduled, 1) == 1) return;
+            Dispatcher.UIThread.Post(() => DispatcherTimer.RunOnce(() =>
+            {
+                Interlocked.Exchange(ref _LogDrainScheduled, 0);
+                DrainActivity();
+                if (_ActivityDirty) RenderActivityIfShown();
+            }, _LogRenderInterval));
+        }
+
+        private void DrainActivity()
+        {
+            // Entries taken here (also by Copy and diagnostics) are shown by the next scheduled redraw.
+            while (_PendingLog.TryDequeue(out HarborLogEntry? entry))
             {
                 _ActivityLog.Add(entry);
-                RenderActivity();
-            });
+                _ActivityDirty = true;
+            }
         }
 
         /// <summary>

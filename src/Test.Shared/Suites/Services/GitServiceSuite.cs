@@ -978,6 +978,43 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("list_branch_tips_then_measure_only_the_page", "ListBranchTipsAsync lists without divergence; MeasureBranchDivergenceAsync fills only the branches given", TestTags.Positive, async () =>
+            {
+                GitService service = CreateService();
+                string repoDir = TestGitRepoHelper.CreateWorkingRepoCopy();
+                try
+                {
+                    foreach (string name in new string[] { "alpha", "beta" })
+                    {
+                        await RunGitAsync(repoDir, "checkout", "-b", name, "main").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(repoDir, name + ".txt"), name + "\n").ConfigureAwait(false);
+                        await RunGitAsync(repoDir, "add", "-A").ConfigureAwait(false);
+                        await RunGitAsync(repoDir, "commit", "-m", name).ConfigureAwait(false);
+                    }
+                    await RunGitAsync(repoDir, "checkout", "main").ConfigureAwait(false);
+
+                    IReadOnlyList<Armada.Core.Models.BranchInfo> tips = await service.ListBranchTipsAsync(repoDir, "main").ConfigureAwait(false);
+                    AssertEqual(3, tips.Count);
+                    AssertEqual("main", tips[0].Name, "default branch first");
+                    AssertTrue(tips[0].IsDefault, "default branch flagged");
+                    AssertTrue(tips.All(b => b.Ahead == 0 && b.Behind == 0), "tips carry no divergence");
+
+                    List<Armada.Core.Models.BranchInfo> page = new List<Armada.Core.Models.BranchInfo> { tips[1] };
+                    await service.MeasureBranchDivergenceAsync(repoDir, "main", page).ConfigureAwait(false);
+                    AssertEqual("alpha", tips[1].Name);
+                    AssertEqual(1, tips[1].Ahead, "alpha is one commit ahead");
+                    AssertEqual(0, tips[1].Behind);
+                    AssertEqual(0, tips[2].Ahead, "beta was not on the page, so it was not measured");
+
+                    IReadOnlyList<Armada.Core.Models.BranchInfo> full = await service.ListBranchesAsync(repoDir, "main").ConfigureAwait(false);
+                    AssertEqual(1, full.First(b => b.Name == "beta").Ahead, "ListBranchesAsync still measures every branch");
+                }
+                finally
+                {
+                    TestTemp.TryDelete(repoDir);
+                }
+            }));
+
             cases.Add(CaseAsync("failed_git_command_throws_typed_exception", "A failing git command throws GitCommandException with the exit code", TestTags.Negative, async () =>
             {
                 GitService service = CreateService();

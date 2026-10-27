@@ -34,6 +34,7 @@ namespace Armada.Server.Routes
         private readonly ManualLandingReconciler? _ManualLandingReconciler;
         private readonly VesselHostResolver? _Hosts;
         private readonly IAdmiralService? _Admiral;
+        private readonly VesselGitStatusCache _GitStatusCache = new VesselGitStatusCache();
 
         /// <summary>
         /// Instantiate.
@@ -325,44 +326,15 @@ namespace Armada.Server.Routes
                         : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (vessel == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" }; }
 
-                // The working directory on the Admiral host, or the vessel's checkout on a connected Harbor.
-                IHostCommandExecutor commands = new LocalHostCommandExecutor();
-                string? workingDirectory = vessel.WorkingDirectory;
-                if (String.IsNullOrEmpty(workingDirectory) || !Directory.Exists(workingDirectory))
-                {
-                    VesselHostResolution? resolution = _Hosts != null ? await _Hosts.TryResolveAsync(vessel, ctx.UserId).ConfigureAwait(false) : null;
-                    if (resolution?.Host == null)
-                        return (object)new { VesselId = id, CommitsAhead = (int?)null, CommitsBehind = (int?)null, Error = resolution?.Message ?? "No working directory configured or directory does not exist" };
-                    commands = resolution.Host.Commands;
-                    workingDirectory = resolution.Host.WorkingDirectory;
-                }
-
-                try
-                {
-                    string baseBranch = vessel.DefaultBranch ?? "main";
-
-                    // Fetch latest from remote (silent, best-effort)
-                    try { await RunGitCommandAsync(commands, workingDirectory!, "fetch", "origin", "--quiet").ConfigureAwait(false); }
-                    catch { /* ignore fetch failures -- offline or no remote */ }
-
-                    string aheadStr = await RunGitCommandAsync(commands, workingDirectory!, "rev-list", "--count", "origin/" + baseBranch + "..HEAD").ConfigureAwait(false);
-                    string behindStr = await RunGitCommandAsync(commands, workingDirectory!, "rev-list", "--count", "HEAD..origin/" + baseBranch).ConfigureAwait(false);
-
-                    int.TryParse(aheadStr.Trim(), out int ahead);
-                    int.TryParse(behindStr.Trim(), out int behind);
-
-                    return (object)new { VesselId = id, CommitsAhead = ahead, CommitsBehind = behind };
-                }
-                catch (Exception ex)
-                {
-                    return (object)new { VesselId = id, CommitsAhead = (int?)null, CommitsBehind = (int?)null, Error = "Git error: " + ex.Message };
-                }
+                // Reused for a couple of minutes: each read fetches from the remote and runs git three times, on a
+                // Harbor as processes on the developer's machine, and list screens ask for every vessel on each refresh.
+                return (object)await _GitStatusCache.GetAsync(id + "\n" + (ctx.UserId ?? ""), () => ReadGitStatusAsync(vessel, ctx.UserId)).ConfigureAwait(false);
             },
             api => api
                 .WithResponse(200, OpenApiResponseMetadata.Create("Successful response"))
                 .WithTag("Vessels")
                 .WithSummary("Get vessel git status")
-                .WithDescription("Returns commits ahead/behind the remote default branch for the vessel's working directory.")
+                .WithDescription("Returns commits ahead/behind the remote default branch for the vessel's working directory. The result (which fetches from the remote) is reused for up to two minutes, or 15 seconds when it is an error.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
@@ -390,11 +362,17 @@ namespace Armada.Server.Routes
                 string? error = repo.Found ? null : repo.Error;
                 if (repo.Found)
                 {
-                    try { all = new List<BranchInfo>(await repo.Git!.ListBranchesAsync(repo.Path!, defaultBranch).ConfigureAwait(false)); }
+                    try { all = new List<BranchInfo>(await repo.Git!.ListBranchTipsAsync(repo.Path!, defaultBranch).ConfigureAwait(false)); }
                     catch (Exception ex) { error = "Git error: " + ex.Message; }
                 }
 
                 EnumerationResult<BranchInfo> page = EnumerationResult<BranchInfo>.Page(query, all);
+                // Divergence costs one git command per branch, so it is measured only for the branches on this page.
+                if (repo.Found && error == null && page.Objects.Count > 0)
+                {
+                    try { await repo.Git!.MeasureBranchDivergenceAsync(repo.Path!, defaultBranch, page.Objects).ConfigureAwait(false); }
+                    catch (Exception ex) { error = "Git error: " + ex.Message; }
+                }
                 return new BranchEnumerationResult
                 {
                     VesselId = id, DefaultBranch = defaultBranch, Error = error,
@@ -1079,6 +1057,42 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Run a git command on a host and return stdout.
         /// </summary>
+        private async Task<VesselGitStatusResponse> ReadGitStatusAsync(Vessel vessel, string? userId)
+        {
+            // The working directory on the Admiral host, or the vessel's checkout on a connected Harbor.
+            IHostCommandExecutor commands = new LocalHostCommandExecutor();
+            string? workingDirectory = vessel.WorkingDirectory;
+            if (String.IsNullOrEmpty(workingDirectory) || !Directory.Exists(workingDirectory))
+            {
+                VesselHostResolution? resolution = _Hosts != null ? await _Hosts.TryResolveAsync(vessel, userId).ConfigureAwait(false) : null;
+                if (resolution?.Host == null)
+                    return new VesselGitStatusResponse { VesselId = vessel.Id, Error = resolution?.Message ?? "No working directory configured or directory does not exist" };
+                commands = resolution.Host.Commands;
+                workingDirectory = resolution.Host.WorkingDirectory;
+            }
+
+            try
+            {
+                string baseBranch = vessel.DefaultBranch ?? "main";
+
+                // Fetch latest from remote (silent, best-effort)
+                try { await RunGitCommandAsync(commands, workingDirectory!, "fetch", "origin", "--quiet").ConfigureAwait(false); }
+                catch { /* ignore fetch failures -- offline or no remote */ }
+
+                string aheadStr = await RunGitCommandAsync(commands, workingDirectory!, "rev-list", "--count", "origin/" + baseBranch + "..HEAD").ConfigureAwait(false);
+                string behindStr = await RunGitCommandAsync(commands, workingDirectory!, "rev-list", "--count", "HEAD..origin/" + baseBranch).ConfigureAwait(false);
+
+                int.TryParse(aheadStr.Trim(), out int ahead);
+                int.TryParse(behindStr.Trim(), out int behind);
+
+                return new VesselGitStatusResponse { VesselId = vessel.Id, CommitsAhead = ahead, CommitsBehind = behind };
+            }
+            catch (Exception ex)
+            {
+                return new VesselGitStatusResponse { VesselId = vessel.Id, Error = "Git error: " + ex.Message };
+            }
+        }
+
         private static async Task<string> RunGitCommandAsync(IHostCommandExecutor commands, string workingDirectory, params string[] args)
         {
             HostCommandResult result = await commands.RunAsync(new HostCommandRequest

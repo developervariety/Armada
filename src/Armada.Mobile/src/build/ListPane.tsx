@@ -1,5 +1,5 @@
-import type { ReactElement, ReactNode } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View, type ListRenderItem } from 'react-native';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View, type ListRenderItem, type ViewToken } from 'react-native';
 import { AppText, Banner, EmptyState, ErrorState, IconButton, LoadingState, SearchField } from '../components/ui';
 import type { IconName } from '../components/ui';
 import { useLocale } from '../i18n/LocaleContext';
@@ -37,8 +37,12 @@ export interface ListPaneProps<T> {
   emptyTitle: string;
   emptyMessage?: string;
   emptyAction?: { label: string; onPress: () => void };
+  /** Called with the rows on screen as the list scrolls (for per-row work that should not run for every row). */
+  onVisibleItemsChange?: (items: T[]) => void;
   testID?: string;
 }
+
+const VIEWABILITY = { itemVisiblePercentThreshold: 10, minimumViewTime: 250 };
 
 /**
  * A virtualized list screen body: search and toolbar on top, pull to refresh, endless scroll, and the shared empty,
@@ -48,6 +52,14 @@ export function ListPane<T>(props: ListPaneProps<T>): ReactElement {
   const { t } = useLocale();
   const { colors } = useTheme();
   const { items, keyOf, renderItem, loading, refreshing, error, onRefresh, onEndReached, loadingMore, search, actions, summary, header, testID } = props;
+  // FlatList requires the same viewability callback for its whole life; it forwards to the latest prop.
+  const visibleChange = useRef(props.onVisibleItemsChange);
+  useEffect(() => {
+    visibleChange.current = props.onVisibleItemsChange;
+  });
+  const [onViewableItemsChanged] = useState(() => ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    visibleChange.current?.(viewableItems.filter((v) => v.isViewable && v.item != null).map((v) => v.item as T));
+  });
 
   const top = (
     <View>
@@ -88,6 +100,8 @@ export function ListPane<T>(props: ListPaneProps<T>): ReactElement {
       keyboardShouldPersistTaps="handled"
       onEndReached={onEndReached}
       onEndReachedThreshold={0.5}
+      onViewableItemsChanged={props.onVisibleItemsChange ? onViewableItemsChanged : undefined}
+      viewabilityConfig={props.onVisibleItemsChange ? VIEWABILITY : undefined}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
     />
   );

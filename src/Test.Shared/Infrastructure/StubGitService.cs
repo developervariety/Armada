@@ -184,6 +184,12 @@ namespace Test.Shared.Infrastructure
         public Task<IReadOnlyList<BranchInfo>> ListBranchesAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default)
             => Task.FromResult<IReadOnlyList<BranchInfo>>(new List<BranchInfo>());
 
+        public Task<IReadOnlyList<BranchInfo>> ListBranchTipsAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default)
+            => Task.FromResult<IReadOnlyList<BranchInfo>>(new List<BranchInfo>());
+
+        public Task MeasureBranchDivergenceAsync(string repoPath, string defaultBranch, IReadOnlyList<BranchInfo> branches, CancellationToken token = default)
+            => Task.CompletedTask;
+
         public Task PushLocalBranchAsync(string repoPath, string branchName, string remoteName = "origin", CancellationToken token = default)
         {
             PushCalls.Add(repoPath + ":" + branchName);

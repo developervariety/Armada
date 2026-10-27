@@ -861,6 +861,13 @@ export const getVesselBranches = async (id: string): Promise<{ vesselId: string;
   return { vesselId: head?.vesselId ?? id, defaultBranch: head?.defaultBranch, branches: all.objects, branchCount: all.objects.length, error: head?.error ?? undefined };
 };
 
+/** Number of branches of a vessel: a one-branch page of the paged branches route, so the server measures ahead/behind for at most one branch. */
+export const getVesselBranchCount = async (id: string): Promise<number> => {
+  const page = await post<EnumerationResult<BranchInfo>>(
+    `/api/v1/vessels/${encodeURIComponent(id)}/branches/enumerate`, { PageNumber: 1, PageSize: 1 });
+  return page.totalRecords;
+};
+
 export const pushVesselBranch = (id: string, branch: string) =>
   post<{ vesselId: string; branch: string; pushed: boolean }>(`/api/v1/vessels/${id}/branches/push`, { Branch: branch });
 

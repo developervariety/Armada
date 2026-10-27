@@ -55,6 +55,7 @@ namespace Test.Shared.Suites.Client
                 LiveServerSetup.Git(work, out _, "-c", "user.name=Contract", "-c", "user.email=contract@armada.test", "commit", "-m", "Branch change");
                 LiveServerSetup.Git(work, out _, "checkout", "main");
                 AssertTrue((await c.GetVesselBranchesAsync(id))!.Branches.Any(b => b.Name == branch), "branches list the new branch");
+                AssertTrue(await c.GetVesselBranchCountAsync(id) >= 2, "branch count includes the new branch");
                 AssertEqual(branch, (await c.GetVesselLandingPreviewAsync(id, branch))?.SourceBranch, "landing preview");
                 AssertTrue((await c.PushVesselBranchAsync(id, branch))?.Pushed == true, "push");
                 // The target must not be the branch checked out in the working directory (the server merges in a

@@ -96,6 +96,7 @@ beforeEach(() => {
   api.listFleets.mockResolvedValue(page([FLEET]));
   api.listPipelines.mockResolvedValue(page([{ id: 'ppl_1', name: 'Reviewed', stages: [{ personaName: 'Worker' }] } as Pipeline]));
   api.getVesselGitStatus.mockResolvedValue({ vesselId: 'vsl_1', commitsAhead: 2, commitsBehind: 0 });
+  api.getVesselBranchCount.mockResolvedValue(3);
   api.getVesselBranches.mockResolvedValue({ vesselId: 'vsl_1', defaultBranch: 'main', branchCount: 3, branches: [
     { name: 'main', isCurrent: true, isDefault: true, commitHash: 'abc1234', commitSubject: 'init', commitDate: NOW, ahead: 0, behind: 0 },
     { name: 'feature', isCurrent: false, isDefault: false, commitHash: 'def5678', commitSubject: 'work', commitDate: NOW, ahead: 2, behind: 1 },

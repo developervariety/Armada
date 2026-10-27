@@ -2,7 +2,8 @@ import { useDuplicateRequest } from '../lib/useDuplicateRequest';
 import { getVessel } from '../api/client';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { listVessels, listFleets, listPipelines, createVessel, deleteVessel, getVesselGitStatus, getVesselBranches } from '../api/client';
+import { listVessels, listFleets, listPipelines, createVessel, deleteVessel } from '../api/client';
+import { useVesselSyncStatus } from '../lib/useVesselSyncStatus';
 import { listAll } from '../api/paging';
 import BranchesModal from '../components/vessels/BranchesModal';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
@@ -58,8 +59,6 @@ export default function Vessels() {
   const [loading, setLoading] = useState(true);
   const [userScope, setUserScope] = useState('');
   const [error, setError] = useState('');
-  const [gitStatus, setGitStatus] = useState<Record<string, { ahead: number | null; behind: number | null }>>({});
-  const [branchCounts, setBranchCounts] = useState<Record<string, number | null>>({});
   const [branchesModal, setBranchesModal] = useState<{ vesselId: string; vesselName: string } | null>(null);
 
   // Modal
@@ -118,26 +117,6 @@ export default function Vessels() {
       setFleets(fResult.objects);
       setPipelines(pResult.objects);
       setError('');
-
-      // Fetch git status and branch counts for each vessel in the background (non-blocking)
-      const statusMap: Record<string, { ahead: number | null; behind: number | null }> = {};
-      const countMap: Record<string, number | null> = {};
-      await Promise.all(vResult.objects.map(async (v: Vessel) => {
-        try {
-          const gs = await getVesselGitStatus(v.id);
-          statusMap[v.id] = { ahead: gs.commitsAhead, behind: gs.commitsBehind };
-        } catch {
-          statusMap[v.id] = { ahead: null, behind: null };
-        }
-        try {
-          const br = await getVesselBranches(v.id);
-          countMap[v.id] = br.branchCount;
-        } catch {
-          countMap[v.id] = null;
-        }
-      }));
-      setGitStatus(statusMap);
-      setBranchCounts(countMap);
     } catch {
       setError(t('Failed to load vessels.'));
     } finally {
@@ -148,6 +127,14 @@ export default function Vessels() {
   useEffect(() => { load(); }, [load]);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('vessels', load);
+
+  // Sync and branch counts for the rows on screen only, a few at a time, and not again on every auto-refresh:
+  // each one runs git (and a fetch) on the vessel's host, which for a Harbor is the developer's machine.
+  const { gitStatus, branchCounts, refresh: refreshSync, refreshVessel } = useVesselSyncStatus(table.paginated.map((v) => v.id), vessels);
+  const reloadAll = useCallback(async () => {
+    refreshSync();
+    await load();
+  }, [refreshSync, load]);
 
   // CRUD
   function openCreate() { setEditing(null); setShowForm(true); }
@@ -421,7 +408,7 @@ export default function Vessels() {
         sort={table.sortState}
         pagination={table.paginationProps}
         autoRefresh={{ seconds: refreshSeconds, onChange: setRefreshSeconds }}
-        onRefresh={load}
+        onRefresh={reloadAll}
         refreshTitle={t('Reload the vessel list, sync status and branch counts now.')}
         selection={{
           isSelected: (v) => table.selected.includes(v.id),
@@ -450,7 +437,7 @@ export default function Vessels() {
           vesselId={branchesModal.vesselId}
           vesselName={branchesModal.vesselName}
           open={true}
-          onClose={() => { setBranchesModal(null); void load(); }}
+          onClose={() => { refreshVessel(branchesModal.vesselId); setBranchesModal(null); void load(); }}
         />
       )}
     </div>

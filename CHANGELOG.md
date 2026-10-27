@@ -135,6 +135,32 @@ Each keeps working unchanged and is removed in 2.0 (OpenAPI marks the routes `de
 - **Bulk delete over REST.** `POST /api/v1/ask/threads/delete/multiple` takes the usual `DeleteMultipleRequest` (`Ids`) and returns `AskThreadDeleteMultipleResult`: the deleted IDs plus the skipped IDs with a reason. It is owner-scoped like the single delete, so another user's thread is skipped as not found, and a running turn is cancelled first. The dashboard confirms the count, warns when pinned conversations are included, refreshes the list afterwards, and leaves a deleted open conversation the same way the single delete does.
 - **The New conversation button is now `+ New`** (its accessible name is still "New conversation"), so the list header fits the bulk controls.
 
+### Harbor stays responsive under load
+
+A busy Harbor (several captains plus an open Vessels list) showed the macOS spinning beach ball. Two things fed it:
+the activity log redrew its whole 500-line box once per log entry, and the Vessels list asked every vessel's Harbor
+for sync status and branch counts on every 15-second refresh, about 45 git processes a second for 65 vessels. While a
+process starts, .NET on macOS holds the allocator lock that the UI thread's text layout also needs.
+
+- **Harbor: the activity log is redrawn in batches.** Entries from any thread are queued and added to the log at most
+  four times a second, in one redraw, and not at all while the window is hidden or minimized (it catches up when it
+  shows). Copy copies the full current view.
+- **Admiral: git status is reused.** `GET /api/v1/vessels/{id}/git-status` (git fetch plus two `rev-list` commands)
+  reuses a result for up to two minutes, or 15 seconds when it is an error, and requests that arrive while a read
+  runs share it.
+- **Admiral: branch divergence only for the page.** `POST /api/v1/vessels/{id}/branches/enumerate` lists branches
+  with one `git for-each-ref` and measures ahead/behind (one `git rev-list` each) only for the branches on the page
+  returned. `IGitService` gains `ListBranchTipsAsync` and `MeasureBranchDivergenceAsync`; `ListBranchesAsync` is
+  unchanged.
+- **Dashboard and mobile Vessels lists read only the rows on screen.** Sync status and branch counts are read for the
+  visible rows, four at a time, and a vessel is read again only after two minutes (Refresh, or closing its branches
+  dialog, reads it now). Branch counts use the new `getVesselBranchCount` (a one-branch page of the paged route)
+  instead of reading every branch. The shared hook is `lib/useVesselSyncStatus`; mobile's list reports its visible
+  rows through a new `ListPane` `onVisibleItemsChange`.
+- **TUI and .NET client.** The TUI Vessels screen reads statuses four at a time with the same two-minute reuse, using
+  the new `ArmadaClient.GetVesselBranchCountAsync`. `ArmadaClient.MarkAskThreadUnreadAsync` is added, matching the
+  dashboard's `markAskThreadUnread`.
+
 ---
 
 ## v1.1.0 (2026-10-15)

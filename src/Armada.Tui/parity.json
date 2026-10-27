@@ -2553,6 +2553,14 @@
     },
     {
       "kind": "api",
+      "key": "getVesselBranchCount",
+      "status": "implemented",
+      "tui": "ArmadaClient.GetVesselBranchCountAsync",
+      "workstream": "W0.2",
+      "notes": "Vessels"
+    },
+    {
+      "kind": "api",
       "key": "getVesselBranches",
       "status": "implemented",
       "tui": "ArmadaClient.GetVesselBranchesAsync",
@@ -3108,6 +3116,14 @@
       "key": "markAskThreadRead",
       "status": "implemented",
       "tui": "ArmadaClient.MarkAskThreadReadAsync",
+      "workstream": "W0.2",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
+    },
+    {
+      "kind": "api",
+      "key": "markAskThreadUnread",
+      "status": "implemented",
+      "tui": "ArmadaClient.MarkAskThreadUnreadAsync",
       "workstream": "W0.2",
       "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
     },

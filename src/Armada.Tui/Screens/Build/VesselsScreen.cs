@@ -87,6 +87,11 @@ namespace Armada.Tui.Screens.Build
         private List<Fleet> _LoadedFleets = new List<Fleet>();
         private List<Pipeline> _LoadedPipelines = new List<Pipeline>();
         private int _StatusGeneration = 0;
+        // Sync and branch counts run git (and a fetch) on each vessel's host, a Harbor included: a few at a time, and a
+        // vessel is read again only after this long (the Admiral reuses git status for as long).
+        private const int _StatusConcurrency = 4;
+        private static readonly TimeSpan _StatusLifetime = TimeSpan.FromMinutes(2);
+        private readonly ConcurrentDictionary<string, DateTime> _StatusReadUtc = new ConcurrentDictionary<string, DateTime>(StringComparer.Ordinal);
 
         #endregion
 
@@ -199,7 +204,12 @@ namespace Armada.Tui.Screens.Build
         public VesselBranchesDialog ManageBranches(Vessel vessel)
         {
             VesselBranchesDialog dialog = new VesselBranchesDialog(this, vessel.Id, vessel.Name);
-            Context.Modals.Show(dialog, r => Refresh());
+            Context.Modals.Show(dialog, r =>
+            {
+                // Branches may have changed: read this vessel's counts again now rather than after the lifetime.
+                _StatusReadUtc.TryRemove(vessel.Id, out DateTime _);
+                Refresh();
+            });
             return dialog;
         }
 
@@ -303,23 +313,44 @@ namespace Armada.Tui.Screens.Build
         {
             int generation = Interlocked.Increment(ref _StatusGeneration);
             ArmadaClient client = Context.Client;
+            DateTime now = DateTime.UtcNow;
+            List<string> due = new List<string>();
+            foreach (Vessel v in rows)
+            {
+                if (_StatusReadUtc.TryGetValue(v.Id, out DateTime readUtc) && now - readUtc < _StatusLifetime) continue;
+                _StatusReadUtc[v.Id] = now;
+                due.Add(v.Id);
+            }
+
+            if (due.Count == 0) return;
             _ = Task.Run(async () =>
             {
-                List<Task> tasks = new List<Task>();
-                foreach (Vessel v in rows)
+                using (SemaphoreSlim gate = new SemaphoreSlim(_StatusConcurrency))
                 {
-                    string id = v.Id;
-                    tasks.Add(Task.Run(async () =>
+                    List<Task> tasks = new List<Task>();
+                    foreach (string id in due)
                     {
-                        try { GitStatus[id] = await client.GetVesselGitStatusAsync(id).ConfigureAwait(false); }
-                        catch (Exception) { GitStatus[id] = null; }
-                        try { BranchCounts[id] = (await client.GetVesselBranchesAsync(id).ConfigureAwait(false))?.BranchCount; }
-                        catch (Exception) { BranchCounts[id] = null; }
-                    }));
+                        tasks.Add(Task.Run(async () =>
+                        {
+                            await gate.WaitAsync().ConfigureAwait(false);
+                            try
+                            {
+                                try { GitStatus[id] = await client.GetVesselGitStatusAsync(id).ConfigureAwait(false); }
+                                catch (Exception) { GitStatus[id] = null; }
+                                try { BranchCounts[id] = await client.GetVesselBranchCountAsync(id).ConfigureAwait(false); }
+                                catch (Exception) { BranchCounts[id] = null; }
+                            }
+                            finally
+                            {
+                                gate.Release();
+                            }
+                        }));
+                    }
+
+                    try { await Task.WhenAll(tasks).ConfigureAwait(false); }
+                    catch (Exception) { }
                 }
 
-                try { await Task.WhenAll(tasks).ConfigureAwait(false); }
-                catch (Exception) { }
                 if (generation == _StatusGeneration) Post(() => { });
             });
         }

@@ -185,6 +185,18 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>markAskThreadUnread</c>: POST `${askThreadPath(id)}/unread`.
+        /// </summary>
+        /// <param name="id">id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The thread, marked unread.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<AskThread?> MarkAskThreadUnreadAsync(string id, CancellationToken token = default)
+        {
+            return PostAsync<AskThread>($"/api/v1/ask/threads/{E(id)}/unread", new { }, null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>runAskQuickAction</c>: POST `${askThreadPath(id)}/actions`.
         /// </summary>
         /// <param name="id">id.</param>

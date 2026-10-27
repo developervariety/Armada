@@ -2601,6 +2601,14 @@
     },
     {
       "kind": "api",
+      "key": "getVesselBranchCount",
+      "status": "implemented",
+      "mobile": "src/screens/vessels (shared lib/useVesselSyncStatus)",
+      "workstream": "W3.1",
+      "notes": "Vessels"
+    },
+    {
+      "kind": "api",
       "key": "getVesselBranches",
       "status": "implemented",
       "mobile": "src/screens/vessels",

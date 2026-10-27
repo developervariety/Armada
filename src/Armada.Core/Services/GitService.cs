@@ -866,9 +866,28 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
 
+            IReadOnlyList<BranchInfo> branches = await ListBranchTipsAsync(repoPath, defaultBranch, token).ConfigureAwait(false);
+            await MeasureBranchDivergenceAsync(repoPath, defaultBranch, branches, token).ConfigureAwait(false);
+            return branches;
+        }
+
+        /// <summary>
+        /// List the local branches in a repository with their tip commit, without measuring divergence (one git
+        /// command). Ahead and behind are left at zero; fill them for the branches shown with
+        /// <see cref="MeasureBranchDivergenceAsync"/>.
+        /// </summary>
+        /// <param name="repoPath">Repository path (bare repo or worktree).</param>
+        /// <param name="defaultBranch">Default branch, flagged in the result (for example "main").</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The branches, default branch first, then by name.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when repoPath is null or empty.</exception>
+        public async Task<IReadOnlyList<BranchInfo>> ListBranchTipsAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+
             // Field-separated, one line per branch. Unit separator (\x1f) avoids collisions with commit text.
             string format = "%(refname:short)\x1f%(HEAD)\x1f%(objectname:short)\x1f%(committerdate:iso-strict)\x1f%(contents:subject)";
-            string raw = await RunGitAsync(repoPath, "for-each-ref", "--format=" + format, "refs/heads/").ConfigureAwait(false);
+            string raw = await RunGitAsync(repoPath, token, "for-each-ref", "--format=" + format, "refs/heads/").ConfigureAwait(false);
 
             List<BranchInfo> branches = new List<BranchInfo>();
             string[] lines = raw.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -885,28 +904,6 @@ namespace Armada.Core.Services
                     info.CommitDate = parsedDate.UtcDateTime;
                 info.CommitSubject = parts.Length > 4 ? parts[4].Trim() : null;
                 info.IsDefault = String.Equals(info.Name, defaultBranch, StringComparison.Ordinal);
-
-                if (!info.IsDefault)
-                {
-                    try
-                    {
-                        string counts = await RunGitAsync(repoPath, "rev-list", "--left-right", "--count", defaultBranch + "..." + info.Name).ConfigureAwait(false);
-                        string[] countParts = counts.Trim().Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (countParts.Length == 2)
-                        {
-                            // left = commits on default not on branch (branch is behind); right = commits on branch not on default (ahead).
-                            Int32.TryParse(countParts[0], out int behind);
-                            Int32.TryParse(countParts[1], out int ahead);
-                            info.Behind = behind;
-                            info.Ahead = ahead;
-                        }
-                    }
-                    catch
-                    {
-                        // Divergence unknown (for example the default branch does not exist yet); leave zeros.
-                    }
-                }
-
                 branches.Add(info);
             }
 
@@ -918,6 +915,47 @@ namespace Armada.Core.Services
             });
 
             return branches;
+        }
+
+        /// <summary>
+        /// Fill Ahead and Behind on each branch, relative to the default branch: one git command per branch other
+        /// than the default branch, which stays at zero. A branch whose divergence cannot be read keeps zeros.
+        /// </summary>
+        /// <param name="repoPath">Repository path (bare repo or worktree).</param>
+        /// <param name="defaultBranch">Default branch to measure against (for example "main").</param>
+        /// <param name="branches">Branches to measure, as listed by <see cref="ListBranchTipsAsync"/>.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <exception cref="ArgumentNullException">Thrown when repoPath is null or empty, or branches is null.</exception>
+        public async Task MeasureBranchDivergenceAsync(string repoPath, string defaultBranch, IReadOnlyList<BranchInfo> branches, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (branches == null) throw new ArgumentNullException(nameof(branches));
+
+            foreach (BranchInfo info in branches)
+            {
+                if (info.IsDefault || String.Equals(info.Name, defaultBranch, StringComparison.Ordinal)) continue;
+                try
+                {
+                    string counts = await RunGitAsync(repoPath, token, "rev-list", "--left-right", "--count", defaultBranch + "..." + info.Name).ConfigureAwait(false);
+                    string[] countParts = counts.Trim().Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (countParts.Length == 2)
+                    {
+                        // left = commits on default not on branch (branch is behind); right = commits on branch not on default (ahead).
+                        Int32.TryParse(countParts[0], out int behind);
+                        Int32.TryParse(countParts[1], out int ahead);
+                        info.Behind = behind;
+                        info.Ahead = ahead;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Divergence unknown (for example the default branch does not exist yet); leave zeros.
+                }
+            }
         }
 
         /// <summary>

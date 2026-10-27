@@ -46,6 +46,7 @@ namespace Test.Shared.Suites.Client
                 AskSendMessageResult? sent = await c.SendAskMessageAsync(thread.Id, "Hello captain");
                 AssertFalse(String.IsNullOrEmpty(sent?.MessageId), "message id");
                 AssertTrue(await LiveServerSetup.WaitUntilAsync(async () => ((await c.EnumerateAskMessagesAsync(thread.Id))?.Messages ?? new List<AskMessage>()).Any(m => m.ContentText == "Contract reply."), LiveTimeoutMs), "captain replied");
+                AssertEqual(thread.Id, (await c.MarkAskThreadUnreadAsync(thread.Id))?.Id, "mark unread");
                 await c.MarkAskThreadReadAsync(thread.Id);
                 await c.SummarizeAskThreadAsync(thread.Id);
                 try
