@@ -28,6 +28,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
+import ModelProbeEvaluate from '../components/ModelProbeEvaluate';
 import StatusBadge from '../components/shared/StatusBadge';
 import HealthHistogram from '../components/shared/HealthHistogram';
 import CopyButton from '../components/shared/CopyButton';
@@ -438,6 +439,7 @@ export default function Endpoints() {
             id={`endpoint-${endpoint.id}`}
             items={[
               { label: 'Health', title: 'Show this endpoint\'s uptime, recent check history, latency and last error.', onClick: () => setHealth({ open: true, endpoint }) },
+              ...(canEditRow && endpoint.kind === 'Inference' ? [{ label: 'Evaluate', title: 'Open this endpoint\'s details to run the Quick probes against it as an evaluation.', onClick: () => setHealth({ open: true, endpoint }) }] : []),
               ...(canEditRow ? [{ label: 'Validate', disabled: validating !== null, title: 'Send a real request to the configured model with the stored credentials. The provider may bill for it.', onClick: () => handleValidate(endpoint) }] : []),
               ...(canEditRow ? [{ label: 'Duplicate', title: 'Edit a new copy before saving. Stored credentials are copied securely on save.', onClick: () => openDuplicate(endpoint) }] : []),
               ...(canEditRow ? [{ label: 'Edit', title: 'Change this endpoint\'s address, model, credentials, headers and limits.', onClick: () => openEdit(endpoint) }] : []),
@@ -776,6 +778,13 @@ export default function Endpoints() {
               </div>
 
               <p className="text-dim" style={{ fontSize: '0.82rem', margin: 0 }}>{t('Health checks are deduplicated by base URL: endpoints sharing a base URL are probed once per sweep.')}</p>
+
+              {health.endpoint.kind === 'Inference' && canEditScoped(viewer, health.endpoint) && (
+                <div>
+                  <div className="health-section-label" title={t('Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.')}>{t('Evaluation')}</div>
+                  <ModelProbeEvaluate key={health.endpoint.id} target="modelEndpoint" targetId={health.endpoint.id} />
+                </div>
+              )}
             </div>
             <div className="modal-actions">
               {canManage && (

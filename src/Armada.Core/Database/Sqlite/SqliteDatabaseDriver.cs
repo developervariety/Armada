@@ -126,6 +126,8 @@ namespace Armada.Core.Database.Sqlite
             CliPermissionRules = new CliPermissionRuleMethods(this, _Settings, _Logging);
             StageOutcomes = new StageOutcomeMethods(this, _Settings, _Logging);
             FailureCauseRules = new FailureCauseRuleMethods(this, _Settings, _Logging);
+            ModelProbeRuns = new ModelProbeRunMethods(this, _Settings, _Logging);
+            ModelProbeResults = new ModelProbeResultMethods(this, _Settings, _Logging);
             PushDevices = new PushDeviceMethods(this, _Settings, _Logging);
             HarborJobs = new HarborJobMethods(this, _Settings, _Logging);
             HarborLinkSamples = new HarborLinkSampleMethods(this, _Settings, _Logging);
@@ -200,6 +202,8 @@ namespace Armada.Core.Database.Sqlite
             CliPermissionRules = new CliPermissionRuleMethods(this, _Settings, _Logging);
             StageOutcomes = new StageOutcomeMethods(this, _Settings, _Logging);
             FailureCauseRules = new FailureCauseRuleMethods(this, _Settings, _Logging);
+            ModelProbeRuns = new ModelProbeRunMethods(this, _Settings, _Logging);
+            ModelProbeResults = new ModelProbeResultMethods(this, _Settings, _Logging);
             PushDevices = new PushDeviceMethods(this, _Settings, _Logging);
             HarborJobs = new HarborJobMethods(this, _Settings, _Logging);
             HarborLinkSamples = new HarborLinkSampleMethods(this, _Settings, _Logging);

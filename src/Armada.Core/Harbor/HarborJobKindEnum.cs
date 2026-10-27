@@ -48,6 +48,12 @@ namespace Armada.Core.Harbor
         ContextBuild,
 
         /// <summary>
+        /// A model probe (an Evaluate run's mechanical probe; never a production stage).
+        /// </summary>
+        [EnumMember(Value = "ModelProbe")]
+        ModelProbe,
+
+        /// <summary>
         /// Any other captain launch.
         /// </summary>
         [EnumMember(Value = "Other")]

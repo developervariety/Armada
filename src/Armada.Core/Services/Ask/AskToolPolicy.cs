@@ -84,7 +84,11 @@ namespace Armada.Core.Services.Ask
             "get_ask_thread",
             "list_ask_messages",
             "list_ask_quick_actions",
-            "get_ask_work"
+            "get_ask_work",
+
+            // Evaluate run readers
+            "get_model_probe_run",
+            "list_model_probe_runs"
         };
 
         private static readonly HashSet<string> _GateExempt = new HashSet<string>(StringComparer.Ordinal)

@@ -107,6 +107,10 @@ namespace Armada.Core.Authorization
             Add("create_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
             Add("update_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("delete_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+            // evaluate_captain covers captains (the service requires a global or tenant admin) and model endpoints (read access).
+            Add("evaluate_captain", "ModelProbeRun", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("get_model_probe_run", "ModelProbeRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_model_probe_runs", "ModelProbeRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
 
             // Writes to caller-owned resources (memories, model endpoints, harbors), scoped to the caller in the tool handlers
             Add("create_memory", "Memory", ResourceOperationEnum.Create, PermissionLevel.Authenticated);

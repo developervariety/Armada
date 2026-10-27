@@ -24,13 +24,13 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 399 | 15 |
-| MCP tools | 187 | 8 |
+| REST routes | 403 | 15 |
+| MCP tools | 190 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 202 | 12 |
+| Settings keys | 210 | 12 |
 
 ## REST API
 
@@ -81,6 +81,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | PUT | `/api/v1/captains/{id}` | TenantAdmin | `Captain` | 200 `Captain`, 400, 404, 409 `ApiErrorResponse` |  |
 | POST | `/api/v1/captains/{id}/chat` | TenantAdmin | `CaptainChatRequest` | 200 `CaptainChatResponse` |  |
 | PUT | `/api/v1/captains/{id}/cli-permission-policy` | TenantAdmin | `CliPermissionPolicyUpdateRequest` | 200 `Captain`, 403 `ApiErrorResponse`, 404 |  |
+| POST | `/api/v1/captains/{id}/evaluate` | TenantAdmin | `EvaluateCaptainRequest` (optional) | 201 `ModelProbeRun`, 400, 403 `ApiErrorResponse`, 404 |  |
 | GET | `/api/v1/captains/{id}/log` | Authenticated |  | 200, 404 |  |
 | POST | `/api/v1/captains/{id}/stop` | TenantAdmin |  | 200, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/captains/{id}/tools` | Authenticated |  | 200 `CaptainToolAccessResult`, 404 |  |
@@ -230,7 +231,10 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/model-endpoints/{id}` | Authenticated |  | 200 `ModelEndpoint`, 404 |  |
 | PUT | `/api/v1/model-endpoints/{id}` | Authenticated | `ModelEndpoint` | 200 `ModelEndpoint`, 400, 404 |  |
 | POST | `/api/v1/model-endpoints/{id}/duplicate` | Authenticated | `ModelEndpoint` | 201 `ModelEndpoint`, 400, 403, 404 |  |
+| POST | `/api/v1/model-endpoints/{id}/evaluate` | Authenticated | `EvaluateCaptainRequest` (optional) | 201 `ModelProbeRun`, 400, 404 |  |
 | POST | `/api/v1/model-endpoints/{id}/validate` | Authenticated |  | 200 `ModelEndpointProbeResult`, 404 |  |
+| GET | `/api/v1/model-probe-runs` | Authenticated |  | 200 `EnumerationResult<ModelProbeRun>`, 400 |  |
+| GET | `/api/v1/model-probe-runs/{id}` | Authenticated |  | 200 `ModelProbeRun`, 404 |  |
 | DELETE | `/api/v1/objective-refinement-sessions/{id}` | TenantAdmin |  | 204, 404, 501 `ApiStatusErrorResponse` |  |
 | GET | `/api/v1/objective-refinement-sessions/{id}` | Authenticated |  | 200 `ObjectiveRefinementSessionDetail`, 404, 501 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/objective-refinement-sessions/{id}/apply` | TenantAdmin | `ObjectiveRefinementApplyRequest` (optional) | 200 `ObjectiveRefinementApplyResponse`, 404, 501 `ApiStatusErrorResponse` |  |
@@ -517,6 +521,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `enqueue_merge` | TenantAdmin | `branchName*: string`, `missionId: string`, `priority: integer`, `targetBranch: string`, `testCommand: string`, `vesselId*: string` |  |
 | `enumerate` | Authenticated | `captainId: string`, `createdAfter: string`, `createdBefore: string`, `entityType*: string`, `eventType: string`, `fleetId: string`, `includeContext: boolean`, `includeDescription: boolean`, `includeInactive: boolean`, `includeMessage: boolean`, `includeOutput: boolean`, `includePayload: boolean`, `includeTestOutput: boolean`, `missionId: string`, `order: string`, `pageNumber: integer`, `pageSize: integer`, `runId: string`, `search: string`, `signalType: string`, `status: string`, `toCaptainId: string`, `unreadOnly: boolean`, `vesselId: string`, `voyageId: string` |  |
 | `evaluate_autoland` | Authenticated | `missionId*: string` |  |
+| `evaluate_captain` | Authenticated | `captainId: string`, `depth: string`, `modelEndpointId: string` |  |
 | `evaluate_vessel_health` | TenantAdmin | `fleetId: string`, `force: boolean`, `vesselIds: array<string>` |  |
 | `fleet_action_run_status` | Authenticated | `runId*: string` |  |
 | `get_ask_thread` | Authenticated | `threadId*: string` |  |
@@ -540,6 +545,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `get_mission_diff` | Authenticated | `missionId*: string` |  |
 | `get_mission_log` | Authenticated | `formatted: boolean`, `lines: integer`, `missionId*: string`, `offset: integer` |  |
 | `get_model_endpoint` | Authenticated | `endpointId*: string` |  |
+| `get_model_probe_run` | Authenticated | `id*: string` |  |
 | `get_objective` | Authenticated | `objectiveId*: string` |  |
 | `get_persona` | Authenticated | `name*: string` |  |
 | `get_pipeline` | Authenticated | `name*: string` |  |
@@ -562,6 +568,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `list_cli_permission_rules` | Authenticated | `captainId: string`, `scope: string`, `vesselId: string` |  |
 | `list_failure_cause_rules` | Authenticated | `pageNumber: integer`, `pageSize: integer` |  |
 | `list_harbor_jobs` | Authenticated | `harborId*: string`, `openOnly: boolean`, `pageNumber: integer`, `pageSize: integer` | experimental |
+| `list_model_probe_runs` | Authenticated | `captainId: string`, `modelEndpointId: string`, `pageNumber: integer`, `pageSize: integer`, `status: string` |  |
 | `list_objectives` | Authenticated | `backlogState: string`, `category: string`, `effort: string`, `fleetId: string`, `kind: string`, `owner: string`, `pageNumber: integer`, `pageSize: integer`, `parentObjectiveId: string`, `priority: string`, `search: string`, `status: string`, `targetVersion: string`, `vesselId: string` |  |
 | `list_prompt_templates` | Authenticated | `category: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `list_stage_outcomes` | Authenticated | `captainId: string`, `causeSource: string`, `disposition: string`, `fromUtc: string`, `isEvaluation: boolean`, `missionId: string`, `model: string`, `pageNumber: integer`, `pageSize: integer`, `persona: string`, `suspectedCause: string`, `tenantId: string`, `toUtc: string`, `vesselId: string`, `voyageId: string` |  |
@@ -867,6 +874,14 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `escalationRules[].thresholdMinutes` | int | `15` |  |
 | `escalationRules[].trigger` | enum EscalationTriggerEnum (CaptainStalled\|MissionOverdue\|MissionFailed\|RecoveryExhausted\|PoolExhausted) | `"CaptainStalled"` |  |
 | `escalationRules[].webhookUrl` | string | `null` |  |
+| `evaluation` | object |  |  |
+| `evaluation.dailyTokenBudget` | long | `2000000` |  |
+| `evaluation.dailyTokenBudgetPerHost` | long | `1000000` |  |
+| `evaluation.maxConcurrentRuns` | int | `2` |  |
+| `evaluation.maxConcurrentRunsPerHost` | int | `1` |  |
+| `evaluation.probeTimeoutSeconds` | int | `600` |  |
+| `evaluation.runTokenBudget` | long | `250000` |  |
+| `excludeReviewAuthorsFromJudge` | bool | `false` |  |
 | `fleetActions` | object |  |  |
 | `fleetActions.defaultTimeoutSeconds` | int | `300` |  |
 | `fleetActions.maxConcurrency` | int | `8` |  |

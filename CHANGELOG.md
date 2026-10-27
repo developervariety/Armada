@@ -6,6 +6,12 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Evaluate: probe-only Quick model probes over REST, MCP and the .NET client
+
+- **Evaluate a captain or a model endpoint.** `POST /api/v1/captains/{id}/evaluate` (global admin or tenant admin of the captain's tenant) and `POST /api/v1/model-endpoints/{id}/evaluate` (anyone who can read the endpoint) start a Quick Evaluate and answer `201` with the queued `ModelProbeRun` (`mpr_` ids); depth `Full` is `400` ("not implemented until Phase 5"). The probes run in the background through the captain's own runtime as Harbor jobs of kind `ModelProbe` (an endpoint runs through the API endpoint runtime as a transient captain that is never saved), each in a fresh temporary directory; a runtime that cannot launch gives `CouldNotRun` results with the reason, never `Failed`.
+- **Read runs.** `GET /api/v1/model-probe-runs/{id}` returns the run with its six per-probe results; `GET /api/v1/model-probe-runs` pages runs (`captainId`, `modelEndpointId`, `status`). Global admins see every tenant, everyone else their own (another tenant's run is `404`); captain sessions are refused.
+- **MCP and client.** MCP tools `evaluate_captain` (exactly one of `captainId` or `modelEndpointId`), `get_model_probe_run` and `list_model_probe_runs` enforce the same rules; the two readers are on the Ask read-only list. `ArmadaClient` adds `EvaluateCaptainAsync`, `EvaluateModelEndpointAsync`, `GetModelProbeRunAsync` and `ListModelProbeRunsAsync`. Evaluate runs never create stage outcomes and change no routing or captain settings. Runs left queued or running by an earlier Admiral process are marked `Failed` at startup. See [REST_API.md](docs/REST_API.md#evaluate-model-probe-runs) and [MCP_API.md](docs/MCP_API.md#evaluate). Phase 2, step 1 of [MODEL_HETEROGENEITY.md](docs/MODEL_HETEROGENEITY.md).
+
 ### Judges may review their own captain's work
 
 - **Self-review exclusion is configurable and off by default.** A Judge was never assigned to a captain that ran an earlier stage of the chain it reviews, so a voyage whose only eligible captains had authored the work left its Judges Pending forever. The new server setting `ExcludeReviewAuthorsFromJudge` (default false) controls this. Off: an idle non-author captain is still preferred, an author captain reviews the work when no other eligible captain is idle, and a requested author captain is honored. On: the previous exclusion, and the assignment blocker now says that the authors were excluded. See [CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
