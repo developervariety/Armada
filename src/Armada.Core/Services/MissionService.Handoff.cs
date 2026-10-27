@@ -127,6 +127,11 @@ namespace Armada.Core.Services
             // Special handling for Architect stage: parse output into new missions
             if (PersonaCatalog.Matches(completedMission.Persona, PersonaCatalog.Architect))
             {
+                // A single valid plan outside a closed armada-plan fence is re-fenced (appended below the original output)
+                // instead of being sent back for a format repair; two plan blocks or an invalid plan are never repaired.
+                if (!ArchitectPlanParser.TryParse(completedMission.AgentOutput, out _, out string? canonicalError) && canonicalError == null)
+                    await TryRepairArchitectPlanAsync(completedMission, token).ConfigureAwait(false);
+
                 ArchitectPlanParser.TryParse(completedMission.AgentOutput, out _, out string? planError);
                 if (planError != null)
                 {

@@ -44,7 +44,12 @@ Two more properties are not traits of intelligence but decide whether a model ca
   `num_ctx`); check what the endpoint actually serves, not the model card.
 - **Contract fidelity.** Armada reads structured output: the Architect's `[ARMADA:MISSION]` blocks, the Judge's
   `[ARMADA:VERDICT]` line and `## Affected Case` section, a Worker's commit and completion line. A model that
-  paraphrases instead of following the format fails these stages no matter how good its reasoning is.
+  paraphrases instead of following the format fails these stages no matter how good its reasoning is. Armada repairs
+  only what it can decide without guessing, and records each repair as a `mission.contract_repaired` event: a missing
+  or malformed `[ARMADA:RESULT] COMPLETE` line from a Worker or Test Engineer whose dock branch holds new work, work
+  left uncommitted (committed by Armada), exactly one Judge verdict written in a nearby form such as
+  `**[ARMADA:VERDICT] PASS**`, and exactly one valid plan outside a closed `armada-plan` fence. Two verdicts, an
+  ambiguous verdict, two plan blocks, or a stage with no completion line and nothing on its branch are not repaired.
 
 ## Hard requirements
 
@@ -102,7 +107,8 @@ Worker. Usually the most frequent and most expensive stage.
 
 - **Matters most:** tool-calling reliability and coding accuracy equally, then staying on task over a long
   edit, build, and test loop, then speed. It must commit its work and print its completion line; a Worker that ends
-  with no commit is re-dispatched as a no-op.
+  with no commit and no completion line is re-dispatched as unfinished work. When the line is missing or malformed but
+  the branch holds new work, Armada inspects the repository and accepts the work instead of failing the stage.
 - **Failure looks like:** malformed tool calls, broken builds handed downstream, coordinated edits done halfway (the
   method written but never registered in the suite list), encoding and line-ending damage, stray backup files picked
   up by the leftover-work commit, never committing.

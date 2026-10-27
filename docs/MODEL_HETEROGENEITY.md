@@ -577,6 +577,12 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
 2. Rework prompts built from the artifact, one demand per line. Addresses C2 and C5.
 3. Safe contract repair (principle 4) for the remaining personas, starting with the Worker's completion line. A
    missing commit is handled by inspecting the repository. Addresses B1.
+   Status: done. A Worker or Test Engineer with a missing or malformed completion line is judged by its dock branch
+   (new commits, or non-scratch changes the leftover-work commit commits); with nothing there it stays unfinished work.
+   A single Judge verdict in a nearby form and a single valid plan outside an `armada-plan` fence are appended in
+   canonical form below the original output; ambiguous or duplicated verdicts and two plan blocks are refused. Each
+   repair is recorded as a `mission.contract_repaired` event (`ContractRepairRecord` payload with the repair kind);
+   `StageOutcome` has no column for it yet, so adding one needs a migration.
 4. Measure each change on the battery, separately from prompt changes.
 
 ### Phase 4: prompts
