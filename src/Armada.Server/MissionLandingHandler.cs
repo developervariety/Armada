@@ -388,22 +388,17 @@ namespace Armada.Server
 
                     if (!hasChanges)
                     {
-                        // No code changes -- skip merge and mark as complete.
-                        // If the branch still exists, clean it up so successful no-op
-                        // missions do not leak stale local or remote branches.
-                        landingAttempted = true;
-                        landingSucceeded = true;
-                        if (branchExists && !String.IsNullOrEmpty(dock.BranchName))
-                        {
-                            await CleanupMissionBranchAsync(
-                                git,
-                                sourceRepoPath,
-                                targetWorkDir,
-                                dock.BranchName,
-                                cleanupPolicy,
-                                "after successful no-op landing",
-                                dock.WorktreePath).ConfigureAwait(false);
-                        }
+                        // Missing diff/branch information is not proof that the work landed. In particular,
+                        // a stale completion racing a resume can arrive before a diff is available.
+                        // Keep the branch and the mission recoverable instead of reporting a successful merge.
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.CompletedUtc = null;
+                        mission.FailureReason = !branchExists
+                            ? "Landing was not attempted: the source branch could not be confirmed. Work remains unlanded."
+                            : "Landing was not attempted: the mission diff snapshot is unavailable. Work remains unlanded.";
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        _Logging.Warn(_Header + "mission " + mission.Id + " remains WorkProduced: " + mission.FailureReason);
                     }
                     else
                     {

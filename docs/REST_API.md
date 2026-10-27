@@ -3343,6 +3343,8 @@ Manual `WorkProduced` or `Complete` returns HTTP 409 (MCP `Conflict`) while the 
 | `Failed` | (terminal) |
 | `Cancelled` | (terminal) |
 
+Automatic completion is blocked while the latest stage check is Failed. CouldNotRun and TimedOut checks are recorded as unverified, never as passing; such work reaches Complete only through a confirmed landing. LocalMerge and MergeAndPush retain WorkProduced when the diff snapshot or source branch cannot be confirmed; missing evidence never counts as successful landing and does not trigger branch deletion. In-place resumes retain ownership until the replacement process is attached. Orphan recovery does not treat a vanished process as a successful exit: unverified orphan work is held in WorkProduced, and a mission whose claimed exit or resume is still being handled is left alone.
+
 ```bash
 curl -X PUT http://localhost:7890/api/v1/missions/msn_abc123/status \
   -H "Content-Type: application/json" \
@@ -5041,7 +5043,7 @@ Paginated enumeration of merge queue entries with optional filtering and sorting
 
 #### POST /api/v1/merge-queue
 
-Enqueue a branch for testing and merging.
+Enqueue a branch for testing and merging. Returns `409 Conflict` for confirmed landed work (a Complete mission with a recorded commit, or a branch contained in the target). A Complete mission without landing evidence instead reports a status mismatch. An unavailable repository does not establish landing.
 
 **Permission:** TenantAdmin
 

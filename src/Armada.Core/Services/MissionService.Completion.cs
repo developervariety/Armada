@@ -323,6 +323,22 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // Completion callers must not bypass the last mechanical check, including orphan recovery and
+            // a stale completion that arrives after a failed check has started an in-place resume.
+            EnumerationResult<ArmadaEvent> checks = await _Database.Events.EnumerateAsync(new EnumerationQuery
+            {
+                MissionId = mission.Id,
+                EventType = StageCheckEvents.EventType,
+                PageSize = 1,
+                Order = EnumerationOrderEnum.CreatedDescending
+            }, token).ConfigureAwait(false);
+            StageCheckResult? lastCheck = StageCheckEvents.Read(checks.Objects.FirstOrDefault());
+            if (checks.Objects.Count > 0 && (lastCheck == null || lastCheck.IsBlocking))
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " cannot complete while its stage check is unverified");
+                return;
+            }
+
             RunApprovalOptions? completionApproval = await ReadApprovalOptionsAsync(mission, token).ConfigureAwait(false);
             if (completionApproval?.ApproveAll == true) mission.RequiresReview = false;
 

@@ -57,11 +57,11 @@ namespace Armada.Core.Models
         public DateTime CheckedUtc { get; set; } = DateTime.UtcNow;
 
         /// <summary>
-        /// Whether the check blocks the stage (the captain is sent back with <see cref="FailureMessage"/>).
+        /// Whether the check blocks the stage. Only a confirmed Failed result blocks, even without a failure message; CouldNotRun and TimedOut are unverified warnings that never count as passing.
         /// </summary>
         public bool IsBlocking
         {
-            get { return Status == StageCheckStatusEnum.Failed && FailureMessage != null; }
+            get { return Status == StageCheckStatusEnum.Failed; }
         }
 
         #endregion

@@ -1097,8 +1097,8 @@ namespace Armada.Core.Services
                         return;
                     }
                     mission = afterCheck;
-                    string? checkFailure = check.IsBlocking ? check.FailureMessage : null;
-                    if (checkFailure != null)
+                    string checkFailure = check.FailureMessage ?? "The stage check failed (" + check.Status + "/" + check.Reason + "). Rerun the configured checks.";
+                    if (check.IsBlocking)
                     {
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts && await TryResumeInPlaceAsync(captain, mission, checkFailure, token).ConfigureAwait(false))
                             return;
@@ -1413,6 +1413,11 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task HealthCheckCaptainAsync(Captain captain, CancellationToken token)
         {
+            // Exit handling owns stage checks and resume, including the period with no replacement PID.
+            // Check before releasing a post-work captain, not only before probing its old process.
+            if ((!String.IsNullOrEmpty(captain.CurrentMissionId) && _ResumingMissions.ContainsKey(captain.CurrentMissionId))
+                || (captain.ProcessId.HasValue && _ExitsInProgress.ContainsKey(captain.ProcessId.Value))) return;
+
             // Look up the captain's single active mission
             Mission? mission = null;
             if (!String.IsNullOrEmpty(captain.CurrentMissionId))
@@ -1535,7 +1540,7 @@ namespace Armada.Core.Services
 
             string missionId = captain.CurrentMissionId ?? "unknown";
 
-            if (!isAlive && mission != null && mission.ProcessId.HasValue)
+            if (!isAlive && exitCode != 0 && mission != null && mission.ProcessId.HasValue)
             {
                 // Claim the exit so the callback (or a second health check) cannot also handle it.
                 if (!await _Database.Missions.TryClaimProcessExitAsync(mission.Id, processId!.Value, token).ConfigureAwait(false))
@@ -1551,7 +1556,7 @@ namespace Armada.Core.Services
             {
                 if (exitCode == 0)
                 {
-                    // Clean exit = mission complete
+                    // A clean exit still needs the same stage check as a runtime callback.
                     _Logging.Info(_Header + "captain " + captain.Id + " process " + processId + " completed successfully for mission " + missionId);
 
                     // Emit captain.completed event
@@ -1559,7 +1564,7 @@ namespace Armada.Core.Services
                         entityType: "captain", entityId: captain.Id,
                         captainId: captain.Id, missionId: missionId, token: token).ConfigureAwait(false);
 
-                    await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
+                    await HandleProcessExitAsync(processId!.Value, 0, captain.Id, missionId, token).ConfigureAwait(false);
                 }
                 else
                 {
@@ -1990,6 +1995,14 @@ namespace Armada.Core.Services
         private async Task RecoverOrphanedMissionAsync(Mission mission, CancellationToken token)
         {
             {
+                // A claimed exit clears ProcessId before checking the stage or relaunching. It is not evidence
+                // of a completed agent. In particular, do not race the gap before a resume attaches its new PID.
+                if (_ResumingMissions.ContainsKey(mission.Id)) return;
+                Mission? current = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                if (current == null || current.Status != mission.Status || current.ProcessId != mission.ProcessId) return;
+                if (mission.ProcessId.HasValue && _ExitsInProgress.ContainsKey(mission.ProcessId.Value)) return;
+                if (!mission.ProcessId.HasValue && mission.StartedUtc.HasValue) return;
+
                 if (mission.Status == MissionStatusEnum.Review &&
                     mission.RequiresReview &&
                     mission.ReviewRequestedUtc.HasValue &&
@@ -2078,12 +2091,18 @@ namespace Armada.Core.Services
                             return;
                         }
 
-                        // Complete the mission — the agent finished its work but the status was never updated
-                        _Logging.Info(_Header + "completing orphaned mission " + mission.Id + " (agent process exited, captain moved on)");
-                        await _Missions.HandleCompletionAsync(captain, mission.Id, token).ConfigureAwait(false);
+                        // A vanished process has no confirmed exit result or stage check. Preserve its work for
+                        // operator recovery, rather than treating it as a clean exit and starting landing.
+                        Mission? recovered = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                        if (recovered == null || recovered.Status != mission.Status || recovered.ProcessId.HasValue) return;
+                        recovered.Status = MissionStatusEnum.WorkProduced;
+                        recovered.FailureReason = "Orphaned agent exit was not verified; stage checks and landing remain outstanding.";
+                        recovered.CompletedUtc = null;
+                        recovered.LastUpdateUtc = DateTime.UtcNow;
+                        if (!await _Database.Missions.TryUpdateIfStatusAsync(recovered, new MissionStatusEnum[] { mission.Status }, token).ConfigureAwait(false)) return;
 
                         await EmitEventAsync("mission.orphan_recovered",
-                            "Orphaned mission recovered: " + mission.Title + " (captain " + captain.Id + " had moved on)",
+                            "Orphaned mission held as WorkProduced with unverified work: " + mission.Title + " (captain " + captain.Id + " had moved on)",
                             entityType: "mission", entityId: mission.Id,
                             captainId: captain.Id, missionId: mission.Id,
                             vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
@@ -2332,7 +2351,8 @@ namespace Armada.Core.Services
             // call is replacing): the stop this call reports is handled, so launching again would put a second agent into
             // the dock.
             Mission? latest = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
-            if (latest != null && latest.ProcessId.HasValue && latest.ProcessId != mission.ProcessId)
+            if (latest == null || MissionStateMachine.IsTerminalOrPostWork(latest.Status)) return true;
+            if (latest.ProcessId.HasValue && latest.ProcessId != mission.ProcessId)
             {
                 _Logging.Info(_Header + "mission " + mission.Id + " already has agent process " + latest.ProcessId.Value + "; not resuming again (" + failureReason + ")");
                 return true;
