@@ -4,6 +4,13 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Keep the initial admin password out of child processes
+
+- Captain processes and `run_process` commands do not inherit `ARMADA_INITIAL_ADMIN_PASSWORD`. Armada still reads this
+  variable during server startup to set the initial admin password.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
