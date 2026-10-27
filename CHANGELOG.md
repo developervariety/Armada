@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- GitHub objective re-import keeps `Completed` and `Cancelled` when a merged pull request maps to `Released`. An explicit `StatusOverride` still applies.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
