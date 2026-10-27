@@ -430,7 +430,7 @@ export default function Captains() {
         title={t('Captains')}
         subtitle={t('AI agent harness processes that execute missions. Monitor state, current mission, and captain lifecycle.')}
         actions={(
-          <>
+          <div className="captains-toolbar">
             <UserScopeFilter value={userScope} onChange={(id) => { setUserScope(id); setPageNumber(1); }} />
             {selected.length > 0 && (
               <button className="btn btn-sm btn-danger" onClick={handleBulkDelete} title={t('Permanently remove the selected captains. You confirm first; this cannot be undone.')}>
@@ -439,7 +439,7 @@ export default function Captains() {
             )}
             <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop every working captain now: kill its process, mark its mission Failed and return it to Idle. You confirm first.')}>{t('Stop All')}</button>
             <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a captain: an AI agent worker that picks up and runs missions.')}>+ {t('Captain')}</button>
-          </>
+          </div>
         )}
       />
 
