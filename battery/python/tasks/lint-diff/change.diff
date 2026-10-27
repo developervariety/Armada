@@ -1,0 +1,35 @@
+diff --git a/inventory/reorder.py b/inventory/reorder.py
+new file mode 100644
+--- /dev/null
++++ b/inventory/reorder.py
+@@ -0,0 +1,30 @@
++"""Reorder suggestions."""
++
++from inventory.stock import Stock
++
++
++class Reorder:
++    """Suggests which items to reorder."""
++
++    def __init__(self, threshold: int) -> None:
++        """Create a reorder policy that reorders when fewer units than threshold are on hand.
++
++        Raises ValueError when threshold is negative.
++        """
++        if threshold < 0:
++            raise ValueError("threshold must not be negative")
++        self._threshold = threshold
++
++    def suggest(self, stock, skus):
++        if not isinstance(stock, Stock):
++            raise TypeError("stock must be a Stock")
++        result = []
++        for sku in skus:
++            try:
++                item = stock.find(sku)
++            except:
++                continue
++            if item is not None and item.quantity < self._threshold:
++                print("Reorder " + sku)
++                result.append(sku)
++        return result

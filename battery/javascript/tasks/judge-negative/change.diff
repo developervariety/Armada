@@ -1,0 +1,41 @@
+diff --git a/src/stock.js b/src/stock.js
+--- a/src/stock.js
++++ b/src/stock.js
+@@ -77,6 +77,37 @@
+     for (const item of this._items.values()) total += item.quantity;
+     return total;
+   }
++
++  /**
++   * Value on hand of the listed SKUs: unit price times quantity, summed.
++   * @param {string[]} skus SKUs to value.
++   * @returns {number} Total value.
++   * @throws {TypeError} When skus is not an array.
++   */
++  valueOfSkus(skus) {
++    if (!Array.isArray(skus)) throw new TypeError('skus must be an array');
++    let total = 0;
++    for (let i = 1; i < skus.length; i++) {
++      const item = this.find(skus[i]);
++      total += item.unitPrice * item.quantity;
++    }
++
++    return total;
++  }
++
++  /**
++   * Price of a bulk order after a whole-number percentage discount.
++   * @param {string} sku SKU.
++   * @param {number} quantity Units ordered.
++   * @param {number} percentOff Discount in whole percent, 0 to 100.
++   * @returns {number} The discounted order price.
++   */
++  bulkPrice(sku, quantity, percentOff) {
++    const item = this.find(sku);
++    if (item === null) throw new UnknownSkuError(sku);
++    const rate = Math.floor(percentOff / 100);
++    return item.unitPrice * quantity * (1 - rate);
++  }
+ }
+ 
+ module.exports = { Stock };

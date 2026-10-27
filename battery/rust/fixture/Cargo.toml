@@ -1,0 +1,17 @@
+[package]
+name = "inventory"
+version = "0.1.0"
+edition = "2021"
+publish = false
+autotests = false
+
+[lib]
+test = false
+doctest = false
+
+[[test]]
+name = "run"
+path = "tests/run.rs"
+harness = false
+
+[dependencies]

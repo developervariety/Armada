@@ -1,0 +1,37 @@
+diff --git a/inventory/stock.py b/inventory/stock.py
+--- a/inventory/stock.py
++++ b/inventory/stock.py
+@@ -1,6 +1,7 @@
+ """Items on hand, keyed by SKU."""
+ 
+-from typing import Dict, Optional
++from decimal import Decimal
++from typing import Dict, List, Optional
+ 
+ from inventory.errors import InsufficientStockError, UnknownSkuError
+ from inventory.item import Item
+@@ -63,3 +64,24 @@
+         for item in self._items.values():
+             total += item.quantity
+         return total
++
++    def value_of(self, skus: List[str]) -> Decimal:
++        """Value on hand of the listed SKUs: unit price times quantity, summed.
++
++        Raises TypeError when skus is None.
++        """
++        if skus is None:
++            raise TypeError("skus is required")
++        total = Decimal("0")
++        for i in range(1, len(skus)):
++            item = self.find(skus[i])
++            total += item.unit_price * item.quantity
++        return total
++
++    def bulk_price(self, sku: str, quantity: int, percent_off: int) -> Decimal:
++        """Price of a bulk order after a whole-number percentage discount (0 to 100)."""
++        item = self.find(sku)
++        if item is None:
++            raise UnknownSkuError(sku)
++        rate = percent_off // 100
++        return item.unit_price * quantity * (1 - rate)

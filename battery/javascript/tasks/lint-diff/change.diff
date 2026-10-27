@@ -1,0 +1,39 @@
+diff --git a/src/reorder.js b/src/reorder.js
+new file mode 100644
+--- /dev/null
++++ b/src/reorder.js
+@@ -0,0 +1,34 @@
++'use strict';
++
++const { Stock } = require('./stock');
++
++/**
++ * Suggests which items to reorder.
++ */
++class Reorder {
++  /**
++   * Create a reorder policy.
++   * @param {number} threshold Reorder when fewer units than this are on hand.
++   * @throws {RangeError} When threshold is negative.
++   */
++  constructor(threshold) {
++    if (threshold < 0) throw new RangeError('threshold must not be negative');
++    this._threshold = threshold;
++  }
++
++  suggest(stock, skus) {
++    if (!(stock instanceof Stock)) throw new TypeError('stock must be a Stock');
++    if (!Array.isArray(skus)) throw new TypeError('skus must be an array');
++    var result = [];
++    for (const sku of skus) {
++      const item = stock.find(sku);
++      if (item != null && item.quantity < this._threshold) {
++        console.log('Reorder ' + sku);
++        result.push(sku);
++      }
++    }
++    return result;
++  }
++}
++
++module.exports = { Reorder };

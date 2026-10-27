@@ -1,0 +1,39 @@
+diff --git a/src/stock.rs b/src/stock.rs
+--- a/src/stock.rs
++++ b/src/stock.rs
+@@ -64,4 +64,9 @@
+         }
+         total
+     }
++
++    /// Whether an item with the SKU is in stock (known, even at zero units).
++    pub fn contains(&self, sku: &str) -> bool {
++        self.items.contains_key(sku)
++    }
+ }
+diff --git a/tests/stock_tests.rs b/tests/stock_tests.rs
+--- a/tests/stock_tests.rs
++++ b/tests/stock_tests.rs
+@@ -24,3 +24,11 @@
+     let mut stock = Stock::new();
+     assert_eq!(Err(InventoryError::UnknownSku("missing".to_string())), stock.remove("missing", 1));
+ }
++
++/// contains finds a known SKU and not an unknown one.
++pub fn stock_contains_known_and_unknown() {
++    let mut stock = Stock::new();
++    stock.add(Item::new("A-1", "Anchor", 100, 0).expect("valid item"));
++    assert!(stock.contains("A-1"), "A-1 should be known");
++    assert!(!stock.contains("B-1"), "B-1 should be unknown");
++}
+diff --git a/tests/registry.rs b/tests/registry.rs
+--- a/tests/registry.rs
++++ b/tests/registry.rs
+@@ -20,6 +20,7 @@
+         TestCase { name: "stock_add_same_sku_merges_quantity", body: stock_tests::stock_add_same_sku_merges_quantity },
+         TestCase { name: "stock_remove_reduces_quantity", body: stock_tests::stock_remove_reduces_quantity },
+         TestCase { name: "stock_remove_unknown_sku_fails", body: stock_tests::stock_remove_unknown_sku_fails },
++        TestCase { name: "stock_contains_known_and_unknown", body: stock_tests::stock_contains_known_and_unknown },
+         TestCase { name: "price_calculator_line_total_multiplies", body: price_calculator_tests::price_calculator_line_total_multiplies },
+     ]
+ }

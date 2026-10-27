@@ -1,0 +1,40 @@
+diff --git a/inventory/stock.py b/inventory/stock.py
+--- a/inventory/stock.py
++++ b/inventory/stock.py
+@@ -63,3 +63,12 @@
+         for item in self._items.values():
+             total += item.quantity
+         return total
++
++    def contains(self, sku: str) -> bool:
++        """Whether an item with the SKU is in stock (known, even at zero units).
++
++        Raises TypeError when sku is not a string.
++        """
++        if not isinstance(sku, str):
++            raise TypeError("sku must be a string")
++        return sku in self._items
+diff --git a/tests/test_stock.py b/tests/test_stock.py
+--- a/tests/test_stock.py
++++ b/tests/test_stock.py
+@@ -31,3 +31,10 @@
+         stock = Stock()
+         with self.assertRaises(UnknownSkuError):
+             stock.remove("missing", 1)
++
++    def test_stock_contains_known_and_unknown(self) -> None:
++        """contains finds a known SKU and not an unknown one."""
++        stock = Stock()
++        stock.add(Item("A-1", "Anchor", Decimal("1"), 0))
++        self.assertTrue(stock.contains("A-1"))
++        self.assertFalse(stock.contains("B-1"))
+diff --git a/tests/registry.py b/tests/registry.py
+--- a/tests/registry.py
++++ b/tests/registry.py
+@@ -16,5 +16,6 @@
+         StockTests("test_stock_add_same_sku_merges_quantity"),
+         StockTests("test_stock_remove_reduces_quantity"),
+         StockTests("test_stock_remove_unknown_sku_raises"),
++        StockTests("test_stock_contains_known_and_unknown"),
+         PriceCalculatorTests("test_price_calculator_line_total_multiplies"),
+     ]

@@ -1,0 +1,1 @@
+"""Hidden acceptance checks."""
