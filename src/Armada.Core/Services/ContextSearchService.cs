@@ -216,7 +216,7 @@ namespace Armada.Core.Services
                 Id = "context:" + chunk.Id,
                 Source = chunk.Path.StartsWith("AI-Memory/", StringComparison.OrdinalIgnoreCase) ? ContextSearchSourceEnum.Rule : ContextSearchSourceEnum.Documentation,
                 Title = chunk.Summary, Text = chunk.Text, Reference = chunk.Path,
-                Version = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(chunk.Text))),
+                Version = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(chunk.Text))).ToLowerInvariant(),
                 Required = required, SearchMetadata = chunk.Topic + " " + chunk.ReadWhen
             };
         }
