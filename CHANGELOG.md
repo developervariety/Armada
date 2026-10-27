@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- A dashboard detail page keeps the record for the route that was requested last. Mission, captain, vessel, fleet, voyage, dock, and event pages clear the previous record when the route changes and show the loading state until that route's request returns. A refresh of the same record does not apply an older response. Mission and voyage refreshes keep the current record on screen.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
