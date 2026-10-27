@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Checks left Running by a stopped process are cancelled at startup
+
+- Startup cancels each Armada check that is still Running from before this process started. The command died with that process, so the record has no verdict. The summary says so, and an empty output is set to that summary. A check started at or after this process start stays Running. An imported check stays Running. The stored duration is left unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
