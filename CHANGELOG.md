@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Server-paged lists return to the last page
+
+Events, Memories, Merge Queue, Missions, Request History, Signals, and Voyages ask the server for one page. When rows expire, are deleted, or a filter leaves the requested page past the end, the list moves to the last page that still exists and loads that page. The empty page is discarded. Rows from the previous successful page stay until the valid page returns. A response for an older page leaves the newer page in place. An empty list stays on page 1.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

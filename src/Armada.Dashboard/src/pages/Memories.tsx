@@ -14,6 +14,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import ScopeBadge from '../components/shared/ScopeBadge';
 import { MEMORY_TYPES } from '../lib/configuration';
+import { reconcileServerPage, useListRequestGuard } from '../lib/serverPage';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 
 const TYPES = MEMORY_TYPES;
@@ -71,22 +72,31 @@ export default function Memories() {
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; id: string }>({ open: false, id: '' });
 
+  const beginListRequest = useListRequestGuard();
+
   const load = useCallback(async () => {
+    const request = beginListRequest();
     setLoading(true);
     try {
       const filters: Record<string, string> = {};
       if (typeFilter) filters.type = typeFilter;
       if (search.trim()) filters.search = search.trim();
       const result = await listMemories({ pageNumber, pageSize, filters });
+      if (!request.isCurrent()) return;
+      const decision = reconcileServerPage(pageNumber, result.totalPages);
+      if (!decision.accept) {
+        setPageNumber(decision.pageNumber);
+        return;
+      }
       setMemories(result.objects ?? []);
-      setTotalPages(result.totalPages ?? 1);
+      setTotalPages(decision.totalPages);
       setTotalRecords(result.totalRecords ?? 0);
     } catch {
-      pushToast('error', t('Failed to load memories.'));
+      if (request.isCurrent()) pushToast('error', t('Failed to load memories.'));
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) setLoading(false);
     }
-  }, [pageNumber, pageSize, typeFilter, search, pushToast, t]);
+  }, [beginListRequest, pageNumber, pageSize, typeFilter, search, pushToast, t]);
 
   useEffect(() => { void load(); }, [load]);
 
