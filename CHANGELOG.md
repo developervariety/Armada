@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- WebSocket `get_mission_diff` reads a Harbor mission worktree through that Harbor's git service when no saved diff file or snapshot exists. A missing worktree or an unavailable Harbor still returns Unavailable. Saved diffs and snapshots keep their existing precedence. REST and MCP results are unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
