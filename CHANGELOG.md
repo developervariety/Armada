@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Merge queue resolves remote-only mission branches
+
+- The merge queue checks the local branch first, then `origin/<branch>`. If neither ref exists, it reports that the branch was not found. Git merge conflicts keep their existing failure result.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

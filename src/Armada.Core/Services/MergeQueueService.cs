@@ -75,6 +75,13 @@ namespace Armada.Core.Services
         /// </summary>
         private readonly ConcurrentDictionary<string, byte> _ActiveIntegrationBranches = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
+        private enum MergeBranchResultEnum
+        {
+            Merged,
+            Conflict,
+            BranchNotFound
+        }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -548,18 +555,25 @@ namespace Armada.Core.Services
                 }
 
                 // Merge the entry's branch
-                bool mergeOk = await MergeBranchAsync(host, integrationPath, entry.BranchName, token).ConfigureAwait(false);
-                if (!mergeOk)
+                MergeBranchResultEnum mergeResult = await MergeBranchAsync(host, integrationPath, entry.BranchName, token).ConfigureAwait(false);
+                if (mergeResult != MergeBranchResultEnum.Merged)
                 {
-                    _Logging.Warn(_Header + "merge conflict for " + entryTag);
+                    bool branchNotFound = mergeResult == MergeBranchResultEnum.BranchNotFound;
+                    string output = branchNotFound
+                        ? "Branch not found: " + entry.BranchName
+                        : "Merge conflict with " + entry.TargetBranch;
+                    string reason = branchNotFound
+                        ? "Merge queue entry " + entry.Id + ": " + output
+                        : "Merge queue entry " + entry.Id + ": merge conflict with " + entry.TargetBranch;
+                    _Logging.Warn(_Header + (branchNotFound ? output + " for " : "merge conflict for ") + entryTag);
                     entry.Status = MergeStatusEnum.Failed;
-                    entry.TestOutput = "Merge conflict with " + entry.TargetBranch;
+                    entry.TestOutput = output;
                     entry.CompletedUtc = DateTime.UtcNow;
                     entry.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
                     await CleanupWorktreeAsync(host, repoPath, integrationPath, integrationBranch, token).ConfigureAwait(false);
                     await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.LandingFailed,
-                        "Merge queue entry " + entry.Id + ": merge conflict with " + entry.TargetBranch, token, entry.TenantId).ConfigureAwait(false);
+                        reason, token, entry.TenantId).ConfigureAwait(false);
                     return;
                 }
 
@@ -754,39 +768,55 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<bool> MergeBranchAsync(MergeQueueHost host, string worktreePath, string branchName, CancellationToken token)
+        private async Task<MergeBranchResultEnum> MergeBranchAsync(MergeQueueHost host, string worktreePath, string branchName, CancellationToken token)
         {
+            HostCommandResult refs = await RunGitCaptureAsync(host, worktreePath, token, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin").ConfigureAwait(false);
+            if (refs.ExitCode != 0)
+                throw new InvalidOperationException("git for-each-ref failed: " + (refs.StandardError ?? "").Trim());
+
+            string localRef = "refs/heads/" + branchName;
+            string remoteRef = "refs/remotes/origin/" + branchName;
+            string sourceRef = "";
+            foreach (string line in (refs.StandardOutput ?? "").Split('\n'))
+            {
+                string refName = line.TrimEnd('\r');
+                if (String.Equals(refName, localRef, StringComparison.Ordinal))
+                {
+                    sourceRef = localRef;
+                    break;
+                }
+                if (String.IsNullOrEmpty(sourceRef) && String.Equals(refName, remoteRef, StringComparison.Ordinal))
+                    sourceRef = remoteRef;
+            }
+
+            if (String.IsNullOrEmpty(sourceRef))
+                return MergeBranchResultEnum.BranchNotFound;
+
             try
             {
-                await RunGitAsync(host, worktreePath, token, "merge", "--no-ff", branchName).ConfigureAwait(false);
-                return true;
+                await RunGitAsync(host, worktreePath, token, "merge", "--no-ff", sourceRef).ConfigureAwait(false);
+                return MergeBranchResultEnum.Merged;
             }
             catch (TimeoutException)
             {
                 throw;
             }
-            catch (InvalidOperationException ex) when (host.IsHarbor && ex.Message.Contains("not something we can merge", StringComparison.OrdinalIgnoreCase))
+            catch (InvalidOperationException ex) when (ex.Message.Contains("CONFLICT", StringComparison.OrdinalIgnoreCase))
             {
-                // The branch was pushed and then removed locally: merge the pushed copy.
-                try
-                {
-                    await RunGitAsync(host, worktreePath, token, "merge", "--no-ff", "origin/" + branchName).ConfigureAwait(false);
-                    return true;
-                }
-                catch
-                {
-                    try { await RunGitAsync(host, worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
-                    catch { }
-                    return false;
-                }
+                await AbortMergeAsync(host, worktreePath, token).ConfigureAwait(false);
+                return MergeBranchResultEnum.Conflict;
             }
-            catch
+            catch (Exception ex)
             {
-                // Abort the failed merge
-                try { await RunGitAsync(host, worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
-                catch { }
-                return false;
+                await AbortMergeAsync(host, worktreePath, token).ConfigureAwait(false);
+                throw new InvalidOperationException("Unable to merge branch " + branchName + ": " + ex.Message, ex);
             }
+        }
+
+        private async Task AbortMergeAsync(MergeQueueHost host, string worktreePath, CancellationToken token)
+        {
+            try { await RunGitAsync(host, worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
+            catch { }
         }
 
         private async Task<TestResult> RunTestsAsync(MergeQueueHost host, string workingDir, string testCommand, CancellationToken token)
