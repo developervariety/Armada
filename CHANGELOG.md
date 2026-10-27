@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Worktree creation keeps a path that already existed
+
+- **A failed worktree create removes only a directory that call created.** `CreateWorktreeAsync` records whether the target directory exists before `git worktree add`. On failure it runs `git worktree remove --force` only for a directory this call created. A path that already existed, including a registered worktree, stays. A branch ref this call created is still deleted. The original error still propagates.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
