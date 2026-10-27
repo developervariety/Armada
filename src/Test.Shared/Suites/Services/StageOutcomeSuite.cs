@@ -872,6 +872,11 @@ namespace Test.Shared.Suites.Services
                     StageOutcome noGit = await EscalateThenFinishAsync(db, new StageOutcomeService(db, logging), vessel, escalatedWork, keptFinal).ConfigureAwait(false);
                     AssertNull(noGit.PriorWorkKept, "no git access: unknown");
                     AssertNotNull(noGit.FinishedByOutcomeId, "still linked without git");
+
+                    StageOutcome unchanged = await EscalateThenFinishAsync(db, new StageOutcomeService(db, logging), vessel, escalatedWork, escalatedWork).ConfigureAwait(false);
+                    AssertEqual<bool?>(true, unchanged.PriorWorkKept, "identical commits prove work kept even without git access");
+                    AssertEqual("cpt_strong", unchanged.FinishedByCaptainId, "unchanged work still names the finishing captain");
+                    AssertNotNull(unchanged.FinishedByOutcomeId, "unchanged work still names the finishing attempt");
                 }
                 finally
                 {
