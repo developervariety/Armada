@@ -15,9 +15,10 @@ namespace Test.Shared.Suites.Services
 
     /// <summary>
     /// Descriptors for <see cref="ObjectiveService"/>: internal-first objective capture, linkage,
-    /// filtering, snapshot backfill, and deletion over a live SQLite store. Positive cases assert
-    /// the full scoped-objective lifecycle and latest-snapshot normalization; negative cases cover
-    /// the audited not-found read, not-found update, and null-request guards.
+    /// filtering, snapshot backfill, and deletion over a live database. Positive cases assert
+    /// the full scoped-objective lifecycle, latest-snapshot normalization, and restore after a
+    /// custom pipeline delete; negative cases cover the audited not-found read, not-found update,
+    /// and null-request guards.
     /// </summary>
     public sealed class ObjectiveServiceSuite : IArmadaTestSuite
     {
@@ -339,6 +340,51 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(latest.RefinementSummary, stored.RefinementSummary);
             }));
 
+            cases.Add(CaseAsync(
+                "enumerate_after_pipeline_delete_clears_suggested_pipeline",
+                "Enumerate after a pipeline delete clears the suggested pipeline",
+                TestTags.Positive,
+                async () =>
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        string tenantId = "ten_objective_pipeline";
+                        string userId = "usr_objective_pipeline";
+                        await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+
+                        Pipeline pipeline = new Pipeline("CustomObjectivePipeline");
+                        pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                        AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                        ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                        Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                        {
+                            Title = "Suggest a custom pipeline",
+                            SuggestedPipelineId = pipeline.Id
+                        }).ConfigureAwait(false);
+                        AssertEqual(pipeline.Id, created.SuggestedPipelineId);
+
+                        await testDb.Driver.Pipelines.DeleteAsync(pipeline.Id).ConfigureAwait(false);
+
+                        ObjectiveService restored = new ObjectiveService(testDb.Driver);
+                        EnumerationResult<Objective> result = await restored.EnumerateAsync(auth, new ObjectiveQuery
+                        {
+                            PageNumber = 1,
+                            PageSize = 25
+                        }).ConfigureAwait(false);
+
+                        AssertEqual(1, result.Objects.Count);
+                        AssertEqual(created.Id, result.Objects[0].Id);
+                        AssertNull(result.Objects[0].SuggestedPipelineId);
+
+                        Objective? stored = await testDb.Driver.Objectives.ReadAsync(created.Id).ConfigureAwait(false);
+                        stored = NotNull(stored);
+                        AssertNull(stored.SuggestedPipelineId);
+                    }
+                },
+                TestDatabaseConfig.Type == DatabaseTypeEnum.SqlServer,
+                "SQL Server rejects the pipeline delete while an objective still names that pipeline. SQLite, PostgreSQL, and MySQL clear suggested_pipeline_id and leave the snapshot id in place."));
+
             // Audit addition: reading an unknown objective returns null (confirmed against source).
 
             cases.Add(CaseAsync("read_unknown_id_returns_null", "ReadAsync UnknownId ReturnsNull", TestTags.Negative, async () =>
@@ -430,14 +476,22 @@ namespace Test.Shared.Suites.Services
             }
         }
 
-        private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
+        private static TestCaseDescriptor CaseAsync(
+            string caseId,
+            string displayName,
+            string tag,
+            Func<Task> body,
+            bool skip = false,
+            string? skipReason = null)
         {
             return new TestCaseDescriptor(
                 suiteId: "Services.ObjectiveService",
                 caseId: caseId,
                 displayName: displayName,
                 executeAsync: (CancellationToken ct) => body(),
-                tags: new List<string> { tag });
+                tags: new List<string> { tag },
+                skip: skip,
+                skipReason: skipReason);
         }
 
         #endregion
