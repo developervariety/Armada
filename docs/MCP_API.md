@@ -2426,7 +2426,7 @@ Returns the cancelled mission. Cancelling stops the mission's agent first: the c
 
 ### restart_mission
 
-Restart a Failed, LandingFailed, or Cancelled mission, resetting it to `Pending` for re-dispatch. Optionally update the title and description (instructions) before restarting. Clears the captain assignment, dock, PR URL, commit, failure, review, and timing fields. A later pipeline stage keeps the previous stage's branch (a first stage starts on a fresh branch), a finished voyage is reopened, and the stages cancelled because this one failed are restored to Pending. `Conflict` for any other status.
+Restart a Failed, LandingFailed, or Cancelled mission, resetting it to `Pending` for re-dispatch, or start a `Pending` mission as it is. Optionally update the title and description (instructions) before restarting. A failed or cancelled mission has the captain assignment, dock, PR URL, commit, failure, review, and timing fields cleared; a Pending one keeps every other field. A later pipeline stage keeps the previous stage's branch (a first stage starts on a fresh branch), a finished voyage is reopened, and the stages cancelled because this one failed are restored to Pending. The mission is then dispatched at once when a captain is free under the normal dispatch rules, and the result shows it `Assigned` or `InProgress`; otherwise it stays `Pending` (not an error) for the regular dispatcher. `Conflict` for any other status.
 
 **Input Schema:**
 

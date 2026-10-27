@@ -381,7 +381,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "restart_mission",
-                "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. Optionally update title and description (instructions) before restarting.",
+                "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch, or start a Pending mission as it is. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. The mission is then dispatched at once when a captain is available; otherwise it stays Pending for the regular dispatcher. Optionally update title and description (instructions) before restarting.",
                 new
                 {
                     type = "object",

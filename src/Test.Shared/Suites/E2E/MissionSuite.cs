@@ -2149,6 +2149,53 @@ namespace Test.Shared.Suites.E2E
 
             #endregion
 
+            #region Restart
+
+            cases.Add(CaseAsync("restart_pending_mission_returns_200", "Restart on a Pending mission returns 200 with the mission and applies the new title instead of returning 409", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                HttpClient authClient = fx.AuthClient;
+                List<string> createdFleetIds = new List<string>();
+                List<string> createdVesselIds = new List<string>();
+                List<string> createdMissionIds = new List<string>();
+
+                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
+                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "PendingRestart", description: "Original instructions");
+                AssertEqual(MissionStatusEnum.Pending, created.Status);
+
+                HttpResponseMessage response = await authClient.PostAsync("/api/v1/missions/" + created.Id + "/restart",
+                    JsonHelper.ToJsonContent(new { Title = "PendingRestart started" }));
+                AssertEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+                Mission restarted = await JsonHelper.DeserializeAsync<Mission>(response);
+                AssertEqual(created.Id, restarted.Id);
+                AssertEqual("PendingRestart started", restarted.Title);
+                AssertEqual("Original instructions", restarted.Description, "an omitted description is kept");
+                AssertTrue(restarted.Status == MissionStatusEnum.Pending || restarted.Status == MissionStatusEnum.Assigned || restarted.Status == MissionStatusEnum.InProgress,
+                    "a started Pending mission is Pending (no captain free), Assigned, or InProgress, not " + restarted.Status);
+            }));
+
+            cases.Add(CaseAsync("restart_in_progress_mission_returns_409", "Restart on an InProgress mission still returns 409, and the message lists Pending as allowed", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                HttpClient authClient = fx.AuthClient;
+                List<string> createdFleetIds = new List<string>();
+                List<string> createdVesselIds = new List<string>();
+                List<string> createdMissionIds = new List<string>();
+
+                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
+                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "InProgressRestart");
+                await TransitionAndAssertAsync(authClient, created.Id, "Assigned");
+                await TransitionAndAssertAsync(authClient, created.Id, "InProgress");
+
+                HttpResponseMessage response = await authClient.PostAsync("/api/v1/missions/" + created.Id + "/restart", JsonHelper.ToJsonContent(new { }));
+                AssertEqual(HttpStatusCode.Conflict, response.StatusCode);
+                string body = await response.Content.ReadAsStringAsync();
+                AssertContains("Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted", body);
+                AssertContains("current: InProgress", body);
+            }));
+
+            #endregion
+
             return new TestSuiteDescriptor(
                 suiteId: "E2E.Mission",
                 displayName: "Missions",
