@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Merge queue labels only a content conflict as a merge conflict
+
+- **A failed `git merge --no-ff` is a content conflict only when that merge leaves unmerged paths.** The queue still aborts the merge, fails the entry, and leaves the target branch unchanged. Any other non-zero exit records a single line with the Git exit code and the first error line in the entry output and the mission failure reason. The failure kind stays `LandingConflict`. On a Harbor, a missing local ref still retries `origin/<branch>`.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
