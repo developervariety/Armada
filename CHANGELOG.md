@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- Data retention deletes completed voyages, their missions, orphan stage outcomes, read signals, old events, inactive docks, and finished merge entries on SQLite, PostgreSQL, MySQL, and SQL Server when retention days is greater than zero. Zero days still deletes nothing.
+- The newest `objective.snapshot` event for each objective is kept, including when that snapshot is older than the cutoff. Older snapshots of the same objective are deleted. A normal old event is still deleted.
+- On SQL Server, a child mission's `parent_mission_id` is cleared before an expired parent mission is deleted.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
