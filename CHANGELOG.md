@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Helm child processes
+
+- **A full pipe no longer blocks Helm.** MCP client install and remove read standard output and standard error while the client runs. On Unix, `armada server start` sends the Admiral's standard streams to `/dev/null` and releases the process handle without stopping a healthy server. The server build, TypeScript, and Vite steps read both streams while the child runs, then report the child's exit status and standard error.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
