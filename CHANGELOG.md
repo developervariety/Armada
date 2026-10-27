@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- Helm MCP install and remove change only the managed Armada entry in a JSONC file. Comments, a byte-order mark, and unrelated entries stay. A malformed document, a container of the wrong shape, or two Armada entries is refused before the file is written.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
