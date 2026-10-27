@@ -1,0 +1,48 @@
+diff --git a/inventory/Stock.java b/inventory/Stock.java
+--- a/inventory/Stock.java
++++ b/inventory/Stock.java
+@@ -78,4 +78,15 @@
+         for (Item item : items.values()) total += item.getQuantity();
+         return total;
+     }
++
++    /**
++     * Whether an item with the SKU is in stock (known, even at zero units).
++     * @param sku SKU.
++     * @return True when the SKU is known.
++     * @throws NullPointerException When sku is null.
++     */
++    public boolean contains(String sku) {
++        Objects.requireNonNull(sku, "sku");
++        return items.containsKey(sku);
++    }
+ }
+diff --git a/tests/StockTests.java b/tests/StockTests.java
+--- a/tests/StockTests.java
++++ b/tests/StockTests.java
+@@ -39,4 +39,14 @@
+         Stock stock = new Stock();
+         Check.throwsException(UnknownSkuException.class, () -> stock.remove("missing", 1));
+     }
++
++    /**
++     * contains finds a known SKU and not an unknown one.
++     */
++    public static void stockContainsKnownAndUnknown() {
++        Stock stock = new Stock();
++        stock.add(new Item("A-1", "Anchor", 1, 0));
++        Check.equal(true, stock.contains("A-1"));
++        Check.equal(false, stock.contains("B-1"));
++    }
+ }
+diff --git a/tests/TestRegistry.java b/tests/TestRegistry.java
+--- a/tests/TestRegistry.java
++++ b/tests/TestRegistry.java
+@@ -22,6 +22,7 @@
+             new TestCase("stockAddSameSkuMergesQuantity", StockTests::stockAddSameSkuMergesQuantity),
+             new TestCase("stockRemoveReducesQuantity", StockTests::stockRemoveReducesQuantity),
+             new TestCase("stockRemoveUnknownSkuThrows", StockTests::stockRemoveUnknownSkuThrows),
++            new TestCase("stockContainsKnownAndUnknown", StockTests::stockContainsKnownAndUnknown),
+             new TestCase("priceCalculatorLineTotalMultiplies", PriceCalculatorTests::priceCalculatorLineTotalMultiplies)
+         );
+     }

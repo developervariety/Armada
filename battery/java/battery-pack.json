@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "id": "java",
+  "name": "Java",
+  "version": 1,
+  "domain": "code",
+  "description": "A small Java inventory library built with plain javac and a dependency-free test runner; no Maven, Gradle or JUnit, nothing is downloaded. The ten template tasks of docs/MODEL_HETEROGENEITY.md, Part 2.",
+  "fixture": {
+    "path": "fixture",
+    "defaultBranch": "main"
+  },
+  "toolchain": [
+    {
+      "name": "javac",
+      "executable": "javac",
+      "arguments": [ "-version" ],
+      "hint": "A JDK 17 or later (javac) on the Harbor's PATH"
+    },
+    {
+      "name": "java",
+      "executable": "java",
+      "arguments": [ "-version" ],
+      "hint": "A JDK 17 or later (java) on the Harbor's PATH"
+    },
+    {
+      "name": "git",
+      "executable": "git",
+      "arguments": [ "--version" ],
+      "hint": "git on the Harbor's PATH"
+    }
+  ],
+  "stageChecks": {
+    "buildCommand": "javac -encoding UTF-8 -d build -sourcepath . tests/TestRunner.java",
+    "testCommand": "java -cp build tests.TestRunner"
+  },
+  "tasks": [
+    {
+      "id": "add-member",
+      "title": "Add a member to an existing class",
+      "persona": "Worker",
+      "difficulty": "easy",
+      "prompt": "In inventory/Item.java add a public method `double getTotalValue()` to the Item class that returns unitPrice times quantity. Give it a Javadoc comment like the other members. Keep the existing tests passing (`javac -encoding UTF-8 -d build -sourcepath . tests/TestRunner.java` then `java -cp build tests.TestRunner`).",
+      "grader": {
+        "type": "command",
+        "overlay": "tasks/add-member/grading",
+        "commands": [
+          { "executable": "javac", "arguments": [ "-encoding", "UTF-8", "-d", "build", "-sourcepath", ".", "tests/TestRunner.java" ] },
+          { "executable": "java", "arguments": [ "-cp", "build", "tests.TestRunner" ] },
+          { "executable": "javac", "arguments": [ "-encoding", "UTF-8", "-d", "build", "-sourcepath", ".", "tests/grading/CheckTotalValue.java" ] },
+          { "executable": "java", "arguments": [ "-cp", "build", "tests.grading.CheckTotalValue" ] }
+        ]
+      }
+    },
+    {
+      "id": "two-place-edit",
+      "title": "Coordinated two-place edit: write a test method and register it",
+      "persona": "Worker",
+      "prompt": "Add a public static test method `stockRemoveMoreThanAvailableThrows` to tests/StockTests.java. It adds an item with 2 units and checks that removing 3 units throws InsufficientStockException (inventory/InsufficientStockException.java). A test only runs when it is registered, so also register it in tests/TestRegistry.java. `javac -encoding UTF-8 -d build -sourcepath . tests/TestRunner.java` then `java -cp build tests.TestRunner` must pass.",
+      "grader": {
+        "type": "command",
+        "commands": [
+          { "executable": "javac", "arguments": [ "-encoding", "UTF-8", "-d", "build", "-sourcepath", ".", "tests/TestRunner.java" ] },
+          { "executable": "java", "arguments": [ "-cp", "build", "tests.TestRunner", "--require", "stockRemoveMoreThanAvailableThrows" ] }
+        ]
+      }
+    },
+    {
+      "id": "fix-bug",
+      "title": "Fix a bug from a failing test",
+      "persona": "Worker",
+      "setup": "tasks/fix-bug/setup",
+      "prompt": "The test priceCalculatorApplyDiscountTenPercent fails (`javac -encoding UTF-8 -d build -sourcepath . tests/TestRunner.java` then `java -cp build tests.TestRunner`). Find and fix the bug in the library code. Do not change or remove the tests.",
+      "grader": {
+        "type": "command",
+        "commands": [
+          { "executable": "javac", "arguments": [ "-encoding", "UTF-8", "-d", "build", "-sourcepath", ".", "tests/TestRunner.java" ] },
+          { "executable": "java", "arguments": [ "-cp", "build", "tests.TestRunner", "--require", "priceCalculatorApplyDiscountTenPercent", "--require", "priceCalculatorApplyDiscountZeroKeepsPrice" ] }
+        ]
+      }
+    },
+    {
+      "id": "bom-crlf",
+      "title": "Edit a file with a UTF-8 BOM and CRLF line endings",
+      "persona": "Worker",
+      "prompt": "In config/legacy-codes.properties change maxCodeLength from 8 to 12. Change nothing else. The file is UTF-8 with a byte order mark and CRLF line endings; keep both exactly as they are.",
+      "grader": {
+        "type": "byteComparison",
+        "files": [
+          { "path": "config/legacy-codes.properties", "expected": "tasks/bom-crlf/expected/config/legacy-codes.properties" }
+        ]
+      }
+    },
+    {
+      "id": "write-tests",
+      "title": "Write tests for an untested function, including negative paths",
+      "persona": "Test Engineer",
+      "prompt": "TextUtil.truncate in inventory/TextUtil.java has no tests. Write tests for it as public static methods of a new class tests/TextUtilTests.java and register each one in tests/TestRegistry.java. Cover the normal cases, the boundary where the value is exactly maxLength, and the negative paths (null value, maxLength below 3), checking the exception type each one throws. Do not change inventory/. `javac -encoding UTF-8 -d build -sourcepath . tests/TestRunner.java` then `java -cp build tests.TestRunner` must pass.",
+      "grader": {
+        "type": "mutation",
+        "commands": [
+          { "executable": "javac", "arguments": [ "-encoding", "UTF-8", "-d", "build", "-sourcepath", ".", "tests/TestRunner.java" ] },
+          { "executable": "java", "arguments": [ "-cp", "build", "tests.TestRunner" ] }
+        ],
+        "mutants": [
+          { "id": "null-guard-returns-empty", "file": "inventory/TextUtil.java", "find": "if (value == null) throw new NullPointerException(\"value is required\");", "replace": "if (value == null) return \"\";" },
+          { "id": "wrong-guard-exception", "file": "inventory/TextUtil.java", "find": "throw new IllegalArgumentException(\"maxLength must be at least 3\");", "replace": "throw new IllegalStateException(\"maxLength must be at least 3\");" },
+          { "id": "boundary", "file": "inventory/TextUtil.java", "find": "if (value.length() <= maxLength) return value;", "replace": "if (value.length() < maxLength) return value;" },
+          { "id": "cut-length", "file": "inventory/TextUtil.java", "find": "value.substring(0, maxLength - 3)", "replace": "value.substring(0, maxLength - 2)" }
+        ]
+      }
+    },
+    {
+      "id": "judge-negative",
+      "title": "Review a diff with three seeded defects (negative control)",
+      "persona": "Judge",
+      "toolchain": [],
+      "prompt": "Review the change below against its original request. The change is shown as a diff; it is not applied to this repository, so read the diff and the current source of inventory/Stock.java. Report every blocking defect.",
+      "attachments": [ "tasks/judge-negative/request.md", "tasks/judge-negative/change.diff" ],
+      "grader": {
+        "type": "seededSet",
+        "expectedVerdicts": [ "FAIL", "NEEDS_REVISION" ],
+        "blockingSections": [ "Affected Case" ],
+        "matchAnywhere": true,
+        "maxFalsePositives": 0,
+        "seeded": [
+          { "id": "off-by-one", "description": "The loop starts at index 1 and skips the first SKU.", "keywords": [ "off-by-one", "off by one", "index 1", "i = 1", "skips the first", "skip the first", "first sku", "first element", "first item", "index 0" ] },
+          { "id": "unknown-sku-null", "description": "An unknown SKU makes find return null and item.getUnitPrice() throws NullPointerException instead of UnknownSkuException.", "keywords": [ "nullpointerexception", "null pointer", "npe", "returns null", "is null", "null check", "dereference", "unknownskuexception", "unknown sku", "missing sku" ] },
+          { "id": "integer-division", "description": "percentOff / 100 is integer division, so the rate is 0 below 100 and no discount is applied.", "keywords": [ "integer division", "int division", "percentoff / 100", "100.0", "always 0", "always zero", "truncat", "rounds down", "no discount" ] }
+        ]
+      }
+    },
+    {
+      "id": "judge-positive",
+      "title": "Review a correct diff (positive control)",
+      "persona": "Judge",
+      "toolchain": [],
+      "prompt": "Review the change below against its original request. The change is shown as a diff; it is not applied to this repository, so read the diff and the current source. Report every blocking defect, and only real ones.",
+      "attachments": [ "tasks/judge-positive/request.md", "tasks/judge-positive/change.diff" ],
+      "grader": {
+        "type": "seededSet",
+        "expectedVerdicts": [ "PASS" ],
+        "blockingSections": [ "Affected Case" ],
+        "maxFalsePositives": 0,
+        "seeded": []
+      }
+    },
+    {
+      "id": "architect-plan",
+      "title": "Turn a feature request into an armada-plan",
+      "persona": "Architect",
+      "toolchain": [],
+      "prompt": "Turn the feature request below into a plan of missions for this repository.",
+      "attachments": [ "tasks/architect-plan/request.md" ],
+      "grader": {
+        "type": "rubric",
+        "schema": "armada-plan",
+        "rubric": "tasks/architect-plan/rubric.md"
+      }
+    },
+    {
+      "id": "lint-diff",
+      "title": "Lint a diff with seeded style violations",
+      "persona": "Linter",
+      "toolchain": [],
+      "prompt": "Lint the diff below against STYLE.md in this repository. The diff is not applied. List each violation as its own bullet line naming the rule and the code. Do not edit files.",
+      "attachments": [ "tasks/lint-diff/change.diff" ],
+      "grader": {
+        "type": "seededSet",
+        "maxFalsePositives": 0,
+        "seeded": [
+          { "id": "var", "description": "`var result` instead of an explicit type (rule 1).", "keywords": [ "var", "explicit type" ] },
+          { "id": "missing-doc", "description": "Public method suggest has no Javadoc comment (rule 2).", "keywords": [ "javadoc", "doc comment", "documentation", "undocumented", "/**" ] },
+          { "id": "string-identity", "description": "`item.getSku() != \"DISCONTINUED\"` compares strings by reference instead of with equals (rule 5).", "keywords": [ "!=", "==", "equals", "reference", "identity", "discontinued" ] },
+          { "id": "system-out", "description": "System.out.println in library code under inventory/ (rule 6).", "keywords": [ "system.out", "println" ] }
+        ]
+      }
+    },
+    {
+      "id": "summarize-voyage",
+      "title": "Summarize a voyage",
+      "persona": "Recorder",
+      "toolchain": [],
+      "prompt": "Summarize the voyage record below for the team: what was done, what failed and why, and the durable lessons. Do not edit files.",
+      "attachments": [ "tasks/summarize-voyage/voyage.md" ],
+      "grader": {
+        "type": "rubric",
+        "rubric": "tasks/summarize-voyage/rubric.md"
+      }
+    }
+  ]
+}

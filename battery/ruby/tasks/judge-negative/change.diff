@@ -1,0 +1,31 @@
+diff --git a/lib/inventory/stock.rb b/lib/inventory/stock.rb
+--- a/lib/inventory/stock.rb
++++ b/lib/inventory/stock.rb
+@@ -51,5 +51,27 @@
+     def total_units
+       @items.values.sum(&:quantity)
+     end
++
++    # Value on hand of the listed SKUs: unit price times quantity, summed. Raises TypeError when skus is not an
++    # Array.
++    def value_of_skus(skus)
++      raise TypeError, 'skus must be an Array' unless skus.is_a?(Array)
++
++      total = 0
++      (1...skus.length).each do |i|
++        item = find(skus[i])
++        total += item.unit_price * item.quantity
++      end
++      total
++    end
++
++    # Price of a bulk order after a whole-number percentage discount (0 to 100).
++    def bulk_price(sku, quantity, percent_off)
++      item = find(sku)
++      raise UnknownSkuError, sku if item.nil?
++
++      rate = percent_off / 100
++      item.unit_price * quantity * (1 - rate)
++    end
+   end
+ end

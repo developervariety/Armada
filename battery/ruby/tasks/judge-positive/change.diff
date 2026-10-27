@@ -1,0 +1,43 @@
+diff --git a/lib/inventory/stock.rb b/lib/inventory/stock.rb
+--- a/lib/inventory/stock.rb
++++ b/lib/inventory/stock.rb
+@@ -51,5 +51,12 @@
+     def total_units
+       @items.values.sum(&:quantity)
+     end
++
++    # Whether an item with the SKU is in stock (known, even at zero units). Raises TypeError when sku is not a String.
++    def contains?(sku)
++      raise TypeError, 'sku must be a String' unless sku.is_a?(String)
++
++      @items.key?(sku)
++    end
+   end
+ end
+diff --git a/tests/stock_test.rb b/tests/stock_test.rb
+--- a/tests/stock_test.rb
++++ b/tests/stock_test.rb
+@@ -27,4 +27,12 @@
+     stock = Inventory::Stock.new
+     assert_raises(Inventory::UnknownSkuError) { stock.remove('missing', 1) }
+   end
++
++  # contains? finds a known SKU and not an unknown one.
++  def test_stock_contains_known_and_unknown
++    stock = Inventory::Stock.new
++    stock.add(Inventory::Item.new('A-1', 'Anchor', 1, 0))
++    assert stock.contains?('A-1')
++    refute stock.contains?('B-1')
++  end
+ end
+diff --git a/tests/registry.rb b/tests/registry.rb
+--- a/tests/registry.rb
++++ b/tests/registry.rb
+@@ -14,6 +14,7 @@
+       [StockTest, :test_stock_add_same_sku_merges_quantity],
+       [StockTest, :test_stock_remove_reduces_quantity],
+       [StockTest, :test_stock_remove_unknown_sku_raises],
++      [StockTest, :test_stock_contains_known_and_unknown],
+       [PriceCalculatorTest, :test_price_calculator_line_total_multiplies]
+     ]
+   end

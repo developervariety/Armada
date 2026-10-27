@@ -1,0 +1,32 @@
+diff --git a/lib/inventory/reorder.rb b/lib/inventory/reorder.rb
+new file mode 100644
+--- /dev/null
++++ b/lib/inventory/reorder.rb
+@@ -0,0 +1,27 @@
++module Inventory
++  # Suggests which items to reorder.
++  class Reorder
++    # Create a reorder policy that reorders when fewer than +threshold+ units are on hand. Raises ArgumentError when
++    # threshold is negative.
++    def initialize(threshold)
++      raise ArgumentError, 'threshold must not be negative' if threshold.negative?
++
++      @threshold = threshold
++    end
++
++    def suggest(stock, skus)
++      raise TypeError, 'stock must be a Stock' unless stock.is_a?(Stock)
++      raise TypeError, 'skus must be an Array' unless skus.is_a?(Array)
++
++      lowItems = []
++      skus.each do |sku|
++        item = stock.find(sku)
++        next if item.nil? || item.quantity >= @threshold
++
++        puts "Reorder #{sku}"
++        lowItems << sku
++      end
++      lowItems
++    end
++  end
++end

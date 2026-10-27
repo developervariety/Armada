@@ -1,0 +1,50 @@
+diff --git a/src/Stock.php b/src/Stock.php
+--- a/src/Stock.php
++++ b/src/Stock.php
+@@ -86,5 +86,16 @@
+         }
+ 
+         return $total;
+     }
++
++    /**
++     * Whether an item with the SKU is in stock (known, even at zero units).
++     *
++     * @param string $sku SKU.
++     * @return bool True when the SKU is known.
++     */
++    public function contains(string $sku): bool
++    {
++        return array_key_exists($sku, $this->items);
++    }
+ }
+diff --git a/tests/StockTests.php b/tests/StockTests.php
+--- a/tests/StockTests.php
++++ b/tests/StockTests.php
+@@ -44,4 +44,15 @@
+         $stock = new Stock();
+         Expect::throws(UnknownSkuException::class, static fn () => $stock->remove('missing', 1));
+     }
++
++    /**
++     * contains finds a known SKU and not an unknown one.
++     */
++    public static function stockContainsKnownAndUnknown(): void
++    {
++        $stock = new Stock();
++        $stock->add(new Item('A-1', 'Anchor', 1.0, 0));
++        assert($stock->contains('A-1') === true);
++        assert($stock->contains('B-1') === false);
++    }
+ }
+diff --git a/tests/Registry.php b/tests/Registry.php
+--- a/tests/Registry.php
++++ b/tests/Registry.php
+@@ -22,6 +22,7 @@
+             'stockAddSameSkuMergesQuantity' => [StockTests::class, 'stockAddSameSkuMergesQuantity'],
+             'stockRemoveReducesQuantity' => [StockTests::class, 'stockRemoveReducesQuantity'],
+             'stockRemoveUnknownSkuThrows' => [StockTests::class, 'stockRemoveUnknownSkuThrows'],
++            'stockContainsKnownAndUnknown' => [StockTests::class, 'stockContainsKnownAndUnknown'],
+             'priceCalculatorLineTotalMultiplies' => [PriceCalculatorTests::class, 'priceCalculatorLineTotalMultiplies'],
+         ];
+     }
