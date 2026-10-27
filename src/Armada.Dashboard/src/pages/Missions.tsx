@@ -97,6 +97,8 @@ export default function Missions() {
     return m;
   }, [captains]);
 
+  const voyageMap = useMemo(() => new Map(voyages.map(v => [v.id, v])), [voyages]);
+
   const vesselName = useCallback((id: string | null) => (id ? vesselMap.get(id) || id.substring(0, 8) : '-'), [vesselMap]);
   const captainName = useCallback((id: string | null) => (id ? captainMap.get(id) || id.substring(0, 8) : '-'), [captainMap]);
 
@@ -308,12 +310,6 @@ export default function Missions() {
 
   const columns: DataTableColumn<MissionSummary>[] = [
     {
-      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Short name of the mission, written by whoever created it. Click to sort.'),
-      cellClassName: 'cell-title', cellTitle: (m) => m.title,
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only missions on this page whose title contains this text. Not case sensitive.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} />,
-      render: (m) => <><strong className="line-clamp-2">{m.title}</strong>{m.isEvaluation && <EvaluationBadge isEvaluation />}</>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix). Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',
       render: (m) => (
         <span className="id-display">
@@ -321,6 +317,12 @@ export default function Missions() {
           <CopyButton text={m.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Short name of the mission, written by whoever created it. Click to sort.'),
+      cellClassName: 'cell-title', cellTitle: (m) => m.title,
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only missions on this page whose title contains this text. Not case sensitive.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} />,
+      render: (m) => <><strong className="line-clamp-2">{m.title}</strong>{m.isEvaluation && <EvaluationBadge isEvaluation />}</>,
     },
     {
       key: 'status', label: t('Status'), sortKey: 'status', headerTitle: t('Lifecycle state: Pending waits for a captain, InProgress is running, WorkProduced awaits landing, then Complete, Failed or Cancelled. Click to sort.'), cellClassName: 'cell-nowrap',
@@ -344,7 +346,7 @@ export default function Missions() {
     {
       key: 'voyage', label: t('Voyage'), headerTitle: t('Voyage (batch of related missions) this mission belongs to. Shows - for a standalone mission.'), interactive: true,
       render: (m) => m.voyageId ? (
-        <span className="cell-clip mono"><a href="#" title={m.voyageId} onClick={e => { e.preventDefault(); navigate(`/voyages/${m.voyageId}`); }}>{m.voyageId}</a></span>
+        <span className="cell-clip mono"><a href="#" title={m.voyageId} onClick={e => { e.preventDefault(); navigate(`/voyages/${m.voyageId}`); }}>{voyageMap.get(m.voyageId)?.title || m.voyageId}</a></span>
       ) : '-',
     },
     {
