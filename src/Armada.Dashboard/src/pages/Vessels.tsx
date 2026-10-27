@@ -341,7 +341,7 @@ export default function Vessels() {
         title={t('Vessels')}
         subtitle={t('Git repositories registered with Armada')}
         actions={(
-          <>
+          <div className="vessels-toolbar">
             <UserScopeFilter value={userScope} onChange={setUserScope} />
             {isTenantAdmin && (
               <button className="btn btn-sm" onClick={() => setImportOpen(true)} title={t('Scan folders on the Admiral host for git repositories and create a vessel for each one you pick. You review the list before anything is created.')}>
@@ -349,7 +349,7 @@ export default function Vessels() {
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Register one git repository as a new vessel.')}>+ {t('Vessel')}</button>
-          </>
+          </div>
         )}
       />
 
