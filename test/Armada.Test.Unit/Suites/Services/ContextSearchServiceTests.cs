@@ -146,7 +146,8 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static Task<Vessel> CreateVesselAsync(TestDatabase db) => db.Driver.Vessels.CreateAsync(new Vessel
         {
-            Name = "ExampleVessel" + Guid.NewGuid().ToString("N"), TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId
+            Name = "ExampleVessel" + Guid.NewGuid().ToString("N"), RepoUrl = "https://github.com/example/sample.git",
+            TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId
         });
 
         private static ContextRetrievalService Guidance(string vessel) => new ContextRetrievalService(new[]
