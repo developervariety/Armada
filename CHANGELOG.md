@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Add optional local semantic ranking to `armada_search_context`. `contextRetrieval.semanticEndpointId` pins a registered Ollama or OpenAI-compatible Embedding endpoint on a local or private host; hosted endpoints are refused. Guidance and native facts are ranked by BM25 fused with cosine similarity. Vectors are stored per tenant, source and model in `context_embeddings` on SQLite, PostgreSQL, MySQL and SQL Server, re-embedded when content changes, and deleted with their memory. Without the pin, search stays BM25 and makes no embedding call.
+
 - Use unified context recall in generated persona and brief instructions. Share one durable, atomic mission call counter across unified recall and compatibility tools on all four database providers. Bind legacy recall to the authenticated mission and retain existing operator listing and code-filter contracts.
 
 - Add `armada_search_context`: one local query over applicable guidance, native memory and existing code indexes. Keep required guidance outside recall limits, retain source versions and enforce mission and owner scope. Use the existing database driver on SQLite, PostgreSQL, MySQL and SQL Server.

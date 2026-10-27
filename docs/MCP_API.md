@@ -1145,8 +1145,9 @@ ordinary owner visibility. Optional arguments are `limit` (default 20, maximum
 
 Returns `Required`, `Results`, `Sources`, `ResultBytes`, `Truncated` and
 `VesselId`. Required guidance is complete and outside optional text limits.
-Results retain source class, reference and version. Search makes no embedding
-call and never builds an index. A source can be unavailable; inspect `Sources`
+Results retain source class, reference and version. Search never builds a code
+index. It calls an embedding endpoint only when `contextRetrieval.semanticEndpointId`
+pins a local one, and `Sources` then carries a `semantic` entry. A source can be unavailable; inspect `Sources`
 before treating an empty result as proof of absence. Existing context fetch
 settings control the kill switch, per-mission calls and optional byte cap.
 Mission recall shares one durable counter with `armada_fetch_context`,

@@ -156,6 +156,15 @@ namespace Armada.Core.Database
                     await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.Transaction = transaction;
+                    command.CommandText = "DELETE FROM context_embeddings WHERE tenant_id = @tenant_id AND source_key = @source_key;";
+                    StoredValueBinder.Value(command, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(command, "@source_key", ContextEmbedding.MemorySourceKey(id));
+                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+
                 int rows;
                 using (DbCommand command = connection.CreateCommand())
                 {

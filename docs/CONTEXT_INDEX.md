@@ -151,8 +151,8 @@ the tier configuration.
 
 `armada_search_context` is the shared query path for applicable guidance,
 native memory and an existing vessel code index. It reads the current source
-stores. It adds no database, vector service or Memvid dependency. Native memory
-uses the configured SQLite, PostgreSQL, MySQL or SQL Server driver.
+stores and the configured SQLite, PostgreSQL, MySQL or SQL Server driver. It
+needs no other database or vector service.
 
 Supply `query` and, for an operator call, `vesselId`. A mission credential fixes
 the vessel to its active, owned mission and uses ordinary owner visibility even
@@ -170,10 +170,45 @@ version. Code references include the source line and indexed commit, with index
 freshness. Guidance versions are hashes of the loaded snapshot text.
 
 Optional guidance and facts use local BM25 ranking. Code uses the existing local
-lexical index. Source ranks are interleaved by reciprocal rank. Search makes no
-embedding or inference call and never creates an index. `Sources` distinguishes
-an available source with no matches from a missing or failed source. Set
-`includeCode` to false to omit code search.
+lexical index. Source ranks are interleaved by reciprocal rank. Search never
+creates a code index. `Sources` distinguishes an available source with no
+matches from a missing or failed source. Set `includeCode` to false to omit code
+search.
+
+### Local semantic ranking
+
+`ContextRetrieval.SemanticEndpointId` names a registered Embedding model
+endpoint. When it is set, guidance and native facts are also ranked by cosine
+similarity, and the two rankings are fused by reciprocal rank. The query and
+each candidate's title and text (at most 8,000 characters) go to that endpoint.
+The text is private guidance and memory, so the endpoint must:
+
+- be enabled, with a model;
+- use the `Ollama` or `OpenAICompatible` provider; and
+- address a loopback, private-network, link-local or unique-local address, a
+  single-label host such as a container service name, or a name ending in
+  `.internal`, `.local`, `.lan` or `.localhost`.
+
+Any other endpoint is refused. The code-index embedding endpoint is never used
+in its place. Search calls `<base URL>/v1/embeddings`, so an Ollama endpoint
+registered at its server root works unchanged. For example, run Ollama beside
+the admiral, pull an embedding model such as `nomic-embed-text`, register it as
+an Embedding endpoint at `http://ollama:11434`, then set the pin.
+
+Semantic ranking only reorders and widens recall within candidates the caller
+can already see; access checks still run first. Vectors are stored in the
+`context_embeddings` table on every provider, keyed by tenant, source and
+model. A stored vector is reused only while its model, dimension and the
+SHA-256 of the embedded text all match. Otherwise it is embedded again. One
+query embeds at most 64 new candidates; the rest rank lexically until a later
+query embeds them. Deleting a native record deletes its vectors in the same
+transaction.
+
+The `semantic` entry in `Sources` reports the result. When it is available,
+`rules` and `memory` report `hybrid`. Otherwise it names the reason and search
+stays BM25: `not_configured`, `endpoint_unavailable`, `endpoint_not_local`,
+`embedding_failed`, `embedding_timeout` or `source_failed`. The endpoint's
+`TimeoutMs` bounds each call. Without the pin, search makes no embedding call.
 
 `ContextRetrieval.FetchToolEnabled` governs captain recall through the shared
 query and compatibility tools. `MaxLeafBytesPerCall` caps optional query text.
@@ -206,9 +241,8 @@ have no mission counter. A missing budget store fails the call.
 Only exact shipped prompt passages are upgraded inside operator-edited built-in
 templates; other text is preserved. Unknown custom wording remains unchanged.
 Compatibility tool names remain available for those clients. Tool removal
-requires a verified client and template cutover. Portable semantic retrieval,
-bounded database candidate reads, import/rebuild proof and scale measurements
-remain separate work. Native recall currently ranks caller-visible records in
+requires a verified client and template cutover. Bounded database candidate
+reads, import/rebuild proof and scale measurements remain separate work. Native recall currently ranks caller-visible records in
 memory. Authoring authority stays with the existing source owners.
 
 ## Retrieval and the `armada_fetch_context` tool

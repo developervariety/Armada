@@ -73,6 +73,16 @@ namespace Armada.Core.Settings
         public string? ChunkMetadataPath { get; set; } = null;
 
         /// <summary>
+        /// Identifier of the registered Embedding model endpoint that unified context search uses for
+        /// semantic ranking of guidance and native memory. Null (the default) keeps that search lexical.
+        /// The endpoint must be enabled, use the Ollama or OpenAI-compatible protocol, and address a
+        /// loopback, private-network or single-label host, because the embedded text is private
+        /// memory. A hosted endpoint is refused, and the code-index embedding endpoint is never used
+        /// in its place.
+        /// </summary>
+        public string? SemanticEndpointId { get; set; } = null;
+
+        /// <summary>
         /// Copy the runtime-tunable values from another instance in place, so a live service that
         /// captured this nested object at construction observes a hot reload. Null is ignored.
         /// </summary>
@@ -86,6 +96,7 @@ namespace Armada.Core.Settings
             MaxLeafBytesPerCall = source.MaxLeafBytesPerCall;
             MaxCallsPerMission = source.MaxCallsPerMission;
             ChunkMetadataPath = source.ChunkMetadataPath;
+            SemanticEndpointId = source.SemanticEndpointId;
         }
 
         private int _BriefLeafBudgetBytes = 24000;

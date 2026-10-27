@@ -1233,7 +1233,8 @@ $convert$;"),
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS integration_barrier_json TEXT NULL;",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS integration_barrier_revision BIGINT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(134, "Persist the shared mission context recall budget",
-                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS context_recall_calls INTEGER NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS context_recall_calls INTEGER NOT NULL DEFAULT 0;"),
+                new SchemaMigration(135, "Persist local context search vectors", ContextEmbeddingSchema.PostgresqlStatements)
             };
         }
 

@@ -159,6 +159,7 @@ namespace Armada.Core.Database.SqlServer
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             FleetActions = new Armada.Core.Database.FleetActionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            ContextEmbeddings = new Armada.Core.Database.ContextEmbeddingMethods(() => new SqlConnection(_ConnectionString));
             FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             DataExpiry = new DataExpiryMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);

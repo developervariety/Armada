@@ -175,6 +175,9 @@ namespace Armada.Core.Database
         /// <summary>Durable Ask action proposal operations.</summary>
         public virtual IAskActionProposalMethods AskActionProposals { get; protected set; } = null!;
 
+        /// <summary>Derived context search vectors, keyed by tenant, source and model.</summary>
+        public virtual IContextEmbeddingMethods ContextEmbeddings { get; protected set; } = null!;
+
         /// <summary>Owner-scoped mission action definition operations.</summary>
         public virtual IFleetActionMethods FleetActions { get; protected set; } = null!;
 

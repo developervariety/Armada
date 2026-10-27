@@ -32,6 +32,9 @@ namespace Armada.Core.Services
         private readonly ContextRetrievalService? _Rules;
         private readonly ICodeIndexService? _Code;
         private readonly LoggingModule? _Logging;
+        private readonly ContextSemanticResolver? _Semantic;
+        private const int _SemanticCandidates = 40;
+        private const int _FusionOffset = 60;
 
         #endregion
 
@@ -42,13 +45,16 @@ namespace Armada.Core.Services
         /// <param name="rules">Built external guidance snapshot, when configured.</param>
         /// <param name="code">Existing local code index, when enabled.</param>
         /// <param name="logging">Optional diagnostics. Query and result text are never logged.</param>
-        public ContextSearchService(DatabaseDriver database, ContextRetrievalService? rules = null, ICodeIndexService? code = null, LoggingModule? logging = null)
+        /// <param name="semantic">Optional local semantic ranking for guidance and native memory.</param>
+        public ContextSearchService(DatabaseDriver database, ContextRetrievalService? rules = null, ICodeIndexService? code = null, LoggingModule? logging = null,
+            ContextSemanticResolver? semantic = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Memories = new MemoryService(database, logging);
             _Rules = rules;
             _Code = code;
             _Logging = logging;
+            _Semantic = semantic;
         }
 
         #endregion
@@ -79,7 +85,8 @@ namespace Armada.Core.Services
             AddRules(response, candidates, request.Query, vessel.Name, scope.Mission?.Persona, token);
             await AddMemoriesAsync(response, candidates, scope.Caller, vessel, token).ConfigureAwait(false);
 
-            List<ContextSearchItem> ranked = ContextTextRanker.Rank(request.Query, candidates, token);
+            List<ContextSearchItem> lexical = ContextTextRanker.Rank(request.Query, candidates, token);
+            List<ContextSearchItem> ranked = await FuseSemanticAsync(response, vessel.TenantId, request.Query, candidates, lexical, token).ConfigureAwait(false);
             AssignRanks(ranked);
             if (request.IncludeCode) await AddCodeAsync(response, ranked, request.Query, vessel.Id, token).ConfigureAwait(false);
 
@@ -143,7 +150,7 @@ namespace Armada.Core.Services
                         && !String.Equals(memory.SourceVesselId, vessel.Id, StringComparison.Ordinal)) continue;
                     candidates.Add(new ContextSearchItem
                     {
-                        Id = "memory:" + memory.Id, Source = ContextSearchSourceEnum.Memory,
+                        Id = ContextEmbedding.MemorySourceKey(memory.Id), Source = ContextSearchSourceEnum.Memory,
                         Title = memory.Summary ?? memory.Key ?? memory.Topic ?? memory.Id,
                         Text = memory.Content, Reference = memory.Id,
                         Version = memory.Version.ToString(CultureInfo.InvariantCulture), Evidence = memory.SourceDetail,
@@ -191,6 +198,60 @@ namespace Armada.Core.Services
             {
                 RecordFailure(response, "code", ex);
             }
+        }
+
+        private async Task<List<ContextSearchItem>> FuseSemanticAsync(ContextSearchResponse response, string? tenantId, string query,
+            List<ContextSearchItem> candidates, List<ContextSearchItem> lexical, CancellationToken token)
+        {
+            if (_Semantic == null) return lexical;
+            ContextSearchStatus status = new ContextSearchStatus { Source = "semantic", SearchMode = "cosine" };
+            response.Sources.Add(status);
+            Dictionary<string, double>? similarity;
+            try
+            {
+                ContextSemanticResolution resolution = await _Semantic.ResolveAsync(token).ConfigureAwait(false);
+                if (resolution.Index == null)
+                {
+                    status.Reason = resolution.Reason;
+                    return lexical;
+                }
+                similarity = await resolution.Index.ScoreAsync(String.IsNullOrWhiteSpace(tenantId) ? "default" : tenantId, query, candidates, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                status.Reason = "embedding_timeout";
+                return lexical;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _Logging?.Warn("[ContextSearchService] semantic ranking unavailable: " + ex.GetType().Name);
+                status.Reason = "source_failed";
+                return lexical;
+            }
+            if (similarity == null)
+            {
+                status.Reason = "embedding_failed";
+                return lexical;
+            }
+
+            status.Available = true;
+            foreach (ContextSearchStatus source in response.Sources)
+                if ((source.Source == "rules" || source.Source == "memory") && source.SearchMode == "bm25") source.SearchMode = "hybrid";
+            Dictionary<string, double> fused = new Dictionary<string, double>(StringComparer.Ordinal);
+            for (int rank = 0; rank < lexical.Count; rank++)
+                fused[lexical[rank].Id] = 1.0 / (_FusionOffset + rank + 1);
+            List<KeyValuePair<string, double>> nearest = similarity.OrderByDescending(pair => pair.Value)
+                .ThenBy(pair => pair.Key, StringComparer.Ordinal).Take(_SemanticCandidates).ToList();
+            for (int rank = 0; rank < nearest.Count; rank++)
+            {
+                fused.TryGetValue(nearest[rank].Key, out double score);
+                fused[nearest[rank].Key] = score + 1.0 / (_FusionOffset + rank + 1);
+            }
+            Dictionary<string, ContextSearchItem> byId = new Dictionary<string, ContextSearchItem>(StringComparer.Ordinal);
+            foreach (ContextSearchItem item in candidates) byId[item.Id] = item;
+            return fused.Where(pair => byId.ContainsKey(pair.Key))
+                .OrderByDescending(pair => pair.Value).ThenBy(pair => pair.Key, StringComparer.Ordinal)
+                .Select(pair => byId[pair.Key]).ToList();
         }
 
         private void RecordFailure(ContextSearchResponse response, string source, Exception exception)

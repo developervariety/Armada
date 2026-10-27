@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
@@ -177,6 +178,96 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunTest("Local semantic ranking recalls a reworded fact and keeps vectors current with the source", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(db).ConfigureAwait(false);
+                    MemoryService memories = new MemoryService(db.Driver);
+                    Memory contention = await memories.CreateAsync(Caller(), new Memory { Content = "Timing failures appear under host contention.", VesselId = vessel.Id }).ConfigureAwait(false);
+                    Memory checksum = await memories.CreateAsync(Caller(), new Memory { Content = "Verify the packet checksum.", VesselId = vessel.Id }).ConfigureAwait(false);
+                    ConceptEmbeddingClient client = new ConceptEmbeddingClient();
+                    ContextSearchService search = new ContextSearchService(db.Driver, logging: Quiet(), semantic: await SemanticAsync(db, client).ConfigureAwait(false));
+                    ContextSearchRequest reworded = new ContextSearchRequest { Query = "suites break while the machine is busy", VesselId = vessel.Id, IncludeCode = false };
+
+                    ContextSearchResponse lexicalOnly = await new ContextSearchService(db.Driver).SearchAsync(Caller(), reworded).ConfigureAwait(false);
+                    AssertEqual(0, lexicalOnly.Results.Count, "Lexical ranking alone shares no term with the reworded query");
+                    ContextSearchResponse first = await search.SearchAsync(Caller(), reworded).ConfigureAwait(false);
+                    AssertEqual(contention.Id, first.Results[0].Reference, "The semantically nearest fact ranks first");
+                    AssertTrue(first.Sources.Single(source => source.Source == "semantic").Available, "Semantic ranking reports itself available");
+                    AssertEqual("hybrid", first.Sources.Single(source => source.Source == "memory").SearchMode, "Memory reports the fused mode");
+                    AssertEqual(3, client.Texts, "The query and each fact are embedded once");
+
+                    await search.SearchAsync(Caller(), reworded).ConfigureAwait(false);
+                    AssertEqual(4, client.Texts, "A repeated query embeds only itself and reuses stored vectors");
+                    await memories.UpdateAsync(Caller(), checksum.Id, new MemoryUpdate { Content = "Builds stall when the host is overloaded.", ExpectedVersion = 1 }).ConfigureAwait(false);
+                    ContextSearchResponse updated = await search.SearchAsync(Caller(), reworded).ConfigureAwait(false);
+                    AssertEqual(6, client.Texts, "Changed content is embedded again");
+                    AssertTrue(updated.Results.Take(2).Any(item => item.Reference == checksum.Id), "The updated fact ranks by its new content");
+
+                    string key = ContextEmbedding.MemorySourceKey(contention.Id);
+                    AssertEqual(1, (await db.Driver.ContextEmbeddings.ReadAsync(Constants.DefaultTenantId, ConceptEmbeddingClient.ModelName, new[] { key }).ConfigureAwait(false)).Count, "Vector stored before delete");
+                    await memories.DeleteAsync(Caller(), contention.Id).ConfigureAwait(false);
+                    AssertEqual(0, (await db.Driver.ContextEmbeddings.ReadAsync(Constants.DefaultTenantId, ConceptEmbeddingClient.ModelName, new[] { key }).ConfigureAwait(false)).Count, "Deleting a fact deletes its derived vector");
+                }
+            });
+
+            await RunTest("Semantic ranking refuses hosted endpoints and falls back to lexical with a named reason", async () =>
+            {
+                AssertTrue(ContextSemanticEndpointPolicy.IsLocalHost("http://127.0.0.1:11434"), "Loopback");
+                AssertTrue(ContextSemanticEndpointPolicy.IsLocalHost("http://[::1]:11434"), "IPv6 loopback");
+                AssertTrue(ContextSemanticEndpointPolicy.IsLocalHost("http://10.2.3.4"), "Private class A");
+                AssertTrue(ContextSemanticEndpointPolicy.IsLocalHost("http://172.20.0.5:8080"), "Private class B");
+                AssertTrue(ContextSemanticEndpointPolicy.IsLocalHost("http://192.168.1.9"), "Private class C");
+                AssertTrue(ContextSemanticEndpointPolicy.IsLocalHost("http://ollama:11434"), "Single-label container name");
+                AssertTrue(ContextSemanticEndpointPolicy.IsLocalHost("http://host.docker.internal:11434"), "Internal suffix");
+                AssertFalse(ContextSemanticEndpointPolicy.IsLocalHost("https://api.example.com/v1"), "Public name");
+                AssertFalse(ContextSemanticEndpointPolicy.IsLocalHost("http://172.32.0.1"), "Outside the private class B range");
+                AssertFalse(ContextSemanticEndpointPolicy.IsLocalHost("http://8.8.8.8"), "Public address");
+                AssertFalse(ContextSemanticEndpointPolicy.IsLocalHost("ftp://127.0.0.1"), "Non-HTTP scheme");
+
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(db).ConfigureAwait(false);
+                    Memory fact = await new MemoryService(db.Driver).CreateAsync(Caller(), new Memory { Content = "Verify the packet checksum.", VesselId = vessel.Id }).ConfigureAwait(false);
+                    ContextSearchRequest request = new ContextSearchRequest { Query = "packet checksum", VesselId = vessel.Id, IncludeCode = false };
+                    ContextRetrievalSettings settings = new ContextRetrievalSettings();
+                    int built = 0;
+                    ConceptEmbeddingClient client = new ConceptEmbeddingClient();
+                    ContextSearchService search = new ContextSearchService(db.Driver, logging: Quiet(),
+                        semantic: new ContextSemanticResolver(db.Driver, settings, Quiet(), clientFactory: _ => { built++; return client; }));
+
+                    ContextSearchResponse unpinned = await search.SearchAsync(Caller(), request).ConfigureAwait(false);
+                    AssertEqual(ContextSemanticEndpointPolicy.NotConfigured, unpinned.Sources.Single(source => source.Source == "semantic").Reason, "No pin keeps search lexical");
+                    AssertEqual(fact.Id, unpinned.Results.Single().Reference, "Lexical result still returned");
+
+                    ModelEndpoint hosted = await CreateEndpointAsync(db, ModelProviderEnum.OpenAI, "https://api.example.com").ConfigureAwait(false);
+                    settings.SemanticEndpointId = hosted.Id;
+                    ContextSearchResponse refused = await search.SearchAsync(Caller(), request).ConfigureAwait(false);
+                    AssertEqual(ContextSemanticEndpointPolicy.EndpointNotLocal, refused.Sources.Single(source => source.Source == "semantic").Reason, "A hosted endpoint is refused");
+                    ModelEndpoint publicHost = await CreateEndpointAsync(db, ModelProviderEnum.Ollama, "http://embeddings.example.com:11434").ConfigureAwait(false);
+                    settings.SemanticEndpointId = publicHost.Id;
+                    AssertEqual(ContextSemanticEndpointPolicy.EndpointNotLocal, (await search.SearchAsync(Caller(), request).ConfigureAwait(false)).Sources.Single(source => source.Source == "semantic").Reason, "A local protocol on a public host is refused");
+                    settings.SemanticEndpointId = "mep_absent";
+                    AssertEqual(ContextSemanticEndpointPolicy.EndpointUnavailable, (await search.SearchAsync(Caller(), request).ConfigureAwait(false)).Sources.Single(source => source.Source == "semantic").Reason, "An absent pin is named");
+                    AssertEqual(0, built, "No refused endpoint ever receives text");
+
+                    ModelEndpoint local = await CreateEndpointAsync(db, ModelProviderEnum.Ollama, "http://127.0.0.1:11434").ConfigureAwait(false);
+                    settings.SemanticEndpointId = local.Id;
+                    client.Fail = true;
+                    ContextSearchResponse failed = await search.SearchAsync(Caller(), request).ConfigureAwait(false);
+                    AssertEqual("embedding_failed", failed.Sources.Single(source => source.Source == "semantic").Reason, "An endpoint failure is named");
+                    AssertEqual("bm25", failed.Sources.Single(source => source.Source == "memory").SearchMode, "A failed endpoint leaves the lexical mode");
+                    AssertEqual(fact.Id, failed.Results.Single().Reference, "A failed endpoint still returns lexical results");
+
+                    client.Fail = false;
+                    client.DocumentDimensions = 2;
+                    ContextSearchResponse mismatched = await search.SearchAsync(Caller(), request).ConfigureAwait(false);
+                    AssertEqual(fact.Id, mismatched.Results.Single().Reference, "Vectors of another dimension are ignored, not compared");
+                    AssertEqual(0, (await db.Driver.ContextEmbeddings.ReadAsync(Constants.DefaultTenantId, ConceptEmbeddingClient.ModelName, new[] { ContextEmbedding.MemorySourceKey(fact.Id) }).ConfigureAwait(false)).Count, "A vector of the wrong dimension is never stored");
+                }
+            });
         }
 
         private static AuthContext Caller() => AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "test");
@@ -186,6 +277,67 @@ namespace Armada.Test.Unit.Suites.Services
             Name = "ExampleVessel" + Guid.NewGuid().ToString("N"), RepoUrl = "https://github.com/example/sample.git",
             TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId
         });
+
+        private static LoggingModule Quiet()
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            return logging;
+        }
+
+        private static async Task<ContextSemanticResolver> SemanticAsync(TestDatabase db, ConceptEmbeddingClient client)
+        {
+            ModelEndpoint endpoint = await CreateEndpointAsync(db, ModelProviderEnum.Ollama, "http://127.0.0.1:11434").ConfigureAwait(false);
+            ContextRetrievalSettings settings = new ContextRetrievalSettings { SemanticEndpointId = endpoint.Id };
+            return new ContextSemanticResolver(db.Driver, settings, Quiet(), clientFactory: _ => client);
+        }
+
+        private static Task<ModelEndpoint> CreateEndpointAsync(TestDatabase db, ModelProviderEnum provider, string baseUrl) => db.Driver.ModelEndpoints.CreateAsync(new ModelEndpoint
+        {
+            TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, Name = "embeddings-" + Guid.NewGuid().ToString("N"),
+            Kind = ModelEndpointKindEnum.Embedding, Provider = provider, BaseUrl = baseUrl, Model = ConceptEmbeddingClient.ModelName, Enabled = true
+        });
+
+        /// <summary>
+        /// Embeds text into fixed concept axes, so two wordings of one idea share a vector while sharing no
+        /// word. It counts every text it embeds, query or document.
+        /// </summary>
+        private sealed class ConceptEmbeddingClient : IEmbeddingClient
+        {
+            internal const string ModelName = "concept-test";
+            private static readonly string[][] _Concepts =
+            {
+                new[] { "contention", "busy", "overloaded", "stall", "timing", "break" },
+                new[] { "checksum", "packet", "integrity" }
+            };
+
+            internal int Texts { get; private set; }
+            internal bool Fail { get; set; }
+            internal int? DocumentDimensions { get; set; }
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                Texts++;
+                return Task.FromResult(Fail ? Array.Empty<float>() : Vector(text, null));
+            }
+
+            public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken token = default)
+            {
+                Texts += texts.Count;
+                IReadOnlyList<float[]> vectors = texts.Select(text => Fail ? Array.Empty<float>() : Vector(text, DocumentDimensions)).ToList();
+                return Task.FromResult(vectors);
+            }
+
+            private static float[] Vector(string text, int? dimensions)
+            {
+                string lower = text.ToLowerInvariant();
+                float[] vector = new float[dimensions ?? _Concepts.Length + 1];
+                for (int axis = 0; axis < _Concepts.Length && axis < vector.Length; axis++)
+                    vector[axis] = _Concepts[axis].Count(word => lower.Contains(word, StringComparison.Ordinal));
+                vector[vector.Length - 1] = 0.1f;
+                return vector;
+            }
+        }
 
         private static ContextRetrievalService Guidance(string vessel) => new ContextRetrievalService(new[]
         {

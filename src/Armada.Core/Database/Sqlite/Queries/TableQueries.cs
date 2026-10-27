@@ -1684,7 +1684,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE missions ADD COLUMN integration_barrier_json TEXT NULL;",
                     @"ALTER TABLE missions ADD COLUMN integration_barrier_revision INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(130, "Persist the shared mission context recall budget",
-                    @"ALTER TABLE missions ADD COLUMN context_recall_calls INTEGER NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN context_recall_calls INTEGER NOT NULL DEFAULT 0;"),
+                new SchemaMigration(131, "Persist local context search vectors", ContextEmbeddingSchema.SqliteStatements)
             };
         }
 

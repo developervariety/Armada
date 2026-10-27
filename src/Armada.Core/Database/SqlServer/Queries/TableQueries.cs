@@ -1023,7 +1023,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('missions', 'integration_barrier_json') IS NULL ALTER TABLE missions ADD integration_barrier_json NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('missions', 'integration_barrier_revision') IS NULL ALTER TABLE missions ADD integration_barrier_revision BIGINT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(126, "Persist the shared mission context recall budget",
-                    @"IF COL_LENGTH('missions', 'context_recall_calls') IS NULL ALTER TABLE missions ADD context_recall_calls INT NOT NULL DEFAULT 0;")
+                    @"IF COL_LENGTH('missions', 'context_recall_calls') IS NULL ALTER TABLE missions ADD context_recall_calls INT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(127, "Persist local context search vectors", ContextEmbeddingSchema.SqlServerStatements)
             };
         }
 

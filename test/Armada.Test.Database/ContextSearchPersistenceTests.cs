@@ -78,6 +78,57 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyEmbeddingsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            string? tenantId = null;
+            string? memoryId = null;
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("vectors", token: token).ConfigureAwait(false);
+                tenantId = tenant.Id;
+                UserMaster owner = await fixture.CreateUserAsync(tenant.Id, "vectors-owner", token: token).ConfigureAwait(false);
+                AuthContext caller = AuthContext.Authenticated(tenant.Id, owner.Id, false, false, "test");
+                Memory fact = await new MemoryService(_Driver).CreateAsync(caller, new Memory { Content = "Vector source 界" }, token).ConfigureAwait(false);
+                memoryId = fact.Id;
+                string memoryKey = ContextEmbedding.MemorySourceKey(fact.Id);
+                string ruleKey = "context:AI-Memory/repos/例/" + new string('r', 300) + ".md#1";
+                float[] precise = { 0.1f, -2.5f, 3.25e-7f, Single.Epsilon, 1e30f };
+                await _Driver.ContextEmbeddings.UpsertAsync(new ContextEmbedding { TenantId = tenant.Id, SourceKey = memoryKey, Model = "model-a", ContentSha256 = "aa", Vector = precise }, token).ConfigureAwait(false);
+                await _Driver.ContextEmbeddings.UpsertAsync(new ContextEmbedding { TenantId = tenant.Id, SourceKey = memoryKey, Model = "model-b", ContentSha256 = "bb", Vector = new float[] { 1, 2 } }, token).ConfigureAwait(false);
+                await _Driver.ContextEmbeddings.UpsertAsync(new ContextEmbedding { TenantId = tenant.Id, SourceKey = ruleKey, Model = "model-a", ContentSha256 = "cc", Vector = new float[] { 4 } }, token).ConfigureAwait(false);
+                await _Driver.ContextEmbeddings.UpsertAsync(new ContextEmbedding { TenantId = tenant.Id, SourceKey = ruleKey, Model = "model-a", ContentSha256 = "dd", Vector = new float[] { 5, 6, 7 } }, token).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                using (DatabaseDriver reopened = DatabaseDriverFactory.Create(_Settings, logging))
+                {
+                    await reopened.InitializeAsync(token).ConfigureAwait(false);
+                    System.Collections.Generic.List<ContextEmbedding> read = await reopened.ContextEmbeddings.ReadAsync(tenant.Id, "model-a", new[] { memoryKey, ruleKey, "context:absent" }, token).ConfigureAwait(false);
+                    DatabaseAssert.Equal(2, read.Count, "Only stored sources under the requested model are read");
+                    ContextEmbedding memoryVector = read.Single(item => item.SourceKey == memoryKey);
+                    DatabaseAssert.Equal("aa", memoryVector.ContentSha256, "Content hash round trip");
+                    DatabaseAssert.True(precise.SequenceEqual(memoryVector.Vector), "Float32 values round trip bit for bit after reopen");
+                    ContextEmbedding ruleVector = read.Single(item => item.SourceKey == ruleKey);
+                    DatabaseAssert.Equal("dd", ruleVector.ContentSha256, "An upsert replaces the earlier vector for the same source and model");
+                    DatabaseAssert.Equal(3, ruleVector.Vector.Length, "A replacement may change the dimension");
+                    DatabaseAssert.Equal(0, (await reopened.ContextEmbeddings.ReadAsync("vectors-other-tenant", "model-a", new[] { memoryKey, ruleKey }, token).ConfigureAwait(false)).Count, "Another tenant reads no vectors");
+
+                    await new MemoryService(reopened).DeleteAsync(caller, fact.Id, token).ConfigureAwait(false);
+                    memoryId = null;
+                    DatabaseAssert.Equal(0, (await reopened.ContextEmbeddings.ReadAsync(tenant.Id, "model-a", new[] { memoryKey }, token).ConfigureAwait(false)).Count, "Deleting a memory deletes its vectors in the same transaction");
+                    DatabaseAssert.Equal(0, (await reopened.ContextEmbeddings.ReadAsync(tenant.Id, "model-b", new[] { memoryKey }, token).ConfigureAwait(false)).Count, "Every model's vector of the deleted memory is gone");
+                    DatabaseAssert.Equal(1, await reopened.ContextEmbeddings.DeleteSourceAsync(tenant.Id, ruleKey, token).ConfigureAwait(false), "Source delete reports the rows it removed");
+                    DatabaseAssert.Equal(0, (await reopened.ContextEmbeddings.ReadAsync(tenant.Id, "model-a", new[] { ruleKey }, token).ConfigureAwait(false)).Count, "Source delete is durable");
+                }
+            }
+            finally
+            {
+                if (!_NoCleanup && memoryId != null && tenantId != null) await _Driver.Memories.DeleteAsync(tenantId, memoryId, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyBudgetAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

@@ -234,6 +234,7 @@ namespace Armada.Test.Database
             await RunTest("Memory_Create_Read_Update_Tags_Reopen", "Operational", () => TestMemoryCrudAsync(token), token);
             await RunTest("Context_Query_Authority_Scope_Update_Delete_Reopen", "Operational", () => new ContextSearchPersistenceTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
             await RunTest("Context_Recall_Budget_Concurrent_Owner_Fence_Snapshot_Update_Reopen", "Operational", () => new ContextSearchPersistenceTests(_Driver, _Settings, _NoCleanup).VerifyBudgetAsync(token), token);
+            await RunTest("Context_Embedding_Upsert_Replace_Model_Tenant_Fence_Memory_Delete_Reopen", "Operational", () => new ContextSearchPersistenceTests(_Driver, _Settings, _NoCleanup).VerifyEmbeddingsAsync(token), token);
             await RunTest("Memory_Tenant_Fence_Key_Uniqueness_Guarded_Update", "Operational", () => TestMemoryScopingAsync(token), token);
             await RunTest("Configuration_Ownership_Create_Update_Reopen", "Operational", () => TestConfigurationOwnershipAsync(token), token);
 

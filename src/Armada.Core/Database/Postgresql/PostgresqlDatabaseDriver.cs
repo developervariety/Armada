@@ -427,6 +427,7 @@ namespace Armada.Core.Database.Postgresql
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             FleetActions = new Armada.Core.Database.FleetActionMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            ContextEmbeddings = new Armada.Core.Database.ContextEmbeddingMethods(() => _DataSource.CreateConnection());
             FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             DataExpiry = new DataExpiryMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);

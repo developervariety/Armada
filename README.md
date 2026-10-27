@@ -596,8 +596,9 @@ Native captain memory keeps what earlier work learned: a vessel fact, a prior fi
 
 `armada_search_context` reads applicable external guidance, native memory and
 existing vessel code indexes in one local query. Required guidance remains
-separate from ranked recall. It uses the configured database and makes no query
-embedding call. See [unified retrieval](docs/CONTEXT_INDEX.md#unified-retrieval-and-the-armada_search_context-tool)
+separate from ranked recall. It uses the configured database. With a pinned
+local embedding endpoint it also ranks guidance and facts by meaning; it never
+sends that text to a hosted provider. See [unified retrieval](docs/CONTEXT_INDEX.md#unified-retrieval-and-the-armada_search_context-tool)
 for scope, limits and the remaining migration work.
 
 Generated persona and brief instructions use this shared query. Compatibility

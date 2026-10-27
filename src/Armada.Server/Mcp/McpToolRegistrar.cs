@@ -193,7 +193,8 @@ namespace Armada.Server.Mcp
             // the memory tools. Its handler reports when this host has no built context index.
             McpContextTools.Register(register, contextRetrieval, database, effectiveSettings, logging, contextParticipantKeyProvider, contextRecallBudget);
             McpContextSearchTools.Register(register,
-                new ContextSearchService(database, contextRetrieval, effectiveSettings.CodeIndex.Enabled ? codeIndexService : null, logging),
+                new ContextSearchService(database, contextRetrieval, effectiveSettings.CodeIndex.Enabled ? codeIndexService : null, logging,
+                    logging != null ? new ContextSemanticResolver(database, effectiveSettings.ContextRetrieval, logging) : null),
                 effectiveSettings.ContextRetrieval, database, contextRecallBudget);
 
             // The captain-facing typed-decision tools sit in the mission-scoped catalogue beside the

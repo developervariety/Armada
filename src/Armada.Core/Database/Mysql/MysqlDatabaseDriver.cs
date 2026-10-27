@@ -112,6 +112,7 @@ namespace Armada.Core.Database.Mysql
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             AskActionProposals = new Armada.Core.Database.AskActionProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             FleetActions = new Armada.Core.Database.FleetActionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            ContextEmbeddings = new Armada.Core.Database.ContextEmbeddingMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString));
             FleetActionRuns = new Armada.Core.Database.FleetActionRunMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             DataExpiry = new DataExpiryMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
@@ -731,7 +732,8 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE missions ADD COLUMN integration_barrier_json LONGTEXT NULL;",
                     @"ALTER TABLE missions ADD COLUMN integration_barrier_revision BIGINT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(123, "Persist the shared mission context recall budget",
-                    @"ALTER TABLE missions ADD COLUMN context_recall_calls INT NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN context_recall_calls INT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(124, "Persist local context search vectors", ContextEmbeddingSchema.MysqlStatements)
             };
         }
 
