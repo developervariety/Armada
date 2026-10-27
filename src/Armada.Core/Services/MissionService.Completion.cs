@@ -325,6 +325,7 @@ namespace Armada.Core.Services
             // re-dispatch, a cancel, a second completion) is never overwritten by this one.
             MissionStatusEnum observedStatus = mission.Status;
             mission.Status = MissionStatusEnum.WorkProduced;
+            mission.FailureReason = null;
             mission.ProcessId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))

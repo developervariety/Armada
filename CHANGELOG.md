@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Mission success state
+
+- Clear an old failure reason when completion, review approval, or merge reconciliation moves a mission to a success state. Keep new reasons written by later failures.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

@@ -41,6 +41,7 @@ namespace Armada.Core.Services
             if (hasDependentPipelineStages)
             {
                 mission.Status = MissionStatusEnum.Complete;
+                mission.FailureReason = null;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
@@ -73,6 +74,7 @@ namespace Armada.Core.Services
 
             Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
             mission.Status = MissionStatusEnum.WorkProduced;
+            mission.FailureReason = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 

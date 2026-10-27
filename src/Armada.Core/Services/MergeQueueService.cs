@@ -705,7 +705,10 @@ namespace Armada.Core.Services
                 mission.Status = targetStatus;
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 if (targetStatus == MissionStatusEnum.Complete)
+                {
                     mission.CompletedUtc = DateTime.UtcNow;
+                    mission.FailureReason = null;
+                }
                 if (targetStatus == MissionStatusEnum.LandingFailed)
                 {
                     mission.FailureReason = reason;
