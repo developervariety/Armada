@@ -19,8 +19,8 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Tests for the captain-facing context fetch tool. It is registered in the mission-scoped
     /// catalogue, returns the relevant leaves for a query, includes a vessel's must_retrieve safety
-    /// leaf when the mission names that vessel, enforces the per-mission call budget, and writes no
-    /// Armada record.
+    /// leaf when the mission names that vessel, enforces the shared durable call budget, and changes
+    /// no source content.
     /// </summary>
     public class McpContextToolsTests : TestSuite
     {

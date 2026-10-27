@@ -792,9 +792,8 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Captain context fetch tool (<c>armada_fetch_context</c>) policy: whether it is enabled,
-        /// the per-call leaf byte budget, and the per-mission call budget. The tool is read-only and
-        /// returns only sanitized memory and docs leaf text.
+        /// Shared captain context recall policy: enabled state, optional text byte budget and durable
+        /// mission call maximum across canonical and compatibility tools. Recall changes no source content.
         /// </summary>
         public ContextRetrievalSettings ContextRetrieval
         {

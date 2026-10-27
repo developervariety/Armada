@@ -589,7 +589,8 @@ namespace Armada.Core.Settings
         public bool StructuralChunking { get; set; } = true;
 
         /// <summary>
-        /// Maximum <c>armada_mission_code_search</c> calls one mission may make.
+        /// Compatibility cap on combined mission recall calls while code indexing is enabled.
+        /// The effective maximum is the lower of this and <c>ContextRetrieval.MaxCallsPerMission</c>.
         /// Clamped to [1 .. 500]. Default 40.
         /// </summary>
         public int CaptainSearchMaxCallsPerMission
