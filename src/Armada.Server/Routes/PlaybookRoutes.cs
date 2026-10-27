@@ -55,7 +55,7 @@ namespace Armada.Server.Routes
                 }
 
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req.Query, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Playbook> result = ctx.IsAdmin
                     ? await _database.Playbooks.EnumerateAsync(query).ConfigureAwait(false)
@@ -86,7 +86,7 @@ namespace Armada.Server.Routes
                 }
 
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req.Query, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Playbook> result = ctx.IsAdmin
                     ? await _database.Playbooks.EnumerateAsync(query).ConfigureAwait(false)

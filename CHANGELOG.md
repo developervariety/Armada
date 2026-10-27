@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- REST query values are decoded once before a route parses or filters them. A literal plus sign stays a plus sign. A malformed percent escape is kept, and the route still answers.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

@@ -105,7 +105,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req.Query, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Captain> result = await Armada.Core.Models.EnumerationScope.EnumerateScopedAsync(ctx, query, q => _database.Captains.EnumerateAsync(q), (t, q) => _database.Captains.EnumerateAsync(t, q), (t, u, q) => _database.Captains.EnumerateAsync(t, u, q)).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
@@ -127,7 +127,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req.Query, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Captain> result = await Armada.Core.Models.EnumerationScope.EnumerateScopedAsync(ctx, query, q => _database.Captains.EnumerateAsync(q), (t, q) => _database.Captains.EnumerateAsync(t, q), (t, u, q) => _database.Captains.EnumerateAsync(t, u, q)).ConfigureAwait(false);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
@@ -494,11 +494,11 @@ namespace Armada.Server.Routes
                     int offset = 0;
                     int lineCount = 50;
 
-                    string? offsetParam = req.Query.GetValueOrDefault("offset");
+                    string? offsetParam = QueryValueReader.Read(req.Query, "offset");
                     if (!String.IsNullOrEmpty(offsetParam) && Int32.TryParse(offsetParam, out int parsedOffset))
                         offset = Math.Max(0, parsedOffset);
 
-                    string? linesParam = req.Query.GetValueOrDefault("lines");
+                    string? linesParam = QueryValueReader.Read(req.Query, "lines");
                     if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines))
                         lineCount = Math.Clamp(parsedLines, 1, Constants.MaxLogLinesPerRequest);
 
@@ -506,7 +506,7 @@ namespace Armada.Server.Routes
 
                     // ?formatted=true applies the readable formatter: resolves tool names out of runtime
                     // JSONL, redacts secret-shaped values, truncates oversized payloads, and drops noise.
-                    bool formatted = String.Equals(req.Query.GetValueOrDefault("formatted"), "true", StringComparison.OrdinalIgnoreCase);
+                    bool formatted = String.Equals(QueryValueReader.Read(req.Query, "formatted"), "true", StringComparison.OrdinalIgnoreCase);
                     if (formatted)
                     {
                         List<string> formattedLines = new List<string>();

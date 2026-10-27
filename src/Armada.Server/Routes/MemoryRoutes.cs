@@ -52,14 +52,14 @@ namespace Armada.Server.Routes
                 if (ctx == null) return BuildAuthError(req);
 
                 EnumerationQuery query = new EnumerationQuery();
-                if (Int32.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber)) query.PageNumber = pageNumber;
-                if (Int32.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize)) query.PageSize = pageSize;
-                query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
+                if (Int32.TryParse(QueryValueReader.Read(req.Query, "pageNumber"), out int pageNumber)) query.PageNumber = pageNumber;
+                if (Int32.TryParse(QueryValueReader.Read(req.Query, "pageSize"), out int pageSize)) query.PageSize = pageSize;
+                query.VesselId = NormalizeEmpty(QueryValueReader.Read(req.Query, "vesselId")) ?? query.VesselId;
 
-                string? search = NormalizeEmpty(req.Query.GetValueOrDefault("search"));
-                string? topic = NormalizeEmpty(req.Query.GetValueOrDefault("topic"));
+                string? search = NormalizeEmpty(QueryValueReader.Read(req.Query, "search"));
+                string? topic = NormalizeEmpty(QueryValueReader.Read(req.Query, "topic"));
                 MemoryTypeEnum? type = null;
-                if (Enum.TryParse(req.Query.GetValueOrDefault("type"), true, out MemoryTypeEnum parsedType)) type = parsedType;
+                if (Enum.TryParse(QueryValueReader.Read(req.Query, "type"), true, out MemoryTypeEnum parsedType)) type = parsedType;
 
                 return await _Memories.EnumerateAsync(ctx, query, search, type, topic).ConfigureAwait(false);
             },

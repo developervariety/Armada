@@ -63,7 +63,7 @@ namespace Armada.Server.Routes
 
                 // With pageNumber, pageSize, status, or kind: one filtered page (the dashboard header polls
                 // status=Queued,Running). Without any of them: every job in scope, as before.
-                if (JobQuery.TryFromQuerystring(key => req.Query.GetValueOrDefault(key), out JobQuery? query, out string? queryError))
+                if (JobQuery.TryFromQuerystring(key => QueryValueReader.Read(req.Query, key), out JobQuery? query, out string? queryError))
                 {
                     if (!ctx.IsAdmin) query!.TenantId = ctx.TenantId;
                     if (!ctx.IsAdmin && !ctx.IsTenantAdmin) query!.UserId = ctx.UserId;

@@ -83,7 +83,7 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    string? path = req.Query.GetValueOrDefault("path");
+                    string? path = QueryValueReader.Read(req.Query, "path");
                     return await _workspace.GetTreeAsync(await _hosts.ResolveAsync(vessel, ctx.UserId).ConfigureAwait(false), path).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (TryMapWorkspaceException(req, ex, out ApiErrorResponse error))
@@ -113,7 +113,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                 }
 
-                string? path = req.Query.GetValueOrDefault("path");
+                string? path = QueryValueReader.Read(req.Query, "path");
                 try
                 {
                     return await _workspace.GetDiffAsync(await _hosts.ResolveAsync(vessel, ctx.UserId).ConfigureAwait(false), path).ConfigureAwait(false);
@@ -145,7 +145,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                 }
 
-                string? path = req.Query.GetValueOrDefault("path");
+                string? path = QueryValueReader.Read(req.Query, "path");
                 if (String.IsNullOrWhiteSpace(path))
                 {
                     req.Http.Response.StatusCode = 400;
@@ -375,7 +375,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                 }
 
-                string? path = req.Query.GetValueOrDefault("path");
+                string? path = QueryValueReader.Read(req.Query, "path");
                 if (String.IsNullOrWhiteSpace(path))
                 {
                     req.Http.Response.StatusCode = 400;
@@ -414,7 +414,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                 }
 
-                string? query = req.Query.GetValueOrDefault("q");
+                string? query = QueryValueReader.Read(req.Query, "q");
                 if (String.IsNullOrWhiteSpace(query))
                 {
                     req.Http.Response.StatusCode = 400;
@@ -422,7 +422,7 @@ namespace Armada.Server.Routes
                 }
 
                 int maxResults = 200;
-                string? rawMaxResults = req.Query.GetValueOrDefault("maxResults");
+                string? rawMaxResults = QueryValueReader.Read(req.Query, "maxResults");
                 if (!String.IsNullOrWhiteSpace(rawMaxResults) && int.TryParse(rawMaxResults, out int parsedMaxResults))
                 {
                     maxResults = Math.Clamp(parsedMaxResults, 1, 1000);

@@ -61,19 +61,19 @@ namespace Armada.Server.Routes
                 {
                     CliPermissionRequestQuery query = new CliPermissionRequestQuery
                     {
-                        MissionId = Blank(req.Query.GetValueOrDefault("missionId")),
-                        ThreadId = Blank(req.Query.GetValueOrDefault("threadId")),
-                        CaptainId = Blank(req.Query.GetValueOrDefault("captainId")),
-                        VesselId = Blank(req.Query.GetValueOrDefault("vesselId"))
+                        MissionId = Blank(QueryValueReader.Read(req.Query, "missionId")),
+                        ThreadId = Blank(QueryValueReader.Read(req.Query, "threadId")),
+                        CaptainId = Blank(QueryValueReader.Read(req.Query, "captainId")),
+                        VesselId = Blank(QueryValueReader.Read(req.Query, "vesselId"))
                     };
-                    string? status = Blank(req.Query.GetValueOrDefault("status"));
+                    string? status = Blank(QueryValueReader.Read(req.Query, "status"));
                     if (status != null)
                     {
                         if (!EnumNames.TryParse(status, true, out CliPermissionRequestStatusEnum parsed)) throw new ArgumentException("Invalid status: " + status);
                         query.Status = parsed;
                     }
 
-                    string? limit = Blank(req.Query.GetValueOrDefault("limit"));
+                    string? limit = Blank(QueryValueReader.Read(req.Query, "limit"));
                     if (limit != null)
                     {
                         if (!Int32.TryParse(limit, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int parsedLimit)) throw new ArgumentException("Invalid limit: " + limit);
@@ -159,7 +159,7 @@ namespace Armada.Server.Routes
                 {
                     EnumerationQuery page = EnumerationRequestReader.Read(req, _JsonOptions);
                     CliPermissionRuleQuery query = new CliPermissionRuleQuery { VesselId = Blank(page.VesselId), CaptainId = Blank(page.CaptainId) };
-                    string? scope = Blank(req.Query.GetValueOrDefault("scope"));
+                    string? scope = Blank(QueryValueReader.Read(req.Query, "scope"));
                     if (scope != null)
                     {
                         if (!EnumNames.TryParse(scope, true, out CliPermissionRuleScopeEnum parsed)) throw new ArgumentException("Invalid scope: " + scope);
@@ -189,10 +189,10 @@ namespace Armada.Server.Routes
                 {
                     CliPermissionRuleQuery query = new CliPermissionRuleQuery
                     {
-                        VesselId = Blank(req.Query.GetValueOrDefault("vesselId")),
-                        CaptainId = Blank(req.Query.GetValueOrDefault("captainId"))
+                        VesselId = Blank(QueryValueReader.Read(req.Query, "vesselId")),
+                        CaptainId = Blank(QueryValueReader.Read(req.Query, "captainId"))
                     };
-                    string? scope = Blank(req.Query.GetValueOrDefault("scope"));
+                    string? scope = Blank(QueryValueReader.Read(req.Query, "scope"));
                     if (scope != null)
                     {
                         if (!EnumNames.TryParse(scope, true, out CliPermissionRuleScopeEnum parsed)) throw new ArgumentException("Invalid scope: " + scope);

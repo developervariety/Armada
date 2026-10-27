@@ -113,8 +113,8 @@ namespace Armada.Server.Routes
                 if (denied != null) return denied;
                 try
                 {
-                    string? userId = Blank(req.Query.GetValueOrDefault("userId"));
-                    string? tenantId = Blank(req.Query.GetValueOrDefault("tenantId"));
+                    string? userId = Blank(QueryValueReader.Read(req.Query, "userId"));
+                    string? tenantId = Blank(QueryValueReader.Read(req.Query, "tenantId"));
                     return await _Devices.ListAsync(ctx, userId, tenantId).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))

@@ -195,7 +195,7 @@ namespace Armada.Server.Routes
                 try
                 {
                     EnumerationQuery page = new EnumerationQuery();
-                    page.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                    page.ApplyQuerystringOverrides(key => QueryValueReader.Read(req.Query, key));
                     return await _Service.ListRulesAsync(ctx, page).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
@@ -381,7 +381,7 @@ namespace Armada.Server.Routes
 
         private static StageOutcomeQuery ReadQuery(ApiRequest req)
         {
-            return ParseQuery(key => req.Query.GetValueOrDefault(key));
+            return ParseQuery(key => QueryValueReader.Read(req.Query, key));
         }
 
         private T ReadBody<T>(ApiRequest req) where T : class, new()
