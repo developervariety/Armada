@@ -115,7 +115,7 @@ namespace Armada.Server.Mcp.Tools
         {
             try
             {
-                if (!args.HasValue || args.Value.ValueKind != JsonValueKind.Object)
+                if (!args.HasValue)
                     return Unavailable("invalid", "The call carried no arguments object.");
 
                 MissionCodeSearchArgs request = JsonSerializer.Deserialize<MissionCodeSearchArgs>(args.Value, _JsonOptions)
@@ -237,6 +237,7 @@ namespace Armada.Server.Mcp.Tools
                 };
             }
             catch (OperationCanceledException) { throw; }
+            catch (JsonException) { return Unavailable("invalid", "The query arguments are invalid."); }
             catch (Exception ex)
             {
                 // The tool must never throw into the captain's runtime.

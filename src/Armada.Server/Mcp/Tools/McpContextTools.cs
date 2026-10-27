@@ -111,7 +111,7 @@ namespace Armada.Server.Mcp.Tools
         {
             try
             {
-                if (!args.HasValue || args.Value.ValueKind != JsonValueKind.Object)
+                if (!args.HasValue)
                     return Unavailable("invalid", "The call carried no arguments object.");
 
                 ContextFetchArgs requestArgs = JsonSerializer.Deserialize<ContextFetchArgs>(args.Value, _JsonOptions) ?? new ContextFetchArgs();

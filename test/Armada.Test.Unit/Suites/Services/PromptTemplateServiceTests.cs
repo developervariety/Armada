@@ -547,6 +547,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertStartsWith("You are a linter. OPERATOR CUSTOM.", linter!.Content, "the operator edit is preserved");
                     AssertContains("## Duplication Check", linter.Content, "the duplication check reaches an existing built-in row");
                     AssertContains("armada_search_context", linter.Content, "the check names the captain search tool");
+                    AssertContains("4096 characters", linter.Content, "The requested excerpt fits the actual query limit");
                     AssertContains("Never fix a duplicate", linter.Content, "the check is report-only");
                     AssertContains("do not report that no duplication exists", linter.Content, "an unavailable index is never read as no duplication");
                     AssertContains("## Test Check", linter.Content, "the test check reaches an existing built-in row");
@@ -708,6 +709,24 @@ namespace Armada.Test.Unit.Suites.Services
                     legacy.IsBuiltIn = true;
                     await testDb.Driver.PromptTemplates.CreateAsync(legacy).ConfigureAwait(false);
 
+                    string shippedRecall =
+                    "\n" +
+                    "## Recall Existing Memory" + "\n" +
+                    "Before you act, recall what earlier work on this vessel recorded. When this brief carries a " +
+                    "Model Context section, read it, and when the memory tools are available call `search_memory` with " +
+                    "this vessel and with keywords from your mission, then `get_memory` for a record that matters. " +
+                    "Reuse the conventions, decisions and procedures already recorded instead of deriving them " +
+                    "again.\n" +
+                    "A memory record is working memory, not proof. Check it against the current checkout before " +
+                    "you depend on it, and say so in your summary when it is wrong or stale.\n" +
+                    "When this brief carries a Shared Memory section, that shared memory is the authority: a " +
+                    "shared rule wins over a memory record on conflict, and so do the mission brief, the " +
+                    "playbooks and the vessel instructions. Report the conflict;
+                    PromptTemplate edited = new PromptTemplate("persona.architect", "CUSTOM PREFIX" + shippedRecall + "CUSTOM SUFFIX");
+                    edited.Category = "persona";
+                    edited.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(edited).ConfigureAwait(false);
+
                     PromptTemplate custom = new PromptTemplate("persona.house_style", "An operator's own persona.");
                     custom.Category = "persona";
                     custom.IsBuiltIn = false;
@@ -722,6 +741,13 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("You are a worker. Do the work.", worker!.Content, "The operator's own content is kept");
                     int occurrences = worker.Content.Split(new[] { "## Recall Existing Memory" }, StringSplitOptions.None).Length - 1;
                     AssertEqual(1, occurrences, "The note is added once, however often startup runs");
+
+                    PromptTemplate? migrated = await service.ResolveAsync("persona.architect").ConfigureAwait(false);
+                    AssertContains("CUSTOM PREFIX", migrated!.Content, "The operator prefix survives the exact passage upgrade");
+                    AssertContains("CUSTOM SUFFIX", migrated.Content, "The operator suffix survives the exact passage upgrade");
+                    AssertContains("armada_search_context", migrated.Content, "An existing shipped recall passage adopts the common query");
+                    AssertFalse(migrated.Content.Contains("`search_memory`", StringComparison.Ordinal), "The old shipped recall instruction is removed");
+                    AssertEqual(1, migrated.Content.Split(new[] { "## Recall Existing Memory" }, StringSplitOptions.None).Length - 1, "Repeated seeding leaves one recall passage");
 
                     PromptTemplate? untouched = await service.ResolveAsync("persona.house_style").ConfigureAwait(false);
                     AssertEqual("An operator's own persona.", untouched!.Content, "A template that is not built in is left alone");

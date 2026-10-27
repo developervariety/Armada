@@ -72,8 +72,8 @@ namespace Armada.Core.Services
             "already present instead of deriving them again. For a Memory result that matters, pass its " +
             "Reference to `get_memory` to read the complete native record and its stable key.\n" +
             "A native memory record is a working fact, not proof. Check it against the current checkout. " +
-            "Shared Memory rules win over native facts on conflict; the mission brief, playbooks and vessel " +
-            "instructions also keep their authority. Report conflicts without rewriting either side.\n" +
+            "When this brief carries a Shared Memory section, a shared rule wins over a memory record on conflict. " +
+            "The mission brief, playbooks and vessel instructions also keep their authority. Report conflicts without rewriting either side.\n" +
             "Inspect Sources for missing or failed sources and code-index freshness. Local lexical search " +
             "can miss different wording; an empty result does not prove absence. When recall is unavailable, " +
             "read the delivered guidance and search the checkout by hand.\n";
@@ -230,7 +230,7 @@ namespace Armada.Core.Services
 
         private static readonly string _LintDuplicationCheck =
             _LegacyLintDuplicationCheck.Replace("`armada_mission_code_search`", "`armada_search_context`", StringComparison.Ordinal)
-                .Replace("with your mission id and the new code body as", "with the new code body as", StringComparison.Ordinal)
+                .Replace("with your mission id and the new code body as", "with identifiers and a representative code excerpt of at most 4096 characters as", StringComparison.Ordinal)
                 .Replace("Open every strong result at its path and line range and read it.",
                     "Inspect the Code results, then open every strong result at its Reference and read it.", StringComparison.Ordinal)
                 .Replace("When the tool is absent, unavailable, or warns that the index is stale or lexical only, say so under",
