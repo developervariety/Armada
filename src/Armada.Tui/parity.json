@@ -1169,6 +1169,14 @@
     },
     {
       "kind": "api",
+      "key": "classifyStageOutcome",
+      "status": "implemented",
+      "tui": "ArmadaClient.ClassifyStageOutcomeAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
+    },
+    {
+      "kind": "api",
       "key": "clearProxySessionInstance",
       "status": "implemented",
       "tui": "ArmadaClient.ClearProxySessionInstanceAsync",
@@ -1238,6 +1246,14 @@
       "tui": "ArmadaClient.CreateEnvironmentAsync",
       "workstream": "W0.2",
       "notes": "Environments"
+    },
+    {
+      "kind": "api",
+      "key": "createFailureCauseRule",
+      "status": "implemented",
+      "tui": "ArmadaClient.CreateFailureCauseRuleAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
     },
     {
       "kind": "api",
@@ -1526,6 +1542,14 @@
       "tui": "ArmadaClient.DeleteEventsBatchAsync",
       "workstream": "W0.2",
       "notes": "Events | used by EventsScreen"
+    },
+    {
+      "kind": "api",
+      "key": "deleteFailureCauseRule",
+      "status": "implemented",
+      "tui": "ArmadaClient.DeleteFailureCauseRuleAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
     },
     {
       "kind": "api",
@@ -1825,6 +1849,14 @@
     },
     {
       "kind": "api",
+      "key": "draftFailureCauseRule",
+      "status": "implemented",
+      "tui": "ArmadaClient.DraftFailureCauseRuleAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
+    },
+    {
+      "kind": "api",
       "key": "duplicateModelEndpoint",
       "status": "implemented",
       "tui": "ArmadaClient.DuplicateModelEndpointAsync",
@@ -2118,6 +2150,14 @@
       "tui": "ArmadaClient.GetEventAsync",
       "workstream": "W0.2",
       "notes": "Events | used by EventsScreen"
+    },
+    {
+      "kind": "api",
+      "key": "getFailureCauseRule",
+      "status": "implemented",
+      "tui": "ArmadaClient.GetFailureCauseRuleAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
     },
     {
       "kind": "api",
@@ -2449,6 +2489,14 @@
     },
     {
       "kind": "api",
+      "key": "getStageOutcome",
+      "status": "implemented",
+      "tui": "ArmadaClient.GetStageOutcomeAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
+    },
+    {
+      "kind": "api",
       "key": "getStatus",
       "status": "implemented",
       "tui": "ArmadaClient.GetStatusAsync",
@@ -2745,6 +2793,14 @@
     },
     {
       "kind": "api",
+      "key": "listFailureCauseRules",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListFailureCauseRulesAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
+    },
+    {
+      "kind": "api",
       "key": "listFleets",
       "status": "implemented",
       "tui": "ArmadaClient.ListFleetsAsync",
@@ -2953,6 +3009,14 @@
     },
     {
       "kind": "api",
+      "key": "listStageOutcomes",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListStageOutcomesAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
+    },
+    {
+      "kind": "api",
       "key": "listTenants",
       "status": "implemented",
       "tui": "ArmadaClient.ListTenantsAsync",
@@ -3110,6 +3174,14 @@
       "tui": "ArmadaClient.RecallCaptainAsync",
       "workstream": "W0.2",
       "notes": "Captains"
+    },
+    {
+      "kind": "api",
+      "key": "reclassifyStageOutcomes",
+      "status": "implemented",
+      "tui": "ArmadaClient.ReclassifyStageOutcomesAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
     },
     {
       "kind": "api",
@@ -3550,6 +3622,14 @@
       "tui": "ArmadaClient.UpdateEnvironmentAsync",
       "workstream": "W0.2",
       "notes": "Environments"
+    },
+    {
+      "kind": "api",
+      "key": "updateFailureCauseRule",
+      "status": "implemented",
+      "tui": "ArmadaClient.UpdateFailureCauseRuleAsync",
+      "workstream": "W0.2",
+      "notes": "Stage outcomes and failure-cause rules"
     },
     {
       "kind": "api",

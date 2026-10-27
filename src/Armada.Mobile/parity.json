@@ -1217,6 +1217,14 @@
     },
     {
       "kind": "api",
+      "key": "classifyStageOutcome",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
+    },
+    {
+      "kind": "api",
       "key": "clearProxySessionInstance",
       "status": "implemented",
       "mobile": "proxyApi.logoutInstance (AuthContext.proxyChangeInstance)",
@@ -1286,6 +1294,14 @@
       "mobile": "src/screens/delivery/EnvironmentsTab.tsx, EnvironmentDetail.tsx",
       "workstream": "W4.1",
       "notes": "Environments"
+    },
+    {
+      "kind": "api",
+      "key": "createFailureCauseRule",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
     },
     {
       "kind": "api",
@@ -1574,6 +1590,14 @@
       "mobile": "EventsList",
       "workstream": "W2.4",
       "notes": "Events"
+    },
+    {
+      "kind": "api",
+      "key": "deleteFailureCauseRule",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
     },
     {
       "kind": "api",
@@ -1873,6 +1897,14 @@
     },
     {
       "kind": "api",
+      "key": "draftFailureCauseRule",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
+    },
+    {
+      "kind": "api",
       "key": "duplicateModelEndpoint",
       "status": "implemented",
       "mobile": "src/screens/configuration/EndpointsTab.tsx",
@@ -2166,6 +2198,14 @@
       "mobile": "EventDetail",
       "workstream": "W2.4",
       "notes": "Events"
+    },
+    {
+      "kind": "api",
+      "key": "getFailureCauseRule",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
     },
     {
       "kind": "api",
@@ -2497,6 +2537,14 @@
     },
     {
       "kind": "api",
+      "key": "getStageOutcome",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
+    },
+    {
+      "kind": "api",
       "key": "getStatus",
       "status": "implemented",
       "mobile": "HomeScreen",
@@ -2793,6 +2841,14 @@
     },
     {
       "kind": "api",
+      "key": "listFailureCauseRules",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
+    },
+    {
+      "kind": "api",
       "key": "listFleets",
       "status": "implemented",
       "mobile": "src/screens/fleets",
@@ -3001,6 +3057,14 @@
     },
     {
       "kind": "api",
+      "key": "listStageOutcomes",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
+    },
+    {
+      "kind": "api",
       "key": "listTenants",
       "status": "implemented",
       "mobile": "src/screens/system/TenantsTab.tsx",
@@ -3190,6 +3254,14 @@
       "mobile": "src/screens/captains",
       "workstream": "W3.2",
       "notes": "Captains"
+    },
+    {
+      "kind": "api",
+      "key": "reclassifyStageOutcomes",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
     },
     {
       "kind": "api",
@@ -3606,6 +3678,14 @@
       "mobile": "src/screens/delivery/EnvironmentsTab.tsx, EnvironmentDetail.tsx",
       "workstream": "W4.1",
       "notes": "Environments"
+    },
+    {
+      "kind": "api",
+      "key": "updateFailureCauseRule",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "no dashboard page calls it yet: stage outcomes and failure-cause rules have REST, MCP, .NET and dashboard client calls only (MODEL_HETEROGENEITY.md); the app adds a screen when the dashboard does"
     },
     {
       "kind": "api",

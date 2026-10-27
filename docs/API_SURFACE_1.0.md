@@ -24,8 +24,8 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 389 | 15 |
-| MCP tools | 177 | 8 |
+| REST routes | 399 | 15 |
+| MCP tools | 187 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
@@ -137,6 +137,11 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/events/enumerate` | Authenticated | `EnumerationQuery` (optional) |  |  |
 | DELETE | `/api/v1/events/{id}` | TenantAdmin |  | 204, 404 |  |
 | GET | `/api/v1/events/{id}` | Authenticated |  | 200 `ArmadaEvent`, 404 |  |
+| GET | `/api/v1/failure-cause-rules` | Authenticated |  | 200 `EnumerationResult<FailureCauseRule>` |  |
+| POST | `/api/v1/failure-cause-rules` | Authenticated | `FailureCauseRule` | 201 `FailureCauseRule`, 400, 409 `ApiErrorResponse` |  |
+| DELETE | `/api/v1/failure-cause-rules/{id}` | Authenticated |  | 204, 403 `ApiErrorResponse`, 404 |  |
+| GET | `/api/v1/failure-cause-rules/{id}` | Authenticated |  | 200 `FailureCauseRule`, 404 |  |
+| PUT | `/api/v1/failure-cause-rules/{id}` | Authenticated | `FailureCauseRule` | 200 `FailureCauseRule`, 400, 403 `ApiErrorResponse`, 404, 409 `ApiErrorResponse` |  |
 | POST | `/api/v1/fleet-action-runs/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<FleetActionRun>` |  |
 | GET | `/api/v1/fleet-action-runs/{id}` | Authenticated |  | 200 `FleetActionRunDetail`, 404 |  |
 | POST | `/api/v1/fleet-action-runs/{id}/cancel` | TenantAdmin |  | 200 `FleetActionRun`, 404 |  |
@@ -346,6 +351,11 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | DELETE | `/api/v1/skills/{id}` | Authenticated |  | 204, 404 |  |
 | GET | `/api/v1/skills/{id}` | Authenticated |  | 200 `Skill`, 404 |  |
 | PUT | `/api/v1/skills/{id}` | Authenticated | `Skill` | 200 `Skill`, 404 |  |
+| GET | `/api/v1/stage-outcomes` | Authenticated |  | 200 `EnumerationResult<StageOutcome>`, 400 |  |
+| POST | `/api/v1/stage-outcomes/reclassify` | TenantAdmin | `StageOutcomeQuery` (optional) | 200 `StageOutcomeReclassifyResult`, 400, 403 `ApiErrorResponse` |  |
+| GET | `/api/v1/stage-outcomes/{id}` | Authenticated |  | 200 `StageOutcome`, 404 |  |
+| PUT | `/api/v1/stage-outcomes/{id}/cause` | Authenticated | `StageOutcomeClassifyRequest` | 200 `StageOutcome`, 400, 404 |  |
+| POST | `/api/v1/stage-outcomes/{id}/rule` | Authenticated |  | 200 `FailureCauseRule`, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/status` | Authenticated |  | 200 `ArmadaStatus` |  |
 | GET | `/api/v1/status/health` | NoAuthRequired |  |  |  |
 | GET | `/api/v1/storage` | AdminOnly |  | 200 `StorageSnapshot`, 401, 403 |  |
@@ -448,6 +458,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `cancel_mission` | TenantAdmin | `missionId*: string` |  |
 | `cancel_voyage` | TenantAdmin | `voyageId*: string` |  |
 | `categorize_vessel_import` | TenantAdmin | `applyFleetsAutomatically: boolean`, `batchId*: string`, `captainId: string`, `prompt: string` |  |
+| `classify_stage_outcome` | Authenticated | `cause: string`, `note: string`, `outcomeId*: string` |  |
 | `cli_permission_prompt` | Authenticated | `input*: object`, `tool_name*: string`, `tool_use_id: string` |  |
 | `create_ask_thread` | Authenticated | `autoApprove: boolean`, `captainId: string`, `title: string` |  |
 | `create_backlog_item` | TenantAdmin | `acceptanceCriteria: array<string>`, `backlogState: string`, `blockedByObjectiveIds: array<string>`, `category: string`, `checkRunIds: array<string>`, `deploymentIds: array<string>`, `description: string`, `dueUtc: string`, `effort: string`, `evidenceLinks: array<string>`, `fleetIds: array<string>`, `incidentIds: array<string>`, `kind: string`, `missionIds: array<string>`, `nonGoals: array<string>`, `owner: string`, `parentObjectiveId: string`, `planningSessionIds: array<string>`, `priority: string`, `rank: integer`, `refinementSessionIds: array<string>`, `refinementSummary: string`, `releaseIds: array<string>`, `rolloutConstraints: array<string>`, `status: string`, `suggestedPipelineId: string`, `tags: array<string>`, `targetVersion: string`, `title*: string`, `vesselIds: array<string>`, `voyageIds: array<string>` |  |
@@ -456,6 +467,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `create_captain` | TenantAdmin | `allowedPersonas: string`, `autoApprove: boolean`, `model: string`, `modelEndpointId: string`, `muxAdapterType: string`, `muxApprovalPolicy: string`, `muxBaseUrl: string`, `muxConfigDirectory: string`, `muxEndpoint: string`, `muxMaxTokens: integer`, `muxSystemPromptPath: string`, `muxTemperature: number`, `name*: string`, `preferredPersona: string`, `reasoningEffort: string`, `runtime: string`, `systemInstructions: string`, `tier: string` |  |
 | `create_cli_permission_rule` | TenantAdmin | `action*: string`, `captainId: string`, `description: string`, `pattern*: string`, `scope: string`, `tenantId: string`, `vesselId: string` |  |
 | `create_deployment` | TenantAdmin | `autoExecute: boolean`, `environmentId: string`, `environmentName: string`, `missionId: string`, `notes: string`, `releaseId: string`, `sourceRef: string`, `summary: string`, `title: string`, `vesselId: string`, `voyageId: string`, `workflowProfileId: string` |  |
+| `create_failure_cause_rule` | Authenticated | `cause*: string`, `description: string`, `enabled: boolean`, `match*: object`, `name*: string`, `priority: integer`, `tenantId: string` |  |
 | `create_fleet` | TenantAdmin | `description: string`, `name*: string` |  |
 | `create_fleet_action` | TenantAdmin | `commandText: string`, `defaultConcurrency: integer`, `description: string`, `kind: string`, `name*: string`, `persona: string`, `pipelineId: string`, `promptTemplate: string`, `requiresCleanWorkingTree: boolean`, `timeoutSeconds: integer` |  |
 | `create_harbor` | Authenticated | `enabled: boolean`, `maxConcurrentJobs: integer`, `name*: string` | experimental |
@@ -479,6 +491,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `delete_docks` | TenantAdmin | `ids*: array<string>` |  |
 | `delete_event` | TenantAdmin | `eventId*: string` |  |
 | `delete_events` | TenantAdmin | `ids*: array<string>` |  |
+| `delete_failure_cause_rule` | Authenticated | `ruleId*: string` |  |
 | `delete_fleet` | TenantAdmin | `fleetId*: string` |  |
 | `delete_fleet_action` | TenantAdmin | `actionId*: string` |  |
 | `delete_fleets` | TenantAdmin | `ids*: array<string>` |  |
@@ -499,6 +512,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `discover_vessels` | TenantAdmin | `directories: array<string>`, `maxDepth: integer`, `roots: array<string>`, `runInBackground: boolean` |  |
 | `dispatch` | TenantAdmin | `approvalOptions: object`, `captainAssignments: array<object>`, `description: string`, `landingMode: string`, `missions: array<object>`, `objectiveId: string`, `pipeline: string`, `pipelineId: string`, `selectedPlaybooks: array<object>`, `title*: string`, `vesselId: string` |  |
 | `dispatch_backlog_planning_session` | TenantAdmin | `description: string`, `messageId: string`, `sessionId*: string`, `title: string` |  |
+| `draft_failure_cause_rule` | Authenticated | `outcomeId*: string` |  |
 | `duplicate_model_endpoint` | Authenticated | `configuration*: object`, `endpointId*: string` |  |
 | `enqueue_merge` | TenantAdmin | `branchName*: string`, `missionId: string`, `priority: integer`, `targetBranch: string`, `testCommand: string`, `vesselId*: string` |  |
 | `enumerate` | Authenticated | `captainId: string`, `createdAfter: string`, `createdBefore: string`, `entityType*: string`, `eventType: string`, `fleetId: string`, `includeContext: boolean`, `includeDescription: boolean`, `includeInactive: boolean`, `includeMessage: boolean`, `includeOutput: boolean`, `includePayload: boolean`, `includeTestOutput: boolean`, `missionId: string`, `order: string`, `pageNumber: integer`, `pageSize: integer`, `runId: string`, `search: string`, `signalType: string`, `status: string`, `toCaptainId: string`, `unreadOnly: boolean`, `vesselId: string`, `voyageId: string` |  |
@@ -517,6 +531,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `get_cli_permission_request` | Authenticated | `requestId*: string` |  |
 | `get_deployment` | Authenticated | `deploymentId*: string` |  |
 | `get_dock` | Authenticated | `dockId*: string` |  |
+| `get_failure_cause_rule` | Authenticated | `ruleId*: string` |  |
 | `get_fleet` | Authenticated | `fleetId*: string` |  |
 | `get_harbor` | Authenticated | `harborId*: string` | experimental |
 | `get_harbor_metrics` | Authenticated | `harborId*: string`, `range: string` | experimental |
@@ -533,6 +548,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `get_release` | Authenticated | `releaseId*: string` |  |
 | `get_runbook` | Authenticated | `runbookId*: string` |  |
 | `get_runbook_execution` | Authenticated | `runbookExecutionId*: string` |  |
+| `get_stage_outcome` | Authenticated | `outcomeId*: string` |  |
 | `get_vessel` | Authenticated | `vesselId*: string` |  |
 | `health_check_model_endpoints` | Authenticated |  |  |
 | `import_vessels` | TenantAdmin | `allNew: boolean`, `applyFleetsAutomatically: boolean`, `batchId*: string`, `captainId: string`, `categorize: boolean`, `defaultPipelineId: string`, `fleetId: string`, `landingMode: string`, `paths: array<string>`, `prompt: string` |  |
@@ -544,9 +560,11 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `list_backlog_refinement_sessions` | Authenticated | `objectiveId*: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `list_cli_permission_requests` | Authenticated | `captainId: string`, `limit: integer`, `missionId: string`, `status: string`, `threadId: string`, `vesselId: string` |  |
 | `list_cli_permission_rules` | Authenticated | `captainId: string`, `scope: string`, `vesselId: string` |  |
+| `list_failure_cause_rules` | Authenticated | `pageNumber: integer`, `pageSize: integer` |  |
 | `list_harbor_jobs` | Authenticated | `harborId*: string`, `openOnly: boolean`, `pageNumber: integer`, `pageSize: integer` | experimental |
 | `list_objectives` | Authenticated | `backlogState: string`, `category: string`, `effort: string`, `fleetId: string`, `kind: string`, `owner: string`, `pageNumber: integer`, `pageSize: integer`, `parentObjectiveId: string`, `priority: string`, `search: string`, `status: string`, `targetVersion: string`, `vesselId: string` |  |
 | `list_prompt_templates` | Authenticated | `category: string`, `pageNumber: integer`, `pageSize: integer` |  |
+| `list_stage_outcomes` | Authenticated | `captainId: string`, `causeSource: string`, `disposition: string`, `fromUtc: string`, `isEvaluation: boolean`, `missionId: string`, `model: string`, `pageNumber: integer`, `pageSize: integer`, `persona: string`, `suspectedCause: string`, `tenantId: string`, `toUtc: string`, `vesselId: string`, `voyageId: string` |  |
 | `mark_ask_thread_read` | Authenticated | `threadId*: string` |  |
 | `mission_status` | Authenticated | `missionId*: string` |  |
 | `papercut_summary` | Authenticated | `category: string`, `limit: integer`, `minSeverity: string`, `scanLimit: integer`, `sinceHours: integer`, `ungrouped: boolean`, `vesselId: string` |  |
@@ -558,6 +576,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `purge_merge_queue` | TenantAdmin | `status: string`, `vesselId: string` |  |
 | `purge_mission` | TenantAdmin | `missionId*: string` |  |
 | `purge_voyage` | TenantAdmin | `voyageId*: string` |  |
+| `reclassify_stage_outcomes` | TenantAdmin | `captainId: string`, `causeSource: string`, `disposition: string`, `fromUtc: string`, `isEvaluation: boolean`, `missionId: string`, `model: string`, `pageNumber: integer`, `pageSize: integer`, `persona: string`, `suspectedCause: string`, `tenantId: string`, `toUtc: string`, `vesselId: string`, `voyageId: string` |  |
 | `reject_ask_proposal` | Authenticated | `proposalId*: string`, `threadId*: string` |  |
 | `release_captain` | TenantAdmin | `captainId*: string` |  |
 | `reorder_backlog_items` | TenantAdmin | `items*: array<object>` |  |
@@ -595,6 +614,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `update_backlog_item` | TenantAdmin | `acceptanceCriteria: array<string>`, `backlogState: string`, `blockedByObjectiveIds: array<string>`, `category: string`, `checkRunIds: array<string>`, `deploymentIds: array<string>`, `description: string`, `dueUtc: string`, `effort: string`, `evidenceLinks: array<string>`, `fleetIds: array<string>`, `incidentIds: array<string>`, `kind: string`, `missionIds: array<string>`, `nonGoals: array<string>`, `objectiveId*: string`, `owner: string`, `parentObjectiveId: string`, `planningSessionIds: array<string>`, `priority: string`, `rank: integer`, `refinementSessionIds: array<string>`, `refinementSummary: string`, `releaseIds: array<string>`, `rolloutConstraints: array<string>`, `status: string`, `suggestedPipelineId: string`, `tags: array<string>`, `targetVersion: string`, `title: string`, `vesselIds: array<string>`, `voyageIds: array<string>` |  |
 | `update_captain` | TenantAdmin | `allowedPersonas: string`, `autoApprove: boolean`, `captainId*: string`, `model: string`, `modelEndpointId: string`, `muxAdapterType: string`, `muxApprovalPolicy: string`, `muxBaseUrl: string`, `muxConfigDirectory: string`, `muxEndpoint: string`, `muxMaxTokens: integer`, `muxSystemPromptPath: string`, `muxTemperature: number`, `name: string`, `preferredPersona: string`, `reasoningEffort: string`, `runtime: string`, `systemInstructions: string`, `tier: string` |  |
 | `update_cli_permission_rule` | TenantAdmin | `action*: string`, `description: string`, `pattern*: string`, `ruleId*: string` |  |
+| `update_failure_cause_rule` | Authenticated | `cause: string`, `description: string`, `enabled: boolean`, `match: object`, `name: string`, `priority: integer`, `ruleId*: string` |  |
 | `update_fleet` | TenantAdmin | `defaultPipelineId: string`, `description: string`, `fleetId*: string`, `name: string` |  |
 | `update_fleet_action` | TenantAdmin | `actionId*: string`, `commandText: string`, `defaultConcurrency: integer`, `description: string`, `kind: string`, `name: string`, `persona: string`, `pipelineId: string`, `promptTemplate: string`, `requiresCleanWorkingTree: boolean`, `timeoutSeconds: integer` |  |
 | `update_harbor` | Authenticated | `enabled: boolean`, `harborId*: string`, `maxConcurrentJobs: integer`, `name: string` | experimental |

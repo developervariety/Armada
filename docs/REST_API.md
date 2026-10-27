@@ -272,6 +272,9 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/cli-permissions/requests` | GET | Authenticated | Global admins see all; tenant admins their tenant; other users requests from their own Ask threads and missions |
 | `/api/v1/cli-permissions/requests/{id}/decide` | POST | Authenticated | Checked per request: global admin, tenant admin of the request's tenant, or the owner when `Permissions.AllowOwnerApproval` is true (`403` otherwise); `AllowAndRemember` needs an admin |
 | `/api/v1/cli-permissions/rules` | GET | Authenticated | Caller's tenant plus rules for every tenant. `POST`, `PUT`, and `DELETE` (`.../rules/{id}`) are TenantAdmin (a tenant admin only within their tenant) |
+| `/api/v1/stage-outcomes` | GET; `GET .../{id}`, `PUT .../{id}/cause`, `POST .../{id}/rule` | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's outcome). Captain sessions get `403` |
+| `/api/v1/stage-outcomes/reclassify` | POST | TenantAdmin | A tenant admin only within their tenant; global admins any tenant or every tenant |
+| `/api/v1/failure-cause-rules` | GET, POST; `GET`, `PUT`, `DELETE .../{id}` | Authenticated | The caller's tenant plus rules for every tenant. Anyone in the tenant may write the tenant's rules; rules for every tenant (`TenantId` null) and built-in rules need a global admin (`403`) |
 | `/api/v1/ask/threads/{id}/cli-permission-policy` | PUT | Authenticated | Thread owner only (`404` otherwise); `Bypass` requires a global or tenant admin (`403`) |
 | `/api/v1/push/devices` | GET, POST | Authenticated | Register for yourself (captain sessions get `403`); list your own devices, or (`userId`) another user's as a tenant admin of their tenant or a global admin (`403` otherwise) |
 | `/api/v1/push/devices/{id}` | PUT, DELETE | Authenticated | Owner, tenant admins of the device's tenant, global admins; `404` otherwise (also `POST .../test`) |
@@ -4245,6 +4248,75 @@ curl -X POST http://localhost:7890/api/v1/cli-permissions/requests/cpr_abc123/de
 curl -X POST http://localhost:7890/api/v1/cli-permissions/rules \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
   -d '{"Pattern": "Bash(git push --force:*)", "Action": "Deny", "Scope": "Global"}'
+```
+
+---
+
+### Stage Outcomes and Failure-Cause Rules
+
+A **stage outcome** (`sto_`) is stored for every stage attempt Armada handles: who ran it (captain, runtime, model,
+endpoint, Harbor, sampling, tools, prompt and Armada version), what was observed (exit code, runtime failure kind,
+stage-check status and reason, failure kind and reason), what Armada did next (`Disposition`: `Completed`,
+`Relaunched`, `OutputRepair`, `Escalated`, `Failed`, `Interrupted`, `Cancelled`, `Pending`), and, for a shortfall, a
+**suspected cause** (`Protocol`, `InstructionFollowing`, `ToolUse`, `Context`, `Capability`, `NotTheModel`, `Unknown`,
+`Mixed`; `None` when nothing fell short). The cause comes from the first enabled **failure-cause rule** (`fcr_`) that
+matches, in ascending `Priority` (`CauseSource` `Rule`), or from a person (`Manual`). See
+[MODEL_HETEROGENEITY.md](MODEL_HETEROGENEITY.md), Part 4.
+
+A rule's `Match` lists criteria: every criterion given must match (AND), and within a list any value matches (OR):
+`Personas` (case-insensitive), `Runtimes`, `FailureKinds`, `RuntimeFailureKinds`, `StageCheckStatuses`,
+`StageCheckReasons`, `Dispositions`, and `TextPattern` (a case-insensitive regular expression matched against the
+failure reason). A rule is rejected with `400` when it has no name, a name over 200 characters, no criterion, cause
+`None`, or a `TextPattern` that is not a valid regular expression (or is over 1000 characters); the message says which.
+Names are unique per tenant (`409`).
+
+**Built-in rules.** Armada seeds 13 built-in rules (`IsBuiltIn` true, `TenantId` null) at startup, matched by name and
+never overwriting a stored rule, so an edited built-in keeps its edits. A global admin may edit, disable, or delete a
+built-in; a deleted built-in is stored again the next time the Admiral starts, so disable it (`Enabled` false) to keep
+it out of classification for good.
+
+Who may act (`StageOutcomeAccessService`, the same on REST and MCP):
+
+| Action | Who |
+|---|---|
+| List, read, and classify outcomes; draft a rule from one | Global admins (every tenant); everyone else within their own tenant. Another tenant's outcome is `404` |
+| Re-apply the rules (`reclassify`) | Global admins (any tenant, or every tenant without `TenantId`); tenant admins (their own tenant). Others `403` |
+| List and read rules | Every authenticated user: the caller's tenant plus rules for every tenant (global admins see all) |
+| Create, update, delete the tenant's rules | Any user of the tenant. A global admin may create a rule for any tenant, or for every tenant by omitting `TenantId` |
+| Update or delete a rule for every tenant, or a built-in rule | Global admins only (`403`) |
+
+Captain sessions (mission- and thread-scoped tokens) are refused (`403`).
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| GET | `/api/v1/stage-outcomes` | | `200` `EnumerationResult<StageOutcome>`, newest (`EndedUtc`) first. Query: `tenantId` (global admins), `missionId`, `voyageId`, `vesselId`, `captainId`, `persona`, `model`, `suspectedCause`, `causeSource`, `disposition`, `isEvaluation`, `fromUtc`, `toUtc`, `pageNumber`, `pageSize` (1-1000, default 100); `400` for a value that does not parse or `fromUtc` after `toUtc` |
+| GET | `/api/v1/stage-outcomes/{id}` | | `200` `StageOutcome`; `404` when missing or in another tenant |
+| PUT | `/api/v1/stage-outcomes/{id}/cause` | `StageOutcomeClassifyRequest` (`Cause`, `Note`) | `200` `StageOutcome` with `CauseSource` `Manual`, `ClassifiedByUserId` the caller, `ClassifiedUtc` now; rules never overwrite a manual cause. A null `Cause` clears the manual cause and re-applies the rules. `400` for `Cause` `None`; `404` |
+| POST | `/api/v1/stage-outcomes/{id}/rule` | | `200` an **unsaved** `FailureCauseRule` drafted from the outcome: its `Cause` and `TenantId`, `Priority` 5 (ahead of the built-ins), and a `Match` on its failure kind, runtime failure kind, stage-check status and reason, disposition, and persona. Nothing is stored: edit the draft and `POST` it to `/api/v1/failure-cause-rules`. `404`; `409` when the outcome's cause is `None` |
+| POST | `/api/v1/stage-outcomes/reclassify` | `StageOutcomeQuery` (optional; paging ignored) | `200` `StageOutcomeReclassifyResult` (`Examined`, `Changed`, `SkippedManual`); `400`; `403` not an admin |
+| GET | `/api/v1/failure-cause-rules` | | `200` `EnumerationResult<FailureCauseRule>` in evaluation order (priority, then name). Query: `pageNumber`, `pageSize` (1-1000, default 10) |
+| POST | `/api/v1/failure-cause-rules` | `FailureCauseRule` (`Name`, `Description`, `Priority`, `Enabled`, `Match`, `Cause`; `TenantId` for global admins) | `201` `FailureCauseRule` (`IsBuiltIn` false, `CreatedByUserId` the caller); `400` invalid; `409` duplicate name |
+| GET | `/api/v1/failure-cause-rules/{id}` | | `200` `FailureCauseRule`; `404` when missing or another tenant's |
+| PUT | `/api/v1/failure-cause-rules/{id}` | `FailureCauseRule` | `200` `FailureCauseRule`: replaces `Name`, `Description`, `Priority`, `Enabled`, `Match`, `Cause` (`TenantId` and `IsBuiltIn` are fixed); `400`; `403`; `404`; `409` |
+| DELETE | `/api/v1/failure-cause-rules/{id}` | | `204`; `403`; `404` |
+
+```bash
+# Outcomes of one persona that the rules could not explain
+curl "http://localhost:7890/api/v1/stage-outcomes?persona=Worker&suspectedCause=Unknown&pageSize=25" \
+  -H "Authorization: Bearer <token>"
+
+# Classify one by hand, then turn the classification into a rule
+curl -X PUT http://localhost:7890/api/v1/stage-outcomes/sto_abc123/cause \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"Cause": "Protocol", "Note": "Wrote the result in prose instead of the required block"}'
+curl -X POST http://localhost:7890/api/v1/stage-outcomes/sto_abc123/rule -H "Authorization: Bearer <token>"
+
+# Create the (edited) rule and apply it to past attempts
+curl -X POST http://localhost:7890/api/v1/failure-cause-rules \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"Name": "Prose instead of result block", "Priority": 5, "Cause": "Protocol", "Match": {"FailureKinds": ["InvalidOutput"], "TextPattern": "result block"}}'
+curl -X POST http://localhost:7890/api/v1/stage-outcomes/reclassify \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"SuspectedCause": "Unknown"}'
 ```
 
 ---

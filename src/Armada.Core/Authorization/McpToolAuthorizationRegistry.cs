@@ -96,6 +96,18 @@ namespace Armada.Core.Authorization
             Add("delete_cli_permission_rule", "CliPermission", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
             Add("set_captain_cli_permission_policy", "Captain", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
 
+            // Stage outcomes and failure-cause rules (tenant scoping, global-rule and built-in-rule writes are checked by StageOutcomeAccessService)
+            Add("list_stage_outcomes", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("get_stage_outcome", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("classify_stage_outcome", "StageOutcome", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("reclassify_stage_outcomes", "StageOutcome", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("draft_failure_cause_rule", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_failure_cause_rules", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("get_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("create_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("update_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("delete_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+
             // Writes to caller-owned resources (memories, model endpoints, harbors), scoped to the caller in the tool handlers
             Add("create_memory", "Memory", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
             Add("update_memory", "Memory", ResourceOperationEnum.Update, PermissionLevel.Authenticated);

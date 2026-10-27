@@ -74,6 +74,7 @@ namespace Armada.Server.Mcp
         /// <param name="askActions">Optional Ask Armada action service.</param>
         /// <param name="missionService">Optional mission service; with it the review gate tools (approve_mission_review, deny_mission_review) decide gates, without it they answer Unavailable.</param>
         /// <param name="harborJobs">Optional Harbor job control; without it list_harbor_jobs and stop_harbor_job answer Unavailable.</param>
+        /// <param name="stageOutcomes">Optional stage outcome access service; without it the stage outcome and failure-cause rule tools answer Unavailable.</param>
         /// <param name="cliPermissionService">Optional CLI permission service; without it the CLI permission tools are
         /// registered and answer a typed Unavailable error.</param>
         public static void RegisterAll(
@@ -111,7 +112,8 @@ namespace Armada.Server.Mcp
             Armada.Server.Ask.AskTurnCoordinator? askTurns = null,
             Armada.Server.Ask.AskActionService? askActions = null,
             IMissionService? missionService = null,
-            HarborJobControlService? harborJobs = null)
+            HarborJobControlService? harborJobs = null,
+            StageOutcomeAccessService? stageOutcomes = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             register = MapToolExceptions(MarkExperimental(register));
@@ -149,6 +151,7 @@ namespace Armada.Server.Mcp
             McpCliPermissionTools.Register(register, database, cliPermissionService);
             McpAskTools.Register(register, askThreads, askTurns, askActions);
             McpMissionReviewTools.Register(register, database, missionService);
+            McpStageOutcomeTools.Register(register, stageOutcomes);
         }
 
         /// <summary>
@@ -235,6 +238,7 @@ namespace Armada.Server.Mcp
             RegisterCatalogGroup("Armada MCP / CLI Permissions", register => McpCliPermissionTools.Register(register, database, cliPermissionService));
             RegisterCatalogGroup("Armada MCP / Ask Armada", register => McpAskTools.Register(register, null, null, null));
             RegisterCatalogGroup("Armada MCP / Review Gates", register => McpMissionReviewTools.Register(register, database, null));
+            RegisterCatalogGroup("Armada MCP / Stage Outcomes", register => McpStageOutcomeTools.Register(register, null));
 
             return tools
                 .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)

@@ -64,6 +64,18 @@ namespace Armada.Core.Authorization
             Add("PUT", "/api/v1/cli-permissions/rules/{id}", "CliPermission", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
             Add("DELETE", "/api/v1/cli-permissions/rules/{id}", "CliPermission", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
 
+            // StageOutcomeRoutes (tenant scoping, global-rule and built-in-rule writes are checked by StageOutcomeAccessService)
+            Add("GET", "/api/v1/stage-outcomes", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/stage-outcomes/{id}", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("PUT", "/api/v1/stage-outcomes/{id}/cause", "StageOutcome", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/stage-outcomes/{id}/rule", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/stage-outcomes/reclassify", "StageOutcome", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("GET", "/api/v1/failure-cause-rules", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/failure-cause-rules", "FailureCauseRule", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/failure-cause-rules/{id}", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("PUT", "/api/v1/failure-cause-rules/{id}", "FailureCauseRule", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
+            Add("DELETE", "/api/v1/failure-cause-rules/{id}", "FailureCauseRule", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+
             // PushRoutes (owner / tenant admin / global admin scoping is checked per device by PushDeviceAccess)
             Add("POST", "/api/v1/push/devices", "PushDevice", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/push/devices", "PushDevice", ResourceOperationEnum.Read, PermissionLevel.Authenticated);

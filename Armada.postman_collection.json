@@ -323,6 +323,18 @@
             "key": "muxEndpoint",
             "value": "local",
             "description": "Named Mux endpoint used by persona priority examples. Configure a matching Mux captain before dispatch."
+        },
+        {
+            "key": "stageOutcomeId",
+            "value": "",
+            "type": "string",
+            "description": "Stage outcome ID (sto_ prefix)."
+        },
+        {
+            "key": "failureCauseRuleId",
+            "value": "",
+            "type": "string",
+            "description": "Failure-cause rule ID (fcr_ prefix)."
         }
     ],
     "item": [
@@ -12263,6 +12275,453 @@
                         },
                         "description": "Global admin only. Use a current fixed UTC window and preserve the profile for replay. Generates terminal screenshot missions, API requests, events, read signals, and disabled Harbor metrics without dispatch/inference. See docs/SYNTHETIC_ACTIVITY.md."
                     }
+                }
+            ]
+        },
+        {
+            "name": "Stage Outcomes",
+            "description": "Stage outcomes (one per stage attempt, with provenance, disposition and suspected cause) and the failure-cause rules that classify them. See docs/REST_API.md, Stage Outcomes and Failure-Cause Rules.",
+            "item": [
+                {
+                    "name": "List Stage Outcomes",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/stage-outcomes?persona=Worker&suspectedCause=Protocol&pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "stage-outcomes"
+                            ],
+                            "query": [
+                                {
+                                    "key": "persona",
+                                    "value": "Worker",
+                                    "description": "Persona name (exact, case-insensitive)"
+                                },
+                                {
+                                    "key": "suspectedCause",
+                                    "value": "Protocol",
+                                    "description": "FailureCauseEnum name"
+                                },
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1",
+                                    "description": "Page number"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25",
+                                    "description": "Page size (1-1000)"
+                                }
+                            ]
+                        },
+                        "description": "One page of stage outcomes (one per stage attempt), newest first. Global admins see every tenant (tenantId filters); everyone else sees their own tenant. Optional filters: tenantId, missionId, voyageId, vesselId, captainId, persona, model, suspectedCause, causeSource, disposition, isEvaluation, fromUtc, toUtc; paging pageNumber, pageSize (1-1000, default 100)."
+                    },
+                    "response": [
+                        {
+                            "name": "One page",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Success\": true,\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"TotalPages\": 1,\n  \"TotalRecords\": 1,\n  \"Objects\": [\n    {\n      \"Id\": \"sto_mvq0z9y8x7w6v5u4t3s2r1q0\",\n      \"TenantId\": \"default\",\n      \"UserId\": \"default\",\n      \"MissionId\": \"msn_mvq0abc\",\n      \"VoyageId\": \"vyg_mvq0abc\",\n      \"VesselId\": \"vsl_mvq0abc\",\n      \"CaptainId\": \"cpt_mvq0abc\",\n      \"CaptainName\": \"captain-1\",\n      \"Persona\": \"Worker\",\n      \"Attempt\": 1,\n      \"ReworkRound\": 0,\n      \"Runtime\": \"ClaudeCode\",\n      \"Model\": \"claude-sonnet-5-5\",\n      \"ExitCode\": 0,\n      \"RuntimeFailureKind\": \"Clean\",\n      \"StageCheckStatus\": \"Passed\",\n      \"StageCheckReason\": null,\n      \"Disposition\": \"Relaunched\",\n      \"FailureKind\": \"InvalidOutput\",\n      \"FailureReason\": \"No [ARMADA:RESULT] block in the output\",\n      \"SuspectedCause\": \"Protocol\",\n      \"CauseSource\": \"Rule\",\n      \"CauseRuleId\": \"fcr_mvq0builtin\",\n      \"CauseNote\": null,\n      \"ClassifiedByUserId\": null,\n      \"ClassifiedUtc\": null,\n      \"IsEvaluation\": false,\n      \"StartedUtc\": \"2026-10-26T17:40:00.000Z\",\n      \"EndedUtc\": \"2026-10-26T17:52:00.000Z\",\n      \"DurationMs\": 720000,\n      \"CreatedUtc\": \"2026-10-26T17:52:00.000Z\",\n      \"LastUpdateUtc\": \"2026-10-26T17:52:00.000Z\"\n    }\n  ],\n  \"TotalMs\": 1.2\n}"
+                        },
+                        {
+                            "name": "Invalid filter",
+                            "status": "Bad Request",
+                            "code": 400,
+                            "body": "{\n  \"Error\": \"BadRequest\",\n  \"Message\": \"Invalid suspectedCause: Sloppy\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Stage Outcome",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/stage-outcomes/{{stageOutcomeId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "stage-outcomes",
+                                "{{stageOutcomeId}}"
+                            ]
+                        },
+                        "description": "One stage outcome. 404 when it does not exist or belongs to another tenant."
+                    },
+                    "response": [
+                        {
+                            "name": "Outcome",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Id\": \"sto_mvq0z9y8x7w6v5u4t3s2r1q0\",\n  \"TenantId\": \"default\",\n  \"UserId\": \"default\",\n  \"MissionId\": \"msn_mvq0abc\",\n  \"VoyageId\": \"vyg_mvq0abc\",\n  \"VesselId\": \"vsl_mvq0abc\",\n  \"CaptainId\": \"cpt_mvq0abc\",\n  \"CaptainName\": \"captain-1\",\n  \"Persona\": \"Worker\",\n  \"Attempt\": 1,\n  \"ReworkRound\": 0,\n  \"Runtime\": \"ClaudeCode\",\n  \"Model\": \"claude-sonnet-5-5\",\n  \"ExitCode\": 0,\n  \"RuntimeFailureKind\": \"Clean\",\n  \"StageCheckStatus\": \"Passed\",\n  \"StageCheckReason\": null,\n  \"Disposition\": \"Relaunched\",\n  \"FailureKind\": \"InvalidOutput\",\n  \"FailureReason\": \"No [ARMADA:RESULT] block in the output\",\n  \"SuspectedCause\": \"Protocol\",\n  \"CauseSource\": \"Rule\",\n  \"CauseRuleId\": \"fcr_mvq0builtin\",\n  \"CauseNote\": null,\n  \"ClassifiedByUserId\": null,\n  \"ClassifiedUtc\": null,\n  \"IsEvaluation\": false,\n  \"StartedUtc\": \"2026-10-26T17:40:00.000Z\",\n  \"EndedUtc\": \"2026-10-26T17:52:00.000Z\",\n  \"DurationMs\": 720000,\n  \"CreatedUtc\": \"2026-10-26T17:52:00.000Z\",\n  \"LastUpdateUtc\": \"2026-10-26T17:52:00.000Z\"\n}"
+                        },
+                        {
+                            "name": "Not found",
+                            "status": "Not Found",
+                            "code": 404,
+                            "body": "{\n  \"Error\": \"NotFound\",\n  \"Message\": \"Stage outcome not found.\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Classify Stage Outcome",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/stage-outcomes/{{stageOutcomeId}}/cause",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "stage-outcomes",
+                                "{{stageOutcomeId}}",
+                                "cause"
+                            ]
+                        },
+                        "description": "Classify an outcome by hand: CauseSource becomes Manual and ClassifiedByUserId the caller; rules never overwrite a manual cause. Send {\"Cause\": null} to clear the manual cause and re-apply the rules. 400 for Cause None.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Cause\": \"InstructionFollowing\",\n  \"Note\": \"Ignored the scope rule in the brief\"\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Classified by hand",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Id\": \"sto_mvq0z9y8x7w6v5u4t3s2r1q0\",\n  \"TenantId\": \"default\",\n  \"UserId\": \"default\",\n  \"MissionId\": \"msn_mvq0abc\",\n  \"VoyageId\": \"vyg_mvq0abc\",\n  \"VesselId\": \"vsl_mvq0abc\",\n  \"CaptainId\": \"cpt_mvq0abc\",\n  \"CaptainName\": \"captain-1\",\n  \"Persona\": \"Worker\",\n  \"Attempt\": 1,\n  \"ReworkRound\": 0,\n  \"Runtime\": \"ClaudeCode\",\n  \"Model\": \"claude-sonnet-5-5\",\n  \"ExitCode\": 0,\n  \"RuntimeFailureKind\": \"Clean\",\n  \"StageCheckStatus\": \"Passed\",\n  \"StageCheckReason\": null,\n  \"Disposition\": \"Relaunched\",\n  \"FailureKind\": \"InvalidOutput\",\n  \"FailureReason\": \"No [ARMADA:RESULT] block in the output\",\n  \"SuspectedCause\": \"InstructionFollowing\",\n  \"CauseSource\": \"Manual\",\n  \"CauseRuleId\": null,\n  \"CauseNote\": \"Ignored the scope rule in the brief\",\n  \"ClassifiedByUserId\": \"default\",\n  \"ClassifiedUtc\": \"2026-10-26T18:05:00.000Z\",\n  \"IsEvaluation\": false,\n  \"StartedUtc\": \"2026-10-26T17:40:00.000Z\",\n  \"EndedUtc\": \"2026-10-26T17:52:00.000Z\",\n  \"DurationMs\": 720000,\n  \"CreatedUtc\": \"2026-10-26T17:52:00.000Z\",\n  \"LastUpdateUtc\": \"2026-10-26T17:52:00.000Z\"\n}"
+                        },
+                        {
+                            "name": "Cause None",
+                            "status": "Bad Request",
+                            "code": 400,
+                            "body": "{\n  \"Error\": \"BadRequest\",\n  \"Message\": \"Cause None is not a classification; send a null cause to hand the outcome back to the rules. (Parameter 'request')\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Hand Stage Outcome Back To The Rules",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/stage-outcomes/{{stageOutcomeId}}/cause",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "stage-outcomes",
+                                "{{stageOutcomeId}}",
+                                "cause"
+                            ]
+                        },
+                        "description": "A null cause clears the manual classification and re-applies the enabled rules.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Cause\": null\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Classified by the rules",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Id\": \"sto_mvq0z9y8x7w6v5u4t3s2r1q0\",\n  \"TenantId\": \"default\",\n  \"UserId\": \"default\",\n  \"MissionId\": \"msn_mvq0abc\",\n  \"VoyageId\": \"vyg_mvq0abc\",\n  \"VesselId\": \"vsl_mvq0abc\",\n  \"CaptainId\": \"cpt_mvq0abc\",\n  \"CaptainName\": \"captain-1\",\n  \"Persona\": \"Worker\",\n  \"Attempt\": 1,\n  \"ReworkRound\": 0,\n  \"Runtime\": \"ClaudeCode\",\n  \"Model\": \"claude-sonnet-5-5\",\n  \"ExitCode\": 0,\n  \"RuntimeFailureKind\": \"Clean\",\n  \"StageCheckStatus\": \"Passed\",\n  \"StageCheckReason\": null,\n  \"Disposition\": \"Relaunched\",\n  \"FailureKind\": \"InvalidOutput\",\n  \"FailureReason\": \"No [ARMADA:RESULT] block in the output\",\n  \"SuspectedCause\": \"Protocol\",\n  \"CauseSource\": \"Rule\",\n  \"CauseRuleId\": \"fcr_mvq0builtin\",\n  \"CauseNote\": null,\n  \"ClassifiedByUserId\": null,\n  \"ClassifiedUtc\": null,\n  \"IsEvaluation\": false,\n  \"StartedUtc\": \"2026-10-26T17:40:00.000Z\",\n  \"EndedUtc\": \"2026-10-26T17:52:00.000Z\",\n  \"DurationMs\": 720000,\n  \"CreatedUtc\": \"2026-10-26T17:52:00.000Z\",\n  \"LastUpdateUtc\": \"2026-10-26T17:52:00.000Z\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Draft Failure Cause Rule From Outcome",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/stage-outcomes/{{stageOutcomeId}}/rule",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "stage-outcomes",
+                                "{{stageOutcomeId}}",
+                                "rule"
+                            ]
+                        },
+                        "description": "Returns an unsaved rule drafted from the outcome: its cause and tenant, priority 5, and a match on its failure kind, runtime failure kind, stage-check status and reason, disposition and persona. Nothing is stored; edit it and POST it to /api/v1/failure-cause-rules. 409 when the outcome's cause is None."
+                    },
+                    "response": [
+                        {
+                            "name": "Draft",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Id\": \"fcr_mvq1draft000000000000000\",\n  \"TenantId\": \"default\",\n  \"Name\": \"InstructionFollowing like sto_mvq0z9y8x7w6v5u4t3s2r1q0\",\n  \"Description\": \"Drafted from stage outcome sto_mvq0z9y8x7w6v5u4t3s2r1q0 (mission msn_mvq0abc). Note: Ignored the scope rule in the brief\",\n  \"Priority\": 5,\n  \"Enabled\": true,\n  \"IsBuiltIn\": false,\n  \"Match\": {\n    \"Personas\": [\n      \"Worker\"\n    ],\n    \"Runtimes\": [],\n    \"FailureKinds\": [\n      \"InvalidOutput\"\n    ],\n    \"RuntimeFailureKinds\": [\n      \"Clean\"\n    ],\n    \"StageCheckStatuses\": [\n      \"Passed\"\n    ],\n    \"StageCheckReasons\": [],\n    \"Dispositions\": [\n      \"Relaunched\"\n    ],\n    \"TextPattern\": null\n  },\n  \"Cause\": \"InstructionFollowing\",\n  \"CreatedByUserId\": \"default\",\n  \"CreatedUtc\": \"2026-10-26T18:00:00.000Z\",\n  \"LastUpdateUtc\": \"2026-10-26T18:00:00.000Z\"\n}"
+                        },
+                        {
+                            "name": "No cause",
+                            "status": "Conflict",
+                            "code": 409,
+                            "body": "{\n  \"Error\": \"Conflict\",\n  \"Message\": \"Stage outcome sto_mvq0z9y8x7w6v5u4t3s2r1q0 has no cause to turn into a rule; classify it first.\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Reclassify Stage Outcomes",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/stage-outcomes/reclassify",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "stage-outcomes",
+                                "reclassify"
+                            ]
+                        },
+                        "description": "Re-apply the enabled rules to every outcome matching the StageOutcomeQuery body (paging is ignored); outcomes classified by hand are skipped. Global admins and tenant admins (their own tenant) only; 403 otherwise.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"SuspectedCause\": \"Unknown\"\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Result",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Examined\": 12,\n  \"Changed\": 3,\n  \"SkippedManual\": 1\n}"
+                        },
+                        {
+                            "name": "Not an admin",
+                            "status": "Forbidden",
+                            "code": 403,
+                            "body": "{\n  \"Error\": \"Forbidden\",\n  \"Message\": \"You do not have permission to perform this action\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "List Failure Cause Rules",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/failure-cause-rules?pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "failure-cause-rules"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1",
+                                    "description": "Page number"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25",
+                                    "description": "Page size (1-1000, default 10)"
+                                }
+                            ]
+                        },
+                        "description": "One page of the rules visible to the caller in evaluation order (priority, then name): the caller's tenant plus the rules for every tenant, built-ins included; global admins see every rule."
+                    },
+                    "response": [
+                        {
+                            "name": "One page",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Success\": true,\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"TotalPages\": 1,\n  \"TotalRecords\": 1,\n  \"Objects\": [\n    {\n      \"Id\": \"fcr_mvq1a2b3c4d5e6f7g8h9i0j1\",\n      \"TenantId\": \"default\",\n      \"Name\": \"Prose instead of result block\",\n      \"Description\": \"The captain wrote its result in prose instead of the required block.\",\n      \"Priority\": 5,\n      \"Enabled\": true,\n      \"IsBuiltIn\": false,\n      \"Match\": {\n        \"Personas\": [],\n        \"Runtimes\": [],\n        \"FailureKinds\": [\n          \"InvalidOutput\"\n        ],\n        \"RuntimeFailureKinds\": [],\n        \"StageCheckStatuses\": [],\n        \"StageCheckReasons\": [],\n        \"Dispositions\": [\n          \"Relaunched\",\n          \"Failed\"\n        ],\n        \"TextPattern\": \"result block\"\n      },\n      \"Cause\": \"Protocol\",\n      \"CreatedByUserId\": \"default\",\n      \"CreatedUtc\": \"2026-10-26T18:00:00.000Z\",\n      \"LastUpdateUtc\": \"2026-10-26T18:00:00.000Z\"\n    }\n  ],\n  \"TotalMs\": 1.2\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Create Failure Cause Rule",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/failure-cause-rules",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "failure-cause-rules"
+                            ]
+                        },
+                        "description": "Create a rule. A global admin may set TenantId (omit for every tenant); anyone else creates a rule for their own tenant. 400 when invalid (no name, a name over 200 characters, no match criterion, cause None, invalid TextPattern); 409 for a duplicate name in the tenant.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Name\": \"Prose instead of result block\",\n  \"Description\": \"The captain wrote its result in prose instead of the required block.\",\n  \"Priority\": 5,\n  \"Enabled\": true,\n  \"Cause\": \"Protocol\",\n  \"Match\": {\n    \"FailureKinds\": [\n      \"InvalidOutput\"\n    ],\n    \"Dispositions\": [\n      \"Relaunched\",\n      \"Failed\"\n    ],\n    \"TextPattern\": \"result block\"\n  }\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Created",
+                            "status": "Created",
+                            "code": 201,
+                            "body": "{\n  \"Id\": \"fcr_mvq1a2b3c4d5e6f7g8h9i0j1\",\n  \"TenantId\": \"default\",\n  \"Name\": \"Prose instead of result block\",\n  \"Description\": \"The captain wrote its result in prose instead of the required block.\",\n  \"Priority\": 5,\n  \"Enabled\": true,\n  \"IsBuiltIn\": false,\n  \"Match\": {\n    \"Personas\": [],\n    \"Runtimes\": [],\n    \"FailureKinds\": [\n      \"InvalidOutput\"\n    ],\n    \"RuntimeFailureKinds\": [],\n    \"StageCheckStatuses\": [],\n    \"StageCheckReasons\": [],\n    \"Dispositions\": [\n      \"Relaunched\",\n      \"Failed\"\n    ],\n    \"TextPattern\": \"result block\"\n  },\n  \"Cause\": \"Protocol\",\n  \"CreatedByUserId\": \"default\",\n  \"CreatedUtc\": \"2026-10-26T18:00:00.000Z\",\n  \"LastUpdateUtc\": \"2026-10-26T18:00:00.000Z\"\n}"
+                        },
+                        {
+                            "name": "No criterion",
+                            "status": "Bad Request",
+                            "code": 400,
+                            "body": "{\n  \"Error\": \"BadRequest\",\n  \"Message\": \"Match must set at least one criterion. (Parameter 'rule')\"\n}"
+                        },
+                        {
+                            "name": "Duplicate name",
+                            "status": "Conflict",
+                            "code": 409,
+                            "body": "{\n  \"Error\": \"Conflict\",\n  \"Message\": \"A failure-cause rule named 'Prose instead of result block' already exists in this tenant.\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Get Failure Cause Rule",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/failure-cause-rules/{{failureCauseRuleId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "failure-cause-rules",
+                                "{{failureCauseRuleId}}"
+                            ]
+                        },
+                        "description": "One rule. 404 when it does not exist or belongs to another tenant."
+                    },
+                    "response": [
+                        {
+                            "name": "Rule",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Id\": \"fcr_mvq1a2b3c4d5e6f7g8h9i0j1\",\n  \"TenantId\": \"default\",\n  \"Name\": \"Prose instead of result block\",\n  \"Description\": \"The captain wrote its result in prose instead of the required block.\",\n  \"Priority\": 5,\n  \"Enabled\": true,\n  \"IsBuiltIn\": false,\n  \"Match\": {\n    \"Personas\": [],\n    \"Runtimes\": [],\n    \"FailureKinds\": [\n      \"InvalidOutput\"\n    ],\n    \"RuntimeFailureKinds\": [],\n    \"StageCheckStatuses\": [],\n    \"StageCheckReasons\": [],\n    \"Dispositions\": [\n      \"Relaunched\",\n      \"Failed\"\n    ],\n    \"TextPattern\": \"result block\"\n  },\n  \"Cause\": \"Protocol\",\n  \"CreatedByUserId\": \"default\",\n  \"CreatedUtc\": \"2026-10-26T18:00:00.000Z\",\n  \"LastUpdateUtc\": \"2026-10-26T18:00:00.000Z\"\n}"
+                        },
+                        {
+                            "name": "Not found",
+                            "status": "Not Found",
+                            "code": 404,
+                            "body": "{\n  \"Error\": \"NotFound\",\n  \"Message\": \"Failure-cause rule not found.\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Update Failure Cause Rule",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/failure-cause-rules/{{failureCauseRuleId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "failure-cause-rules",
+                                "{{failureCauseRuleId}}"
+                            ]
+                        },
+                        "description": "Replace Name, Description, Priority, Enabled, Match and Cause (TenantId and IsBuiltIn are fixed). Rules for every tenant and built-in rules need a global admin (403); an edited built-in is never overwritten by seeding.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Name\": \"Prose instead of result block\",\n  \"Priority\": 5,\n  \"Enabled\": false,\n  \"Cause\": \"Protocol\",\n  \"Match\": {\n    \"FailureKinds\": [\n      \"InvalidOutput\"\n    ],\n    \"TextPattern\": \"result block\"\n  }\n}"
+                        }
+                    },
+                    "response": [
+                        {
+                            "name": "Updated",
+                            "status": "OK",
+                            "code": 200,
+                            "body": "{\n  \"Id\": \"fcr_mvq1a2b3c4d5e6f7g8h9i0j1\",\n  \"TenantId\": \"default\",\n  \"Name\": \"Prose instead of result block\",\n  \"Description\": null,\n  \"Priority\": 5,\n  \"Enabled\": false,\n  \"IsBuiltIn\": false,\n  \"Match\": {\n    \"Personas\": [],\n    \"Runtimes\": [],\n    \"FailureKinds\": [\n      \"InvalidOutput\"\n    ],\n    \"RuntimeFailureKinds\": [],\n    \"StageCheckStatuses\": [],\n    \"StageCheckReasons\": [],\n    \"Dispositions\": [],\n    \"TextPattern\": \"result block\"\n  },\n  \"Cause\": \"Protocol\",\n  \"CreatedByUserId\": \"default\",\n  \"CreatedUtc\": \"2026-10-26T18:00:00.000Z\",\n  \"LastUpdateUtc\": \"2026-10-26T18:00:00.000Z\"\n}"
+                        },
+                        {
+                            "name": "Built-in, not a global admin",
+                            "status": "Forbidden",
+                            "code": 403,
+                            "body": "{\n  \"Error\": \"Forbidden\",\n  \"Message\": \"Only a global admin can edit a built-in failure-cause rule.\"\n}"
+                        }
+                    ]
+                },
+                {
+                    "name": "Delete Failure Cause Rule",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/failure-cause-rules/{{failureCauseRuleId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "failure-cause-rules",
+                                "{{failureCauseRuleId}}"
+                            ]
+                        },
+                        "description": "Delete a rule. Rules for every tenant and built-in rules need a global admin (403). A deleted built-in is stored again the next time the Admiral starts; disable it instead to keep it off."
+                    },
+                    "response": [
+                        {
+                            "name": "Deleted",
+                            "status": "No Content",
+                            "code": 204,
+                            "body": ""
+                        }
+                    ]
                 }
             ]
         },
