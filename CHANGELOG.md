@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Unfinished work counts only a completion line
+
+- **A quoted completion marker does not finish a stage.** `IsUnfinishedWork` treats `[ARMADA:RESULT] COMPLETE` as present only when that text is its own line outside a fenced block, the same rule `ModelProbeScorer.HasWorkerResultLine` already uses. A marker inside a sentence, inside a fence, or with more words on the same line leaves an empty diff on the start commit unfinished. A standalone completion line still counts as finished. The fast no-op length and time limits are unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
