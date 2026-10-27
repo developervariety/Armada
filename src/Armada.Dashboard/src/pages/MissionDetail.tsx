@@ -36,6 +36,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import PageHeader from '../components/shared/PageHeader';
+import EvaluationBadge from '../components/shared/EvaluationBadge';
 import CopyButton from '../components/shared/CopyButton';
 import Markdown from '../components/shared/Markdown';
 import Button from '../components/shared/Button';
@@ -437,7 +438,7 @@ export default function MissionDetail() {
             <Link to="/missions">{t('Missions')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{mission.title}</span>
           </>
         }
-        title={mission.title}
+        title={<>{mission.title} <EvaluationBadge isEvaluation={mission.isEvaluation} /></>}
         actions={
           <>
             {canResolveReview && reviewApproval && <CliPermissionCountdown expiresUtc={mission.reviewDeadlineUtc} active={!!mission.reviewDeadlineUtc} timeoutDecision={reviewApproval.timeoutDecision} />}

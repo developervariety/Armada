@@ -29,6 +29,12 @@ namespace Armada.Client.Models
         /// </summary>
         public int? Priority { get; set; } = null;
 
+        /// <summary>
+        /// True for evaluation work: the mission's stage outcomes never count as production data. A mission added to an
+        /// evaluation voyage is flagged regardless. Default false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
+
         #endregion
 
         #region Constructors-and-Factories

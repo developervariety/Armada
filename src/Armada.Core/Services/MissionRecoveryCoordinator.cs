@@ -247,6 +247,7 @@ namespace Armada.Core.Services
             rescue.TenantId = original.TenantId;
             rescue.UserId = original.UserId;
             rescue.VesselId = original.VesselId;
+            rescue.IsEvaluation = original.IsEvaluation;
             rescue.ParentMissionId = original.Id;
             rescue.IsRescue = true;
             rescue.Persona = PersonaCatalog.Worker;

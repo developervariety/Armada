@@ -1970,7 +1970,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_battery_runs_status ON battery_runs(status);",
                     @"CREATE INDEX IF NOT EXISTS idx_battery_runs_created ON battery_runs(created_utc);",
                     @"CREATE INDEX IF NOT EXISTS idx_battery_task_results_run ON battery_task_results(run_id);",
-                    @"CREATE INDEX IF NOT EXISTS idx_battery_task_results_mission ON battery_task_results(mission_id);")
+                    @"CREATE INDEX IF NOT EXISTS idx_battery_task_results_mission ON battery_task_results(mission_id);"),
+                new SchemaMigration(96, "Add is_evaluation to voyages and missions so evaluation work (fixture battery and model evaluation) is flagged first-class instead of inferred from the vessel pipeline",
+                    @"ALTER TABLE voyages ADD COLUMN IF NOT EXISTS is_evaluation BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS is_evaluation BOOLEAN NOT NULL DEFAULT FALSE;")
 
 
             };

@@ -7932,6 +7932,11 @@
           "required": true
         },
         {
+          "name": "isEvaluation",
+          "type": "boolean",
+          "required": false
+        },
+        {
           "name": "mode",
           "type": "string",
           "required": false
@@ -8916,6 +8921,11 @@
         {
           "name": "description",
           "type": "string",
+          "required": false
+        },
+        {
+          "name": "isEvaluation",
+          "type": "boolean",
           "required": false
         },
         {

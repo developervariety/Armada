@@ -163,6 +163,7 @@ namespace Armada.Server.Routes
                     voyage.UserId = ctx.UserId;
                     voyage.LandingMode = voyageReq.LandingMode;
                     voyage.ApprovalOptions = voyageReq.ApprovalOptions?.Snapshot();
+                    voyage.IsEvaluation = voyageReq.IsEvaluation;
                     voyage = await _database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
                     voyage.SelectedPlaybooks = voyageReq.SelectedPlaybooks ?? new List<SelectedPlaybook>();
                     if (voyage.SelectedPlaybooks.Count > 0)
@@ -190,7 +191,7 @@ namespace Armada.Server.Routes
                         pipelineId,
                         voyageReq.SelectedPlaybooks,
                         overridesJson,
-                        voyageReq.LandingMode, approvalOptions: voyageReq.ApprovalOptions).ConfigureAwait(false);
+                        voyageReq.LandingMode, approvalOptions: voyageReq.ApprovalOptions, isEvaluation: voyageReq.IsEvaluation).ConfigureAwait(false);
                 }
 
                 if (!String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))

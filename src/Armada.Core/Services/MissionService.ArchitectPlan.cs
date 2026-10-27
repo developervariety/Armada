@@ -42,6 +42,7 @@ namespace Armada.Core.Services
                 clonedStage.UserId = templateChild.UserId;
                 clonedStage.VoyageId = templateChild.VoyageId;
                 clonedStage.VesselId = templateChild.VesselId;
+                clonedStage.IsEvaluation = templateChild.IsEvaluation;
                 clonedStage.Persona = childPersona;
                 clonedStage.DependsOnMissionId = newDependency.Id;
                 clonedStage.RequiresReview = templateChild.RequiresReview;

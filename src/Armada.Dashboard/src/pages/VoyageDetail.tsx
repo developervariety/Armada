@@ -16,6 +16,7 @@ import { listAll } from '../api/paging';
 import type { Voyage, Mission, Vessel, Captain, MissionPlaybookSnapshot, SelectedPlaybook, CaptainAssignmentOverride } from '../types/models';
 import CaptainRef from '../components/shared/CaptainRef';
 import StatusBadge from '../components/shared/StatusBadge';
+import EvaluationBadge from '../components/shared/EvaluationBadge';
 import ErrorModal from '../components/shared/ErrorModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -233,7 +234,7 @@ export default function VoyageDetail() {
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-        <h2>{voyage.title || voyage.id}</h2>
+        <h2>{voyage.title || voyage.id} <EvaluationBadge isEvaluation={voyage.isEvaluation} /></h2>
       </div>
 
       {/* Action buttons */}
@@ -399,7 +400,7 @@ export default function VoyageDetail() {
             {
               key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'), cellClassName: 'cell-title',
               cellTitle: (m) => m.title,
-              render: (m) => <strong className="line-clamp-2">{m.title}</strong>,
+              render: (m) => <><strong className="line-clamp-2">{m.title}</strong>{m.isEvaluation && <EvaluationBadge isEvaluation />}</>,
             },
             {
               key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix).'), cellClassName: 'mono text-dim table-id-cell',

@@ -629,6 +629,7 @@ namespace Armada.Core.Database.SqlServer
             try { mission.OutputRepairAttempts = Convert.ToInt32(reader["output_repair_attempts"]); } catch { }
             try { mission.NoOpRedispatchAttempts = Convert.ToInt32(reader["noop_redispatch_attempts"]); } catch { }
             try { mission.IsRescue = reader["is_rescue"] != DBNull.Value && Convert.ToBoolean(reader["is_rescue"]); } catch { }
+            try { mission.IsEvaluation = reader["is_evaluation"] != DBNull.Value && Convert.ToBoolean(reader["is_evaluation"]); } catch { }
             try { mission.ReworkRound = reader["rework_round"] != DBNull.Value ? Convert.ToInt32(reader["rework_round"]) : 0; } catch { }
             try { mission.ReworkEscalated = reader["rework_escalated"] != DBNull.Value && Convert.ToBoolean(reader["rework_escalated"]); } catch { }
             try
@@ -699,6 +700,7 @@ namespace Armada.Core.Database.SqlServer
                 voyage.LandingMode = vlm;
             try { voyage.CaptainOverridesJson = NullableString(reader["captain_overrides_json"]); } catch { }
             voyage.ApprovalOptions = RunApprovalOptions.FromJson(NullableString(reader["approval_options_json"]));
+            try { voyage.IsEvaluation = reader["is_evaluation"] != DBNull.Value && Convert.ToBoolean(reader["is_evaluation"]); } catch { }
             return voyage;
         }
 

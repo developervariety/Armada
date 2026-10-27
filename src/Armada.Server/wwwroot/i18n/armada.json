@@ -6042,7 +6042,8 @@
         "Run the Quick mechanical probes against this target as an evaluation. Results are observations only: they never change routing or settings and never count in production stage outcomes.": "Ejecuta las sondas mecánicas rápidas (Quick) contra este destino como evaluación. Los resultados son solo observaciones: nunca cambian el enrutamiento ni la configuración y nunca cuentan en los resultados de etapa de producción.",
         "Probe this captain through its own runtime: served context, output contract, ASCII and format, tool calling, speed and determinism.": "Sondea este capitán a través de su propio runtime: contexto servido, contrato de salida, ASCII y formato, llamadas a herramientas, velocidad y determinismo.",
         "Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.": "Sondea este endpoint de modelo: contexto servido, contrato de salida, ASCII y formato, llamadas a herramientas, velocidad y determinismo.",
-        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "Abre los detalles de este endpoint para ejecutar las sondas rápidas (Quick) contra él como evaluación."
+        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "Abre los detalles de este endpoint para ejecutar las sondas rápidas (Quick) contra él como evaluación.",
+        "Evaluation work (fixture battery or model evaluation). Its stage outcomes never count as production data.": "Trabajo de evaluación (batería de fixtures o evaluación de modelos). Sus resultados de etapa nunca cuentan como datos de producción."
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -11021,7 +11022,8 @@
         "Run the Quick mechanical probes against this target as an evaluation. Results are observations only: they never change routing or settings and never count in production stage outcomes.": "将快速（Quick）机械探测作为评估针对此目标运行。结果仅为观察：不会更改路由或设置，也不会计入生产阶段结果。",
         "Probe this captain through its own runtime: served context, output contract, ASCII and format, tool calling, speed and determinism.": "通过此舰长自身的运行时进行探测：实际上下文、输出约定、ASCII 与格式、工具调用、速度和确定性。",
         "Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.": "探测此模型端点：实际上下文、输出约定、ASCII 与格式、工具调用、速度和确定性。",
-        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "打开此端点的详情，以评估方式对其运行快速（Quick）探测。"
+        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "打开此端点的详情，以评估方式对其运行快速（Quick）探测。",
+        "Evaluation work (fixture battery or model evaluation). Its stage outcomes never count as production data.": "评估工作（夹具测试集或模型评估）。其阶段结果从不计入生产数据。"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -15963,7 +15965,8 @@
         "Run the Quick mechanical probes against this target as an evaluation. Results are observations only: they never change routing or settings and never count in production stage outcomes.": "將快速（Quick）機械探測作為評估針對此目標執行。結果僅為觀察：不會變更路由或設定，也不會計入正式階段結果。",
         "Probe this captain through its own runtime: served context, output contract, ASCII and format, tool calling, speed and determinism.": "透過此艦長自身的執行環境進行探測：實際上下文、輸出約定、ASCII 與格式、工具呼叫、速度和確定性。",
         "Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.": "探測此模型端點：實際上下文、輸出約定、ASCII 與格式、工具呼叫、速度和確定性。",
-        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "開啟此端點的詳細資料，以評估方式對其執行快速（Quick）探測。"
+        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "開啟此端點的詳細資料，以評估方式對其執行快速（Quick）探測。",
+        "Evaluation work (fixture battery or model evaluation). Its stage outcomes never count as production data.": "評估工作（夾具測試集或模型評估）。其階段結果從不計入生產資料。"
       },
       "sections": {}
     },
@@ -20865,7 +20868,8 @@
         "Run the Quick mechanical probes against this target as an evaluation. Results are observations only: they never change routing or settings and never count in production stage outcomes.": "將快速（Quick）機械探測當評估咁對呢個目標執行。結果只係觀察：唔會改路由或者設定，亦唔會計入正式階段結果。",
         "Probe this captain through its own runtime: served context, output contract, ASCII and format, tool calling, speed and determinism.": "經呢個艦長自己嘅執行環境探測：實際上下文、輸出約定、ASCII 同格式、工具呼叫、速度同確定性。",
         "Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.": "探測呢個模型端點：實際上下文、輸出約定、ASCII 同格式、工具呼叫、速度同確定性。",
-        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "打開呢個端點嘅詳細資料，以評估方式對佢執行快速（Quick）探測。"
+        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "打開呢個端點嘅詳細資料，以評估方式對佢執行快速（Quick）探測。",
+        "Evaluation work (fixture battery or model evaluation). Its stage outcomes never count as production data.": "評估工作（夾具測試集或者模型評估）。佢嘅階段結果唔會計入生產數據。"
       },
       "sections": {}
     },
@@ -25783,7 +25787,8 @@
         "Run the Quick mechanical probes against this target as an evaluation. Results are observations only: they never change routing or settings and never count in production stage outcomes.": "このターゲットに対してクイック（Quick）機械的プローブを評価として実行します。結果は観察のみで、ルーティングや設定を変更することはなく、本番のステージ結果にも数えられません。",
         "Probe this captain through its own runtime: served context, output contract, ASCII and format, tool calling, speed and determinism.": "このキャプテン自身のランタイムを通じてプローブします: 実際のコンテキスト、出力規約、ASCII と書式、ツール呼び出し、速度、決定性。",
         "Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.": "このモデルエンドポイントをプローブします: 実際のコンテキスト、出力規約、ASCII と書式、ツール呼び出し、速度、決定性。",
-        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "このエンドポイントの詳細を開き、評価としてクイック（Quick）プローブを実行します。"
+        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "このエンドポイントの詳細を開き、評価としてクイック（Quick）プローブを実行します。",
+        "Evaluation work (fixture battery or model evaluation). Its stage outcomes never count as production data.": "評価作業（フィクスチャバッテリーまたはモデル評価）。そのステージ結果は本番データとして集計されません。"
       },
       "sections": {}
     },
@@ -30692,7 +30697,8 @@
         "Run the Quick mechanical probes against this target as an evaluation. Results are observations only: they never change routing or settings and never count in production stage outcomes.": "Führt die schnellen (Quick) mechanischen Proben als Evaluierung gegen dieses Ziel aus. Die Ergebnisse sind nur Beobachtungen: Sie ändern nie Routing oder Einstellungen und zählen nie in den Stufenergebnissen der Produktion.",
         "Probe this captain through its own runtime: served context, output contract, ASCII and format, tool calling, speed and determinism.": "Prüft diesen Captain über seine eigene Laufzeit: bereitgestellter Kontext, Ausgabevertrag, ASCII und Format, Tool-Aufrufe, Geschwindigkeit und Determinismus.",
         "Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.": "Prüft diesen Modell-Endpunkt: bereitgestellter Kontext, Ausgabevertrag, ASCII und Format, Tool-Aufrufe, Geschwindigkeit und Determinismus.",
-        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "Öffnet die Details dieses Endpunkts, um die schnellen (Quick) Proben als Evaluierung dagegen auszuführen."
+        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "Öffnet die Details dieses Endpunkts, um die schnellen (Quick) Proben als Evaluierung dagegen auszuführen.",
+        "Evaluation work (fixture battery or model evaluation). Its stage outcomes never count as production data.": "Evaluierungsarbeit (Fixture-Batterie oder Modellevaluierung). Ihre Stufenergebnisse zählen nie als Produktionsdaten."
       },
       "sections": {}
     },
@@ -35601,7 +35607,8 @@
         "Run the Quick mechanical probes against this target as an evaluation. Results are observations only: they never change routing or settings and never count in production stage outcomes.": "Exécute les sondes mécaniques rapides (Quick) sur cette cible en tant qu'évaluation. Les résultats ne sont que des observations : ils ne modifient jamais le routage ni les paramètres et ne comptent jamais dans les résultats d'étape de production.",
         "Probe this captain through its own runtime: served context, output contract, ASCII and format, tool calling, speed and determinism.": "Sonde ce capitaine via son propre runtime : contexte servi, contrat de sortie, ASCII et format, appels d'outils, vitesse et déterminisme.",
         "Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.": "Sonde ce point de terminaison de modèle : contexte servi, contrat de sortie, ASCII et format, appels d'outils, vitesse et déterminisme.",
-        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "Ouvre les détails de ce point de terminaison pour y exécuter les sondes rapides (Quick) en tant qu'évaluation."
+        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "Ouvre les détails de ce point de terminaison pour y exécuter les sondes rapides (Quick) en tant qu'évaluation.",
+        "Evaluation work (fixture battery or model evaluation). Its stage outcomes never count as production data.": "Travail d'évaluation (batterie de fixtures ou évaluation de modèle). Ses résultats d'étape ne comptent jamais comme données de production."
       },
       "sections": {}
     },
@@ -40510,7 +40517,8 @@
         "Run the Quick mechanical probes against this target as an evaluation. Results are observations only: they never change routing or settings and never count in production stage outcomes.": "Esegue le sonde meccaniche rapide (Quick) su questa destinazione come valutazione. I risultati sono solo osservazioni: non cambiano mai il routing o le impostazioni e non contano mai negli esiti delle fasi di produzione.",
         "Probe this captain through its own runtime: served context, output contract, ASCII and format, tool calling, speed and determinism.": "Sonda questo capitano tramite il suo runtime: contesto servito, contratto di output, ASCII e formato, chiamate agli strumenti, velocità e determinismo.",
         "Probe this model endpoint: served context, output contract, ASCII and format, tool calling, speed and determinism.": "Sonda questo endpoint del modello: contesto servito, contratto di output, ASCII e formato, chiamate agli strumenti, velocità e determinismo.",
-        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "Apre i dettagli di questo endpoint per eseguire su di esso le sonde rapide (Quick) come valutazione."
+        "Open this endpoint's details to run the Quick probes against it as an evaluation.": "Apre i dettagli di questo endpoint per eseguire su di esso le sonde rapide (Quick) come valutazione.",
+        "Evaluation work (fixture battery or model evaluation). Its stage outcomes never count as production data.": "Lavoro di valutazione (batteria di fixture o valutazione del modello). I suoi esiti di fase non contano mai come dati di produzione."
       },
       "sections": {}
     }

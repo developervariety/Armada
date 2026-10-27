@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -94,6 +95,48 @@ namespace Test.Shared.Suites.Database
                     AssertFalse(plainRead.WaitForVoyageWorkers, "a new mission does not wait for voyage workers");
                     AssertFalse(plainRead.IsRescue, "a new mission is not a rescue");
                     AssertEqual(0, plainRead.ReworkRound, "a new mission is not a rework");
+                }
+            }));
+
+            cases.Add(CaseAsync("evaluation_flag_round_trips_on_missions_and_voyages", "IsEvaluation persists on create and update for missions and voyages, defaults to false, and survives enumeration", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    MissionTestPrerequisites prereqs = await CreatePrerequisitesAsync(db);
+
+                    AssertFalse((await db.Voyages.ReadAsync(prereqs.Voyage.Id))!.IsEvaluation, "a voyage defaults to production");
+                    Voyage evalVoyage = await db.Voyages.CreateAsync(new Voyage("Eval Voyage", "desc") { IsEvaluation = true });
+                    Voyage? voyageRead = await db.Voyages.ReadAsync(evalVoyage.Id);
+                    AssertTrue(voyageRead!.IsEvaluation, "voyage flag persists on create");
+                    voyageRead.IsEvaluation = false;
+                    await db.Voyages.UpdateAsync(voyageRead);
+                    AssertFalse((await db.Voyages.ReadAsync(evalVoyage.Id))!.IsEvaluation, "voyage flag clears on update");
+                    voyageRead.IsEvaluation = true;
+                    await db.Voyages.UpdateAsync(voyageRead);
+                    AssertTrue((await db.Voyages.ReadAsync(evalVoyage.Id))!.IsEvaluation, "voyage flag sets on update");
+
+                    Mission mission = new Mission("Eval Mission", "desc");
+                    mission.VesselId = prereqs.Vessel.Id;
+                    mission.VoyageId = evalVoyage.Id;
+                    mission.IsEvaluation = true;
+                    await db.Missions.CreateAsync(mission);
+                    Mission? read = await db.Missions.ReadAsync(mission.Id);
+                    AssertTrue(read!.IsEvaluation, "mission flag persists on create");
+                    AssertTrue((await db.Missions.EnumerateByVoyageAsync(evalVoyage.Id)).Single().IsEvaluation, "mission flag survives enumeration");
+                    AssertTrue((await db.Missions.ReadSummaryAsync(mission.Id))!.IsEvaluation, "mission flag appears in the summary projection");
+                    read.IsEvaluation = false;
+                    await db.Missions.UpdateAsync(read);
+                    AssertFalse((await db.Missions.ReadAsync(mission.Id))!.IsEvaluation, "mission flag clears on update");
+                    read.IsEvaluation = true;
+                    await db.Missions.UpdateAsync(read);
+                    AssertTrue((await db.Missions.ReadAsync(mission.Id))!.IsEvaluation, "mission flag sets on update");
+
+                    Mission plain = new Mission("Plain Mission", "desc");
+                    plain.VesselId = prereqs.Vessel.Id;
+                    await db.Missions.CreateAsync(plain);
+                    AssertFalse((await db.Missions.ReadAsync(plain.Id))!.IsEvaluation, "a mission defaults to production");
+                    AssertFalse((await db.Missions.ReadSummaryAsync(plain.Id))!.IsEvaluation, "a production summary is not flagged");
                 }
             }));
 

@@ -97,6 +97,7 @@ namespace Armada.Core.Services
             rework.UserId = judge.UserId;
             rework.VoyageId = judge.VoyageId;
             rework.VesselId = judge.VesselId;
+            rework.IsEvaluation = judge.IsEvaluation;
             rework.Persona = PersonaCatalog.Worker;
             rework.ReworkRound = round;
             rework.ReworkEscalated = escalateTo != null;
@@ -129,6 +130,7 @@ namespace Armada.Core.Services
                 repeated.UserId = original.UserId;
                 repeated.VoyageId = original.VoyageId;
                 repeated.VesselId = original.VesselId;
+                repeated.IsEvaluation = original.IsEvaluation;
                 repeated.Persona = original.Persona;
                 repeated.Mode = original.Mode;
                 repeated.Tier = original.Tier;
@@ -148,6 +150,7 @@ namespace Armada.Core.Services
             nextJudge.UserId = judge.UserId;
             nextJudge.VoyageId = judge.VoyageId;
             nextJudge.VesselId = judge.VesselId;
+            nextJudge.IsEvaluation = judge.IsEvaluation;
             nextJudge.Persona = reviewerIsJudge ? PersonaCatalog.Judge : judge.Persona;
             nextJudge.Tier = judge.Tier;
             nextJudge.DependsOnMissionId = reworkParentId;

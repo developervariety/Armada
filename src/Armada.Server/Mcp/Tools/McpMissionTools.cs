@@ -99,6 +99,7 @@ namespace Armada.Server.Mcp.Tools
                         persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, Test Engineer)" },
                         mode = new { type = "string", description = "Execution mode: Implementation (default), Audit, or Research. Audit and Research are read-only modes that produce a written report instead of a commit; their empty diff is treated as success." },
                         tier = new { type = "string", description = "Optional minimum captain tier for this mission (Economy, Standard, or Premium); only captains at or above it are assigned" },
+                        isEvaluation = new { type = "boolean", description = "True for evaluation work: the mission's stage outcomes never count as production data. A mission added to an evaluation voyage is flagged regardless. Default false." },
                         selectedPlaybooks = new
                         {
                             type = "array",
@@ -139,6 +140,7 @@ namespace Armada.Server.Mcp.Tools
                     if (!String.IsNullOrWhiteSpace(request.Mode) && Enum.TryParse<MissionModeEnum>(request.Mode.Trim(), true, out MissionModeEnum missionMode))
                         mission.Mode = missionMode;
                     mission.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    mission.IsEvaluation = request.IsEvaluation;
                     mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
                     if (mission.Status == Armada.Core.Enums.MissionStatusEnum.Pending)
                     {

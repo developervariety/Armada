@@ -55,6 +55,18 @@ describe('Voyages landing mode column', () => {
     expect(screen.queryByRole('columnheader', { name: 'Auto Create PRs' })).toBeNull();
   });
 
+  it('marks evaluation voyages with an Evaluation badge and leaves production rows plain', async () => {
+    vi.mocked(listVoyages).mockResolvedValue({
+      success: true, pageNumber: 1, pageSize: 25, totalPages: 1, totalRecords: 2, totalMs: 1,
+      objects: [{ ...voyage('vyg_1', 'Gateway hardening', 'MergeAndPush'), isEvaluation: true }, voyage('vyg_2', 'Docs sweep', null)],
+    } as never);
+    render(<MemoryRouter><Voyages /></MemoryRouter>);
+    const flagged = (await screen.findByText('Gateway hardening')).closest('tr')!;
+    expect(within(flagged).getByText('Evaluation')).toHaveClass('evaluation-badge');
+    const plain = screen.getByText('Docs sweep').closest('tr')!;
+    expect(within(plain).queryByText('Evaluation')).toBeNull();
+  });
+
   async function selectBoth() {
     const first = (await screen.findByText('Gateway hardening')).closest('tr')!;
     const second = screen.getByText('Docs sweep').closest('tr')!;

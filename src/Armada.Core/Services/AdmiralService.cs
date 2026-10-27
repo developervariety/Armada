@@ -199,7 +199,7 @@ namespace Armada.Core.Services
             List<SelectedPlaybook>? selectedPlaybooks,
             CancellationToken token = default)
         {
-            return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, null, null, null, token).ConfigureAwait(false);
+            return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, null, null, null, false, token).ConfigureAwait(false);
         }
 
         private async Task<Voyage> DispatchStandardVoyageAsync(
@@ -212,6 +212,7 @@ namespace Armada.Core.Services
             string? captainOverridesJson,
             LandingModeEnum? landingMode,
             RunApprovalOptions? approvalOptions,
+            bool isEvaluation,
             CancellationToken token)
         {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
@@ -236,6 +237,7 @@ namespace Armada.Core.Services
             voyage.CaptainOverridesJson = captainOverridesJson;
             voyage.ApprovalOptions = approvalOptions?.Snapshot();
             voyage.LandingMode = landingMode;
+            voyage.IsEvaluation = isEvaluation;
             voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
             if (voyage.SelectedPlaybooks.Count > 0)
@@ -252,6 +254,7 @@ namespace Armada.Core.Services
                 mission.UserId = vessel.UserId;
                 mission.VoyageId = voyage.Id;
                 mission.VesselId = vesselId;
+                mission.IsEvaluation = voyage.IsEvaluation;
                 mission.Tier = md.Tier;
                 mission.RequestedCaptainId = md.RequestedCaptainId;
                 if (singleStagePolicy != null)
@@ -311,7 +314,8 @@ namespace Armada.Core.Services
             string? captainOverridesJson = null,
             LandingModeEnum? landingMode = null,
             CancellationToken token = default,
-            RunApprovalOptions? approvalOptions = null)
+            RunApprovalOptions? approvalOptions = null,
+            bool isEvaluation = false)
         {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
@@ -336,12 +340,12 @@ namespace Armada.Core.Services
             // If pipeline is single-stage Worker (or null), use the standard dispatch path
             if (pipeline == null)
             {
-                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, captainOverridesJson, landingMode, approvalOptions, token).ConfigureAwait(false);
+                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, null, captainOverridesJson, landingMode, approvalOptions, isEvaluation, token).ConfigureAwait(false);
             }
 
             if (pipeline.Stages.Count == 1 && PersonaCatalog.Matches(pipeline.Stages[0].PersonaName, PersonaCatalog.Worker))
             {
-                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, pipeline.Stages[0], captainOverridesJson, landingMode, approvalOptions, token).ConfigureAwait(false);
+                return await DispatchStandardVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, pipeline.Stages[0], captainOverridesJson, landingMode, approvalOptions, isEvaluation, token).ConfigureAwait(false);
             }
 
             // Multi-stage pipeline: create voyage, then for each mission create a chain of persona stages.
@@ -354,6 +358,7 @@ namespace Armada.Core.Services
             voyage.CaptainOverridesJson = captainOverridesJson;
             voyage.ApprovalOptions = approvalOptions?.Snapshot();
             voyage.LandingMode = landingMode;
+            voyage.IsEvaluation = isEvaluation;
             voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
             voyage.SelectedPlaybooks = ClonePlaybookSelections(selectedPlaybooks);
             if (voyage.SelectedPlaybooks.Count > 0)
@@ -381,6 +386,7 @@ namespace Armada.Core.Services
                     mission.UserId = vessel.UserId;
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
+                    mission.IsEvaluation = voyage.IsEvaluation;
                     mission.Persona = stagePersonaName;
                     mission.DependsOnMissionId = previousMissionId;
                     mission.RequiresReview = stage.RequiresReview;
@@ -433,6 +439,13 @@ namespace Armada.Core.Services
             if (mission.SelectedPlaybooks != null && mission.SelectedPlaybooks.Count > 0 && !String.IsNullOrEmpty(mission.TenantId))
             {
                 await _Playbooks.ResolveSelectionsAsync(mission.TenantId, mission.SelectedPlaybooks, token).ConfigureAwait(false);
+            }
+
+            // A mission added to an evaluation voyage is evaluation work too.
+            if (!mission.IsEvaluation && !String.IsNullOrEmpty(mission.VoyageId))
+            {
+                Voyage? owner = await _Database.Voyages.ReadAsync(mission.VoyageId!, token).ConfigureAwait(false);
+                if (owner != null && owner.IsEvaluation) mission.IsEvaluation = true;
             }
 
             mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);

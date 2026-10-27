@@ -49,5 +49,11 @@ namespace Armada.Server.Mcp
         /// Ordered playbooks to apply during mission dispatch.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
+
+        /// <summary>
+        /// True for evaluation work: the mission's stage outcomes never count as production data. A mission added to an
+        /// evaluation voyage is flagged regardless. Default false.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
     }
 }

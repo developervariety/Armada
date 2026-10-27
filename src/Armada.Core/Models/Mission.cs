@@ -130,6 +130,13 @@ namespace Armada.Core.Models
         public bool IsRescue { get; set; } = false;
 
         /// <summary>
+        /// True for evaluation work (fixture battery tasks and other model evaluations). Set at dispatch, inherited from
+        /// the owning voyage and by every mission derived from this one. Stage outcomes of evaluation missions are tagged
+        /// IsEvaluation and never count as production data.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
+
+        /// <summary>
         /// For a Worker the Judge sent back for rework, its rework round (1 for the first); 0 for any other mission. Stored
         /// so rework state never depends on the title, which an operator can change.
         /// </summary>

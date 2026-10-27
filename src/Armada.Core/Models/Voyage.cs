@@ -119,6 +119,12 @@ namespace Armada.Core.Models
         /// </summary>
         public string? CaptainOverridesJson { get; set; } = null;
 
+        /// <summary>
+        /// True for evaluation work (fixture battery runs and other model evaluations). Set at dispatch; every mission of
+        /// the voyage inherits it, so their stage outcomes are tagged IsEvaluation.
+        /// </summary>
+        public bool IsEvaluation { get; set; } = false;
+
         #endregion
 
         #region Private-Members

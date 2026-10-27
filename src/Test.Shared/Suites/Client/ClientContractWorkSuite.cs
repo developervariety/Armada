@@ -149,6 +149,40 @@ namespace Test.Shared.Suites.Client
                 AssertNull((await c.GetVoyageAsync(inheritVoyage.Id))?.LandingMode, "no landing mode means inherit");
             }));
 
+            cases.Add(Case("voyage_evaluation_flag", "Voyage and mission dispatch carry IsEvaluation; missions inherit the voyage flag; the default stays false", async (c, fx) =>
+            {
+                VesselSetup setup = await LiveServerSetup.CreateVesselAsync(c, "voyageevaluation");
+                VoyageCreateRequest evaluation = new VoyageCreateRequest();
+                evaluation.Title = "Contract evaluation voyage";
+                evaluation.VesselId = setup.Vessel.Id;
+                evaluation.IsEvaluation = true;
+                evaluation.Missions.Add(new DispatchRequest { VesselId = setup.Vessel.Id, Title = "Evaluation mission", Description = "Add a file." });
+                Voyage evalVoyage = (await c.CreateVoyageAsync(evaluation))!;
+                AssertTrue(evalVoyage.IsEvaluation, "the create reply carries the evaluation flag");
+                VoyageDetail? evalDetail = await c.GetVoyageDetailAsync(evalVoyage.Id);
+                AssertTrue(evalDetail?.Voyage?.IsEvaluation == true, "persisted voyage flagged");
+                AssertTrue(evalDetail!.Missions.Count > 0 && evalDetail.Missions.All(m => m.IsEvaluation), "every voyage mission inherits the flag");
+
+                VoyageCreateRequest bareEval = new VoyageCreateRequest();
+                bareEval.Title = "Contract bare evaluation voyage";
+                bareEval.VesselId = setup.Vessel.Id;
+                bareEval.IsEvaluation = true;
+                Voyage bareVoyage = (await c.CreateVoyageAsync(bareEval))!;
+                AssertTrue((await c.GetVoyageAsync(bareVoyage.Id))?.IsEvaluation == true, "a bare voyage keeps the flag");
+
+                MissionDispatchResult? standalone = await c.DispatchMissionAsync(new DispatchRequest { VesselId = setup.Vessel.Id, Title = "Standalone evaluation mission", Description = "x", IsEvaluation = true });
+                AssertTrue(standalone?.Mission?.IsEvaluation == true, "a standalone mission keeps the flag");
+
+                VoyageCreateRequest production = new VoyageCreateRequest();
+                production.Title = "Contract production voyage";
+                production.VesselId = setup.Vessel.Id;
+                production.Missions.Add(new DispatchRequest { VesselId = setup.Vessel.Id, Title = "Production mission", Description = "Add a file." });
+                Voyage prodVoyage = (await c.CreateVoyageAsync(production))!;
+                VoyageDetail? prodDetail = await c.GetVoyageDetailAsync(prodVoyage.Id);
+                AssertFalse(prodDetail!.Voyage!.IsEvaluation, "a normal dispatch is not evaluation");
+                AssertTrue(prodDetail.Missions.Count > 0 && prodDetail.Missions.All(m => !m.IsEvaluation), "normal missions are not evaluation");
+            }));
+
             cases.Add(Case("voyages", "Voyage create, get, detail, status; cancel and purge", async (c, fx) =>
             {
                 VesselSetup setup = await LiveServerSetup.CreateVesselAsync(c, "voyages");

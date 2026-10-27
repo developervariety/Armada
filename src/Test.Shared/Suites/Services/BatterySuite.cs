@@ -370,7 +370,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(BatteryByteComparison.GitBlobHash(fixtureBytes), hash, "BOM and CRLF fixture stored byte for byte");
             }));
 
-            cases.Add(CaseAsync("fixture_vessel_on_request_and_tagging", "The fixture vessel is created only on request, under ModelEvaluation with no landing; its stage outcomes are evaluation", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("fixture_vessel_on_request_and_tagging", "The fixture vessel is created only on request, under ModelEvaluation with no landing; the mission flag, not the pipeline, tags stage outcomes", TestTags.Positive, async () =>
             {
                 using TempDir dir = new TempDir();
                 WriteSyntheticPack(dir, "syn");
@@ -391,10 +391,10 @@ namespace Test.Shared.Suites.Services
 
                 Vessel production = await db.Vessels.CreateAsync(new Vessel("prod", "https://example.invalid/prod.git") { TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
                 Captain captain = await db.Captains.CreateAsync(new Captain("battery-captain") { TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
-                Mission battery = await db.Missions.CreateAsync(new Mission("battery task") { VesselId = vessel.Id, TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
+                Mission battery = await db.Missions.CreateAsync(new Mission("battery task") { VesselId = vessel.Id, TenantId = Constants.DefaultTenantId, IsEvaluation = true }).ConfigureAwait(false);
                 Mission normal = await db.Missions.CreateAsync(new Mission("real task") { VesselId = production.Id, TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
-                AssertTrue(await BatteryFixtureService.IsEvaluationMissionAsync(db, battery).ConfigureAwait(false), "battery mission");
-                AssertFalse(await BatteryFixtureService.IsEvaluationMissionAsync(db, normal).ConfigureAwait(false), "production mission");
+                Mission unflagged = await db.Missions.CreateAsync(new Mission("unflagged task on the fixture vessel") { VesselId = vessel.Id, TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
+                Mission flaggedElsewhere = await db.Missions.CreateAsync(new Mission("flagged task on a production vessel") { VesselId = production.Id, TenantId = Constants.DefaultTenantId, IsEvaluation = true }).ConfigureAwait(false);
 
                 StageOutcomeService outcomes = new StageOutcomeService(db, Logging());
                 StageOutcome? tagged = await outcomes.RecordAttemptAsync(new StageAttemptCapture { Claimed = true, MissionId = battery.Id, Captain = captain, ExitCode = 0 }).ConfigureAwait(false);
@@ -402,6 +402,10 @@ namespace Test.Shared.Suites.Services
                 AssertNotNull(tagged, "battery outcome written");
                 AssertTrue(tagged!.IsEvaluation, "battery stage outcome tagged as evaluation");
                 AssertFalse(untagged!.IsEvaluation, "production stage outcome not tagged");
+                StageOutcome? pipelineOnly = await outcomes.RecordAttemptAsync(new StageAttemptCapture { Claimed = true, MissionId = unflagged.Id, Captain = captain, ExitCode = 0 }).ConfigureAwait(false);
+                StageOutcome? flagOnly = await outcomes.RecordAttemptAsync(new StageAttemptCapture { Claimed = true, MissionId = flaggedElsewhere.Id, Captain = captain, ExitCode = 0 }).ConfigureAwait(false);
+                AssertFalse(pipelineOnly!.IsEvaluation, "the ModelEvaluation pipeline alone does not tag an outcome");
+                AssertTrue(flagOnly!.IsEvaluation, "the mission flag tags an outcome on any vessel");
             }));
 
             // ---- Runner end to end ----
@@ -558,6 +562,10 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(captain.Id, overrides.Single().CaptainId);
                 AssertTrue(overrides.Single().StrictCaptain, "strict: every stage waits for this captain");
                 AssertEqual((LandingModeEnum?)LandingModeEnum.None, (LandingModeEnum?)args[7], "no landing: the work stays in its dock");
+                AssertEqual(11, args.Length, "dispatched through the overload that carries the evaluation flag");
+                AssertEqual(true, args[10], "battery voyages are dispatched as evaluation work");
+                AssertTrue(mission.IsEvaluation, "the battery mission is flagged as evaluation");
+                AssertTrue((await db.Voyages.ReadAsync(result.VoyageId!).ConfigureAwait(false))!.IsEvaluation, "the battery voyage is flagged as evaluation");
                 AssertEqual(0, recorder.Cancelled.Count, "nothing cancelled");
             }));
 

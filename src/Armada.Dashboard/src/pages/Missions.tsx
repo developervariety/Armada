@@ -14,6 +14,7 @@ import DataTable, { type DataTableColumn } from '../components/shared/DataTable'
 import LoadingIndicator from '../components/shared/LoadingIndicator';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
+import EvaluationBadge from '../components/shared/EvaluationBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
@@ -307,7 +308,7 @@ export default function Missions() {
       key: 'title', label: t('Title'), required: true, sortKey: 'title', headerTitle: t('Short name of the mission, written by whoever created it. Click to sort.'),
       cellClassName: 'cell-title', cellTitle: (m) => m.title,
       filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only missions on this page whose title contains this text. Not case sensitive.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Search...')} />,
-      render: (m) => <strong className="line-clamp-2">{m.title}</strong>,
+      render: (m) => <><strong className="line-clamp-2">{m.title}</strong>{m.isEvaluation && <EvaluationBadge isEvaluation />}</>,
     },
     {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix). Use it with the REST API, MCP tools and the armada CLI.'), cellClassName: 'mono text-dim table-id-cell',
