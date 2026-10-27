@@ -123,6 +123,10 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
 - **"Show live card" on a progress update now goes to the card.** When the message that started the work was not among the loaded messages, the card sat on the oldest loaded progress update. Clicking the link scrolled to the top of the conversation, which loaded older messages and moved the card back up to the starting message, so the reader landed on a message that no longer had a card. A card now stays on the message that first showed it while that message is loaded, and the link briefly highlights the card.
 
+### Vessel form sizing
+
+- Create/Edit Vessel now uses 95% of the viewport width and height, with scrolling inside the modal.
+
 ### Paged APIs replace whole-list APIs
 
 - **Every list that returned a whole collection in one response now has a paged replacement**, and Armada's own clients (dashboard, mobile, TUI, CLI, both .NET clients) use the replacements. Each returns one page (`pageNumber`, `pageSize` 1 to 1000) with `TotalRecords`. See [DEPRECATION.md](DEPRECATION.md), the managed list of deprecations: tests keep it in step with the code and fail if a first-party client calls a deprecated route.
