@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### SQLite retention keeps the current incident and runbook snapshot
+
+- **The newest snapshot remains.** An incident exists only as an `incident.snapshot` event, and a runbook execution exists only as a `runbook-execution.snapshot` event. SQLite data expiry keeps the newest of those events for each non-empty entity id, ordered by `created_utc` and then by `id`, even when that row is older than the retention cutoff. It deletes older snapshots of the same type and entity id, a snapshot whose entity id is empty, and every other event older than the cutoff. PostgreSQL, MySQL, and SQL Server do not run this service.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
