@@ -380,7 +380,7 @@ export default function Missions() {
         title={t('Missions')}
         subtitle={t('Individual work units assigned to captains')}
         actions={(
-          <>
+          <div className="missions-toolbar">
             <select aria-label={t('Filter by status')} className="filter-select" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }} title={t('Show only missions in this status. Filters on the server across every page.')}>
               <option value="">{t('All Statuses')}</option>
               {MISSION_STATUSES.map(s => <option key={s} value={s}>{t(s)}</option>)}
@@ -392,7 +392,7 @@ export default function Missions() {
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={openCreate} title={t('Create a single mission by hand. It waits in Pending until an idle captain for its vessel picks it up.')}>+ {t('Mission')}</button>
-          </>
+          </div>
         )}
       />
 
