@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Landing preview check evidence
+
+- A landing preview counts only check runs with status `Passed` as passing evidence. A completed failed or canceled run with exit code zero no longer hides the required-check blocker. Imported check status remains authoritative, while a passed run still counts when its exit code is absent.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
