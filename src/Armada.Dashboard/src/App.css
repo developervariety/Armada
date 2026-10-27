@@ -5607,6 +5607,34 @@ a:hover { text-decoration: underline; }
     .vessels-toolbar { flex-wrap: wrap; }
 }
 
+/* Captains page header toolbar: the user-scope select (which has no class of its own and would
+   otherwise take the global full-width input styling) and the action buttons share one row and one
+   control height. Mirrors .missions-toolbar. */
+.captains-toolbar {
+    --captains-toolbar-control-height: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+}
+.captains-toolbar > select,
+.captains-toolbar > .btn {
+    box-sizing: border-box;
+    height: var(--captains-toolbar-control-height);
+    flex: 0 0 auto;
+}
+.captains-toolbar > select {
+    width: auto;
+    min-width: 9rem;
+    max-width: 12rem;
+    padding: 0 0.6rem;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+@media (max-width: 640px) {
+    .captains-toolbar { flex-wrap: wrap; }
+}
+
 /* Vessel table - consistent column alignment across fleet cards */
 .vessel-table {
     table-layout: fixed;
