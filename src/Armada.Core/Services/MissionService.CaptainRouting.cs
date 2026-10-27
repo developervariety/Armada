@@ -44,8 +44,12 @@ namespace Armada.Core.Services
 
         private async Task<bool> IsAnyCaptainEligibleAsync(List<Captain> idleCaptains, Mission mission, CancellationToken token)
         {
-            HashSet<string> reviewAuthors = await ReviewAuthorCaptainIdsAsync(mission, token).ConfigureAwait(false);
-            idleCaptains = idleCaptains.Where(c => !reviewAuthors.Contains(c.Id)).ToList();
+            // Review authors only change eligibility when they are excluded; otherwise they are merely less preferred.
+            if (_Settings.ExcludeReviewAuthorsFromJudge)
+            {
+                HashSet<string> reviewAuthors = await ReviewAuthorCaptainIdsAsync(mission, token).ConfigureAwait(false);
+                idleCaptains = idleCaptains.Where(c => !reviewAuthors.Contains(c.Id)).ToList();
+            }
             // Mirrors FindAvailableCaptainAsync: a requested (dictated) captain that is idle is always eligible;
             // otherwise the persona fence and the tier floor apply.
             if (!String.IsNullOrEmpty(mission.RequestedCaptainId) && idleCaptains.Any(c => c.Id == mission.RequestedCaptainId && CaptainVisibleToMission(c, mission) &&
@@ -166,7 +170,8 @@ namespace Armada.Core.Services
             idleCaptains = idleCaptains.Where(c => CaptainVisibleToMission(c, mission) &&
                 (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)).ToList();
             HashSet<string> reviewAuthors = await ReviewAuthorCaptainIdsAsync(mission, token).ConfigureAwait(false);
-            idleCaptains.RemoveAll(c => reviewAuthors.Contains(c.Id));
+            if (_Settings.ExcludeReviewAuthorsFromJudge)
+                idleCaptains.RemoveAll(c => reviewAuthors.Contains(c.Id));
             idleCaptains = await ApplyCapacityLimitsAsync(idleCaptains, mission, token).ConfigureAwait(false);
             if (idleCaptains.Count == 0)
                 return null;
@@ -213,6 +218,24 @@ namespace Armada.Core.Services
                 if (personaDefault != null) return personaDefault;
             }
 
+            // With review authors not excluded, a Judge still prefers a captain that did not author the work it reviews
+            // and falls back to an author only when routing finds no other captain.
+            if (reviewAuthors.Count > 0 && !_Settings.ExcludeReviewAuthorsFromJudge)
+            {
+                List<Captain> independent = idleCaptains.Where(c => !reviewAuthors.Contains(c.Id)).ToList();
+                if (independent.Count > 0 && independent.Count < idleCaptains.Count)
+                {
+                    Captain? reviewer = await SelectRoutedCaptainAsync(mission, persona, requiredTier, requestedCaptainId, independent, token).ConfigureAwait(false);
+                    if (reviewer != null) return reviewer;
+                    _Logging.Info(_Header + "judge mission " + mission.Id + " has no eligible captain besides the authors of the reviewed work; an author reviews it");
+                }
+            }
+
+            return await SelectRoutedCaptainAsync(mission, persona, requiredTier, requestedCaptainId, idleCaptains, token).ConfigureAwait(false);
+        }
+
+        private async Task<Captain?> SelectRoutedCaptainAsync(Mission mission, string? persona, CaptainTierEnum? requiredTier, string? requestedCaptainId, List<Captain> idleCaptains, CancellationToken token)
+        {
             // Filter by AllowedPersonas (null persona = any; null AllowedPersonas = fills any persona).
             List<Captain> eligible;
             if (String.IsNullOrEmpty(persona))

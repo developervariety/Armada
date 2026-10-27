@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Judges may review their own captain's work
+
+- **Self-review exclusion is configurable and off by default.** A Judge was never assigned to a captain that ran an earlier stage of the chain it reviews, so a voyage whose only eligible captains had authored the work left its Judges Pending forever. The new server setting `ExcludeReviewAuthorsFromJudge` (default false) controls this. Off: an idle non-author captain is still preferred, an author captain reviews the work when no other eligible captain is idle, and a requested author captain is honored. On: the previous exclusion, and the assignment blocker now says that the authors were excluded. See [CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md).
+
 ### Stage checks say whether a stage was verified
 
 - **A skipped check no longer looks like a passed one.** Every stage check is now recorded on its mission as a `mission.stage_check` event whose payload is a `StageCheckResult`: `status` `Passed`, `Failed`, `Skipped`, or `CouldNotRun`, a `reason` (`RuntimeNotChecked`, `ReviewPersona`, `VerifierReportedBlocker`, `NoDock`, `NoWorkflowProfile`, `NoCommands`, `NoNewCommit`, `HarborDisconnected`, `TimedOut`, `Error`), the commands, the failed command and its exit code, pre-existing failures (commands that fail on the base commit too), and the duration. Before, the check returned nothing both when it passed and for every skip, so nobody could tell which stages were checked. Behavior is unchanged: the same results block the stage as before. `IMissionService.CheckStageWorkAsync` returns the result; `VerifyStageWorkAsync` still returns only the failure note. See [CAPTAIN_ROUTING.md](docs/CAPTAIN_ROUTING.md). Phase 1, step 3 of [MODEL_HETEROGENEITY.md](docs/MODEL_HETEROGENEITY.md).

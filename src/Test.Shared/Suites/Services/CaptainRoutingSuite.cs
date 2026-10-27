@@ -263,10 +263,106 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(alternative.Id, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId);
             }));
 
-            cases.Add(CaseAsync("judge_cannot_review_own_escalated_work", "Judge routing excludes the preceding implementation captain even when explicitly requested", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("judge_review_author_exclusion_off_by_default", "ExcludeReviewAuthorsFromJudge defaults to false, including when absent from a minimal settings file", TestTags.Positive, () =>
+            {
+                AssertFalse(new ArmadaSettings().ExcludeReviewAuthorsFromJudge, "Default-constructed settings do not exclude review authors");
+                ArmadaSettings? minimal = System.Text.Json.JsonSerializer.Deserialize<ArmadaSettings>("{}");
+                AssertNotNull(minimal, "minimal settings");
+                AssertFalse(minimal!.ExcludeReviewAuthorsFromJudge, "A settings file without the property does not exclude review authors");
+                ArmadaSettings? enabled = System.Text.Json.JsonSerializer.Deserialize<ArmadaSettings>("{\"ExcludeReviewAuthorsFromJudge\":true}");
+                AssertTrue(enabled!.ExcludeReviewAuthorsFromJudge, "The setting can be turned on from a settings file");
+                return Task.CompletedTask;
+            }));
+
+            cases.Add(CaseAsync("judge_reviews_author_when_only_eligible", "With the exclusion off, a Judge whose only eligible Premium captain is the Worker's captain is assigned to it", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain author = await AddCaptainAsync(testDb.Driver, "premium author", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                await AddCaptainAsync(testDb.Driver, "economy bystander", CaptainStateEnum.Idle, null, CaptainTierEnum.Economy).ConfigureAwait(false);
+                Mission judge = await AddJudgeOfWorkerAsync(testDb.Driver, harness.Vessel, author.Id, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(judge).ConfigureAwait(false);
+                AssertNotNull(blocker, "assignment blocker");
+                AssertEqual(MissionAssignmentBlockerReasonEnum.AwaitingDispatch, blocker!.Reason, "The author captain counts as eligible when the exclusion is off");
+                AssertTrue(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "The Judge is not left unassignable because only the author is eligible");
+                AssertEqual(author.Id, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.CaptainId);
+            }));
+
+            cases.Add(CaseAsync("judge_prefers_non_author_when_exclusion_off", "With the exclusion off, an idle non-author captain is preferred over the Worker's captain", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                // The author is created first and also prefers the Judge persona, so without the preference it would win.
+                Captain author = await AddCaptainAsync(testDb.Driver, "author", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                author.PreferredPersona = "Judge";
+                await testDb.Driver.Captains.UpdateAsync(author).ConfigureAwait(false);
+                Captain reviewer = await AddCaptainAsync(testDb.Driver, "independent reviewer", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                Mission judge = await AddJudgeOfWorkerAsync(testDb.Driver, harness.Vessel, author.Id, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "The Judge is assigned");
+                AssertEqual(reviewer.Id, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.CaptainId, "The non-author captain reviews the work");
+            }));
+
+            cases.Add(CaseAsync("judge_falls_back_to_author_when_non_author_ineligible", "With the exclusion off, an idle non-author below the Judge's tier does not block the author fallback", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain author = await AddCaptainAsync(testDb.Driver, "premium author", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                Captain bystander = await AddCaptainAsync(testDb.Driver, "standard bystander", CaptainStateEnum.Idle, null, CaptainTierEnum.Standard).ConfigureAwait(false);
+                Mission judge = await AddJudgeOfWorkerAsync(testDb.Driver, harness.Vessel, author.Id, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "The Judge is assigned");
+                AssertEqual(author.Id, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.CaptainId, "The tier floor still applies to the non-author");
+                AssertEqual(CaptainStateEnum.Idle, (await testDb.Driver.Captains.ReadAsync(bystander.Id).ConfigureAwait(false))!.State);
+            }));
+
+            cases.Add(CaseAsync("judge_requested_author_honored_when_exclusion_off", "With the exclusion off, a requested author captain reviews the work even when a non-author is idle", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain author = await AddCaptainAsync(testDb.Driver, "author", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                await AddCaptainAsync(testDb.Driver, "independent reviewer", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
+                Mission judge = await AddJudgeOfWorkerAsync(testDb.Driver, harness.Vessel, author.Id, author.Id, null).ConfigureAwait(false);
+                AssertTrue(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "The requested captain is assigned");
+                AssertEqual(author.Id, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.CaptainId, "The requested author captain is honored");
+            }));
+
+            cases.Add(CaseAsync("judge_blocker_names_excluded_authors_only_when_on", "With the exclusion on, the assignment blocker names the excluded authors; a non-Judge blocker never does", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver, true).ConfigureAwait(false);
+                Captain author = await AddCaptainAsync(testDb.Driver, "premium author", CaptainStateEnum.Idle, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                Mission judge = await AddJudgeOfWorkerAsync(testDb.Driver, harness.Vessel, author.Id, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                AssertFalse(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "The only captain authored the work");
+                MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(judge).ConfigureAwait(false);
+                AssertNotNull(blocker, "assignment blocker");
+                AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker!.Reason);
+                AssertContains("ExcludeReviewAuthorsFromJudge is on", blocker.Summary ?? "", "The blocker explains the author exclusion");
+
+                Mission premiumWorker = await AddMissionAsync(testDb.Driver, harness.Vessel, "Worker", null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                author.Tier = CaptainTierEnum.Standard;
+                await testDb.Driver.Captains.UpdateAsync(author).ConfigureAwait(false);
+                MissionAssignmentBlocker? tierBlocker = await harness.Missions.GetAssignmentBlockerAsync(premiumWorker).ConfigureAwait(false);
+                AssertNotNull(tierBlocker, "tier blocker");
+                AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, tierBlocker!.Reason);
+                AssertFalse((tierBlocker.Summary ?? "").Contains("ExcludeReviewAuthorsFromJudge", StringComparison.Ordinal), "Authors are not blamed for a non-Judge blocker");
+            }));
+
+            cases.Add(CaseAsync("judge_blocker_omits_authors_when_off", "With the exclusion off, a blocked Judge's explanation does not mention review authors", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                Captain author = await AddCaptainAsync(testDb.Driver, "standard author", CaptainStateEnum.Idle, null, CaptainTierEnum.Standard).ConfigureAwait(false);
+                Mission judge = await AddJudgeOfWorkerAsync(testDb.Driver, harness.Vessel, author.Id, null, CaptainTierEnum.Premium).ConfigureAwait(false);
+                AssertFalse(await harness.Missions.TryAssignAsync(judge, harness.Vessel).ConfigureAwait(false), "The author is below the Judge's tier");
+                MissionAssignmentBlocker? blocker = await harness.Missions.GetAssignmentBlockerAsync(judge).ConfigureAwait(false);
+                AssertNotNull(blocker, "assignment blocker");
+                AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker!.Reason);
+                AssertFalse((blocker.Summary ?? "").Contains("ExcludeReviewAuthorsFromJudge", StringComparison.Ordinal), "Authors are not named when they are not excluded");
+            }));
+
+            cases.Add(CaseAsync("judge_cannot_review_own_escalated_work", "With ExcludeReviewAuthorsFromJudge on, Judge routing excludes the preceding implementation captain even when explicitly requested", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver, true).ConfigureAwait(false);
                 Captain author = await AddCaptainAsync(testDb.Driver, "author", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
                 Mission worker = await AddMissionAsync(testDb.Driver, harness.Vessel, "Worker", null, null).ConfigureAwait(false);
                 worker.Status = MissionStatusEnum.WorkProduced;
@@ -281,10 +377,10 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(reviewer.Id, (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.CaptainId);
             }));
 
-            cases.Add(CaseAsync("judge_excludes_full_pipeline_authors", "Judge routing excludes the Worker behind verification stages and all intervening contributors", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("judge_excludes_full_pipeline_authors", "With ExcludeReviewAuthorsFromJudge on, Judge routing excludes the Worker behind verification stages and all intervening contributors", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver).ConfigureAwait(false);
+                RoutingHarness harness = await BuildHarnessAsync(testDb.Driver, true).ConfigureAwait(false);
                 Captain author = await AddCaptainAsync(testDb.Driver, "author", CaptainStateEnum.Idle, null, null).ConfigureAwait(false);
                 Mission worker = await AddMissionAsync(testDb.Driver, harness.Vessel, "Worker", null, null).ConfigureAwait(false);
                 worker.Status = MissionStatusEnum.WorkProduced;
@@ -793,7 +889,7 @@ namespace Test.Shared.Suites.Services
                 tags: new List<string> { tag });
         }
 
-        private static async Task<RoutingHarness> BuildHarnessAsync(DatabaseDriver db)
+        private static async Task<RoutingHarness> BuildHarnessAsync(DatabaseDriver db, bool excludeReviewAuthors = false)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -801,6 +897,7 @@ namespace Test.Shared.Suites.Services
             ArmadaSettings settings = new ArmadaSettings();
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_routing_docks_" + Guid.NewGuid().ToString("N"));
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_routing_repos_" + Guid.NewGuid().ToString("N"));
+            settings.ExcludeReviewAuthorsFromJudge = excludeReviewAuthors;
 
             DirCreatingGitService git = new DirCreatingGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
@@ -842,6 +939,17 @@ namespace Test.Shared.Suites.Services
             mission.Tier = tier;
             mission.Status = MissionStatusEnum.Pending;
             return await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        private static async Task<Mission> AddJudgeOfWorkerAsync(DatabaseDriver db, Vessel vessel, string authorCaptainId, string? requestedCaptainId, CaptainTierEnum? tier)
+        {
+            Mission worker = await AddMissionAsync(db, vessel, "Worker", null, null).ConfigureAwait(false);
+            worker.Status = MissionStatusEnum.WorkProduced;
+            worker.CaptainId = authorCaptainId;
+            await db.Missions.UpdateAsync(worker).ConfigureAwait(false);
+            Mission judge = await AddMissionAsync(db, vessel, "Judge", requestedCaptainId, tier).ConfigureAwait(false);
+            judge.DependsOnMissionId = worker.Id;
+            return await db.Missions.UpdateAsync(judge).ConfigureAwait(false);
         }
 
         #endregion
