@@ -69,8 +69,8 @@ namespace Test.Shared.Suites.Database
                     AssertEqual(1, migrations[0].Version, provider.Key + " first migration");
                     for (int i = 1; i < migrations.Count; i++)
                     {
-                        // Gaps are harmless (startup applies every version above the recorded maximum); a duplicate
-                        // or out-of-order version would be silently skipped on upgraded databases.
+                        // A number this build does not declare is a retired version. The list must stay strictly increasing.
+                        // A duplicate or a decreasing version is rejected.
                         AssertTrue(migrations[i].Version > migrations[i - 1].Version,
                             provider.Key + " migration v" + migrations[i].Version + " follows v" + migrations[i - 1].Version);
                     }
