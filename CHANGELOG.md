@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Workflow readiness
+
+- Readiness checks split command chains only on separators outside double-quoted arguments. Escaped double quotes keep their quoted span open.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
