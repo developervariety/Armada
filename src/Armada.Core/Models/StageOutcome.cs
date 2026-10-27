@@ -196,6 +196,29 @@ namespace Armada.Core.Models
         public string? NextCaptainId { get; set; } = null;
 
         /// <summary>
+        /// The commit the attempt left on the mission branch, or null when unknown. Recorded for an escalated attempt
+        /// (its work so far) and a completed one (the produced commit).
+        /// </summary>
+        public string? CommitHash { get; set; } = null;
+
+        /// <summary>
+        /// When escalated: the later attempt (sto_ prefix) that completed the mission, or null while it has not.
+        /// </summary>
+        public string? FinishedByOutcomeId { get; set; } = null;
+
+        /// <summary>
+        /// When escalated: the captain whose attempt completed the mission, or null while it has not.
+        /// </summary>
+        public string? FinishedByCaptainId { get; set; } = null;
+
+        /// <summary>
+        /// When escalated and finished: true when the finishing captain kept this attempt's work (its commit is an
+        /// ancestor of the finished commit), false when it replaced it, null when unknown (no commit, or the repository
+        /// could not be read).
+        /// </summary>
+        public bool? PriorWorkKept { get; set; } = null;
+
+        /// <summary>
         /// Suspected cause.
         /// </summary>
         public FailureCauseEnum SuspectedCause { get; set; } = FailureCauseEnum.None;

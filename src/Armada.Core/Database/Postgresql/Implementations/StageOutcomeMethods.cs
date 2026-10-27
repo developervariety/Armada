@@ -25,14 +25,16 @@ namespace Armada.Core.Database.Postgresql.Implementations
              runtime, model, model_provider, model_endpoint_id, harbor_id, context_tokens, temperature, top_p, tools_enabled,
              mcp_tools_enabled, reasoning_effort, runtime_version, model_digest, prompt_version, armada_version, exit_code,
              runtime_failure_kind, stage_check_status, stage_check_reason, disposition, failure_kind, failure_reason, judge_verdict,
-             reviewed_mission_id, next_captain_id, suspected_cause, cause_source, cause_rule_id, cause_note, classified_by_user_id,
+             reviewed_mission_id, next_captain_id, commit_hash, finished_by_outcome_id, finished_by_captain_id, prior_work_kept,
+             suspected_cause, cause_source, cause_rule_id, cause_note, classified_by_user_id,
              classified_utc, is_evaluation, started_utc, ended_utc, duration_ms, created_utc, last_update_utc)
             VALUES
             (@id, @tenant_id, @user_id, @mission_id, @voyage_id, @vessel_id, @captain_id, @captain_name, @persona, @attempt, @rework_round,
              @runtime, @model, @model_provider, @model_endpoint_id, @harbor_id, @context_tokens, @temperature, @top_p, @tools_enabled,
              @mcp_tools_enabled, @reasoning_effort, @runtime_version, @model_digest, @prompt_version, @armada_version, @exit_code,
              @runtime_failure_kind, @stage_check_status, @stage_check_reason, @disposition, @failure_kind, @failure_reason, @judge_verdict,
-             @reviewed_mission_id, @next_captain_id, @suspected_cause, @cause_source, @cause_rule_id, @cause_note, @classified_by_user_id,
+             @reviewed_mission_id, @next_captain_id, @commit_hash, @finished_by_outcome_id, @finished_by_captain_id, @prior_work_kept,
+             @suspected_cause, @cause_source, @cause_rule_id, @cause_note, @classified_by_user_id,
              @classified_utc, @is_evaluation, @started_utc, @ended_utc, @duration_ms, @created_utc, @last_update_utc);";
 
         private static readonly string _Update = @"UPDATE stage_outcomes SET
@@ -44,7 +46,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
             model_digest = @model_digest, prompt_version = @prompt_version, armada_version = @armada_version, exit_code = @exit_code,
             runtime_failure_kind = @runtime_failure_kind, stage_check_status = @stage_check_status, stage_check_reason = @stage_check_reason,
             disposition = @disposition, failure_kind = @failure_kind, failure_reason = @failure_reason, judge_verdict = @judge_verdict,
-            reviewed_mission_id = @reviewed_mission_id, next_captain_id = @next_captain_id, suspected_cause = @suspected_cause,
+            reviewed_mission_id = @reviewed_mission_id, next_captain_id = @next_captain_id, commit_hash = @commit_hash,
+            finished_by_outcome_id = @finished_by_outcome_id, finished_by_captain_id = @finished_by_captain_id,
+            prior_work_kept = @prior_work_kept, suspected_cause = @suspected_cause,
             cause_source = @cause_source, cause_rule_id = @cause_rule_id, cause_note = @cause_note,
             classified_by_user_id = @classified_by_user_id, classified_utc = @classified_utc, is_evaluation = @is_evaluation,
             started_utc = @started_utc, ended_utc = @ended_utc, duration_ms = @duration_ms, last_update_utc = @last_update_utc
@@ -257,6 +261,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
             PostgresqlCommandHelper.Add(cmd, "@judge_verdict", outcome.JudgeVerdict);
             PostgresqlCommandHelper.Add(cmd, "@reviewed_mission_id", outcome.ReviewedMissionId);
             PostgresqlCommandHelper.Add(cmd, "@next_captain_id", outcome.NextCaptainId);
+            PostgresqlCommandHelper.Add(cmd, "@commit_hash", outcome.CommitHash);
+            PostgresqlCommandHelper.Add(cmd, "@finished_by_outcome_id", outcome.FinishedByOutcomeId);
+            PostgresqlCommandHelper.Add(cmd, "@finished_by_captain_id", outcome.FinishedByCaptainId);
+            PostgresqlCommandHelper.Add(cmd, "@prior_work_kept", outcome.PriorWorkKept);
             PostgresqlCommandHelper.Add(cmd, "@suspected_cause", outcome.SuspectedCause.ToString());
             PostgresqlCommandHelper.Add(cmd, "@cause_source", outcome.CauseSource.ToString());
             PostgresqlCommandHelper.Add(cmd, "@cause_rule_id", outcome.CauseRuleId);
@@ -309,6 +317,10 @@ namespace Armada.Core.Database.Postgresql.Implementations
             outcome.JudgeVerdict = PostgresqlCommandHelper.ReadString(reader["judge_verdict"]);
             outcome.ReviewedMissionId = PostgresqlCommandHelper.ReadString(reader["reviewed_mission_id"]);
             outcome.NextCaptainId = PostgresqlCommandHelper.ReadString(reader["next_captain_id"]);
+            outcome.CommitHash = PostgresqlCommandHelper.ReadString(reader["commit_hash"]);
+            outcome.FinishedByOutcomeId = PostgresqlCommandHelper.ReadString(reader["finished_by_outcome_id"]);
+            outcome.FinishedByCaptainId = PostgresqlCommandHelper.ReadString(reader["finished_by_captain_id"]);
+            outcome.PriorWorkKept = PostgresqlCommandHelper.ReadNullableBool(reader["prior_work_kept"]);
             outcome.SuspectedCause = PostgresqlCommandHelper.ReadEnum(reader["suspected_cause"], FailureCauseEnum.None);
             outcome.CauseSource = PostgresqlCommandHelper.ReadEnum(reader["cause_source"], FailureCauseSourceEnum.None);
             outcome.CauseRuleId = PostgresqlCommandHelper.ReadString(reader["cause_rule_id"]);

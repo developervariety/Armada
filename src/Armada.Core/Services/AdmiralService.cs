@@ -171,7 +171,8 @@ namespace Armada.Core.Services
             _Docks = docks ?? throw new ArgumentNullException(nameof(docks));
             _Playbooks = new PlaybookService(_Database, _Logging);
             _Escalation = escalation;
-            _StageOutcomes = new StageOutcomeService(_Database, _Logging);
+            // DockHosts is assigned after construction, so the provenance probe resolves the host on each probe.
+            _StageOutcomes = new StageOutcomeService(_Database, _Logging, new StageProvenanceProbe(_Logging, ProvenanceCommandsFor), () => (_Missions as MissionService)?.DockHosts);
         }
 
         #endregion
@@ -1051,7 +1052,7 @@ namespace Armada.Core.Services
                     {
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts && await TryResumeInPlaceAsync(captain, mission, checkFailure, token).ConfigureAwait(false))
                             return;
-                        if (await TryEscalateToPlannerAsync(captain, mission, checkFailure, token).ConfigureAwait(false))
+                        if (await TryEscalateToPlannerAsync(captain, mission, checkFailure, capture, token).ConfigureAwait(false))
                         {
                             await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                             return;
@@ -1112,7 +1113,7 @@ namespace Armada.Core.Services
                 // attempt, on the same branch with the work so far, to the frontier captain that planned the voyage.
                 if ((exitInfo.FailureKind == RuntimeFailureKindEnum.Transient || exitInfo.FailureKind == RuntimeFailureKindEnum.TaskFailure)
                     && mission != null
-                    && await TryEscalateToPlannerAsync(captain, mission, failureReason, token).ConfigureAwait(false))
+                    && await TryEscalateToPlannerAsync(captain, mission, failureReason, capture, token).ConfigureAwait(false))
                 {
                     await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
                     return;
@@ -2310,7 +2311,7 @@ namespace Armada.Core.Services
 
         private const string _EscalatedHeading = "## Escalated to ";
 
-        private async Task<bool> TryEscalateToPlannerAsync(Captain captain, Mission mission, string failureReason, CancellationToken token)
+        private async Task<bool> TryEscalateToPlannerAsync(Captain captain, Mission mission, string failureReason, StageAttemptCapture capture, CancellationToken token)
         {
             // Planning and review stages are not escalated; only stages that do the work.
             if (PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Architect)
@@ -2337,6 +2338,9 @@ namespace Armada.Core.Services
                 {
                     _Logging.Warn(_Header + "could not commit mission " + mission.Id + "'s work before escalating: " + ex.Message);
                 }
+
+                // The escalation record compares this commit with the finished branch (kept or replaced).
+                capture.EscalatedCommit = await TryReadDockHeadAsync(dock, token).ConfigureAwait(false);
             }
 
             MissionStatusEnum observedStatus = mission.Status;
@@ -2359,11 +2363,36 @@ namespace Armada.Core.Services
             if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))
                 return false;
 
+            capture.EscalatedToCaptainId = plannerCaptain.Id;
             _Logging.Warn(_Header + "mission " + mission.Id + ": " + captain.Name + " could not finish after its resumes (" + failureReason + "); escalating to " + plannerCaptain.Name);
             await EmitEventAsync("mission.escalated", "Mission escalated to " + plannerCaptain.Name + " after " + captain.Name + " could not finish: " + mission.Title,
                 entityType: "mission", entityId: mission.Id, captainId: plannerCaptain.Id, missionId: mission.Id,
                 vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
             return true;
+        }
+
+        private IHostCommandExecutor? ProvenanceCommandsFor(string? harborId)
+        {
+            DockHostResolver? hosts = (_Missions as MissionService)?.DockHosts;
+            if (String.IsNullOrEmpty(harborId)) return hosts != null ? hosts.Local.Commands : new LocalHostCommandExecutor();
+            if (hosts?.Harbors == null) return null;
+            return hosts.ForHarbor(harborId!).Commands;
+        }
+
+        private async Task<string?> TryReadDockHeadAsync(Dock dock, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(dock.WorktreePath)) return null;
+            DockHostResolver? hosts = (_Missions as MissionService)?.DockHosts;
+            if (hosts == null) return null;
+            try
+            {
+                return await hosts.ForDock(dock).Git.GetHeadCommitHashAsync(dock.WorktreePath!, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Debug(_Header + "could not read the head of dock " + dock.Id + ": " + ex.Message);
+                return null;
+            }
         }
 
         private async Task HandleInterruptedProcessExitAsync(

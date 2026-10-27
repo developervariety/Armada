@@ -12,6 +12,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services.Interfaces;
 
     /// <summary>
     /// Records one <see cref="StageOutcome"/> per stage attempt (with its provenance, what was observed, and what Armada
@@ -34,6 +35,8 @@ namespace Armada.Core.Services
         private string _Header = "[StageOutcomeService] ";
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
+        private readonly StageProvenanceProbe? _Provenance;
+        private readonly Func<DockHostResolver?>? _DockHosts;
         private static readonly string _ArmadaVersion = ReadArmadaVersion();
 
         #endregion
@@ -45,11 +48,16 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="logging">Logging module.</param>
-        /// <exception cref="ArgumentNullException">Thrown when an argument is null.</exception>
-        public StageOutcomeService(DatabaseDriver database, LoggingModule logging)
+        /// <param name="provenance">Reads the runtime version and model digest, or null to leave them null.</param>
+        /// <param name="dockHosts">Resolves the hosts whose git compares an escalated attempt's commit with the finished
+        /// work, or null to leave <see cref="StageOutcome.PriorWorkKept"/> null.</param>
+        /// <exception cref="ArgumentNullException">Thrown when database or logging is null.</exception>
+        public StageOutcomeService(DatabaseDriver database, LoggingModule logging, StageProvenanceProbe? provenance = null, Func<DockHostResolver?>? dockHosts = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Provenance = provenance;
+            _DockHosts = dockHosts;
         }
 
         #endregion
@@ -100,7 +108,10 @@ namespace Armada.Core.Services
                 StageOutcome outcome = await BuildAsync(capture, mission, token).ConfigureAwait(false);
                 List<FailureCauseRule> rules = await _Database.FailureCauseRules.EnumerateAsync(outcome.TenantId, token).ConfigureAwait(false);
                 Apply(outcome, FailureCauseClassifier.Classify(outcome, rules));
-                return await _Database.StageOutcomes.CreateAsync(outcome, token).ConfigureAwait(false);
+                StageOutcome stored = await _Database.StageOutcomes.CreateAsync(outcome, token).ConfigureAwait(false);
+                if (stored.Disposition == StageDispositionEnum.Completed)
+                    await LinkEscalationsAsync(stored, mission, capture.DockId, token).ConfigureAwait(false);
+                return stored;
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
             {
@@ -241,9 +252,11 @@ namespace Armada.Core.Services
                 outcome.HarborId = dock?.HarborId;
             }
 
+            ModelEndpoint? endpointRead = null;
             if (!String.IsNullOrEmpty(captain.ModelEndpointId))
             {
                 ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(captain.ModelEndpointId!, token).ConfigureAwait(false);
+                endpointRead = endpoint;
                 if (endpoint != null)
                 {
                     outcome.ModelEndpointId = endpoint.Id;
@@ -261,6 +274,7 @@ namespace Armada.Core.Services
             }
 
             outcome.PromptVersion = await ComputePromptVersionAsync(token).ConfigureAwait(false);
+            await ReadProvenanceAsync(captain, outcome, endpointRead, token).ConfigureAwait(false);
 
             DecideDisposition(capture, mission, outcome);
             if (PersonaCatalog.Matches(outcome.Persona, PersonaCatalog.Judge))
@@ -283,25 +297,141 @@ namespace Armada.Core.Services
                 outcome.FailureReason = Truncate(capture.StageCheck.FailureMessage, MaxFailureReasonLength);
 
             string? captainId = capture.Captain?.Id;
+            outcome.CommitHash = null;
             if (after.Status == MissionStatusEnum.Cancelled)
                 outcome.Disposition = StageDispositionEnum.Cancelled;
             else if (after.Status == MissionStatusEnum.Failed || after.Status == MissionStatusEnum.LandingFailed)
                 outcome.Disposition = StageDispositionEnum.Failed;
             else if (after.OutputRepairAttempts > capture.OutputRepairAttemptsBefore)
                 outcome.Disposition = StageDispositionEnum.OutputRepair;
+            else if (!String.IsNullOrEmpty(capture.EscalatedToCaptainId))
+            {
+                // The exit handler escalated: the mission is Pending for the new captain, not yet held by it.
+                outcome.Disposition = StageDispositionEnum.Escalated;
+                outcome.NextCaptainId = capture.EscalatedToCaptainId;
+                outcome.CommitHash = capture.EscalatedCommit;
+            }
             else if (!String.IsNullOrEmpty(after.CaptainId) && !String.Equals(after.CaptainId, captainId, StringComparison.Ordinal))
             {
                 outcome.Disposition = StageDispositionEnum.Escalated;
                 outcome.NextCaptainId = after.CaptainId;
+                outcome.CommitHash = capture.EscalatedCommit;
             }
             else if (capture.ExitCode.HasValue && capture.ExitCode.Value < 0 && after.RedispatchAttempts > capture.RedispatchAttemptsBefore)
                 outcome.Disposition = StageDispositionEnum.Interrupted;
             else if (MissionStateMachine.IsTerminalOrPostWork(after.Status))
+            {
                 outcome.Disposition = StageDispositionEnum.Completed;
+                outcome.CommitHash = after.CommitHash;
+            }
             else if (after.Status == MissionStatusEnum.Pending || after.Status == MissionStatusEnum.Assigned || after.Status == MissionStatusEnum.InProgress)
                 outcome.Disposition = capture.ExitCode.HasValue && capture.ExitCode.Value < 0 ? StageDispositionEnum.Interrupted : StageDispositionEnum.Relaunched;
             else
                 outcome.Disposition = StageDispositionEnum.Pending;
+        }
+
+        private async Task ReadProvenanceAsync(Captain captain, StageOutcome outcome, ModelEndpoint? endpoint, CancellationToken token)
+        {
+            if (_Provenance == null) return;
+
+            // Both probes are cached and bounded by the probe's wait timeout; a failure leaves the value null.
+            Task<string?> version = SafeProbeAsync("runtime version", () => _Provenance.GetRuntimeVersionAsync(captain, outcome.HarborId, endpoint, token));
+            Task<string?> digest = endpoint == null
+                ? Task.FromResult<string?>(null)
+                : SafeProbeAsync("model digest", () => _Provenance.GetModelDigestAsync(endpoint, outcome.Model, outcome.HarborId, token));
+            outcome.RuntimeVersion = await version.ConfigureAwait(false);
+            outcome.ModelDigest = await digest.ConfigureAwait(false);
+        }
+
+        private async Task<string?> SafeProbeAsync(string what, Func<Task<string?>> probe)
+        {
+            try
+            {
+                return await probe().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not read the " + what + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Complete the escalation record: each escalated attempt of the mission not yet finished is linked to the attempt
+        /// that completed the mission, with whether that attempt kept the escalated work (its commit is an ancestor of the
+        /// finished commit) or replaced it.
+        /// </summary>
+        private async Task LinkEscalationsAsync(StageOutcome finished, Mission mission, string? dockId, CancellationToken token)
+        {
+            try
+            {
+                // Read every page first, so a mission with more escalations than one page links all of them.
+                List<StageOutcome> escalated = new List<StageOutcome>();
+                int page = 1;
+                while (true)
+                {
+                    StageOutcomeQuery query = new StageOutcomeQuery
+                    {
+                        MissionId = mission.Id,
+                        Disposition = StageDispositionEnum.Escalated,
+                        PageNumber = page,
+                        PageSize = 100
+                    };
+                    EnumerationResult<StageOutcome> batch = await _Database.StageOutcomes.EnumerateAsync(query, token).ConfigureAwait(false);
+                    if (batch.Objects == null || batch.Objects.Count == 0) break;
+                    escalated.AddRange(batch.Objects);
+                    if (batch.Objects.Count < query.PageSize) break;
+                    page++;
+                }
+
+                foreach (StageOutcome prior in escalated)
+                {
+                    if (!String.IsNullOrEmpty(prior.FinishedByOutcomeId) || String.Equals(prior.Id, finished.Id, StringComparison.Ordinal)) continue;
+                    prior.FinishedByOutcomeId = finished.Id;
+                    prior.FinishedByCaptainId = finished.CaptainId;
+                    prior.PriorWorkKept = await ComparePriorWorkAsync(prior.CommitHash, finished.CommitHash ?? mission.BranchName, mission, dockId, token).ConfigureAwait(false);
+                    prior.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.StageOutcomes.UpdateAsync(prior, token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Warn(_Header + "could not complete the escalation record for mission " + mission.Id + ": " + ex.Message);
+            }
+        }
+
+        private async Task<bool?> ComparePriorWorkAsync(string? priorCommit, string? finalRef, Mission mission, string? dockId, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(priorCommit) || String.IsNullOrEmpty(finalRef)) return null;
+            if (String.Equals(priorCommit, finalRef, StringComparison.OrdinalIgnoreCase)) return true;
+            DockHostResolver? hosts = _DockHosts?.Invoke();
+            if (hosts == null) return null;
+
+            try
+            {
+                Dock? dock = String.IsNullOrEmpty(dockId) ? null : await _Database.Docks.ReadAsync(dockId!, token).ConfigureAwait(false);
+                string? repoPath;
+                IGitService git;
+                if (DockHostResolver.IsHarborDock(dock))
+                {
+                    repoPath = dock!.RepositoryPath;
+                    git = hosts.ForDock(dock).Git;
+                }
+                else
+                {
+                    Vessel? vessel = String.IsNullOrEmpty(mission.VesselId) ? null : await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+                    repoPath = vessel?.LocalPath;
+                    git = hosts.Local.Git;
+                }
+
+                if (String.IsNullOrEmpty(repoPath)) return null;
+                return await git.IsAncestorAsync(repoPath!, priorCommit!, finalRef!, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Debug(_Header + "could not compare escalated commit " + priorCommit + " with " + finalRef + ": " + ex.Message);
+                return null;
+            }
         }
 
         private static void Apply(StageOutcome outcome, FailureCauseClassification classification)

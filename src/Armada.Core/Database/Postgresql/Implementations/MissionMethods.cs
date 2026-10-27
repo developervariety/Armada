@@ -232,7 +232,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = "DELETE FROM missions WHERE id = @id;";
+                    cmd.CommandText = "DELETE FROM stage_outcomes WHERE mission_id IN (SELECT id FROM missions WHERE id = @id); DELETE FROM missions WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -457,7 +457,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND id = @id;";
+                    cmd.CommandText = "DELETE FROM stage_outcomes WHERE mission_id IN (SELECT id FROM missions WHERE tenant_id = @tenantId AND id = @id); DELETE FROM missions WHERE tenant_id = @tenantId AND id = @id;";
                     cmd.Parameters.AddWithValue("@tenantId", tenantId);
                     cmd.Parameters.AddWithValue("@id", id);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -643,7 +643,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = "DELETE FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
+                    cmd.CommandText = "DELETE FROM stage_outcomes WHERE mission_id IN (SELECT id FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id); DELETE FROM missions WHERE tenant_id = @tenantId AND user_id = @userId AND id = @id;";
                     cmd.Parameters.AddWithValue("@tenantId", tenantId);
                     cmd.Parameters.AddWithValue("@userId", userId);
                     cmd.Parameters.AddWithValue("@id", id);

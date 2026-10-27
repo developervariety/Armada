@@ -2,7 +2,11 @@ namespace Test.Shared.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.IO;
     using System.Linq;
+    using System.Net;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -517,6 +521,509 @@ namespace Test.Shared.Suites.Services
                 await AssertThrowsAsync<ArgumentNullException>(() => service.ReclassifyAsync(null!), "null filter").ConfigureAwait(false);
             }));
 
+            cases.Add(Case("disposition_escalated_from_capture_while_pending", "An exit the handler escalated is Escalated with the new captain and the escalated commit, though the mission is Pending", TestTags.Positive, () =>
+            {
+                StageAttemptCapture capture = Capture(exitCode: 1);
+                Mission after = new Mission("m", "d") { Status = MissionStatusEnum.Pending, CaptainId = null, RequestedCaptainId = "cpt_strong" };
+                StageOutcome outcome = new StageOutcome();
+                StageOutcomeService.DecideDisposition(capture, after, outcome);
+                AssertEqual(StageDispositionEnum.Relaunched, outcome.Disposition, "without the capture's escalation a Pending mission reads as relaunched");
+                AssertNull(outcome.CommitHash, "no commit when not escalated or completed");
+
+                capture.EscalatedToCaptainId = "cpt_strong";
+                capture.EscalatedCommit = "abc123";
+                StageOutcomeService.DecideDisposition(capture, after, outcome);
+                AssertEqual(StageDispositionEnum.Escalated, outcome.Disposition);
+                AssertEqual("cpt_strong", outcome.NextCaptainId);
+                AssertEqual("abc123", outcome.CommitHash);
+
+                Mission done = new Mission("m", "d") { Status = MissionStatusEnum.Complete, CaptainId = "cpt_self", CommitHash = "def456" };
+                StageOutcome completed = new StageOutcome();
+                StageOutcomeService.DecideDisposition(Capture(exitCode: 0), done, completed);
+                AssertEqual(StageDispositionEnum.Completed, completed.Disposition);
+                AssertEqual("def456", completed.CommitHash, "a completed attempt records its produced commit");
+            }));
+
+            cases.Add(CaseAsync("provenance_recorded_and_cached_per_captain_and_harbor", "Runtime version and model digest are recorded, and a cached value is reused per captain and Harbor", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                ModelEndpoint endpoint = new ModelEndpoint { Name = "ollama", Provider = ModelProviderEnum.Ollama, BaseUrl = "http://ollama.invalid:11434", Model = "qwen3:8b" };
+                await db.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                Captain captain = new Captain("mux worker", AgentRuntimeEnum.Mux);
+                captain.ModelEndpointId = endpoint.Id;
+                await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                int versionCalls = 0;
+                int digestCalls = 0;
+                List<string?> harbors = new List<string?>();
+                StageProvenanceProbe probe = new StageProvenanceProbe(CreateLogging());
+                probe.RuntimeVersionProbe = (c, harborId, ep, ct) =>
+                {
+                    Interlocked.Increment(ref versionCalls);
+                    lock (harbors) harbors.Add(harborId);
+                    return Task.FromResult<string?>("mux v1.5.0\nbuild 42");
+                };
+                probe.ModelDigestProbe = (ep, model, harborId, ct) =>
+                {
+                    Interlocked.Increment(ref digestCalls);
+                    return Task.FromResult<string?>("sha256-" + model);
+                };
+                StageOutcomeService service = new StageOutcomeService(db, CreateLogging(), probe);
+
+                Mission mission = await CreateMissionAsync(db, MissionStatusEnum.InProgress, null, null).ConfigureAwait(false);
+                StageAttemptCapture capture = Capture(exitCode: 1);
+                capture.MissionId = mission.Id;
+                capture.Captain = captain;
+
+                StageOutcome? first = await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertNotNull(first, "recorded");
+                AssertEqual("mux v1.5.0", first!.RuntimeVersion, "first line of the version");
+                AssertEqual("sha256-qwen3:8b", first.ModelDigest, "endpoint model digest");
+                StageOutcome? read = await db.StageOutcomes.ReadAsync(first.Id).ConfigureAwait(false);
+                AssertEqual("mux v1.5.0", read!.RuntimeVersion, "stored version");
+                AssertEqual("sha256-qwen3:8b", read.ModelDigest, "stored digest");
+
+                StageOutcome? second = await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertEqual("mux v1.5.0", second!.RuntimeVersion, "cached version");
+                AssertEqual(1, versionCalls, "version probed once for the captain on this host");
+                AssertEqual(1, digestCalls, "digest probed once");
+
+                Dock harborDock = new Dock(mission.VesselId!) { HarborId = "hbr_laptop" };
+                await db.Docks.CreateAsync(harborDock).ConfigureAwait(false);
+                capture.DockId = harborDock.Id;
+                StageOutcome? third = await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertEqual("hbr_laptop", third!.HarborId, "harbor");
+                AssertEqual(2, versionCalls, "a different Harbor is probed separately");
+                AssertEqual("hbr_laptop", harbors[1], "the probe is told the Harbor");
+
+                probe.CacheDuration = TimeSpan.Zero;
+                await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertEqual(3, versionCalls, "an expired value is probed again");
+            }));
+
+            cases.Add(CaseAsync("provenance_cancelled_wait_retains_background_result", "Cancelling a wait does not cancel the shared probe or lose its late result", TestTags.Negative, async () =>
+            {
+                StageProvenanceProbe probe = new StageProvenanceProbe(CreateLogging());
+                TaskCompletionSource<string?> result = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                int calls = 0;
+                CancellationToken backgroundToken = default;
+                probe.RuntimeVersionProbe = (c, h, ep, ct) =>
+                {
+                    Interlocked.Increment(ref calls);
+                    backgroundToken = ct;
+                    entered.TrySetResult(true);
+                    return result.Task;
+                };
+                Captain captain = new Captain("cancelled waiter", AgentRuntimeEnum.Mux);
+                using CancellationTokenSource caller = new CancellationTokenSource();
+                Task<string?> waiting = probe.GetRuntimeVersionAsync(captain, null, null, caller.Token);
+                try
+                {
+                    await entered.Task.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                    caller.Cancel();
+                    AssertNull(await waiting.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false), "cancelled wait returns null promptly");
+                    AssertEqual(false, backgroundToken.IsCancellationRequested, "caller cannot cancel the shared probe");
+                    AssertNull(await probe.GetRuntimeVersionAsync(captain, null, null).ConfigureAwait(false), "in-flight probe is not waited for twice");
+                    AssertEqual(1, calls, "in-flight probe reused");
+                    result.TrySetResult("mux late-version");
+                    string? cached = null;
+                    Stopwatch deadline = Stopwatch.StartNew();
+                    while (cached == null && deadline.Elapsed < TimeSpan.FromSeconds(3))
+                    {
+                        cached = await probe.GetRuntimeVersionAsync(captain, null, null).ConfigureAwait(false);
+                        if (cached == null) await Task.Delay(10).ConfigureAwait(false);
+                    }
+                    AssertEqual("mux late-version", cached, "late result becomes available in cache");
+                    AssertEqual(1, calls, "late value reused without another probe");
+                    probe.ClearCache();
+                    AssertEqual("mux late-version", await probe.GetRuntimeVersionAsync(captain, null, null).ConfigureAwait(false), "explicit invalidation re-probes");
+                    AssertEqual(2, calls, "clear cache invalidates the completed probe");
+                }
+                finally
+                {
+                    result.TrySetResult(null);
+                }
+            }));
+
+            cases.Add(CaseAsync("provenance_digest_cache_isolates_model_endpoint_and_host", "Digest cache separates model, endpoint URL and Harbor and bounds returned values", TestTags.Positive, async () =>
+            {
+                StageProvenanceProbe probe = new StageProvenanceProbe(CreateLogging());
+                int calls = 0;
+                probe.ModelDigestProbe = (ep, model, h, ct) =>
+                {
+                    Interlocked.Increment(ref calls);
+                    return Task.FromResult<string?>(new string('a', StageProvenanceProbe.MaxValueLength + 20) + "\nignored");
+                };
+                ModelEndpoint endpoint = new ModelEndpoint { Provider = ModelProviderEnum.Ollama, BaseUrl = "http://ollama.invalid" };
+                string expected = new string('a', StageProvenanceProbe.MaxValueLength);
+                AssertEqual(expected, await probe.GetModelDigestAsync(endpoint, "model-a", null).ConfigureAwait(false), "value length bounded");
+                AssertEqual(expected, await probe.GetModelDigestAsync(endpoint, "model-a", null).ConfigureAwait(false), "cache reused");
+                AssertEqual(1, calls, "same key uses cache");
+                await probe.GetModelDigestAsync(endpoint, "model-b", null).ConfigureAwait(false);
+                await probe.GetModelDigestAsync(endpoint, "model-a", "hbr_other").ConfigureAwait(false);
+                endpoint.BaseUrl = "http://replacement.invalid";
+                await probe.GetModelDigestAsync(endpoint, "model-a", null).ConfigureAwait(false);
+                AssertEqual(4, calls, "different models, hosts and endpoint URLs cannot share a cached digest");
+                foreach (string? absent in new string?[] { null, "", " ", "\t\n" })
+                    AssertNull(await probe.GetModelDigestAsync(endpoint, absent, null).ConfigureAwait(false), "absent model is unavailable");
+                AssertEqual(4, calls, "absent models never probe");
+            }));
+
+            cases.Add(CaseAsync("provenance_probe_failures_record_nulls", "A probe that throws, times out or answers nothing leaves the values null and the outcome is still recorded promptly", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                ModelEndpoint endpoint = new ModelEndpoint { Name = "ollama", Provider = ModelProviderEnum.Ollama, BaseUrl = "http://ollama.invalid:11434", Model = "qwen3:8b" };
+                await db.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                Captain captain = new Captain("api worker", AgentRuntimeEnum.ApiEndpoint);
+                captain.ModelEndpointId = endpoint.Id;
+                await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+                Mission mission = await CreateMissionAsync(db, MissionStatusEnum.InProgress, null, null).ConfigureAwait(false);
+                StageAttemptCapture capture = Capture(exitCode: 1);
+                capture.MissionId = mission.Id;
+                capture.Captain = captain;
+
+                // Throws (synchronously and asynchronously).
+                StageProvenanceProbe throwing = new StageProvenanceProbe(CreateLogging());
+                throwing.RuntimeVersionProbe = (c, h, ep, ct) => throw new InvalidOperationException("boom");
+                throwing.ModelDigestProbe = async (ep, m, h, ct) => { await Task.Yield(); throw new System.Net.Http.HttpRequestException("refused"); };
+                StageOutcome? thrown = await new StageOutcomeService(db, CreateLogging(), throwing).RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertNotNull(thrown, "recorded despite throwing probes");
+                AssertNull(thrown!.RuntimeVersion, "version null");
+                AssertNull(thrown.ModelDigest, "digest null");
+                AssertNotNull(await db.StageOutcomes.ReadAsync(thrown.Id).ConfigureAwait(false), "stored");
+
+                // Hangs: the exit waits at most the wait timeout, and a later exit does not wait for the same probe.
+                int hangingCalls = 0;
+                StageProvenanceProbe hanging = new StageProvenanceProbe(CreateLogging());
+                hanging.WaitTimeout = TimeSpan.FromMilliseconds(200);
+                hanging.RuntimeVersionProbe = async (c, h, ep, ct) => { Interlocked.Increment(ref hangingCalls); await Task.Delay(Timeout.Infinite, ct).ConfigureAwait(false); return "never"; };
+                hanging.ModelDigestProbe = async (ep, m, h, ct) => { await Task.Delay(Timeout.Infinite, ct).ConfigureAwait(false); return "never"; };
+                StageOutcomeService hangingService = new StageOutcomeService(db, CreateLogging(), hanging);
+                Stopwatch watch = Stopwatch.StartNew();
+                StageOutcome? slow = await hangingService.RecordAttemptAsync(capture).ConfigureAwait(false);
+                long firstMs = watch.ElapsedMilliseconds;
+                AssertNotNull(slow, "recorded despite a hanging probe");
+                AssertNull(slow!.RuntimeVersion, "version null on timeout");
+                AssertNull(slow.ModelDigest, "digest null on timeout");
+                AssertTrue(firstMs < 3000, "bounded by the wait timeout, took " + firstMs + " ms");
+                watch.Restart();
+                StageOutcome? again = await hangingService.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertNull(again!.RuntimeVersion, "still null");
+                AssertTrue(watch.ElapsedMilliseconds < 150, "a probe already running is not waited for again, took " + watch.ElapsedMilliseconds + " ms");
+                AssertEqual(1, hangingCalls, "the running probe is not started twice");
+
+                // Answers nothing: null is remembered for the failure cache duration, then tried again.
+                int emptyCalls = 0;
+                StageProvenanceProbe empty = new StageProvenanceProbe(CreateLogging());
+                empty.RuntimeVersionProbe = (c, h, ep, ct) => { Interlocked.Increment(ref emptyCalls); return Task.FromResult<string?>("   \n"); };
+                empty.ModelDigestProbe = (ep, m, h, ct) => Task.FromResult<string?>(null);
+                StageOutcomeService emptyService = new StageOutcomeService(db, CreateLogging(), empty);
+                AssertNull((await emptyService.RecordAttemptAsync(capture).ConfigureAwait(false))!.RuntimeVersion, "blank output is null");
+                await emptyService.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertEqual(1, emptyCalls, "a failure is remembered");
+                empty.FailureCacheDuration = TimeSpan.Zero;
+                await emptyService.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertEqual(2, emptyCalls, "and retried after the failure cache duration");
+
+                // No probe configured: both stay null.
+                StageOutcome? plain = await new StageOutcomeService(db, CreateLogging()).RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertNull(plain!.RuntimeVersion, "no probe, no version");
+                AssertNull(plain.ModelDigest, "no probe, no digest");
+            }));
+
+            cases.Add(CaseAsync("provenance_cli_version_runs_on_the_attempt_host", "The default runtime probe runs the runtime's CLI with --version on the attempt's host and reads the first line", TestTags.Positive, async () =>
+            {
+                List<string?> hosts = new List<string?>();
+                RecordingCommandExecutor executor = new RecordingCommandExecutor(new HostCommandResult { ExitCode = 0, StandardOutput = "\n2.1.3 (Claude Code)\nextra\n" });
+                StageProvenanceProbe probe = new StageProvenanceProbe(CreateLogging(), harborId => { hosts.Add(harborId); return harborId == "hbr_gone" ? null : executor; });
+                Captain claude = new Captain("claude", AgentRuntimeEnum.ClaudeCode);
+
+                AssertEqual("2.1.3 (Claude Code)", await probe.ProbeRuntimeVersionAsync(claude, "hbr_laptop", null).ConfigureAwait(false));
+                AssertEqual("claude", executor.Requests[0].Executable, "executable");
+                AssertEqual("--version", String.Join(" ", executor.Requests[0].Arguments), "arguments");
+                AssertEqual("hbr_laptop", hosts[0], "ran on the attempt's Harbor");
+
+                AssertEqual("codex-cli 0.46.0", await new StageProvenanceProbe(CreateLogging(), h => new RecordingCommandExecutor(new HostCommandResult { ExitCode = 0, StandardError = "codex-cli 0.46.0" }))
+                    .ProbeRuntimeVersionAsync(new Captain("codex", AgentRuntimeEnum.Codex), null, null).ConfigureAwait(false), "stderr when stdout is empty");
+                AssertNull(await new StageProvenanceProbe(CreateLogging(), h => new RecordingCommandExecutor(new HostCommandResult { ExitCode = 127, StandardError = "not found" }))
+                    .ProbeRuntimeVersionAsync(claude, null, null).ConfigureAwait(false), "a failed command is null");
+                AssertNull(await new StageProvenanceProbe(CreateLogging(), h => new RecordingCommandExecutor(new HostCommandResult { ExitCode = 0, TimedOut = true, StandardOutput = "partial" }))
+                    .ProbeRuntimeVersionAsync(claude, null, null).ConfigureAwait(false), "a timed-out command is null");
+                AssertNull(await probe.ProbeRuntimeVersionAsync(claude, "hbr_gone", null).ConfigureAwait(false), "an unreachable Harbor is null");
+                AssertNull(await probe.ProbeRuntimeVersionAsync(new Captain("api", AgentRuntimeEnum.ApiEndpoint), null, null).ConfigureAwait(false), "no CLI and no endpoint is null");
+                AssertNull(await probe.ProbeRuntimeVersionAsync(new Captain("api", AgentRuntimeEnum.ApiEndpoint), null, new ModelEndpoint { Provider = ModelProviderEnum.OpenAI, BaseUrl = "http://127.0.0.1:1" }).ConfigureAwait(false), "no version for a non-Ollama endpoint");
+                AssertEqual(1, executor.Requests.Count, "no command for an API-endpoint captain or an unreachable Harbor");
+                await AssertThrowsAsync<ArgumentNullException>(() => probe.ProbeRuntimeVersionAsync(null!, null, null), "null captain").ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("provenance_ollama_requests_against_fixture", "Ollama version and digest are read over HTTP with the endpoint's credential, and every error response is null", TestTags.Positive, async () =>
+            {
+                using OllamaFixture fixture = new OllamaFixture();
+                fixture.Bodies["/api/version"] = "{\"version\":\"0.12.3\"}";
+                fixture.Bodies["/api/tags"] = "{\"models\":[{\"name\":\"qwen3:8b\",\"model\":\"qwen3:8b\",\"digest\":\"500a1f067a9f\",\"size\":1},{\"name\":\"llama3:latest\",\"model\":\"llama3:latest\",\"digest\":\"365c0bd3c000\"}]}";
+                ModelEndpoint endpoint = new ModelEndpoint { Name = "fixture", Provider = ModelProviderEnum.Ollama, BaseUrl = fixture.BaseUrl + "/v1/", Model = "qwen3:8b", ApiKey = "fixture-secret" };
+                StageProvenanceProbe probe = new StageProvenanceProbe(CreateLogging());
+                Captain api = new Captain("api", AgentRuntimeEnum.ApiEndpoint);
+
+                AssertEqual("Ollama 0.12.3", await probe.ProbeRuntimeVersionAsync(api, null, endpoint).ConfigureAwait(false), "server version");
+                AssertEqual("500a1f067a9f", await probe.ProbeModelDigestAsync(endpoint, "qwen3:8b", null).ConfigureAwait(false), "exact name");
+                AssertEqual("365c0bd3c000", await probe.ProbeModelDigestAsync(endpoint, "Llama3", null).ConfigureAwait(false), "untagged name matches :latest");
+                AssertNull(await probe.ProbeModelDigestAsync(endpoint, "mistral:7b", null).ConfigureAwait(false), "unknown model");
+                AssertEqual(4, fixture.Requests.Count, "four requests");
+                foreach (string request in fixture.Requests)
+                    AssertStartsWith("GET ", request, "method");
+                AssertEqual("GET /api/version Bearer fixture-secret", fixture.Requests[0], "url and credential");
+                AssertEqual("GET /api/tags Bearer fixture-secret", fixture.Requests[1], "tags url (the /v1 suffix is dropped)");
+
+                // A Harbor attempt on a loopback endpoint is not read by the Admiral (it would reach another server).
+                AssertNull(await probe.ProbeModelDigestAsync(endpoint, "qwen3:8b", "hbr_laptop").ConfigureAwait(false), "loopback on a Harbor");
+                AssertNull(await probe.ProbeRuntimeVersionAsync(api, "hbr_laptop", endpoint).ConfigureAwait(false), "loopback version on a Harbor");
+                AssertEqual(4, fixture.Requests.Count, "no request for a Harbor's loopback endpoint");
+
+                fixture.Status = 500;
+                AssertNull(await probe.ProbeModelDigestAsync(endpoint, "qwen3:8b", null).ConfigureAwait(false), "HTTP 500");
+                AssertNull(await probe.ProbeRuntimeVersionAsync(api, null, endpoint).ConfigureAwait(false), "HTTP 500 version");
+                fixture.Status = 200;
+                fixture.Bodies["/api/tags"] = "";
+                AssertNull(await probe.ProbeModelDigestAsync(endpoint, "qwen3:8b", null).ConfigureAwait(false), "empty body");
+                fixture.Bodies["/api/tags"] = "{\"models\":[]}";
+                AssertNull(await probe.ProbeModelDigestAsync(endpoint, "qwen3:8b", null).ConfigureAwait(false), "empty list");
+                fixture.Bodies["/api/tags"] = "{}";
+                AssertNull(await probe.ProbeModelDigestAsync(endpoint, "qwen3:8b", null).ConfigureAwait(false), "no models property");
+                fixture.Bodies["/api/version"] = "{}";
+                AssertNull(await probe.ProbeRuntimeVersionAsync(api, null, endpoint).ConfigureAwait(false), "no version property");
+
+                ModelEndpoint openAi = new ModelEndpoint { Name = "openai", Provider = ModelProviderEnum.OpenAICompatible, BaseUrl = fixture.BaseUrl, Model = "qwen3:8b" };
+                int before = fixture.Requests.Count;
+                AssertNull(await probe.ProbeModelDigestAsync(openAi, "qwen3:8b", null).ConfigureAwait(false), "not Ollama");
+                AssertNull(await probe.GetModelDigestAsync(openAi, "qwen3:8b", null).ConfigureAwait(false), "not Ollama, cached path");
+                AssertNull(await probe.GetModelDigestAsync(endpoint, null, null).ConfigureAwait(false), "no model");
+                AssertEqual(before, fixture.Requests.Count, "no request for another provider or no model");
+
+                ModelEndpoint refused = new ModelEndpoint { Name = "refused", Provider = ModelProviderEnum.Ollama, BaseUrl = "http://127.0.0.1:1" };
+                await AssertThrowsAsync<System.Net.Http.HttpRequestException>(() => probe.ProbeModelDigestAsync(refused, "qwen3:8b", null), "the uncached probe reports a refused connection").ConfigureAwait(false);
+                AssertNull(await probe.GetModelDigestAsync(refused, "qwen3:8b", null).ConfigureAwait(false), "the cached path turns it into null");
+            }));
+
+            cases.Add(CaseAsync("provenance_ollama_end_to_end_cached", "Recording an Ollama-backed attempt stores the server version and digest read from the fixture, and the next exit reuses them", TestTags.Positive, async () =>
+            {
+                using OllamaFixture fixture = new OllamaFixture();
+                fixture.Bodies["/api/version"] = "{\"version\":\"0.12.3\"}";
+                fixture.Bodies["/api/tags"] = "{\"models\":[{\"name\":\"qwen3:8b\",\"digest\":\"500a1f067a9f\"}]}";
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                ModelEndpoint endpoint = new ModelEndpoint { Name = "fixture", Provider = ModelProviderEnum.Ollama, BaseUrl = fixture.BaseUrl, Model = "qwen3:8b" };
+                await db.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                Captain captain = new Captain("api worker", AgentRuntimeEnum.ApiEndpoint);
+                captain.ModelEndpointId = endpoint.Id;
+                await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+                Mission mission = await CreateMissionAsync(db, MissionStatusEnum.InProgress, null, null).ConfigureAwait(false);
+                StageAttemptCapture capture = Capture(exitCode: 1);
+                capture.MissionId = mission.Id;
+                capture.Captain = captain;
+
+                StageOutcomeService service = new StageOutcomeService(db, CreateLogging(), new StageProvenanceProbe(CreateLogging()));
+                StageOutcome? first = await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertEqual("Ollama 0.12.3", first!.RuntimeVersion, "version");
+                AssertEqual("500a1f067a9f", first.ModelDigest, "digest");
+                AssertEqual(2, fixture.Requests.Count, "one version and one tags request");
+                AssertTrue(fixture.Requests.Contains("GET /api/version -") && fixture.Requests.Contains("GET /api/tags -"), "no credential configured, none sent: " + String.Join(", ", fixture.Requests));
+
+                StageOutcome? second = await service.RecordAttemptAsync(capture).ConfigureAwait(false);
+                AssertEqual("500a1f067a9f", second!.ModelDigest, "cached digest");
+                AssertEqual(2, fixture.Requests.Count, "cached: no new request");
+            }));
+
+            cases.Add(CaseAsync("escalation_record_links_finisher_and_kept_or_replaced", "When an escalated mission completes, the escalated attempt names the finishing attempt and captain and whether its work was kept", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                string repo = Path.Combine(Path.GetTempPath(), "armada_sto_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(repo);
+                try
+                {
+                    Git(repo, "init", "-q", "-b", "main");
+                    string root = Commit(repo, "root.txt", "root");
+                    string escalatedWork = Commit(repo, "work.txt", "weak captain");
+                    string keptFinal = Commit(repo, "work.txt", "strong captain fixed it");
+                    Git(repo, "checkout", "-q", "-b", "rewrite", root);
+                    string replacedFinal = Commit(repo, "other.txt", "strong captain started over");
+
+                    LoggingModule logging = CreateLogging();
+                    DockHostResolver hosts = new DockHostResolver(new GitService(logging), logging, null);
+                    StageOutcomeService service = new StageOutcomeService(db, logging, null, () => hosts);
+
+                    Vessel vessel = new Vessel("Escalation Vessel", "https://github.com/test/escalation") { LocalPath = repo };
+                    await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    StageOutcome kept = await EscalateThenFinishAsync(db, service, vessel, escalatedWork, keptFinal).ConfigureAwait(false);
+                    AssertEqual<bool?>(true, kept.PriorWorkKept, "final commit descends from the escalated work: kept");
+
+                    StageOutcome replaced = await EscalateThenFinishAsync(db, service, vessel, escalatedWork, replacedFinal).ConfigureAwait(false);
+                    AssertEqual<bool?>(false, replaced.PriorWorkKept, "final commit does not contain the escalated work: replaced");
+
+                    StageOutcome unknown = await EscalateThenFinishAsync(db, service, vessel, null, keptFinal).ConfigureAwait(false);
+                    AssertNull(unknown.PriorWorkKept, "no escalated commit: unknown");
+                    AssertEqual("cpt_strong", unknown.FinishedByCaptainId, "still linked");
+
+                    StageOutcome noGit = await EscalateThenFinishAsync(db, new StageOutcomeService(db, logging), vessel, escalatedWork, keptFinal).ConfigureAwait(false);
+                    AssertNull(noGit.PriorWorkKept, "no git access: unknown");
+                    AssertNotNull(noGit.FinishedByOutcomeId, "still linked without git");
+
+                    StageOutcome unchanged = await EscalateThenFinishAsync(db, new StageOutcomeService(db, logging), vessel, escalatedWork, escalatedWork).ConfigureAwait(false);
+                    AssertEqual<bool?>(true, unchanged.PriorWorkKept, "identical commits prove work kept even without git access");
+                    AssertEqual("cpt_strong", unchanged.FinishedByCaptainId, "unchanged work still names the finishing captain");
+                    AssertNotNull(unchanged.FinishedByOutcomeId, "unchanged work still names the finishing attempt");
+                }
+                finally
+                {
+                    TryDeleteDirectory(repo);
+                }
+            }));
+
+            cases.Add(CaseAsync("escalation_record_not_linked_by_failure_or_twice", "A failed attempt after an escalation does not finish it, and a finished escalation keeps its first finisher", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                StageOutcomeService service = new StageOutcomeService(db, CreateLogging());
+                Mission mission = await CreateMissionAsync(db, MissionStatusEnum.Pending, null, null).ConfigureAwait(false);
+
+                StageAttemptCapture weak = Capture(exitCode: 1);
+                weak.MissionId = mission.Id;
+                weak.EscalatedToCaptainId = "cpt_strong";
+                weak.EscalatedCommit = "aaaa";
+                StageOutcome? escalated = await service.RecordAttemptAsync(weak).ConfigureAwait(false);
+                AssertEqual(StageDispositionEnum.Escalated, escalated!.Disposition);
+
+                mission.Status = MissionStatusEnum.Failed;
+                await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                StageAttemptCapture strong = Capture(exitCode: 1);
+                strong.MissionId = mission.Id;
+                strong.Captain = new Captain("strong") { Id = "cpt_strong" };
+                StageOutcome? failed = await service.RecordAttemptAsync(strong).ConfigureAwait(false);
+                AssertEqual(StageDispositionEnum.Failed, failed!.Disposition);
+                StageOutcome? afterFailure = await db.StageOutcomes.ReadAsync(escalated.Id).ConfigureAwait(false);
+                AssertNull(afterFailure!.FinishedByOutcomeId, "a failure does not finish the escalation");
+                AssertNull(afterFailure.PriorWorkKept, "nothing compared");
+
+                mission.Status = MissionStatusEnum.Complete;
+                mission.CommitHash = "aaaa";
+                await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                StageOutcome? done = await service.RecordAttemptAsync(strong).ConfigureAwait(false);
+                StageOutcome? linked = await db.StageOutcomes.ReadAsync(escalated.Id).ConfigureAwait(false);
+                AssertEqual(done!.Id, linked!.FinishedByOutcomeId, "linked to the completing attempt");
+                AssertEqual<bool?>(true, linked.PriorWorkKept, "the same commit is kept even without git");
+
+                StageOutcome? later = await service.RecordAttemptAsync(strong).ConfigureAwait(false);
+                AssertEqual(done.Id, (await db.StageOutcomes.ReadAsync(escalated.Id).ConfigureAwait(false))!.FinishedByOutcomeId, "first finisher kept, not " + later!.Id);
+            }));
+
+            cases.Add(CaseAsync("escalation_record_links_every_page", "A mission with more escalations than one page links every escalated attempt to the finisher", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                StageOutcomeService service = new StageOutcomeService(db, CreateLogging());
+                Mission mission = await CreateMissionAsync(db, MissionStatusEnum.Complete, null, null).ConfigureAwait(false);
+                Mission other = await CreateMissionAsync(db, MissionStatusEnum.Complete, null, null).ConfigureAwait(false);
+                const int escalations = 201;
+                for (int i = 0; i < escalations; i++)
+                {
+                    StageOutcome prior = StoredOutcome(mission.Id, null);
+                    prior.Disposition = StageDispositionEnum.Escalated;
+                    prior.Attempt = i + 1;
+                    await db.StageOutcomes.CreateAsync(prior).ConfigureAwait(false);
+                }
+
+                StageOutcome otherEscalated = StoredOutcome(other.Id, null);
+                otherEscalated.Disposition = StageDispositionEnum.Escalated;
+                await db.StageOutcomes.CreateAsync(otherEscalated).ConfigureAwait(false);
+
+                StageAttemptCapture strong = Capture(exitCode: 0);
+                strong.MissionId = mission.Id;
+                strong.Captain = new Captain("strong") { Id = "cpt_strong" };
+                StageOutcome? done = await service.RecordAttemptAsync(strong).ConfigureAwait(false);
+                AssertNotNull(done, "finishing attempt recorded");
+
+                List<StageOutcome> linked = new List<StageOutcome>();
+                int page = 1;
+                while (true)
+                {
+                    StageOutcomeQuery query = new StageOutcomeQuery { MissionId = mission.Id, Disposition = StageDispositionEnum.Escalated, PageNumber = page, PageSize = 100 };
+                    EnumerationResult<StageOutcome> batch = await db.StageOutcomes.EnumerateAsync(query).ConfigureAwait(false);
+                    if (batch.Objects == null || batch.Objects.Count == 0) break;
+                    linked.AddRange(batch.Objects);
+                    page++;
+                }
+
+                AssertEqual(escalations, linked.Count, "every escalated attempt read back");
+                AssertEqual(escalations, linked.Count(o => o.FinishedByOutcomeId == done!.Id && o.FinishedByCaptainId == "cpt_strong"), "every escalated attempt names the finisher");
+                StageOutcome? untouched = await db.StageOutcomes.ReadAsync(otherEscalated.Id).ConfigureAwait(false);
+                AssertNull(untouched!.FinishedByOutcomeId, "another mission's escalation is not linked");
+            }));
+
+            cases.Add(CaseAsync("purge_mission_deletes_its_outcomes", "Deleting a mission by any of its delete paths deletes its stage outcomes and no one else's", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                Mission plain = await CreateMissionAsync(db, MissionStatusEnum.Complete, null, null).ConfigureAwait(false);
+                Mission tenant = await CreateMissionAsync(db, MissionStatusEnum.Complete, null, null).ConfigureAwait(false);
+                Mission owned = await CreateMissionAsync(db, MissionStatusEnum.Complete, null, null).ConfigureAwait(false);
+                Mission keep = await CreateMissionAsync(db, MissionStatusEnum.Complete, null, null).ConfigureAwait(false);
+                foreach (Mission m in new[] { plain, tenant, owned, keep })
+                {
+                    await db.StageOutcomes.CreateAsync(StoredOutcome(m.Id, null)).ConfigureAwait(false);
+                    await db.StageOutcomes.CreateAsync(StoredOutcome(m.Id, null)).ConfigureAwait(false);
+                }
+
+                await db.Missions.DeleteAsync(plain.Id).ConfigureAwait(false);
+                AssertNull(await db.Missions.ReadAsync(plain.Id).ConfigureAwait(false), "mission deleted");
+                AssertEqual(0, await db.StageOutcomes.CountByMissionAsync(plain.Id).ConfigureAwait(false), "outcomes deleted with the mission");
+
+                await db.Missions.DeleteAsync("ten_other", tenant.Id).ConfigureAwait(false);
+                AssertNotNull(await db.Missions.ReadAsync(tenant.Id).ConfigureAwait(false), "another tenant cannot delete it");
+                AssertEqual(2, await db.StageOutcomes.CountByMissionAsync(tenant.Id).ConfigureAwait(false), "outcomes kept when the mission is not deleted");
+                await db.Missions.DeleteAsync(tenant.TenantId!, tenant.Id).ConfigureAwait(false);
+                AssertNull(await db.Missions.ReadAsync(tenant.Id).ConfigureAwait(false), "tenant-scoped delete");
+                AssertEqual(0, await db.StageOutcomes.CountByMissionAsync(tenant.Id).ConfigureAwait(false), "outcomes deleted by the tenant-scoped delete");
+
+                await db.Missions.DeleteAsync(owned.TenantId!, "usr_other", owned.Id).ConfigureAwait(false);
+                AssertEqual(2, await db.StageOutcomes.CountByMissionAsync(owned.Id).ConfigureAwait(false), "another user's delete keeps them");
+                await db.Missions.DeleteAsync(owned.TenantId!, owned.UserId!, owned.Id).ConfigureAwait(false);
+                AssertNull(await db.Missions.ReadAsync(owned.Id).ConfigureAwait(false), "user-scoped delete");
+                AssertEqual(0, await db.StageOutcomes.CountByMissionAsync(owned.Id).ConfigureAwait(false), "outcomes deleted by the user-scoped delete");
+
+                AssertEqual(2, await db.StageOutcomes.CountByMissionAsync(keep.Id).ConfigureAwait(false), "another mission's outcomes untouched");
+            }));
+
+            cases.Add(CaseAsync("retention_purge_deletes_outcomes", "The retention sweep deletes the stage outcomes of the missions it removes and keeps those of recent missions", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                Mission old = new Mission("Old standalone") { Status = MissionStatusEnum.Complete, CreatedUtc = DateTime.UtcNow.AddDays(-61), CompletedUtc = DateTime.UtcNow.AddDays(-60) };
+                await db.Missions.CreateAsync(old).ConfigureAwait(false);
+                Voyage oldVoyage = new Voyage("Old voyage") { Status = VoyageStatusEnum.Complete, CompletedUtc = DateTime.UtcNow.AddDays(-60) };
+                await db.Voyages.CreateAsync(oldVoyage).ConfigureAwait(false);
+                Mission oldInVoyage = new Mission("Old in voyage") { VoyageId = oldVoyage.Id, Status = MissionStatusEnum.Complete, CompletedUtc = DateTime.UtcNow.AddDays(-60) };
+                await db.Missions.CreateAsync(oldInVoyage).ConfigureAwait(false);
+                Mission recent = new Mission("Recent") { Status = MissionStatusEnum.Complete, CompletedUtc = DateTime.UtcNow.AddDays(-2) };
+                await db.Missions.CreateAsync(recent).ConfigureAwait(false);
+                foreach (Mission m in new[] { old, oldInVoyage, recent })
+                    await db.StageOutcomes.CreateAsync(StoredOutcome(m.Id, null)).ConfigureAwait(false);
+
+                DataExpiryService expiry = new DataExpiryService(CreateLogging(), testDb.ConnectionString, 30);
+                await expiry.PurgeExpiredDataAsync().ConfigureAwait(false);
+
+                AssertNull(await db.Missions.ReadAsync(old.Id).ConfigureAwait(false), "old mission purged");
+                AssertNull(await db.Missions.ReadAsync(oldInVoyage.Id).ConfigureAwait(false), "old voyage mission purged");
+                AssertEqual(0, await db.StageOutcomes.CountByMissionAsync(old.Id).ConfigureAwait(false), "standalone mission's outcomes purged");
+                AssertEqual(0, await db.StageOutcomes.CountByMissionAsync(oldInVoyage.Id).ConfigureAwait(false), "voyage mission's outcomes purged");
+                AssertNotNull(await db.Missions.ReadAsync(recent.Id).ConfigureAwait(false), "recent mission kept");
+                AssertEqual(1, await db.StageOutcomes.CountByMissionAsync(recent.Id).ConfigureAwait(false), "recent mission's outcomes kept");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Stage Outcomes and Failure Causes",
@@ -582,9 +1089,9 @@ namespace Test.Shared.Suites.Services
 
         private static async Task<Mission> CreateMissionAsync(DatabaseDriver db, MissionStatusEnum status, MissionFailureKindEnum? kind, string? reason)
         {
-            Fleet fleet = new Fleet("Outcome Fleet");
+            Fleet fleet = new Fleet("Outcome Fleet " + Guid.NewGuid().ToString("N"));
             await db.Fleets.CreateAsync(fleet).ConfigureAwait(false);
-            Vessel vessel = new Vessel("Outcome Vessel", "https://github.com/test/outcomes");
+            Vessel vessel = new Vessel("Outcome Vessel " + Guid.NewGuid().ToString("N"), "https://github.com/test/outcomes");
             vessel.FleetId = fleet.Id;
             await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
             Voyage voyage = new Voyage("Outcome Voyage", "desc");
@@ -596,8 +1103,84 @@ namespace Test.Shared.Suites.Services
             mission.Status = status;
             mission.FailureKind = kind;
             mission.FailureReason = reason;
+            mission.TenantId = Constants.DefaultTenantId;
+            mission.UserId = Constants.DefaultUserId;
             await db.Missions.CreateAsync(mission).ConfigureAwait(false);
             return mission;
+        }
+
+        private static async Task<StageOutcome> EscalateThenFinishAsync(DatabaseDriver db, StageOutcomeService service, Vessel vessel, string? escalatedCommit, string finalCommit)
+        {
+            Mission mission = new Mission("Escalated Mission", "desc") { VesselId = vessel.Id, Status = MissionStatusEnum.Pending };
+            await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+            StageAttemptCapture weak = Capture(exitCode: 1);
+            weak.MissionId = mission.Id;
+            weak.EscalatedToCaptainId = "cpt_strong";
+            weak.EscalatedCommit = escalatedCommit;
+            StageOutcome? escalated = await service.RecordAttemptAsync(weak).ConfigureAwait(false);
+            AssertNotNull(escalated, "escalated attempt recorded");
+            AssertEqual(StageDispositionEnum.Escalated, escalated!.Disposition, "escalated");
+            AssertNull(escalated.FinishedByOutcomeId, "not finished yet");
+
+            mission.Status = MissionStatusEnum.Complete;
+            mission.CommitHash = finalCommit;
+            await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            StageAttemptCapture strong = Capture(exitCode: 0);
+            strong.MissionId = mission.Id;
+            strong.Captain = new Captain("strong") { Id = "cpt_strong" };
+            StageOutcome? finished = await service.RecordAttemptAsync(strong).ConfigureAwait(false);
+            AssertNotNull(finished, "finishing attempt recorded");
+            AssertEqual(StageDispositionEnum.Completed, finished!.Disposition, "completed");
+            AssertEqual(finalCommit, finished.CommitHash, "finishing commit");
+
+            StageOutcome? linked = await db.StageOutcomes.ReadAsync(escalated.Id).ConfigureAwait(false);
+            AssertNotNull(linked, "escalated outcome");
+            AssertEqual(finished.Id, linked!.FinishedByOutcomeId, "finished by the completing attempt");
+            AssertEqual("cpt_strong", linked.FinishedByCaptainId, "finished by the strong captain");
+            AssertEqual(escalatedCommit, linked.CommitHash, "escalated commit stored");
+            return linked;
+        }
+
+        private static string Git(string dir, params string[] args)
+        {
+            ProcessStartInfo info = new ProcessStartInfo("git") { WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            info.ArgumentList.Add("-c");
+            info.ArgumentList.Add("user.name=Armada Test");
+            info.ArgumentList.Add("-c");
+            info.ArgumentList.Add("user.email=test@armada.invalid");
+            info.ArgumentList.Add("-c");
+            info.ArgumentList.Add("commit.gpgsign=false");
+            foreach (string arg in args) info.ArgumentList.Add(arg);
+            using Process process = Process.Start(info)!;
+            string output = process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            if (process.ExitCode != 0) throw new InvalidOperationException("git " + String.Join(" ", args) + " failed: " + error);
+            return output.Trim();
+        }
+
+        private static string Commit(string repo, string file, string content)
+        {
+            File.WriteAllText(Path.Combine(repo, file), content);
+            Git(repo, "add", file);
+            Git(repo, "commit", "-q", "-m", content);
+            return Git(repo, "rev-parse", "HEAD");
+        }
+
+        private static void TryDeleteDirectory(string path)
+        {
+            try
+            {
+                foreach (string file in Directory.GetFiles(path, "*", SearchOption.AllDirectories)) File.SetAttributes(file, FileAttributes.Normal);
+                Directory.Delete(path, true);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
         }
 
         private static LoggingModule CreateLogging()
@@ -624,6 +1207,85 @@ namespace Test.Shared.Suites.Services
                 displayName: displayName,
                 executeAsync: (CancellationToken ct) => body(),
                 tags: new List<string> { tag });
+        }
+
+        #endregion
+
+        #region Private-Classes
+
+        private sealed class RecordingCommandExecutor : IHostCommandExecutor
+        {
+            public List<HostCommandRequest> Requests { get; } = new List<HostCommandRequest>();
+
+            private readonly HostCommandResult _Result;
+
+            public RecordingCommandExecutor(HostCommandResult result)
+            {
+                _Result = result;
+            }
+
+            public Task<HostCommandResult> RunAsync(HostCommandRequest request, CancellationToken token = default)
+            {
+                lock (Requests) Requests.Add(request);
+                return Task.FromResult(_Result);
+            }
+        }
+
+        /// <summary>
+        /// A local HTTP stand-in for an Ollama server: serves a body per path with a configurable status and records
+        /// each request as "METHOD path credential" (the Authorization header, or "-").
+        /// </summary>
+        private sealed class OllamaFixture : IDisposable
+        {
+            public string BaseUrl { get; }
+            public int Status { get; set; } = 200;
+            public Dictionary<string, string> Bodies { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+            public List<string> Requests
+            {
+                get { lock (_Requests) return new List<string>(_Requests); }
+            }
+
+            private readonly HttpListener _Listener;
+            private readonly List<string> _Requests = new List<string>();
+            private readonly Task _Loop;
+
+            public OllamaFixture()
+            {
+                _Listener = TestPorts.StartHttpListener(p => new[] { "http://127.0.0.1:" + p + "/" }, out int port);
+                BaseUrl = "http://127.0.0.1:" + port;
+                _Loop = Task.Run(LoopAsync);
+            }
+
+            public void Dispose()
+            {
+                try { _Listener.Stop(); } catch (ObjectDisposedException) { }
+                _Listener.Close();
+                try { _Loop.Wait(2000); } catch (AggregateException) { }
+            }
+
+            private async Task LoopAsync()
+            {
+                while (_Listener.IsListening)
+                {
+                    HttpListenerContext context;
+                    try { context = await _Listener.GetContextAsync().ConfigureAwait(false); }
+                    catch (Exception) { return; }
+
+                    string path = context.Request.Url!.AbsolutePath;
+                    string credential = context.Request.Headers["Authorization"] ?? "-";
+                    lock (_Requests) _Requests.Add(context.Request.HttpMethod + " " + path + " " + credential);
+
+                    string? body;
+                    int status = Status;
+                    if (!Bodies.TryGetValue(path, out body)) status = 404;
+                    byte[] bytes = Encoding.UTF8.GetBytes(status == 200 ? body ?? String.Empty : "{\"error\":\"fixture\"}");
+                    context.Response.StatusCode = status;
+                    context.Response.ContentType = "application/json";
+                    context.Response.ContentLength64 = bytes.Length;
+                    await context.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length).ConfigureAwait(false);
+                    context.Response.Close();
+                }
+            }
         }
 
         #endregion
