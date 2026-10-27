@@ -185,11 +185,6 @@ namespace Armada.Server.Routes
             };
         }
 
-        private bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
-        {
-            return MissionStateMachine.IsValidTransition(current, target);
-        }
-
         /// <summary>
         /// Register routes with the application.
         /// </summary>
@@ -607,115 +602,44 @@ namespace Armada.Server.Routes
 
                 StatusTransitionRequest transition = JsonSerializer.Deserialize<StatusTransitionRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as StatusTransitionRequest.");
-                if (String.IsNullOrEmpty(transition.Status))
-                    { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Status is required" }; }
 
-                if (!Enum.TryParse<MissionStatusEnum>(transition.Status, true, out MissionStatusEnum newStatus))
-                    { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid status: " + transition.Status }; }
-
-                MissionStatusEnum previousStatus = mission.Status;
-
-                // Validate transitions
-                bool valid = IsValidTransition(mission.Status, newStatus);
-                if (!valid)
-                    { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid transition from " + mission.Status + " to " + newStatus }; }
-
-                // If manually transitioning to Complete and an active dock exists, route through
-                // the full landing pipeline (PR creation, merge, branch cleanup, dock reclaim)
-                // instead of just mutating the status. This ensures manual completion has the
-                // same semantics as agent-driven completion.
-                if (newStatus == MissionStatusEnum.Complete && !String.IsNullOrEmpty(mission.DockId))
-                {
-                    Dock? landingDock = ctx.IsAdmin
-                        ? await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
-                        : ctx.IsTenantAdmin
-                            ? await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false)
-                            : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
-                    if (landingDock != null && landingDock.Active)
-                    {
-                        // Capture diff before landing
-                        if (_admiral.OnCaptureDiff != null)
-                        {
-                            try
-                            {
-                                await _admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
-                            }
-                            catch (Exception diffEx)
-                            {
-                                _logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
-                            }
-                        }
-
-                        // Set to WorkProduced first so the landing handler can process it
-                        mission.Status = MissionStatusEnum.WorkProduced;
-                        mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                        _logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
-
-                        // Invoke the full landing pipeline (same as agent-driven completion)
-                        await _handleMissionComplete(mission, landingDock).ConfigureAwait(false);
-
-                        // Re-read the mission to get the final state after landing
-                        mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
-                        if (mission == null)
-                            { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" }; }
-
-                        Signal landingSignal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " manual completion — landed as " + mission.Status);
-                        if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
-                        await _database.Signals.CreateAsync(landingSignal).ConfigureAwait(false);
-
-                        await _emitMissionStatusChanged(mission, previousStatus, "Mission " + id + " manually completed - landed as " + mission.Status).ConfigureAwait(false);
-
-                        if (_webSocketHub != null)
-                            _webSocketHub.BroadcastMissionChange(mission, mission.Status.ToString());
-
-                        return (object)mission;
-                    }
-                }
-
-                // Standard transition: no dock available or not transitioning to Complete
-                mission.Status = newStatus;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-
-                if (newStatus == MissionStatusEnum.InProgress && mission.StartedUtc == null)
-                {
-                    mission.StartedUtc = DateTime.UtcNow;
-                }
-
-                if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed ||
-                    newStatus == MissionStatusEnum.LandingFailed || newStatus == MissionStatusEnum.Cancelled)
-                {
-                    mission.CompletedUtc = DateTime.UtcNow;
-                }
-
-                await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                // Audit event: manual Complete without an active dock bypasses the landing pipeline.
-                // This is allowed (operators may need it after restarts/cleanup) but should be visible.
-                if (newStatus == MissionStatusEnum.Complete)
-                {
-                    _logging.Warn(_Header + "mission " + id + " manually completed without active dock — landing pipeline was skipped");
-                    await _emitEvent("mission.manual_complete_no_dock",
-                        "Mission " + id + " manually marked Complete without an active dock (landing pipeline skipped)",
-                        "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
-                }
-
-                Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);
-                if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
-                await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
-
-                await _emitMissionStatusChanged(mission, previousStatus, "Mission " + id + " transitioned to " + newStatus).ConfigureAwait(false);
-
-                // Broadcast specific mission change for dashboard toast notifications
+                MissionStatusTransitionCallbacks callbacks = new MissionStatusTransitionCallbacks();
+                callbacks.EmitEvent = _emitEvent;
+                callbacks.EmitMissionStatusChanged = _emitMissionStatusChanged;
+                callbacks.Logging = _logging;
                 if (_webSocketHub != null)
                 {
-                    _webSocketHub.BroadcastMissionChange(mission, newStatus.ToString());
-                    if (newStatus == MissionStatusEnum.Review)
-                        _webSocketHub.BroadcastApprovalNeeded(mission);
+                    callbacks.BroadcastMissionChange = _webSocketHub.BroadcastMissionChange;
+                    callbacks.BroadcastApprovalNeeded = _webSocketHub.BroadcastApprovalNeeded;
                 }
 
-                return (object)mission;
+                MissionStatusTransitionRequest statusRequest = new MissionStatusTransitionRequest();
+                statusRequest.Database = _database;
+                statusRequest.Admiral = _admiral;
+                statusRequest.MissionService = _missionService;
+                statusRequest.Caller = ctx;
+                statusRequest.MissionId = id;
+                statusRequest.StatusText = transition.Status;
+                statusRequest.HandleMissionComplete = _handleMissionComplete;
+                statusRequest.Callbacks = callbacks;
+
+                MissionStatusTransitionResult result = await MissionStatusTransition.ApplyAsync(statusRequest).ConfigureAwait(false);
+                if (result.Error == MissionStatusTransitionErrorEnum.NotFound)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = result.Message ?? "Mission not found" };
+                }
+                if (result.Error == MissionStatusTransitionErrorEnum.InvalidStatus || result.Error == MissionStatusTransitionErrorEnum.InvalidTransition)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = result.Message ?? "Invalid status" };
+                }
+                if (result.Mission == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
+                }
+                return (object)result.Mission;
             },
             api => api
                 .WithTag("Missions")
