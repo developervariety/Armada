@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- Workspace context editors save project context, style guide, and model context through PATCH /api/v1/vessels/{id}/context. This keeps the vessel name, repository URL, landing settings, auto-land settings, and Definition-of-Done values. Full vessel form saves use PUT.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
