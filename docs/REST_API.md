@@ -276,6 +276,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/cli-permissions/rules` | GET | Authenticated | Caller's tenant plus rules for every tenant. `POST`, `PUT`, and `DELETE` (`.../rules/{id}`) are TenantAdmin (a tenant admin only within their tenant) |
 | `/api/v1/stage-outcomes` | GET; `GET .../{id}`, `PUT .../{id}/cause`, `POST .../{id}/rule` | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's outcome). Captain sessions get `403` |
 | `/api/v1/stage-outcomes/reclassify` | POST | TenantAdmin | A tenant admin only within their tenant; global admins any tenant or every tenant |
+| `/api/v1/handoff-artifacts/{id}`, `/api/v1/missions/{id}/handoff-artifacts` | GET | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` otherwise). A captain session (mission-scoped token) sees its own voyage, or its own mission and the stage it depends on; Ask sessions get `403` |
 | `/api/v1/failure-cause-rules` | GET, POST; `GET`, `PUT`, `DELETE .../{id}` | Authenticated | The caller's tenant plus rules for every tenant. Anyone in the tenant may write the tenant's rules; rules for every tenant (`TenantId` null) and built-in rules need a global admin (`403`) |
 | `/api/v1/captains/{id}/evaluate` | POST | TenantAdmin | Global admin, or a tenant admin of the captain's tenant (`404` for another tenant's captain). Captain sessions get `403` |
 | `/api/v1/model-endpoints/{id}/evaluate` | POST | Authenticated | Anyone who can read the endpoint (the `GET /api/v1/model-endpoints/{id}` rules); `404` otherwise |
@@ -4326,6 +4327,40 @@ curl -X POST http://localhost:7890/api/v1/failure-cause-rules \
   -d '{"Name": "Prose instead of result block", "Priority": 5, "Cause": "Protocol", "Match": {"FailureKinds": ["InvalidOutput"], "TextPattern": "result block"}}'
 curl -X POST http://localhost:7890/api/v1/stage-outcomes/reclassify \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"SuspectedCause": "Unknown"}'
+```
+
+---
+
+### Handoff Artifacts
+
+A **handoff artifact** is the durable, versioned record one stage attempt hands to the next stage
+(docs/MODEL_HETEROGENEITY.md, 3.1). Armada stores one per stage attempt (Worker, Test Engineer, Judge, ...) when the
+attempt's exit has been handled, linked to its stage outcome (`StageOutcomeId`), mission, persona and captain. It holds:
+`SchemaVersion` (1), numbered `Findings` (each with `File`, `Line`, `Severity` `Blocking`/`NonBlocking`/`Unknown`,
+`Summary` and `RequiredFix`, parsed from the stage's `Affected Case`, `Findings` and `Issues` sections), `Verdict`
+(`PASS`, `NEEDS_REVISION`, `BLOCKED`, `COMPLETE`, ...), `AcceptanceCriteria` (from the task description),
+`RequiredActions`, `CheckResults` (`StageCheckResult`: passed, failed, skipped with a reason, could not run),
+`CommitReferences` (the produced commit first), `CompletionLines` (the `[ARMADA:...]` protocol lines), the full `Output`
+and `Diff` (up to 1,000,000 characters each; a longer one is not stored, `OutputComplete`/`DiffComplete` are false and
+`OutputLength`/`DiffLength` keep the size) and `DiffPointer` (where to regenerate the diff).
+
+When the next stage launches, Armada renders the prior stage's artifact for that captain within a token budget: one
+eighth of the captain's served context when its model endpoint sets a context length, otherwise the `handoffBudgetTokens`
+setting (default 4000). Unresolved findings and required actions come first, then check results, then diff sections of
+files named in findings, other diff sections, and the stage output (its tail when only part fits); then a pointer to the
+complete artifact through a tool the captain has (MCP `get_handoff_artifact`, or for a captain that can only read files
+the file `.armada/handoff/<persona>-<missionId>.md` written into its worktree, git-excluded and never committed), and an
+explicit list of what did not fit. A captain with neither MCP nor file access is told that nothing beyond the block can
+reach it. Nothing is inlined past the budget.
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| GET | `/api/v1/missions/{id}/handoff-artifacts` | | `200` `EnumerationResult<HandoffArtifact>` of the mission, newest first, **without** `Output` and `Diff` (their lengths stay). Query: `pageNumber`, `pageSize` (1-1000, default 25); `400` for a value that does not parse; `404` when the mission is missing or out of scope |
+| GET | `/api/v1/handoff-artifacts/{id}` | | `200` `HandoffArtifact` with output and diff; `404` when missing or out of scope |
+
+```bash
+curl "http://localhost:7890/api/v1/missions/msn_abc123/handoff-artifacts?pageSize=5" -H "Authorization: Bearer <token>"
+curl http://localhost:7890/api/v1/handoff-artifacts/hoa_abc123 -H "Authorization: Bearer <token>"
 ```
 
 ---

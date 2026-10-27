@@ -70,6 +70,8 @@ namespace Armada.Core.Authorization
             Add("PUT", "/api/v1/stage-outcomes/{id}/cause", "StageOutcome", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/stage-outcomes/{id}/rule", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/stage-outcomes/reclassify", "StageOutcome", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("GET", "/api/v1/missions/{id}/handoff-artifacts", "HandoffArtifact", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/handoff-artifacts/{id}", "HandoffArtifact", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/failure-cause-rules", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/failure-cause-rules", "FailureCauseRule", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/failure-cause-rules/{id}", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);

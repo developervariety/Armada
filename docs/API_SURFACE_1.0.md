@@ -24,13 +24,13 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 406 | 15 |
-| MCP tools | 193 | 8 |
+| REST routes | 408 | 15 |
+| MCP tools | 195 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 212 | 12 |
+| Settings keys | 213 | 12 |
 
 ## REST API
 
@@ -165,6 +165,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | DELETE | `/api/v1/fleets/{id}` | TenantAdmin |  | 204, 404 |  |
 | GET | `/api/v1/fleets/{id}` | Authenticated |  | 200 `Fleet`, 404 |  |
 | PUT | `/api/v1/fleets/{id}` | TenantAdmin | `Fleet` | 200 `Fleet`, 404, 409 `ApiErrorResponse` |  |
+| GET | `/api/v1/handoff-artifacts/{id}` | Authenticated |  | 200 `HandoffArtifact`, 404 |  |
 | GET | `/api/v1/harbors` | Authenticated |  | 200 `List<Harbor>` | experimental |
 | POST | `/api/v1/harbors` | Authenticated | `Harbor` | 201 `Harbor`, 400 | experimental |
 | POST | `/api/v1/harbors/enumerate` | Authenticated | `EnumerationQuery` (optional) | 200 `EnumerationResult<Harbor>` | experimental |
@@ -217,6 +218,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/missions/{id}/diff` | Authenticated |  | 200, 404, 503 `ApiStatusErrorResponse` |  |
 | GET | `/api/v1/missions/{id}/evaluate-autoland` | Authenticated |  | 200 `AutoLandDecision`, 400, 404 |  |
 | GET | `/api/v1/missions/{id}/github/pull-request` | Authenticated |  | 200 `GitHubPullRequestDetail`, 404 |  |
+| GET | `/api/v1/missions/{id}/handoff-artifacts` | Authenticated |  | 200 `EnumerationResult<HandoffArtifact>`, 404 |  |
 | GET | `/api/v1/missions/{id}/instructions` | Authenticated |  | 200, 404 |  |
 | GET | `/api/v1/missions/{id}/landing-preview` | Authenticated |  | 200 `LandingPreviewResult`, 400, 404 |  |
 | GET | `/api/v1/missions/{id}/log` | Authenticated |  | 200, 404 |  |
@@ -542,6 +544,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `get_dock` | Authenticated | `dockId*: string` |  |
 | `get_failure_cause_rule` | Authenticated | `ruleId*: string` |  |
 | `get_fleet` | Authenticated | `fleetId*: string` |  |
+| `get_handoff_artifact` | Authenticated | `artifactId*: string` |  |
 | `get_harbor` | Authenticated | `harborId*: string` | experimental |
 | `get_harbor_metrics` | Authenticated | `harborId*: string`, `range: string` | experimental |
 | `get_memory` | Authenticated | `memoryId*: string` |  |
@@ -572,6 +575,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `list_cli_permission_requests` | Authenticated | `captainId: string`, `limit: integer`, `missionId: string`, `status: string`, `threadId: string`, `vesselId: string` |  |
 | `list_cli_permission_rules` | Authenticated | `captainId: string`, `scope: string`, `vesselId: string` |  |
 | `list_failure_cause_rules` | Authenticated | `pageNumber: integer`, `pageSize: integer` |  |
+| `list_handoff_artifacts` | Authenticated | `missionId*: string`, `pageNumber: integer`, `pageSize: integer` |  |
 | `list_harbor_jobs` | Authenticated | `harborId*: string`, `openOnly: boolean`, `pageNumber: integer`, `pageSize: integer` | experimental |
 | `list_model_probe_runs` | Authenticated | `captainId: string`, `modelEndpointId: string`, `pageNumber: integer`, `pageSize: integer`, `status: string` |  |
 | `list_objectives` | Authenticated | `backlogState: string`, `category: string`, `effort: string`, `fleetId: string`, `kind: string`, `owner: string`, `pageNumber: integer`, `pageSize: integer`, `parentObjectiveId: string`, `priority: string`, `search: string`, `status: string`, `targetVersion: string`, `vesselId: string` |  |
@@ -896,6 +900,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `fleetActions.maxOutputBytes` | int | `65536` |  |
 | `fleetActions.runRetentionDays` | int | `30` |  |
 | `gitHubToken` | string | `null` |  |
+| `handoffBudgetTokens` | int | `4000` |  |
 | `harbor` | object |  | experimental |
 | `harbor.advertisedMcpBaseUrl` | string | `null` | experimental |
 | `harbor.defaultMaxJobsPerHarbor` | int | `4` | experimental |

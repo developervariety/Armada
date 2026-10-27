@@ -66,6 +66,7 @@ namespace Test.Shared.Suites.E2E
             ["delete_cli_permission_rule"] = "CLI permission rule (CliPermissionService scopes by caller; covered by Services.CliPermissionService)",
             ["get_stage_outcome"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
             ["classify_stage_outcome"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
+            ["get_handoff_artifact"] = "Handoff artifact (HandoffArtifactAccessService scopes by caller; tenant isolation covered by E2E.HandoffArtifacts)",
             ["draft_failure_cause_rule"] = "Stage outcome (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
             ["get_failure_cause_rule"] = "Failure-cause rule (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",
             ["update_failure_cause_rule"] = "Failure-cause rule (StageOutcomeAccessService scopes by caller; tenant isolation covered by E2E.StageOutcomes)",

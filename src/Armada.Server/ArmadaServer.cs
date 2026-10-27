@@ -1412,6 +1412,10 @@ namespace Armada.Server
             new StageOutcomeRoutes(_StageOutcomeAccess, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Handoff artifacts (one per stage attempt, delivered to the next stage within a budget)
+            new HandoffArtifactRoutes(new HandoffArtifactAccessService(_Database))
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Evaluate (probe-only Quick model probes) and its runs
             new ModelProbeRoutes(_ModelProbeAccess, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);

@@ -138,6 +138,9 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [create_failure_cause_rule](#create_failure_cause_rule)
     - [update_failure_cause_rule](#update_failure_cause_rule)
     - [delete_failure_cause_rule](#delete_failure_cause_rule)
+  - **Handoff Artifacts**
+    - [get_handoff_artifact](#get_handoff_artifact)
+    - [list_handoff_artifacts](#list_handoff_artifacts)
   - **Evaluate**
     - [evaluate_captain](#evaluate_captain)
     - [get_model_probe_run](#get_model_probe_run)
@@ -1269,6 +1272,41 @@ an edited built-in is never overwritten by seeding. **Response:** the updated Fa
 next time the Admiral starts; disable it (`enabled` false) to keep it out of classification.
 
 ---
+
+## Handoff Artifacts
+
+A handoff artifact (`hoa_`) is the durable, versioned record one stage attempt hands to the next stage: numbered
+findings (file, line, severity, required fix), acceptance criteria, required actions, check results (passed, failed,
+skipped with a reason, could not run), commit references, protocol lines, the full stage output and the full diff (or
+where to regenerate it). Armada stores one per stage attempt, linked to its stage outcome. At launch the next stage
+receives a budgeted rendering of it whose pointer names `get_handoff_artifact` and the artifact id when the captain has
+Armada MCP tools. The shapes, the budget and the delivery order are in
+[REST_API.md](REST_API.md#handoff-artifacts); the tools enforce the same access rules through the same service.
+
+| Tool | Caller |
+|---|---|
+| `get_handoff_artifact`, `list_handoff_artifacts` | Any authenticated person: global admins every tenant, everyone else their own tenant. A captain session (mission-scoped token) sees its own voyage, or its own mission and the stage it depends on. Ask sessions get `Forbidden` |
+
+Errors are `McpToolError`s: `NotFound` (missing or out of scope), `Forbidden` (an Ask session) and `InvalidArgument`
+(arguments that do not parse). A missing required argument is refused by the MCP layer before the tool runs.
+
+### get_handoff_artifact
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `artifactId` | string | Yes | Artifact ID (`hoa_`) |
+
+**Response:** the complete HandoffArtifact, with `output` and `diff`.
+
+### list_handoff_artifacts
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `missionId` | string | Yes | Mission ID (`msn_`) |
+| `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 25) |
+
+**Response:** `EnumerationResult<HandoffArtifact>` (`objects`, `totalRecords`, `totalPages`), newest first, without
+`output` and `diff` (their lengths stay).
 
 ## Evaluate
 

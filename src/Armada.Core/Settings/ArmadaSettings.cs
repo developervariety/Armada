@@ -192,6 +192,19 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Token budget for the prior stage's handoff delivered to a captain whose served context is not known (CLI
+        /// runtimes, endpoints without a context length). A reader with a known served context gets one eighth of it
+        /// instead. Findings and required actions are delivered first, then relevant diff sections, then a pointer to
+        /// the complete handoff artifact and the list of what did not fit. Clamped to [0, 1000000]; 0 delivers only the
+        /// pointer and the did-not-fit list.
+        /// </summary>
+        public int HandoffBudgetTokens
+        {
+            get => _HandoffBudgetTokens;
+            set => _HandoffBudgetTokens = value < 0 ? 0 : (value > 1000000 ? 1000000 : value);
+        }
+
+        /// <summary>
         /// Time limit, in minutes, for each stage-check command a vessel's workflow profile defines (its build and unit-test
         /// commands, run in the dock after a stage's agent exits). A command that runs longer is reported as a timed-out
         /// check. Set it above the slowest command's real duration, or give the profile a narrower test command.
@@ -920,6 +933,7 @@ namespace Armada.Core.Settings
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _StageCheckTimeoutMinutes = Constants.DefaultStageCheckTimeoutMinutes;
+        private int _HandoffBudgetTokens = Constants.DefaultHandoffBudgetTokens;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
         private int _MaxMissionRuntimeMinutes = Constants.DefaultMaxMissionRuntimeMinutes;
         private int _ReviewTimeoutMinutes = Constants.DefaultReviewTimeoutMinutes;

@@ -307,6 +307,23 @@ Replace the 3000-character output excerpt and the 4000-character diff cap with a
 The rework prompt is built from the artifact (numbered findings, each with file, line and required fix) instead of
 one long paragraph.
 
+**Implemented (Phase 3, item 1).** `HandoffArtifact` (schema version 1, table `handoff_artifacts`, migration 97) is
+stored once per stage attempt by the stage outcome recorder and linked to the outcome, mission, persona and captain. It is
+built from what Armada already parses: protocol lines, the Judge verdict and its `Affected Case` blocks (numbered
+findings with file, line, severity and required fix), a verifier's block, the stage-check result, the commit and the
+diff (outputs and diffs over 1,000,000 characters are measured and pointed to, not stored). It expires with its mission
+through `DataExpiryService`. At launch `HandoffRenderer` replaces the 3000-character output excerpt and the
+4000-character diff cap: the budget is one eighth of the reader's served context when its endpoint sets one, otherwise
+the `handoffBudgetTokens` setting (default 4000); findings and required actions come first, then checks, diff sections of
+files named in findings, other diff sections and the output; then a pointer chosen from the reader's actual tools (MCP
+`get_handoff_artifact`, or `.armada/handoff/<persona>-<missionId>.md` in the worktree, git-excluded and a scratch path)
+and an explicit did-not-fit list. The existing templates receive the rendered block through `{PreviousStageOutput}` and
+`{Diff}` and the prior-stage section of the description; their wording is unchanged. REST
+`GET /api/v1/missions/{id}/handoff-artifacts` and `GET /api/v1/handoff-artifacts/{id}`, MCP `get_handoff_artifact` and
+`list_handoff_artifacts`, and the .NET client expose the artifacts, tenant-scoped like stage outcomes. Building the rework
+prompt from the artifact one demand per line (item 2) is not done yet, and the effect has not been measured on the
+battery.
+
 ### 3.2 Render prompts for the reader (Armada, at launch)
 
 `MissionPromptBuilder` already runs when the captain is known, and `ResolvePersonaPromptAsync` already chooses a

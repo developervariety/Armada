@@ -1935,7 +1935,44 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_battery_task_results_mission') CREATE INDEX idx_battery_task_results_mission ON battery_task_results(mission_id);"),
                 new SchemaMigration(96, "Add is_evaluation to voyages and missions so evaluation work (fixture battery and model evaluation) is flagged first-class instead of inferred from the vessel pipeline",
                     @"IF COL_LENGTH('voyages','is_evaluation') IS NULL ALTER TABLE voyages ADD is_evaluation BIT NOT NULL CONSTRAINT DF_voyages_is_evaluation DEFAULT 0;",
-                    @"IF COL_LENGTH('missions','is_evaluation') IS NULL ALTER TABLE missions ADD is_evaluation BIT NOT NULL CONSTRAINT DF_missions_is_evaluation DEFAULT 0;")
+                    @"IF COL_LENGTH('missions','is_evaluation') IS NULL ALTER TABLE missions ADD is_evaluation BIT NOT NULL CONSTRAINT DF_missions_is_evaluation DEFAULT 0;"),
+                new SchemaMigration(97, "Add handoff_artifacts (one durable, versioned handoff artifact per stage attempt: findings, acceptance criteria, check results, commit references, the full stage output and diff) for budgeted delivery to the next stage",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'handoff_artifacts')
+                    CREATE TABLE handoff_artifacts (
+                        id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(64),
+                        user_id NVARCHAR(64),
+                        mission_id NVARCHAR(64) NOT NULL,
+                        voyage_id NVARCHAR(64),
+                        vessel_id NVARCHAR(64),
+                        stage_outcome_id NVARCHAR(64),
+                        persona NVARCHAR(256),
+                        captain_id NVARCHAR(64),
+                        captain_name NVARCHAR(256),
+                        attempt INT NOT NULL,
+                        rework_round INT NOT NULL,
+                        schema_version INT NOT NULL,
+                        verdict NVARCHAR(256),
+                        branch_name NVARCHAR(256),
+                        commit_hash NVARCHAR(64),
+                        findings_json NVARCHAR(MAX),
+                        acceptance_criteria_json NVARCHAR(MAX),
+                        required_actions_json NVARCHAR(MAX),
+                        check_results_json NVARCHAR(MAX),
+                        commit_references_json NVARCHAR(MAX),
+                        completion_lines_json NVARCHAR(MAX),
+                        output NVARCHAR(MAX),
+                        output_length INT NOT NULL,
+                        output_complete BIT NOT NULL,
+                        diff NVARCHAR(MAX),
+                        diff_length INT NOT NULL,
+                        diff_complete BIT NOT NULL,
+                        diff_pointer NVARCHAR(MAX),
+                        created_utc DATETIME2 NOT NULL,
+                        last_update_utc DATETIME2 NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_mission_created') CREATE INDEX idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_tenant_created') CREATE INDEX idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);")
 
 
             };

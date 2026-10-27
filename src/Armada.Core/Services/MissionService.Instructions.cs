@@ -50,7 +50,10 @@ namespace Armada.Core.Services
             string instructionsPath = Path.Combine(worktreePath, instructionsFileName);
 
             Mission? previousStage = await ReadPreviousStageAsync(mission, token).ConfigureAwait(false);
-            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, previousStage);
+            HandoffRendering? handoff = previousStage != null
+                ? await RenderHandoffAsync(harborHost, worktreePath, previousStage, captain, token).ConfigureAwait(false)
+                : null;
+            Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(mission, vessel, captain, null, previousStage, handoff);
             List<MissionPlaybookSnapshot> playbookSnapshots = await LoadMissionPlaybookSnapshotsAsync(mission, token).ConfigureAwait(false);
 
             string content = "";
@@ -106,6 +109,22 @@ namespace Armada.Core.Services
             PersonaOverride? personaOverride = await ResolvePersonaOverrideAsync(vessel, mission.Persona, token).ConfigureAwait(false);
             string? personaTemplateName = await ResolvePersonaTemplateNameAsync(mission, token).ConfigureAwait(false);
             string personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+            if (handoff != null)
+            {
+                // The description's prior-stage placeholder receives the rendered handoff, unless the persona template
+                // already carries it through {PreviousStageOutput} (Judge, Test Engineer, Linter): deliver it once.
+                bool templateCarriesHandoff = personaPrompt.Contains(handoff.Evidence.Trim(), StringComparison.Ordinal);
+                string block = templateCarriesHandoff
+                    ? "The prior stage's handoff artifact is rendered in the role instructions below (prior stage evidence and diff)."
+                    : handoff.Combined();
+                string filled = PipelineHandoffContext.Fill(templateParams["MissionDescription"], block);
+                if (!String.Equals(filled, templateParams["MissionDescription"], StringComparison.Ordinal))
+                {
+                    templateParams["MissionDescription"] = filled;
+                    personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+                }
+            }
+
             templateParams["PersonaPrompt"] = personaPrompt;
             content += await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false);
             content += "\n";
@@ -473,6 +492,45 @@ namespace Armada.Core.Services
             }
 
             return templateName;
+        }
+
+        /// <summary>
+        /// Render the prior stage's handoff artifact for the captain about to read it: the budget comes from the captain's
+        /// served context when known, else <see cref="ArmadaSettings.HandoffBudgetTokens"/>; the pointer to the complete
+        /// artifact uses a tool the captain has. A captain that can only read files gets the complete artifact written to
+        /// .armada/handoff/ in its worktree (git-excluded and a scratch path, so it is never committed). If that write
+        /// fails, the rendering says that nothing beyond it can reach the captain.
+        /// </summary>
+        private async Task<HandoffRendering> RenderHandoffAsync(DockHost? harborHost, string worktreePath, Mission previousStage, Captain? captain, CancellationToken token)
+        {
+            HandoffArtifact artifact = await new HandoffArtifactService(_Database, _Logging).GetOrCreateForStageAsync(previousStage, token).ConfigureAwait(false);
+            ModelEndpoint? endpoint = null;
+            if (!String.IsNullOrEmpty(captain?.ModelEndpointId))
+            {
+                try { endpoint = await _Database.ModelEndpoints.ReadAsync(captain!.ModelEndpointId!, token).ConfigureAwait(false); }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested)) { endpoint = null; }
+            }
+
+            HandoffReader reader = HandoffReaderResolver.Resolve(captain, endpoint);
+            HandoffRendering rendering = HandoffRenderer.Render(artifact, reader, _Settings.HandoffBudgetTokens);
+            if (rendering.Pointer == HandoffPointerKindEnum.File && rendering.FilePath != null)
+            {
+                IDockFileSystem files = harborHost != null ? harborHost.Files : _LocalFiles;
+                try
+                {
+                    string absolute = Path.Combine(worktreePath, rendering.FilePath.Replace('/', Path.DirectorySeparatorChar));
+                    await files.WriteTextAsync(absolute, HandoffRenderer.RenderFullDocument(artifact), token).ConfigureAwait(false);
+                    await files.AddGitExcludeEntryAsync(worktreePath, HandoffRenderer.HandoffDirectory + "/", token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    _Logging.Warn(_Header + "could not write the handoff file for mission " + previousStage.Id + " into " + worktreePath + ": " + ex.Message);
+                    HandoffReader noAccess = new HandoffReader { ContextTokens = reader.ContextTokens, HasMcpTools = false, CanReadFiles = false };
+                    rendering = HandoffRenderer.RenderWithBudget(artifact, noAccess, rendering.BudgetTokens);
+                }
+            }
+
+            return rendering;
         }
 
         /// <summary>
