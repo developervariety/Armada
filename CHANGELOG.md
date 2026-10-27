@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Validate playbooks before creating a bare voyage
+
+- REST and MCP resolve selected playbooks before they store a bare voyage. REST returns the mapped not-found or bad-request response for a missing or inactive playbook. A valid selection is stored after the voyage is created.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
