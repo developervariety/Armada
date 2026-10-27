@@ -4,6 +4,11 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- A landing retry stores `mission.landing_retry` with the mission's tenant and user, so the owner's scoped event list includes that event and another tenant or user does not. A cancelled write of that event stops the retry. Any other failure of that write is logged and the retry continues.
+- When the admiral or server event helper writes an event that is missing a tenant or a user, it copies both fields from the first referenced mission, voyage, vessel, captain, fleet, dock, signal, merge entry, or planning session that has a tenant. An event that already has both fields is unchanged. A failed lookup is logged and the event is still written. An event with no owner record stays unscoped.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
