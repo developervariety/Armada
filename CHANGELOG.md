@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### OpenCode error events fail the turn
+
+- An OpenCode `type=error` event fails Ask, planning, and refinement even when earlier assistant text arrived and the process exits 0. The operator sees a short provider message and the HTTP status when one is present. The response body, headers, URL, and session id stay out of that text. The planning or refinement session stays active. A text event with no error is unchanged. Stderr provider parsing is unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
