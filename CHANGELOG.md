@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Merge queue
+
+- A queued merge is cancelled when its source branch is missing and the mission's recorded commit is already an ancestor of the target. Missing or unlanded commits and branches with newer work keep their existing merge behavior.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
