@@ -555,7 +555,11 @@ export default function Dashboard() {
                         onClick: () =>
                           setJsonViewer({ open: true, title: `${t('Mission')}: ${m.title}`, data: m }),
                       },
-                      ...(canRestartFromHome(m.status) ? [{
+                      ...(m.status === 'Pending' ? [{
+                        label: 'Start',
+                        title: 'Start this Pending mission now. A free captain takes it at once; if none is free it stays Pending until one is.',
+                        onClick: async () => { try { await restartMission(m.id); loadAll(); } catch { /* ignore */ } },
+                      }] : canRestartFromHome(m.status) ? [{
                         label: 'Restart',
                         title: 'Reset a Failed or Cancelled mission to Pending so it is dispatched again. Clears its captain, branch, pull request and timing.',
                         onClick: async () => { try { await restartMission(m.id); loadAll(); } catch { /* ignore */ } },

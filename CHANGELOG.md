@@ -17,6 +17,19 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
 - Ask Armada conversations now have a refresh control that preserves the open conversation and filters, shows loading progress, and retains the previous list on failure.
 
+### Restart starts a Pending mission when a captain is free
+
+- `POST /api/v1/missions/{id}/restart`, MCP `restart_mission`, the WebSocket `restart_mission` command, and
+  `armada mission restart` now accept a `Pending` mission. It keeps its state, takes the optional new title and
+  description, and is dispatched at once when a captain can take it; otherwise it stays `Pending` and the response is
+  still `200`. Any other status than Pending, Failed, LandingFailed, or Cancelled still returns `409`, and the message
+  lists Pending.
+- A restarted Failed, LandingFailed, or Cancelled mission is reset as before and then also dispatched immediately
+  instead of waiting for the next dispatch cycle. Normal dispatch rules apply (voyage status, pipeline dependencies,
+  vessel concurrency, requested captain).
+- The dashboard's Home and Missions row menus offer **Start** on Pending missions; the Missions menu shows **Restart**
+  only for Failed, LandingFailed, and Cancelled missions.
+
 ### Fixture battery: data-defined packs and the C# pack
 
 - **Packs as data.** A pack lives in `battery/<pack>/` and has a `battery-pack.json` manifest, documented in

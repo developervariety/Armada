@@ -3462,7 +3462,9 @@ Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empt
 
 #### POST /api/v1/missions/{id}/restart
 
-Restart a failed or cancelled mission by resetting it to `Pending` for re-dispatch. Clears captain assignment, branch, PR URL, and timing fields. Optionally update the title and description (instructions) before restarting.
+Restart a `Failed`, `LandingFailed`, or `Cancelled` mission by resetting it to `Pending` for re-dispatch, or start a `Pending` mission as it is. A restart of a failed or cancelled mission clears captain assignment, branch, PR URL, and timing fields; a `Pending` mission only takes the new title and description, if any. Optionally update the title and description (instructions) before restarting.
+
+The mission is then dispatched at once under the normal dispatch rules (voyage status, pipeline dependencies, vessel concurrency, requested captain). When a captain is free the response shows it `Assigned` or `InProgress`; when none is, it stays `Pending`, the response is still `200`, and the regular dispatcher picks it up later.
 
 **Permission:** TenantAdmin
 
@@ -3484,11 +3486,12 @@ Restart a failed or cancelled mission by resetting it to `Pending` for re-dispat
 | `Title` | string | No | New mission title. Omit to keep the original. |
 | `Description` | string | No | New mission description/instructions. Omit to keep the original. |
 
-**Response:** `200 OK` - [Mission](#mission) (with `Status: "Pending"`)
+**Response:** `200 OK` - [Mission](#mission) (with `Status` `Pending`, `Assigned`, or `InProgress`)
 
 **Errors:**
-- `400` - Mission is not in `Failed` or `Cancelled` status
+- `400` - Request body is not a valid restart request
 - `404` - Mission not found
+- `409` - Mission is not in `Pending`, `Failed`, `LandingFailed`, or `Cancelled` status
 
 ---
 
@@ -10171,7 +10174,7 @@ the matrix and each route's section describe. `/openapi.json` and `/swagger` rem
 | 161 | GET | `/api/v1/missions/{id}/landing-preview` | Preview mission landing readiness | Authenticated |
 | 162 | GET | `/api/v1/missions/{id}/log` | Get log for a mission | Authenticated |
 | 163 | DELETE | `/api/v1/missions/{id}/purge` | Permanently delete a mission | TenantAdmin |
-| 164 | POST | `/api/v1/missions/{id}/restart` | Restart a failed or cancelled mission | TenantAdmin |
+| 164 | POST | `/api/v1/missions/{id}/restart` | Restart a failed or cancelled mission, or start a pending one | TenantAdmin |
 | 165 | POST | `/api/v1/missions/{id}/retry-landing` | Retry landing for a mission | TenantAdmin |
 | 166 | POST | `/api/v1/missions/{id}/review/approve` | Approve a mission review gate | TenantAdmin |
 | 167 | POST | `/api/v1/missions/{id}/review/deny` | Deny a mission review gate | TenantAdmin |

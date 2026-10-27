@@ -649,8 +649,9 @@ namespace Armada.Server.WebSocket
                     Mission? rmMission = await _Database.Missions.ReadAsync(rmId).ConfigureAwait(false);
                     if (rmMission == null)
                         return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.NotFound, "Mission not found");
-                    else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
-                        return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.Conflict, "Only Failed, LandingFailed, or Cancelled missions can be restarted");
+                    else if (rmMission.Status != MissionStatusEnum.Pending && rmMission.Status != MissionStatusEnum.Failed
+                        && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
+                        return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.Conflict, "Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted (current: " + rmMission.Status + ")");
                     else
                     {
                         if (Missions == null)
