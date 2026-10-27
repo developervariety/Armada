@@ -721,7 +721,8 @@ namespace Armada.Test.Unit.Suites.Services
                     "you depend on it, and say so in your summary when it is wrong or stale.\n" +
                     "When this brief carries a Shared Memory section, that shared memory is the authority: a " +
                     "shared rule wins over a memory record on conflict, and so do the mission brief, the " +
-                    "playbooks and the vessel instructions. Report the conflict;
+                    "playbooks and the vessel instructions. Report the conflict; do not rewrite either side.\n" +
+                    "When the memory tools are absent, continue without them.\n";
                     PromptTemplate edited = new PromptTemplate("persona.architect", "CUSTOM PREFIX" + shippedRecall + "CUSTOM SUFFIX");
                     edited.Category = "persona";
                     edited.IsBuiltIn = true;
