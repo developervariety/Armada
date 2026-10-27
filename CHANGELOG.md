@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Captain deletion supports providers without planning sessions
+
+- Cascade cleanup treats `NotSupportedException` from planning-session enumeration as an empty list, so captain deletion can finish on providers that do not store planning sessions. Other enumeration failures still propagate.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
