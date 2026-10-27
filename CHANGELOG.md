@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Voyage completion events
+
+- **Completed voyages record `voyage.completed`.** The shared settlement path stores one event when it changes a voyage to Complete. Failed and cancelled voyages do not emit this event, and repeat settlement does not duplicate it. If event storage fails, the voyage status remains saved and the failure is logged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
