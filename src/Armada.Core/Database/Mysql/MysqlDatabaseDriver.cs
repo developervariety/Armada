@@ -78,6 +78,8 @@ namespace Armada.Core.Database.Mysql
             FailureCauseRules = new FailureCauseRuleMethods(_ConnectionString);
             ModelProbeRuns = new ModelProbeRunMethods(_ConnectionString);
             ModelProbeResults = new ModelProbeResultMethods(_ConnectionString);
+            BatteryRuns = new BatteryRunMethods(_ConnectionString);
+            BatteryTaskResults = new BatteryTaskResultMethods(_ConnectionString);
             PushDevices = new PushDeviceMethods(_ConnectionString);
             HarborJobs = new HarborJobMethods(_ConnectionString);
             HarborLinkSamples = new HarborLinkSampleMethods(_ConnectionString);
@@ -890,7 +892,71 @@ namespace Armada.Core.Database.Mysql
                     @"CREATE INDEX idx_model_probe_runs_endpoint ON model_probe_runs(model_endpoint_id);",
                     @"CREATE INDEX idx_model_probe_runs_created ON model_probe_runs(created_utc);",
                     @"CREATE INDEX idx_model_probe_runs_host ON model_probe_runs(inference_host);",
-                    @"CREATE INDEX idx_model_probe_results_run ON model_probe_results(run_id);")
+                    @"CREATE INDEX idx_model_probe_results_run ON model_probe_results(run_id);"),
+                new SchemaMigration(95, "Add battery_runs (one row per fixture battery run against a captain, tagged as evaluation, with seed, sampling settings, battery version and configuration revision) and battery_task_results (one row per graded task attempt)",
+                    @"CREATE TABLE IF NOT EXISTS battery_runs (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id VARCHAR(64),
+                        user_id VARCHAR(64),
+                        captain_id VARCHAR(64),
+                        captain_name VARCHAR(512),
+                        packs LONGTEXT NOT NULL,
+                        battery_version VARCHAR(64) NOT NULL,
+                        run_count INT NOT NULL,
+                        status VARCHAR(64) NOT NULL,
+                        is_evaluation TINYINT(1) NOT NULL,
+                        pipeline VARCHAR(64) NOT NULL,
+                        seed INT,
+                        sampling_json LONGTEXT,
+                        configuration_revision VARCHAR(512),
+                        configuration_json LONGTEXT,
+                        runtime VARCHAR(64),
+                        model VARCHAR(512),
+                        model_endpoint_id VARCHAR(64),
+                        inference_host VARCHAR(512),
+                        total_tasks INT NOT NULL,
+                        passed_count INT NOT NULL,
+                        failed_count INT NOT NULL,
+                        could_not_run_count INT NOT NULL,
+                        pending_evaluation_count INT NOT NULL,
+                        failure_reason LONGTEXT,
+                        created_utc DATETIME(6) NOT NULL,
+                        started_utc DATETIME(6),
+                        completed_utc DATETIME(6),
+                        last_update_utc DATETIME(6) NOT NULL
+                    );",
+                    @"CREATE TABLE IF NOT EXISTS battery_task_results (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        run_id VARCHAR(64) NOT NULL,
+                        tenant_id VARCHAR(64),
+                        pack_id VARCHAR(64) NOT NULL,
+                        pack_version INT NOT NULL,
+                        task_id VARCHAR(64) NOT NULL,
+                        task_title VARCHAR(512),
+                        persona VARCHAR(64),
+                        grader VARCHAR(64) NOT NULL,
+                        attempt INT NOT NULL,
+                        outcome VARCHAR(64) NOT NULL,
+                        score DOUBLE,
+                        summary LONGTEXT,
+                        reason LONGTEXT,
+                        details_json LONGTEXT,
+                        output LONGTEXT,
+                        vessel_id VARCHAR(64),
+                        voyage_id VARCHAR(64),
+                        mission_id VARCHAR(64),
+                        mission_status VARCHAR(64),
+                        fixture_commit VARCHAR(64),
+                        duration_ms BIGINT NOT NULL,
+                        created_utc DATETIME(6) NOT NULL,
+                        completed_utc DATETIME(6)
+                    );",
+                    @"CREATE INDEX idx_battery_runs_tenant ON battery_runs(tenant_id);",
+                    @"CREATE INDEX idx_battery_runs_captain ON battery_runs(captain_id);",
+                    @"CREATE INDEX idx_battery_runs_status ON battery_runs(status);",
+                    @"CREATE INDEX idx_battery_runs_created ON battery_runs(created_utc);",
+                    @"CREATE INDEX idx_battery_task_results_run ON battery_task_results(run_id);",
+                    @"CREATE INDEX idx_battery_task_results_mission ON battery_task_results(mission_id);")
 
 
             };

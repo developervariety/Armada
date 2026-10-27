@@ -70,6 +70,22 @@ namespace Armada.Core.Settings
             set => _ProbeTimeoutSeconds = (int)Clamp(value, 30, 7200);
         }
 
+        /// <summary>
+        /// Folder that holds the battery packs (each a sub-folder with a battery-pack.json). Null or empty finds the
+        /// "battery" folder next to the Admiral or in one of its parent folders (a source checkout).
+        /// </summary>
+        public string? BatteryDirectory { get; set; } = null;
+
+        /// <summary>
+        /// Minutes to wait for one battery task's mission before it counts as failed and is cancelled (a task's manifest
+        /// can set its own). 5 to 1440; default 60.
+        /// </summary>
+        public int BatteryTaskTimeoutMinutes
+        {
+            get => _BatteryTaskTimeoutMinutes;
+            set => _BatteryTaskTimeoutMinutes = (int)Clamp(value, 5, 1440);
+        }
+
         #endregion
 
         #region Private-Members
@@ -80,6 +96,7 @@ namespace Armada.Core.Settings
         private int _MaxConcurrentRuns = 2;
         private int _MaxConcurrentRunsPerHost = 1;
         private int _ProbeTimeoutSeconds = 600;
+        private int _BatteryTaskTimeoutMinutes = 60;
 
         #endregion
 

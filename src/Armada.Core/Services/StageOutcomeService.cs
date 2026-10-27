@@ -239,7 +239,7 @@ namespace Armada.Core.Services
                 StageCheckReason = capture.StageCheck?.Reason,
                 StartedUtc = capture.StartedUtc,
                 EndedUtc = capture.EndedUtc,
-                IsEvaluation = false
+                IsEvaluation = await BatteryFixtureService.IsEvaluationMissionAsync(_Database, mission, token).ConfigureAwait(false)
             };
             if (capture.StartedUtc.HasValue && capture.EndedUtc >= capture.StartedUtc.Value)
                 outcome.DurationMs = (long)(capture.EndedUtc - capture.StartedUtc.Value).TotalMilliseconds;

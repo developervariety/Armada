@@ -540,6 +540,59 @@
     },
     {
       "method": "GET",
+      "route": "/api/v1/battery/packs",
+      "auth": "Authenticated",
+      "resource": "BatteryPack:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<BatteryPackInfo>",
+        "400": ""
+      },
+      "tags": [
+        "Battery"
+      ],
+      "summary": "List battery packs",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/battery/runs",
+      "auth": "TenantAdmin",
+      "resource": "BatteryRun:Execute",
+      "requestType": "BatteryRunRequest",
+      "requestRequired": true,
+      "responses": {
+        "201": "BatteryRun",
+        "400": "",
+        "403": "ApiErrorResponse",
+        "404": ""
+      },
+      "tags": [
+        "Battery"
+      ],
+      "summary": "Run the fixture battery",
+      "experimental": false
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/battery/runs/{id}",
+      "auth": "Authenticated",
+      "resource": "BatteryRun:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "BatteryRun",
+        "404": ""
+      },
+      "tags": [
+        "Battery"
+      ],
+      "summary": "Get a battery run",
+      "experimental": false
+    },
+    {
+      "method": "GET",
       "route": "/api/v1/captains",
       "auth": "Authenticated",
       "resource": "Captain:Read",
@@ -9296,6 +9349,20 @@
       "experimental": false
     },
     {
+      "name": "get_battery_run",
+      "auth": "Authenticated",
+      "resource": "BatteryRun:Read",
+      "arguments": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Get one fixture battery run visible to the caller: its provenance (seed, sampling settings, battery version, configuration revision), counts, and one result per task attempt (Passed, Failed, CouldNotRun or PendingEvaluation) with the grader's evidence and the captain's raw output.",
+      "experimental": false
+    },
+    {
       "name": "get_captain",
       "auth": "Authenticated",
       "resource": "Captain:Read",
@@ -9940,6 +10007,25 @@
         }
       ],
       "description": "List captain-backed refinement sessions for one backlog item (lightweight, paginated). Returns session metadata only, most-recently-updated first; fetch a session's transcript with get_backlog_refinement_session.",
+      "experimental": false
+    },
+    {
+      "name": "list_battery_packs",
+      "auth": "Authenticated",
+      "resource": "BatteryPack:Read",
+      "arguments": [
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        }
+      ],
+      "description": "List the fixture battery packs (each a fixture repository plus its tasks, defined as data), with each task's persona, grader (command, byteComparison, seededSet, mutation, rubric) and toolchain. Malformed packs are listed with valid false and their validation errors. Returns an enumeration result (objects, totalRecords, totalPages).",
       "experimental": false
     },
     {
@@ -10732,6 +10818,40 @@
         }
       ],
       "description": "Propose a quick action in an Ask Armada conversation (toolName from list_ask_quick_actions, with its arguments). It becomes an action proposal that runs when approved, or at once when the conversation auto-approves.",
+      "experimental": false
+    },
+    {
+      "name": "run_battery",
+      "auth": "Authenticated",
+      "resource": "BatteryRun:Execute",
+      "arguments": [
+        {
+          "name": "captainId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "createFixtureVessel",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "packs",
+          "type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "runCount",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "seed",
+          "type": "integer",
+          "required": false
+        }
+      ],
+      "description": "Run fixture battery packs against a captain. Before each task the fixture is reset; the task is dispatched as a mission on the pack's fixture vessel under the built-in ModelEvaluation pipeline (pinned to the captain, no landing) and graded per its manifest. Returns the queued run at once; poll get_battery_run. runCount defaults to 3. A task whose toolchain the Harbor lacks is CouldNotRun, never Failed; rubric-graded tasks are PendingEvaluation. Battery missions never count in production stage outcomes. Needs a global admin or a tenant admin of the captain's tenant. Set createFixtureVessel to create a pack's fixture vessel the first time.",
       "experimental": false
     },
     {
@@ -19147,6 +19267,18 @@
       "key": "evaluation",
       "type": "object",
       "default": null,
+      "experimental": false
+    },
+    {
+      "key": "evaluation.batteryDirectory",
+      "type": "string",
+      "default": "null",
+      "experimental": false
+    },
+    {
+      "key": "evaluation.batteryTaskTimeoutMinutes",
+      "type": "int",
+      "default": "60",
       "experimental": false
     },
     {
