@@ -114,4 +114,28 @@ describe('Planning send ordering (F16)', () => {
     expect(screen.queryByRole('button', { name: 'Stop' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
   });
+
+  it('keeps the planning transcript position when streamed assistant text changes', async () => {
+    vi.mocked(getPlanningSession).mockResolvedValue(detail(session('Responding', '2026-10-05T00:00:00Z'), [
+      message('psm_a', 'Assistant', 1, 'First part', '2026-10-05T00:00:00Z'),
+    ]));
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/planning/psn_1']}>
+        <Routes>
+          <Route path="/planning/:id" element={<Planning />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const transcript = await screen.findByText('First part').then((node) => node.closest('.ask-chat-window') as HTMLDivElement);
+    Object.defineProperty(transcript, 'scrollHeight', { configurable: true, value: 900 });
+    Object.defineProperty(transcript, 'clientHeight', { configurable: true, value: 300 });
+    transcript.scrollTop = 120;
+
+    emit({ type: 'planning-session.message.updated', data: { sessionId: 'psn_1', message: message('psm_a', 'Assistant', 1, 'First part with more text', '2026-10-05T00:00:01Z') } });
+
+    expect(transcript.scrollTop).toBe(120);
+    expect(container.querySelector('.ask-chat-window')).toBe(transcript);
+  });
 });
