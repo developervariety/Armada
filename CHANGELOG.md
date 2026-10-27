@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Check results sum every .NET project summary
+
+- **A `dotnet test` run with several projects reports the combined counts.** Each project prints its own Passed or Failed summary line, and the command prints no combined line. The check summary adds failed, passed, skipped, and total across those lines. Duration is the longest project duration. A TRX, JUnit, NUnit, or Jest artifact still replaces the console summary.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
