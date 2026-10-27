@@ -3149,7 +3149,8 @@
       "responses": {
         "200": "Mission",
         "400": "",
-        "404": ""
+        "404": "",
+        "409": "ApiErrorResponse"
       },
       "tags": [
         "Missions"
