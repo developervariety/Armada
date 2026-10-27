@@ -464,6 +464,7 @@ namespace Test.Shared.Suites.Services
 
         private static MissionLandingHandler CreateHandler(DatabaseDriver db, StubGitService git, IMergeQueueService queue, ArmadaSettings? settings = null)
         {
+            git.ResolveBranchTipResult = git.HeadCommitResult;
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             settings = settings ?? CreateSettings();

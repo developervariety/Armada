@@ -42,7 +42,7 @@ namespace Armada.Core.Models
         public List<string> PreExistingFailures { get; set; } = new List<string>();
 
         /// <summary>
-        /// The note sent back to the captain when the check blocks the stage (failed or could not run), or null.
+        /// The note sent back to the captain describing a failure or an unverified check, or null.
         /// </summary>
         public string? FailureMessage { get; set; } = null;
 
@@ -61,7 +61,7 @@ namespace Armada.Core.Models
         /// </summary>
         public bool IsBlocking
         {
-            get { return FailureMessage != null; }
+            get { return Status == StageCheckStatusEnum.Failed && FailureMessage != null; }
         }
 
         #endregion

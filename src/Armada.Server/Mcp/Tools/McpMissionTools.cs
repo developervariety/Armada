@@ -477,6 +477,15 @@ namespace Armada.Server.Mcp.Tools
                     if (mission.Status == MissionStatusEnum.Review && newStatus != MissionStatusEnum.Cancelled)
                         return (object)McpToolError.Conflict("Mission " + missionId + " is waiting at a review gate; use approve_mission_review or deny_mission_review.");
 
+                    string? handoffRefusal = ManualMissionHandoff.Refusal(mission, newStatus);
+                    if (handoffRefusal != null) return (object)McpToolError.Conflict(handoffRefusal);
+                    if ((newStatus == MissionStatusEnum.WorkProduced || newStatus == MissionStatusEnum.Complete)
+                        && !MissionModeContract.IsReadOnly(mission.Mode))
+                    {
+                        try { return (object)await ManualMissionHandoff.LandAsync(database, admiral, mission).ConfigureAwait(false); }
+                        catch (InvalidOperationException ex) { return (object)McpToolError.Conflict(ex.Message); }
+                    }
+
                     mission.Status = newStatus;
                     mission.LastUpdateUtc = DateTime.UtcNow;
 

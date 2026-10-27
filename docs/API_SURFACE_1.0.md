@@ -30,7 +30,7 @@ administrator).
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 213 | 12 |
+| Settings keys | 214 | 12 |
 
 ## REST API
 
@@ -1017,6 +1017,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `reviewTimeoutMinutes` | int | `1440` |  |
 | `selfVesselId` | string | `null` | experimental |
 | `sessionTokenEncryptionKey` | string | `null` |  |
+| `stageCheckConcurrencyPerHarbor` | int | `1` |  |
 | `stageCheckTimeoutMinutes` | int | `15` |  |
 | `stallThresholdMinutes` | int | `10` |  |
 | `storage` | object |  |  |

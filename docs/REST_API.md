@@ -3319,6 +3319,12 @@ Transition a mission to a new status. Only valid transitions are allowed.
 **Error:** `400` - Invalid transition or invalid status name
 **Error:** `404` - Mission not found
 
+Stage checks persist `Verifying` while queued or executing, including in `mission_status`. The mission event log records `mission.stage_check_started` and `mission.stage_check` with outcome and duration. `CouldNotRun` is an unverified warning and permits handoff; only a confirmed regression blocks it.
+
+Manual `WorkProduced` or `Complete` returns HTTP 409 (MCP `Conflict`) while the agent or exit/check handoff owns the mission. Otherwise, implementation work requires an active dock and a resolvable commit, then uses the normal vessel landing mode. A raw status write cannot mark unlanded implementation work Complete. Audit/Research may complete without code landing. A late check cannot replace a newer row version or terminal result.
+
+`StageCheckTimeoutMinutes` is one shared execution budget for head and baseline commands. `StageCheckConcurrencyPerHarbor` in server settings defaults to 1 (range 1-64); set it before starting the server. Queue time is excluded. Baseline outcomes are cached in memory by vessel, commit, and command; timeouts and unavailable commands are not cached as failures. Existing vessel workflow overrides are preserved. New Armada defaults run the `Services` suites through `Test.Automated`; the xUnit/NUnit hosts aggregate all shared suites and would still include end-to-end tests.
+
 **Valid Status Transitions:**
 
 | From | Allowed Targets |
@@ -3330,6 +3336,7 @@ Transition a mission to a new status. Only valid transitions are allowed.
 | `WorkProduced` | `PullRequestOpen`, `Complete`, `LandingFailed`, `Cancelled` |
 | `PullRequestOpen` | `Complete`, `LandingFailed`, `Cancelled` |
 | `Testing` | `Review`, `InProgress`, `Complete`, `Failed` |
+| `Verifying` | Owned by the exit handler; manual handoff is refused; cancellation is allowed |
 | `Review` | `Complete`, `InProgress`, `Failed` |
 | `LandingFailed` | `WorkProduced`, `Failed`, `Cancelled` |
 | `Complete` | (terminal) |

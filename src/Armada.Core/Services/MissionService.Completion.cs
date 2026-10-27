@@ -291,7 +291,7 @@ namespace Armada.Core.Services
             return true;
         }
 
-        private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token)
+        private async Task HandleCompletionCoreAsync(Captain captain, string missionId, CancellationToken token, DateTime? expectedVersion = null)
         {
             Mission? mission = null;
             if (!String.IsNullOrEmpty(captain.TenantId))
@@ -303,6 +303,12 @@ namespace Armada.Core.Services
                 mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
             }
             if (mission == null) return;
+            if (expectedVersion.HasValue && (mission.LastUpdateUtc != expectedVersion.Value
+                || mission.ProcessId.HasValue || (mission.Status != MissionStatusEnum.InProgress && mission.Status != MissionStatusEnum.Testing)))
+            {
+                _Logging.Info(_Header + "ignoring stale claimed completion for " + missionId);
+                return;
+            }
 
             // Idempotency guard: if the mission has already been processed (e.g. by a concurrent
             // health check or process exit handler), skip to avoid double-processing.
@@ -328,10 +334,11 @@ namespace Armada.Core.Services
             // above, so exactly one completion wins and a concurrent handler that moved the mission (an interruption
             // re-dispatch, a cancel, a second completion) is never overwritten by this one.
             MissionStatusEnum observedStatus = mission.Status;
+            DateTime observedVersion = mission.LastUpdateUtc;
             mission.Status = MissionStatusEnum.WorkProduced;
             mission.ProcessId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
-            if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))
+            if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, observedVersion, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))
             {
                 _Logging.Debug(_Header + "mission " + missionId + " left " + observedStatus + " before its completion was recorded -- skipping completion handler");
                 return;

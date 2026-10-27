@@ -205,7 +205,7 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Time limit, in minutes, for each stage-check command a vessel's workflow profile defines (its build and unit-test
+        /// Shared execution time limit, in minutes, for the stage-check commands and baseline checks a vessel's workflow profile defines (its build and unit-test
         /// commands, run in the dock after a stage's agent exits). A command that runs longer is reported as a timed-out
         /// check. Set it above the slowest command's real duration, or give the profile a narrower test command.
         /// Must be in range [1, 240].
@@ -219,6 +219,17 @@ namespace Armada.Core.Settings
                 _StageCheckTimeoutMinutes = value;
             }
         }
+
+        /// <summary>
+        /// Maximum simultaneously executing stage checks per Harbor (including the local host). Queued checks wait.
+        /// </summary>
+        public int StageCheckConcurrencyPerHarbor
+        {
+            get => _StageCheckConcurrencyPerHarbor;
+            set => _StageCheckConcurrencyPerHarbor = value >= 1 && value <= 64 ? value : throw new ArgumentOutOfRangeException(nameof(StageCheckConcurrencyPerHarbor));
+        }
+
+        private int _StageCheckConcurrencyPerHarbor = 1;
 
         /// <summary>
         /// Maximum number of automatic landing retries when landing fails due to target-branch drift.

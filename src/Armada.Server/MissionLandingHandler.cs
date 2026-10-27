@@ -214,7 +214,36 @@ namespace Armada.Server
             {
                 _Logging.Debug(_Header + "merge lock acquired for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
 
-                if (effectivePr)
+                bool synchronizationFailed = false;
+                if (!landingModeIsNone && vessel != null && (!String.IsNullOrEmpty(targetWorkDir) || effectivePr || landingModeIsMergeQueue)
+                    && await git.BranchExistsAsync(dock.WorktreePath, dock.BranchName).ConfigureAwait(false))
+                {
+                    try
+                    {
+                        bool advanced = await LandingTargetSynchronization.SynchronizeAsync(git, dock.WorktreePath, vessel.DefaultBranch, targetWorkDir).ConfigureAwait(false);
+                        mission.CommitHash = await git.GetHeadCommitHashAsync(dock.WorktreePath).ConfigureAwait(false);
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        if (advanced)
+                        {
+                            await _Database.Events.CreateAsync(new ArmadaEvent("mission.landing_target_advanced",
+                                "Integrated the current target after stage verification. The resulting merge has not been stage-verified; merge-queue tests still apply when configured.")
+                            {
+                                TenantId = mission.TenantId, UserId = mission.UserId, EntityType = "mission", EntityId = mission.Id,
+                                MissionId = mission.Id, VesselId = mission.VesselId, VoyageId = mission.VoyageId
+                            }).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        synchronizationFailed = true;
+                        landingAttempted = true;
+                        landingFailureReason = "Current-target integration failed: " + ex.Message;
+                    }
+                }
+
+                if (synchronizationFailed) { /* Record LandingFailed through the common path below. */ }
+                else if (effectivePr)
                 {
                     // Push + PR flow
                     landingAttempted = true;

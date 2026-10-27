@@ -773,15 +773,17 @@ namespace Armada.Core.Services
                     await RunGitAsync(host, worktreePath, token, "merge", "--no-ff", "origin/" + branchName).ConfigureAwait(false);
                     return true;
                 }
-                catch
+                catch (Exception ex2) when (ex2 is not OperationCanceledException)
                 {
+                    if (await ChangelogLandingConflict.TryResolveAsync(host.Commands ?? new LocalHostCommandExecutor(), worktreePath, host.IsWindows, token).ConfigureAwait(false)) return true;
                     try { await RunGitAsync(host, worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
                     catch { }
                     return false;
                 }
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                if (await ChangelogLandingConflict.TryResolveAsync(host.Commands ?? new LocalHostCommandExecutor(), worktreePath, host.IsWindows, token).ConfigureAwait(false)) return true;
                 // Abort the failed merge
                 try { await RunGitAsync(host, worktreePath, token, "merge", "--abort").ConfigureAwait(false); }
                 catch { }
