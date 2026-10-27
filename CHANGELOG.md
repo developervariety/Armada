@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- The dashboard websocket relay removes a receive-loop session by instance before it publishes an error or a close, and the loop's final removal matches that same instance. A frame sent from the error event finds no session. A new session that reuses the proxy socket id during close stays registered.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
