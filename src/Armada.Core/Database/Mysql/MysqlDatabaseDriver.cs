@@ -76,6 +76,8 @@ namespace Armada.Core.Database.Mysql
             CliPermissionRules = new CliPermissionRuleMethods(_ConnectionString);
             StageOutcomes = new StageOutcomeMethods(_ConnectionString);
             FailureCauseRules = new FailureCauseRuleMethods(_ConnectionString);
+            ModelProbeRuns = new ModelProbeRunMethods(_ConnectionString);
+            ModelProbeResults = new ModelProbeResultMethods(_ConnectionString);
             PushDevices = new PushDeviceMethods(_ConnectionString);
             HarborJobs = new HarborJobMethods(_ConnectionString);
             HarborLinkSamples = new HarborLinkSampleMethods(_ConnectionString);
@@ -834,7 +836,61 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE stage_outcomes ADD COLUMN commit_hash VARCHAR(64) NULL;",
                     @"ALTER TABLE stage_outcomes ADD COLUMN finished_by_outcome_id VARCHAR(64) NULL;",
                     @"ALTER TABLE stage_outcomes ADD COLUMN finished_by_captain_id VARCHAR(64) NULL;",
-                    @"ALTER TABLE stage_outcomes ADD COLUMN prior_work_kept TINYINT(1) NULL;")
+                    @"ALTER TABLE stage_outcomes ADD COLUMN prior_work_kept TINYINT(1) NULL;"),
+                new SchemaMigration(94, "Add model_probe_runs (one row per probe-only Evaluate of a captain or model endpoint, tagged as evaluation) and model_probe_results (one row per probe of a run)",
+                    @"CREATE TABLE IF NOT EXISTS model_probe_runs (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        tenant_id VARCHAR(64),
+                        user_id VARCHAR(64),
+                        target_kind VARCHAR(64) NOT NULL,
+                        captain_id VARCHAR(64),
+                        captain_name VARCHAR(512),
+                        model_endpoint_id VARCHAR(64),
+                        depth VARCHAR(64) NOT NULL,
+                        status VARCHAR(64) NOT NULL,
+                        is_evaluation TINYINT(1) NOT NULL,
+                        probe_set_version VARCHAR(64) NOT NULL,
+                        runtime VARCHAR(64),
+                        runtime_version VARCHAR(512),
+                        model_provider VARCHAR(64),
+                        model VARCHAR(512),
+                        model_digest VARCHAR(512),
+                        configured_context_tokens INT,
+                        served_context_tokens INT,
+                        harbor_id VARCHAR(64),
+                        inference_host VARCHAR(512),
+                        token_budget BIGINT NOT NULL,
+                        tokens_used BIGINT NOT NULL,
+                        passed_count INT NOT NULL,
+                        failed_count INT NOT NULL,
+                        could_not_run_count INT NOT NULL,
+                        failure_reason LONGTEXT,
+                        created_utc DATETIME(6) NOT NULL,
+                        started_utc DATETIME(6),
+                        completed_utc DATETIME(6),
+                        last_update_utc DATETIME(6) NOT NULL
+                    );",
+                    @"CREATE TABLE IF NOT EXISTS model_probe_results (
+                        id VARCHAR(64) NOT NULL PRIMARY KEY,
+                        run_id VARCHAR(64) NOT NULL,
+                        tenant_id VARCHAR(64),
+                        probe VARCHAR(64) NOT NULL,
+                        outcome VARCHAR(64) NOT NULL,
+                        summary LONGTEXT,
+                        reason LONGTEXT,
+                        attempts INT NOT NULL,
+                        tokens_used BIGINT NOT NULL,
+                        duration_ms BIGINT NOT NULL,
+                        metrics_json LONGTEXT,
+                        output_excerpt LONGTEXT,
+                        created_utc DATETIME(6) NOT NULL
+                    );",
+                    @"CREATE INDEX idx_model_probe_runs_tenant ON model_probe_runs(tenant_id);",
+                    @"CREATE INDEX idx_model_probe_runs_captain ON model_probe_runs(captain_id);",
+                    @"CREATE INDEX idx_model_probe_runs_endpoint ON model_probe_runs(model_endpoint_id);",
+                    @"CREATE INDEX idx_model_probe_runs_created ON model_probe_runs(created_utc);",
+                    @"CREATE INDEX idx_model_probe_runs_host ON model_probe_runs(inference_host);",
+                    @"CREATE INDEX idx_model_probe_results_run ON model_probe_results(run_id);")
 
 
             };

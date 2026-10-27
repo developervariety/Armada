@@ -2009,6 +2009,22 @@
     },
     {
       "kind": "api",
+      "key": "evaluateCaptain",
+      "status": "implemented",
+      "tui": "ArmadaClient.EvaluateCaptainAsync",
+      "workstream": "W0.2",
+      "notes": "Model Probes"
+    },
+    {
+      "kind": "api",
+      "key": "evaluateModelEndpoint",
+      "status": "implemented",
+      "tui": "ArmadaClient.EvaluateModelEndpointAsync",
+      "workstream": "W0.2",
+      "notes": "Model Probes"
+    },
+    {
+      "kind": "api",
       "key": "evaluateVesselHealth",
       "status": "implemented",
       "tui": "ArmadaClient.EvaluateVesselHealthAsync",
@@ -2326,6 +2342,14 @@
       "tui": "ArmadaClient.GetModelEndpointAsync",
       "workstream": "W0.2",
       "notes": "Model endpoints (embedding/inference)"
+    },
+    {
+      "kind": "api",
+      "key": "getModelProbeRun",
+      "status": "implemented",
+      "tui": "ArmadaClient.GetModelProbeRunAsync",
+      "workstream": "W0.2",
+      "notes": "Model Probes"
     },
     {
       "kind": "api",
@@ -2886,6 +2910,14 @@
       "tui": "ArmadaClient.ListModelEndpointsAsync",
       "workstream": "W0.2",
       "notes": "Model endpoints (embedding/inference)"
+    },
+    {
+      "kind": "api",
+      "key": "listModelProbeRuns",
+      "status": "implemented",
+      "tui": "ArmadaClient.ListModelProbeRunsAsync",
+      "workstream": "W0.2",
+      "notes": "Model Probes"
     },
     {
       "kind": "api",

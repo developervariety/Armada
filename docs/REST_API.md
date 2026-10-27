@@ -47,6 +47,7 @@ camelizes REST responses.
   - [Captains](#captains)
   - [Ask](#ask)
   - [CLI Permissions](#cli-permissions)
+  - [Evaluate (Model Probe Runs)](#evaluate-model-probe-runs)
   - [Push Notifications](#push-notifications)
   - [Signals](#signals)
   - [Events](#events)
@@ -275,6 +276,9 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/stage-outcomes` | GET; `GET .../{id}`, `PUT .../{id}/cause`, `POST .../{id}/rule` | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's outcome). Captain sessions get `403` |
 | `/api/v1/stage-outcomes/reclassify` | POST | TenantAdmin | A tenant admin only within their tenant; global admins any tenant or every tenant |
 | `/api/v1/failure-cause-rules` | GET, POST; `GET`, `PUT`, `DELETE .../{id}` | Authenticated | The caller's tenant plus rules for every tenant. Anyone in the tenant may write the tenant's rules; rules for every tenant (`TenantId` null) and built-in rules need a global admin (`403`) |
+| `/api/v1/captains/{id}/evaluate` | POST | TenantAdmin | Global admin, or a tenant admin of the captain's tenant (`404` for another tenant's captain). Captain sessions get `403` |
+| `/api/v1/model-endpoints/{id}/evaluate` | POST | Authenticated | Anyone who can read the endpoint (the `GET /api/v1/model-endpoints/{id}` rules); `404` otherwise |
+| `/api/v1/model-probe-runs` | GET; `GET .../{id}` | Authenticated | Global admins see every tenant; everyone else their own tenant (`404` for another tenant's run). Captain sessions get `403` |
 | `/api/v1/ask/threads/{id}/cli-permission-policy` | PUT | Authenticated | Thread owner only (`404` otherwise); `Bypass` requires a global or tenant admin (`403`) |
 | `/api/v1/push/devices` | GET, POST | Authenticated | Register for yourself (captain sessions get `403`); list your own devices, or (`userId`) another user's as a tenant admin of their tenant or a global admin (`403` otherwise) |
 | `/api/v1/push/devices/{id}` | PUT, DELETE | Authenticated | Owner, tenant admins of the device's tenant, global admins; `404` otherwise (also `POST .../test`) |
@@ -4317,6 +4321,41 @@ curl -X POST http://localhost:7890/api/v1/failure-cause-rules \
   -d '{"Name": "Prose instead of result block", "Priority": 5, "Cause": "Protocol", "Match": {"FailureKinds": ["InvalidOutput"], "TextPattern": "result block"}}'
 curl -X POST http://localhost:7890/api/v1/stage-outcomes/reclassify \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"SuspectedCause": "Unknown"}'
+```
+
+---
+
+### Evaluate (Model Probe Runs)
+
+**Evaluate** runs probe-only mechanical probes against a captain (through its own runtime, as Harbor jobs of kind
+`ModelProbe`, with the same tool loop it uses in production) or a model endpoint (through the API endpoint runtime, as a
+transient captain that is never saved). Depth `Quick` is the only depth for now; `Full` is `400` ("not implemented until
+Phase 5"). Each run records six results, one per probe: `OutputContract` (Armada's real `[ARMADA:RESULT]`,
+`[ARMADA:VERDICT]` and `armada-plan` output, and whether the repair path would be needed), `ServedContext` (served versus
+configured context; a mismatch is a configuration error), `AsciiFormat` (em dashes, smart quotes, ANSI codes),
+`ToolCalling` (single, sequential and parallel calls, an error result, a large result), `Speed` (time to first token and
+output tokens per second at about 4K and 32K input; advice for inference request, inactivity and stall timeouts only)
+and `Determinism` (one short task three times). A probe a runtime cannot run (for example served context on a vendor CLI,
+or a runtime that cannot launch) is `CouldNotRun` with the reason, never `Failed`. Each probe records an observation, not a
+capacity. Runs record the captain, runtime, runtime version, model, model digest, configured and served context and the
+probe-set version, are tagged `IsEvaluation`, never count in stage outcomes, and change no routing or captain settings.
+The `Evaluation` server settings set the token budgets (per run, per day, per day per inference host) and the
+concurrency limits (overall, and per inference host, so models sharing one host run one at a time).
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST | `/api/v1/captains/{id}/evaluate` | `EvaluateCaptainRequest` (optional; `Depth`, default `Quick`) | `201` `ModelProbeRun` (queued; the probes run in the background). `400` for `Full` or an unknown depth; `403` not an admin; `404` missing or in another tenant |
+| POST | `/api/v1/model-endpoints/{id}/evaluate` | `EvaluateCaptainRequest` (optional) | `201` `ModelProbeRun`; `400`; `404` when the caller cannot read the endpoint |
+| GET | `/api/v1/model-probe-runs` | | `200` `EnumerationResult<ModelProbeRun>` (without results), newest first. Query: `tenantId` (global admins), `captainId`, `modelEndpointId`, `status` (`Queued`, `Running`, `Completed`, `Failed`), `pageNumber`, `pageSize` (1-1000, default 100); `400` for a value that does not parse |
+| GET | `/api/v1/model-probe-runs/{id}` | | `200` `ModelProbeRun` with `Results` (`Probe`, `Outcome` `Passed`/`Failed`/`CouldNotRun`, `Summary`, `Reason`, `Metrics`); `404` when missing or in another tenant |
+
+A run is `Failed` only when the run itself could not finish (for example the Admiral restarted while it ran); poll
+`GET /api/v1/model-probe-runs/{id}` until `Status` is `Completed` or `Failed`.
+
+```bash
+curl -X POST http://localhost:7890/api/v1/captains/cpt_abc123/evaluate \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{"depth":"Quick"}'
+curl http://localhost:7890/api/v1/model-probe-runs/mpr_abc123 -H "Authorization: Bearer <token>"
 ```
 
 ---

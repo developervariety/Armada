@@ -2057,6 +2057,22 @@
     },
     {
       "kind": "api",
+      "key": "evaluateCaptain",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "the mobile app has no captain or model endpoint evaluation screen: the dashboard runs Quick probe runs from the captain page and the endpoint health dialog (MODEL_HETEROGENEITY.md Phase 2); the app adds one when evaluation needs it on the go"
+    },
+    {
+      "kind": "api",
+      "key": "evaluateModelEndpoint",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "the mobile app has no captain or model endpoint evaluation screen: the dashboard runs Quick probe runs from the captain page and the endpoint health dialog (MODEL_HETEROGENEITY.md Phase 2); the app adds one when evaluation needs it on the go"
+    },
+    {
+      "kind": "api",
       "key": "evaluateVesselHealth",
       "status": "implemented",
       "mobile": "src/screens/vessels/health/VesselHealthTab.tsx",
@@ -2374,6 +2390,14 @@
       "mobile": "src/screens/configuration/EndpointsTab",
       "workstream": "W4.2",
       "notes": "Model endpoints (embedding/inference)"
+    },
+    {
+      "kind": "api",
+      "key": "getModelProbeRun",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "the mobile app has no captain or model endpoint evaluation screen: the dashboard runs Quick probe runs from the captain page and the endpoint health dialog (MODEL_HETEROGENEITY.md Phase 2); the app adds one when evaluation needs it on the go"
     },
     {
       "kind": "api",
@@ -2937,6 +2961,14 @@
     },
     {
       "kind": "api",
+      "key": "listModelProbeRuns",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.3",
+      "notes": "the mobile app has no captain or model endpoint evaluation screen: the dashboard runs Quick probe runs from the captain page and the endpoint health dialog (MODEL_HETEROGENEITY.md Phase 2); the app adds one when evaluation needs it on the go"
+    },
+    {
+      "kind": "api",
       "key": "listMuxEndpoints",
       "status": "implemented",
       "mobile": "src/screens/captains/MuxFields.tsx",
@@ -3126,6 +3158,14 @@
       "mobile": "AskContext",
       "workstream": "W1.1",
       "notes": "Ask Armada (shared lib/askConversation, askThreads, askEvents)"
+    },
+    {
+      "kind": "api",
+      "key": "markAskThreadUnread",
+      "status": "planned",
+      "mobile": "",
+      "workstream": "W1.1",
+      "notes": "Ask Armada threads (docs/ASK_ARMADA_HOME_BASE.md)"
     },
     {
       "kind": "api",

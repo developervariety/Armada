@@ -100,6 +100,13 @@ namespace Armada.Server
         public Armada.Core.Services.Push.IPushTransport? PushTransport { get; set; } = null;
 
         /// <summary>
+        /// Answers every Evaluate probe exchange instead of the captain's runtime when set. Null (the default) runs
+        /// probes through the captain's own runtime. May be set before or after <see cref="StartAsync"/>; test hosts set
+        /// a fake that returns canned model answers so tests never launch a real model.
+        /// </summary>
+        public IModelProbeExecutor? ModelProbeExecutorOverride { get; set; } = null;
+
+        /// <summary>
         /// The push notification service (populated by <see cref="StartAsync"/>).
         /// </summary>
         public Armada.Core.Services.Push.PushNotificationService? PushNotifications
@@ -162,6 +169,8 @@ namespace Armada.Server
         private DeploymentEnvironmentService _EnvironmentService = null!;
         private StageOutcomeService _StageOutcomeService = null!;
         private StageOutcomeAccessService _StageOutcomeAccess = null!;
+        private ModelProbeService _ModelProbeService = null!;
+        private ModelProbeAccessService _ModelProbeAccess = null!;
         private CheckRunService _CheckRunService = null!;
         private ObjectiveService _ObjectiveService = null!;
         private ReleaseService _ReleaseService = null!;
@@ -478,6 +487,31 @@ namespace Armada.Server
             missionService.DockHosts = dockHosts;
             missionService.ResolveDockPlacementAsync = _AgentLifecycle.ResolveDockPlacementAsync;
             _MissionLanding.DockHosts = dockHosts;
+
+            // Evaluate (probe-only model probes): each probe runs through the captain's own runtime as a Harbor job,
+            // under the evaluation budget and concurrency limits. Nothing it records changes routing or captain settings.
+            ModelProbeExecutor modelProbeExecutor = new ModelProbeExecutor(_RuntimeFactory, _Logging)
+            {
+                LaunchRouter = _LaunchRouter,
+                OverrideSource = () => ModelProbeExecutorOverride
+            };
+            StageProvenanceProbe modelProbeProvenance = new StageProvenanceProbe(_Logging, harborId =>
+            {
+                if (String.IsNullOrEmpty(harborId)) return dockHosts.Local.Commands;
+                if (dockHosts.Harbors == null) return null;
+                return dockHosts.ForHarbor(harborId!).Commands;
+            });
+            _ModelProbeService = new ModelProbeService(_Database, _Logging, modelProbeExecutor, () => _Settings.Evaluation, modelProbeProvenance);
+            _ModelProbeAccess = new ModelProbeAccessService(_Database, _ModelProbeService, _ModelEndpointService, _Logging);
+            try
+            {
+                int interrupted = await _ModelProbeService.RecoverInterruptedAsync().ConfigureAwait(false);
+                if (interrupted > 0) _Logging.Info(_Header + "marked " + interrupted + " interrupted Evaluate run(s) failed");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not recover interrupted Evaluate runs: " + ex.Message);
+            }
             if (_MergeQueue is MergeQueueService mergeQueueImpl)
             {
                 mergeQueueImpl.DockHosts = dockHosts;
@@ -1348,6 +1382,10 @@ namespace Armada.Server
             new StageOutcomeRoutes(_StageOutcomeAccess, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Evaluate (probe-only Quick model probes) and its runs
+            new ModelProbeRoutes(_ModelProbeAccess, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Push notification devices (mobile apps)
             new PushRoutes(_PushDevices, _PushNotifications!, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
@@ -1890,7 +1928,8 @@ namespace Armada.Server
                 _AskActions,
                 _MissionService,
                 _HarborJobControl,
-                _StageOutcomeAccess);
+                _StageOutcomeAccess,
+                _ModelProbeAccess);
         }
 
         /// <summary>

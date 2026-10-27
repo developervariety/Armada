@@ -439,6 +439,24 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Model probe run methods (one row per probe-only Evaluate).
+        /// </summary>
+        public IModelProbeRunMethods ModelProbeRuns
+        {
+            get => _ModelProbeRuns;
+            protected set => _ModelProbeRuns = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
+        /// Model probe result methods (one row per probe of a run).
+        /// </summary>
+        public IModelProbeResultMethods ModelProbeResults
+        {
+            get => _ModelProbeResults;
+            protected set => _ModelProbeResults = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
         /// Push notification device methods.
         /// </summary>
         public IPushDeviceMethods PushDevices
@@ -588,6 +606,8 @@ namespace Armada.Core.Database
         private ICliPermissionRuleMethods _CliPermissionRules = null!;
         private IStageOutcomeMethods _StageOutcomes = null!;
         private IFailureCauseRuleMethods _FailureCauseRules = null!;
+        private IModelProbeRunMethods _ModelProbeRuns = null!;
+        private IModelProbeResultMethods _ModelProbeResults = null!;
         private IPushDeviceMethods _PushDevices = null!;
         private IHarborJobMethods _HarborJobs = null!;
         private IHarborLinkSampleMethods _HarborLinkSamples = null!;

@@ -226,6 +226,7 @@ namespace Armada.Core.Hosting
                 case HarborJobKindEnum.Planning: return "planning";
                 case HarborJobKindEnum.Refinement: return "refinement";
                 case HarborJobKindEnum.ContextBuild: return "context";
+                case HarborJobKindEnum.ModelProbe: return "probe";
                 default: return "job";
             }
         }

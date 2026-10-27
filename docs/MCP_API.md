@@ -138,6 +138,10 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [create_failure_cause_rule](#create_failure_cause_rule)
     - [update_failure_cause_rule](#update_failure_cause_rule)
     - [delete_failure_cause_rule](#delete_failure_cause_rule)
+  - **Evaluate**
+    - [evaluate_captain](#evaluate_captain)
+    - [get_model_probe_run](#get_model_probe_run)
+    - [list_model_probe_runs](#list_model_probe_runs)
   - **Ask Armada**
     - [list_ask_threads](#list_ask_threads)
     - [get_ask_thread](#get_ask_thread)
@@ -1259,6 +1263,55 @@ an edited built-in is never overwritten by seeding. **Response:** the updated Fa
 
 **Response:** `{ "deleted": true, "ruleId": "fcr_...", "isBuiltIn": false }`. A deleted built-in rule is stored again the
 next time the Admiral starts; disable it (`enabled` false) to keep it out of classification.
+
+---
+
+## Evaluate
+
+Evaluate runs probe-only mechanical probes (output contract, served context, ASCII and format rules, tool calling,
+speed, determinism) against a captain through its own runtime, or against a model endpoint through the API endpoint
+runtime, and records a run (`mpr_`) with one result per probe: `Passed`, `Failed`, or `CouldNotRun` with the reason (a
+probe a runtime cannot run is never `Failed`). Only depth `Quick` is implemented; `Full` is refused ("not implemented until
+Phase 5"). Runs are tagged as evaluation, never count in stage outcomes, and change no routing or captain settings. The
+REST equivalents and the run shape are in [REST_API.md](REST_API.md#evaluate-model-probe-runs); the tools enforce the
+same access rules through the same service. Errors are `McpToolError`s: `NotFound` (missing, or another tenant's),
+`Forbidden` (not an admin for a captain, or a captain session), `InvalidArgument` (not exactly one id, an unknown depth or
+status, depth `Full`), and `Unavailable` on the stdio server. `get_model_probe_run` and `list_model_probe_runs` are on the
+Ask read-only list; `evaluate_captain` becomes a proposal inside an Ask conversation.
+
+| Tool | Caller |
+|---|---|
+| `evaluate_captain` with `captainId` | Global admin, or a tenant admin of the captain's tenant |
+| `evaluate_captain` with `modelEndpointId` | Anyone who can read the endpoint |
+| `get_model_probe_run`, `list_model_probe_runs` | Any authenticated person: global admins every tenant, everyone else their own tenant |
+
+### evaluate_captain
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `captainId` | string | One of | Captain to evaluate (`cpt_`) |
+| `modelEndpointId` | string | One of | Model endpoint to evaluate (`mep_`) |
+| `depth` | string | No | `Quick` (default); `Full` is not implemented until Phase 5 |
+
+**Response:** the queued ModelProbeRun; the probes run in the background. Poll `get_model_probe_run`.
+
+### get_model_probe_run
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | Yes | Run ID (`mpr_`) |
+
+**Response:** the ModelProbeRun with `results`.
+
+### list_model_probe_runs
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `captainId`, `modelEndpointId` | string | No | Filters |
+| `status` | string | No | `Queued`, `Running`, `Completed`, or `Failed` |
+| `pageNumber`, `pageSize` | integer | No | Paging (page size 1-1000, default 25) |
+
+**Response:** `EnumerationResult<ModelProbeRun>` (without results), newest first.
 
 ---
 

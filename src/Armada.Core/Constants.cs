@@ -265,6 +265,16 @@ namespace Armada.Core
         public static readonly string FailureCauseRuleIdPrefix = "fcr_";
 
         /// <summary>
+        /// ID prefix for model probe runs (one probe-only Evaluate of a captain or model endpoint).
+        /// </summary>
+        public static readonly string ModelProbeRunIdPrefix = "mpr_";
+
+        /// <summary>
+        /// ID prefix for model probe results (one probe's observation within a model probe run).
+        /// </summary>
+        public static readonly string ModelProbeResultIdPrefix = "mpo_";
+
+        /// <summary>
         /// ID prefix for push notification devices (a mobile app installation registered for push).
         /// </summary>
         public static readonly string PushDeviceIdPrefix = "pdv_";

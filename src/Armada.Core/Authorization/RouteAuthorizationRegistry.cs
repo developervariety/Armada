@@ -75,6 +75,10 @@ namespace Armada.Core.Authorization
             Add("GET", "/api/v1/failure-cause-rules/{id}", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/failure-cause-rules/{id}", "FailureCauseRule", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("DELETE", "/api/v1/failure-cause-rules/{id}", "FailureCauseRule", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/captains/{id}/evaluate", "ModelProbeRun", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("POST", "/api/v1/model-endpoints/{id}/evaluate", "ModelProbeRun", ResourceOperationEnum.Execute, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/model-probe-runs", "ModelProbeRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/model-probe-runs/{id}", "ModelProbeRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
 
             // PushRoutes (owner / tenant admin / global admin scoping is checked per device by PushDeviceAccess)
             Add("POST", "/api/v1/push/devices", "PushDevice", ResourceOperationEnum.Create, PermissionLevel.Authenticated);

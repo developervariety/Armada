@@ -188,6 +188,9 @@ import type {
   StageOutcome,
   StageOutcomeQuery,
   StageOutcomeReclassifyResult,
+  ModelProbeDepth,
+  ModelProbeRun,
+  ModelProbeRunQuery,
 } from '../types/models';
 import { fetchAllPages } from './paging';
 
@@ -1470,6 +1473,31 @@ export const updateFailureCauseRule = (id: string, rule: FailureCauseRuleUpsertR
 /** Delete a rule. A deleted built-in rule is restored when the Admiral next starts; disable it to keep it off. */
 export const deleteFailureCauseRule = (id: string) =>
   del<void>(`${FAILURE_CAUSE_RULES}/${encodeURIComponent(id)}`);
+
+// ==================== Model Probes ====================
+// Evaluate a captain or model endpoint with the mechanical probes (Quick depth; Full is rejected until Phase 5). Runs
+// are queued and finish in the background; poll getModelProbeRun. Nothing changes routing or captain settings.
+
+const MODEL_PROBE_RUNS = '/api/v1/model-probe-runs';
+
+/** Queue a probe run for a captain through its own runtime. 201 with the queued run; 400 for depth Full. */
+export const evaluateCaptain = (captainId: string, depth: ModelProbeDepth = 'Quick') =>
+  post<ModelProbeRun>(`/api/v1/captains/${encodeURIComponent(captainId)}/evaluate`, { Depth: depth });
+
+/** Queue a probe run for a model endpoint. 201 with the queued run; 400 for depth Full. */
+export const evaluateModelEndpoint = (endpointId: string, depth: ModelProbeDepth = 'Quick') =>
+  post<ModelProbeRun>(`/api/v1/model-endpoints/${encodeURIComponent(endpointId)}/evaluate`, { Depth: depth });
+
+/** One run with its per-probe results. */
+export const getModelProbeRun = (id: string) =>
+  get<ModelProbeRun>(`${MODEL_PROBE_RUNS}/${encodeURIComponent(id)}`);
+
+/** One page of the runs visible to the caller, newest first; list rows carry no results. */
+export const listModelProbeRuns = (query?: ModelProbeRunQuery) =>
+  get<EnumerationResult<ModelProbeRun>>(`${MODEL_PROBE_RUNS}${cliQuery({
+    captainId: query?.captainId, modelEndpointId: query?.modelEndpointId, status: query?.status,
+    pageNumber: query?.pageNumber, pageSize: query?.pageSize,
+  })}`);
 
 // Workspace terminal
 export const execWorkspaceCommand = (vesselId: string, command: string, timeoutSeconds?: number) =>

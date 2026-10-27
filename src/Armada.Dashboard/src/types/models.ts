@@ -3862,3 +3862,115 @@ export interface FailureCauseRuleUpsertRequest {
   match: Partial<FailureCauseRuleMatch>;
   cause: FailureCause;
 }
+
+// ==================== Model probes (Evaluate) ====================
+
+/** How deep an evaluation goes. Only Quick (mechanical probes) runs today; Full is rejected until Phase 5. */
+export type ModelProbeDepth = 'Quick' | 'Full';
+
+/** Which mechanical probe a result belongs to. */
+export type ModelProbeKind = 'ServedContext' | 'OutputContract' | 'AsciiFormat' | 'ToolCalling' | 'Speed' | 'Determinism';
+
+/** A probe's observation: CouldNotRun means the probe does not apply to the runtime, never a failure. */
+export type ModelProbeOutcome = 'Passed' | 'Failed' | 'CouldNotRun';
+
+/** Lifecycle of a probe run. */
+export type ModelProbeRunStatus = 'Queued' | 'Running' | 'Completed' | 'Failed';
+
+/** What an evaluation targets. */
+export type ModelProbeTarget = 'Captain' | 'ModelEndpoint';
+
+/** Observations a probe recorded; only the fields of that probe are set. */
+export interface ModelProbeMetrics {
+  configuredContextTokens?: number | null;
+  servedContextTokens?: number | null;
+  contextMismatch?: boolean | null;
+  compliant?: number | null;
+  checked?: number | null;
+  repairNeeded?: number | null;
+  workerResultCompliant?: boolean | null;
+  judgeVerdictCompliant?: boolean | null;
+  judgeSectionsCompliant?: boolean | null;
+  architectPlanCompliant?: boolean | null;
+  violations?: number | null;
+  emDashes?: number | null;
+  smartQuotes?: number | null;
+  ansiCodes?: number | null;
+  otherNonAscii?: number | null;
+  malformedCalls?: number | null;
+  errorRecovered?: boolean | null;
+  looping?: boolean | null;
+  firstOutputMs4k?: number | null;
+  outputTokensPerSecond4k?: number | null;
+  firstOutputMs32k?: number | null;
+  outputTokensPerSecond32k?: number | null;
+  suggestedRequestTimeoutSeconds?: number | null;
+  suggestedInactivityTimeoutSeconds?: number | null;
+  suggestedStallTimeoutSeconds?: number | null;
+  distinctOutputs?: number | null;
+  answerAgreement?: boolean | null;
+  minSimilarity?: number | null;
+}
+
+/** One probe's result within a run. */
+export interface ModelProbeResult {
+  id: string;
+  runId: string;
+  tenantId?: string | null;
+  probe: ModelProbeKind;
+  outcome: ModelProbeOutcome;
+  summary?: string | null;
+  /** Why the probe could not run (or failed). */
+  reason?: string | null;
+  attempts: number;
+  tokensUsed: number;
+  durationMs: number;
+  metrics?: ModelProbeMetrics | null;
+  outputExcerpt?: string | null;
+  createdUtc: string;
+}
+
+/** One evaluation of a captain or model endpoint; evaluation runs never count in production stage outcomes. */
+export interface ModelProbeRun {
+  id: string;
+  tenantId?: string | null;
+  userId?: string | null;
+  targetKind: ModelProbeTarget;
+  captainId?: string | null;
+  captainName?: string | null;
+  modelEndpointId?: string | null;
+  depth: ModelProbeDepth;
+  status: ModelProbeRunStatus;
+  isEvaluation: boolean;
+  probeSetVersion: string;
+  runtime?: string | null;
+  runtimeVersion?: string | null;
+  modelProvider?: string | null;
+  model?: string | null;
+  modelDigest?: string | null;
+  configuredContextTokens?: number | null;
+  servedContextTokens?: number | null;
+  harborId?: string | null;
+  inferenceHost?: string | null;
+  tokenBudget: number;
+  tokensUsed: number;
+  passedCount: number;
+  failedCount: number;
+  couldNotRunCount: number;
+  failureReason?: string | null;
+  createdUtc: string;
+  startedUtc?: string | null;
+  completedUtc?: string | null;
+  lastUpdateUtc: string;
+  /** Filled by getModelProbeRun; empty in list rows. */
+  results: ModelProbeResult[];
+}
+
+/** Filters for listModelProbeRuns. */
+export interface ModelProbeRunQuery {
+  captainId?: string | null;
+  modelEndpointId?: string | null;
+  status?: ModelProbeRunStatus | null;
+  pageNumber?: number;
+  pageSize?: number;
+}

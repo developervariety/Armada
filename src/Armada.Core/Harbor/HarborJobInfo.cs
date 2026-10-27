@@ -138,6 +138,7 @@ namespace Armada.Core.Harbor
                 case HarborJobKindEnum.Planning: return "Planning session";
                 case HarborJobKindEnum.Refinement: return "Objective refinement";
                 case HarborJobKindEnum.ContextBuild: return "Context build";
+                case HarborJobKindEnum.ModelProbe: return "Model probe";
                 default: return "Captain job";
             }
         }

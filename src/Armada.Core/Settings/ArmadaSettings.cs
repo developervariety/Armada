@@ -823,6 +823,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Evaluation (Evaluate) settings: the token budget and concurrency limits, overall and per inference host,
+        /// separate from production. Never null; setting null restores the defaults.
+        /// </summary>
+        public EvaluationSettings Evaluation
+        {
+            get => _Evaluation;
+            set => _Evaluation = value ?? new EvaluationSettings();
+        }
+
+        /// <summary>
         /// Vessel health evaluation settings (schedule, concurrency, freshness, scored criteria, thresholds).
         /// Never null; setting null restores the defaults.
         /// </summary>
@@ -938,6 +948,7 @@ namespace Armada.Core.Settings
         private HarborServerSettings _Harbor = new HarborServerSettings();
         private VesselImportSettings _Import = new VesselImportSettings();
         private FleetActionSettings _FleetActions = new FleetActionSettings();
+        private EvaluationSettings _Evaluation = new EvaluationSettings();
         private AskSettings _Ask = new AskSettings();
         private CliPermissionSettings _Permissions = new CliPermissionSettings();
         private RepositoryHealthSettings _RepositoryHealth = new RepositoryHealthSettings();
