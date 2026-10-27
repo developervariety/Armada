@@ -47,7 +47,7 @@ and a **dock** is the worktree a captain works in.
 | [`jchristn77/armada-dashboard`](https://hub.docker.com/r/jchristn77/armada-dashboard) | Standalone React dashboard served by nginx (unprivileged) | 8080 |
 | [`jchristn77/armada-proxy`](https://hub.docker.com/r/jchristn77/armada-proxy) | Armada.Proxy, a relay for reaching an Admiral that is not directly exposed | 7893 |
 
-Tags: `v1.1.0` and `latest`, multi-arch (`linux/amd64`, `linux/arm64/v8`). All three images run as non-root users
+Tags: `v1.2.0` and `latest`, multi-arch (`linux/amd64`, `linux/arm64/v8`). All three images run as non-root users
 (UID 1654 for the Admiral and proxy, 101 for the dashboard).
 
 Every image that serves HTTP includes `curl`, and the compose files define healthchecks that probe
@@ -87,7 +87,7 @@ logs to Loki, and Grafana comes with provisioned dashboards.
 
 ## Getting started
 
-Clone the repository for the compose files and default configuration. The compose files run the published `v1.1.0`
+Clone the repository for the compose files and default configuration. The compose files run the published `v1.2.0`
 images and the observability images:
 
 ```bash

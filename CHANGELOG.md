@@ -4,7 +4,16 @@ All notable changes to Armada are documented in this file.
 
 ---
 
-## Unreleased
+## v1.2.0 (2026-10-27)
+
+v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
+form it can use. Every stage attempt is recorded as a stage outcome with its provenance (runtime version, model
+digest, escalation record) and a suspected cause; Quick probes give a captain or model endpoint a probe-only
+**Evaluate**; the fixture battery runs data-defined task packs (starting with C#) through real dispatch; and handoffs
+are delivered with their reader in mind. The release also improves captain usage visibility and management, and adds
+mobile interfaces for the new surfaces. Since v1.1.0 was cut it also includes the `ExcludeReviewAuthorsFromJudge`
+setting, Quick probes, and the fixture battery with its C# pack. Schema migrations 96 and later apply automatically at
+startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
 ### Fixture battery: data-defined packs and the C# pack
 

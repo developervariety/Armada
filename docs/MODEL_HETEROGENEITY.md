@@ -582,6 +582,16 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
 2. Routing changes based on profiles only after held-out production tasks support them.
 3. Optional persona-scoped quarantine, off by default.
 
+### Release v1.2.0
+
+The items of Phases 1 to 3 ship in v1.2.0; Phases 4 to 6 come in later releases.
+
+1. Version strings (`Directory.Build.props`, `Constants.ProductVersion`, the Helm csproj, the dashboard and mobile
+   packages) read 1.2.0.
+2. The Docker compose files, update scripts and docs reference the `v1.2.0` images.
+3. CHANGELOG has a v1.2.0 section, and UPGRADING has a v1.1.0 to v1.2.0 section.
+4. `build-all.sh v1.2.0` builds and pushes the images.
+
 ## Decisions
 
 The open questions of the earlier drafts, as answered by the administrator on 2026-10-26.

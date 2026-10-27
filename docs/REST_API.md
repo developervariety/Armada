@@ -1,6 +1,6 @@
 # Armada REST API Reference
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Base URL:** `http://localhost:7890`
 **Content-Type:** `application/json`
 
@@ -1100,7 +1100,7 @@ voyages, and signals. The same scoping applies to the MCP `status` tool and the 
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "1.1.0",
+      "ArmadaVersion": "1.2.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -1130,7 +1130,7 @@ Health check endpoint. **Does not require authentication.**
   "Timestamp": "2026-03-07T12:00:00Z",
   "StartUtc": "2026-03-07T08:00:00Z",
   "Uptime": "0.04:00:00",
-  "Version": "1.1.0",
+  "Version": "1.2.0",
   "Ports": {
     "Admiral": 7890,
     "Mcp": 7891
@@ -4476,7 +4476,7 @@ owner never carries an id the previous owner's app knows. Registering or reactiv
 # Register (or refresh) this phone
 curl -X POST http://localhost:7890/api/v1/push/devices \
   -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
-  -d '{"Platform": "Ios", "ExpoPushToken": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]", "DeviceName": "My iPhone", "AppVersion": "1.1.0", "Locale": "en-US"}'
+  -d '{"Platform": "Ios", "ExpoPushToken": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]", "DeviceName": "My iPhone", "AppVersion": "1.2.0", "Locale": "en-US"}'
 
 # Send a test notification
 curl -X POST http://localhost:7890/api/v1/push/devices/pdv_abc123/test -H "Authorization: Bearer <token>"
@@ -7164,7 +7164,7 @@ Create one scoped objective or backlog item.
   "BacklogState": "ReadyForPlanning",
   "Effort": "M",
   "Owner": "Delivery",
-  "TargetVersion": "1.1.0",
+  "TargetVersion": "1.2.0",
   "AcceptanceCriteria": ["Deployment verified in staging", "Incident rollback documented"],
   "NonGoals": ["Do not change release cadence"],
   "RolloutConstraints": ["Keep existing rollback path intact"],
@@ -9027,7 +9027,7 @@ Aggregate status summary returned by the status endpoint.
     "LatencyMs": null,
     "CapabilityManifest": {
       "ProtocolVersion": "2026-04-03",
-      "ArmadaVersion": "1.1.0",
+      "ArmadaVersion": "1.2.0",
       "Features": [
         "remoteControl.handshake",
         "remoteControl.heartbeat",
@@ -9373,7 +9373,7 @@ A mobile app installation registered for push notifications (see [Push Notificat
   "Platform": "Ios",
   "ExpoPushToken": "ExponentPushToken[****wxyz]",
   "DeviceName": "My iPhone",
-  "AppVersion": "1.1.0",
+  "AppVersion": "1.2.0",
   "Locale": "en-US",
   "Categories": ["AskProposal", "CliPermission"],
   "Active": true,
@@ -10387,7 +10387,7 @@ Access-Control-Expose-Headers: Retry-After
 
 ### .NET SDK persona priorities
 
-`Armada.Client` 1.1.0 uses the shared `Armada.Core.Models.Persona` contract. `CreatePersonaAsync`, `GetPersonaAsync`, `ListPersonasAsync`, and `UpdatePersonaAsync` carry `CaptainPriorities`, `PriorityAvailability`, and `PriorityExhaustion` without additional SDK methods. Read the persona before editing it, then pass the updated object to `UpdatePersonaAsync`; this method sends the complete persona, including its routing settings. Clear `CaptainPriorities` to restore legacy routing.
+`Armada.Client` 1.2.0 uses the shared `Armada.Core.Models.Persona` contract. `CreatePersonaAsync`, `GetPersonaAsync`, `ListPersonasAsync`, and `UpdatePersonaAsync` carry `CaptainPriorities`, `PriorityAvailability`, and `PriorityExhaustion` without additional SDK methods. Read the persona before editing it, then pass the updated object to `UpdatePersonaAsync`; this method sends the complete persona, including its routing settings. Clear `CaptainPriorities` to restore legacy routing.
 
 ```csharp
 Persona persona = (await client.GetPersonaAsync("reviewer"))!;
