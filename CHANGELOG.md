@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Database timestamps
+
+- **SQL Server and SQLite text timestamps.** `ToIso8601` writes a UTC ISO 8601 string. A value with no kind keeps its clock and is marked UTC before conversion. A local value still converts to UTC. A UTC value is unchanged. MySQL and PostgreSQL timestamp binding is unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
