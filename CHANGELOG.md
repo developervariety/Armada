@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Secret redaction for fine-grained GitHub, Slack, and GitLab tokens
+
+- **Runtime logs and captured requests redact three more token shapes.** `SecretRedactor` removes a fine-grained GitHub personal access token (82 or more token characters), a Slack token whose prefix letter is a, b, p, r, or s, and a GitLab personal access token (20 or more token characters). Classic GitHub tokens and the other existing rules are unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
