@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Branch inspection errors
+
+- Branch list endpoints return a stable error when Git cannot read a repository. The server log keeps the vessel id and failure details.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
