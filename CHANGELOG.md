@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Captain updates validate the model binding only when it changes
+
+- **Name, instruction, persona, and tier edits skip live model validation when the binding is unchanged.** `PUT /api/v1/captains/{id}` and MCP `update_captain` validate the model only when the merged update changes `Model`, `Runtime`, or `ModelEndpointId`. Create still validates. A binding change that fails validation is not stored. WebSocket `update_captain` does not validate.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
