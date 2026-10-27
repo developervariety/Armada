@@ -15,8 +15,6 @@ namespace Armada.Core.Services
         private const int MaxPersonaSummaryChars = 320;
         private const int MaxCaptainInstructionChars = 800;
         private const int MaxMissionDescriptionChars = 3500;
-        private const int MaxPreviousStageOutputChars = 3000;
-        private const int MaxPreviousStageDiffChars = 4000;
 
         /// <summary>
         /// Text placed in <c>{Diff}</c> when the mission has no prior pipeline stage diff.
@@ -92,9 +90,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Build the template parameter dictionary, filling the pipeline placeholders <c>{Diff}</c> and
-        /// <c>{PreviousStageOutput}</c> from the prior pipeline stage (the mission this one depends on). The diff is
-        /// capped at 4000 characters and the output at 3000. Complete artifacts remain on the prior
-        /// mission and its branch; without a prior stage they hold
+        /// <c>{PreviousStageOutput}</c> from the prior pipeline stage (the mission this one depends on): its handoff
+        /// artifact rendered for an unknown reader within the default handoff budget
+        /// (<see cref="Constants.DefaultHandoffBudgetTokens"/>). Without a prior stage they hold
         /// <see cref="NoPreviousStageDiffText"/> and <see cref="NoPreviousStageOutputText"/>.
         /// </summary>
         /// <param name="mission">Mission.</param>
@@ -109,6 +107,31 @@ namespace Armada.Core.Services
             Captain? captain,
             Dock? dock,
             Mission? previousStage)
+        {
+            HandoffRendering? handoff = previousStage == null ? null
+                : HandoffRenderer.Render(HandoffArtifactBuilder.Build(previousStage), null, Constants.DefaultHandoffBudgetTokens);
+            return BuildTemplateParams(mission, vessel, captain, dock, previousStage, handoff);
+        }
+
+        /// <summary>
+        /// Build the template parameter dictionary with the prior stage's handoff already rendered for the reader:
+        /// <c>{PreviousStageOutput}</c> holds the evidence block (findings and required actions first, checks, output,
+        /// the pointer to the complete artifact and what did not fit) and <c>{Diff}</c> the relevant diff sections.
+        /// </summary>
+        /// <param name="mission">Mission.</param>
+        /// <param name="vessel">Vessel.</param>
+        /// <param name="captain">Captain, or null.</param>
+        /// <param name="dock">Dock, or null.</param>
+        /// <param name="previousStage">The prior pipeline stage mission, or null.</param>
+        /// <param name="handoff">The prior stage's rendered handoff, or null when there is no prior stage.</param>
+        /// <returns>Placeholder values keyed by name (without braces).</returns>
+        public static Dictionary<string, string> BuildTemplateParams(
+            Mission mission,
+            Vessel vessel,
+            Captain? captain,
+            Dock? dock,
+            Mission? previousStage,
+            HandoffRendering? handoff)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
@@ -132,8 +155,8 @@ namespace Armada.Core.Services
                 ["CaptainId"] = captain?.Id ?? "",
                 ["CaptainName"] = captain?.Name ?? "",
                 ["CaptainInstructions"] = BuildCaptainInstructions(captain?.SystemInstructions, mission.Persona),
-                ["Diff"] = BuildPreviousStageDiff(previousStage),
-                ["PreviousStageOutput"] = BuildPreviousStageOutput(previousStage),
+                ["Diff"] = previousStage == null || handoff == null ? NoPreviousStageDiffText : handoff.Diff,
+                ["PreviousStageOutput"] = previousStage == null || handoff == null ? NoPreviousStageOutputText : handoff.Evidence,
                 ["Timestamp"] = DateTime.UtcNow.ToString("o")
             };
         }
@@ -259,22 +282,6 @@ namespace Armada.Core.Services
             string overflowMessage = "\n\n" + instructionsFileName + " contains the remaining context. Keep working from that file if this launch prompt was truncated.";
             int allowed = Math.Max(256, MaxLaunchPromptChars - overflowMessage.Length);
             return Task.FromResult(prompt.Substring(0, allowed).TrimEnd() + overflowMessage);
-        }
-
-        private static string BuildPreviousStageDiff(Mission? previousStage)
-        {
-            if (previousStage == null || String.IsNullOrWhiteSpace(previousStage.DiffSnapshot)) return NoPreviousStageDiffText;
-            string diff = previousStage.DiffSnapshot!.Trim();
-            if (diff.Length <= MaxPreviousStageDiffChars) return diff;
-            return diff.Substring(0, MaxPreviousStageDiffChars) + "\n...(truncated; retrieve the full diff with get_mission_diff or inspect git diff on the assigned branch)";
-        }
-
-        private static string BuildPreviousStageOutput(Mission? previousStage)
-        {
-            if (previousStage == null || String.IsNullOrWhiteSpace(previousStage.AgentOutput)) return NoPreviousStageOutputText;
-            string output = previousStage.AgentOutput!.Trim();
-            if (output.Length <= MaxPreviousStageOutputChars) return output;
-            return PipelineHandoffContext.BoundOutput(output);
         }
 
         private static string BuildBootstrapRoleSummary(string? persona)

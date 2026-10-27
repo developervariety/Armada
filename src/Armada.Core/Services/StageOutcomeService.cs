@@ -37,6 +37,7 @@ namespace Armada.Core.Services
         private readonly LoggingModule _Logging;
         private readonly StageProvenanceProbe? _Provenance;
         private readonly Func<DockHostResolver?>? _DockHosts;
+        private readonly HandoffArtifactService _HandoffArtifacts;
         private static readonly string _ArmadaVersion = ReadArmadaVersion();
 
         #endregion
@@ -58,6 +59,7 @@ namespace Armada.Core.Services
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Provenance = provenance;
             _DockHosts = dockHosts;
+            _HandoffArtifacts = new HandoffArtifactService(database, logging);
         }
 
         #endregion
@@ -88,8 +90,9 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Record the outcome of a stage attempt whose exit the caller handled. Reads the mission as it is now (after
-        /// Armada acted on the exit) to decide the disposition, then classifies the cause. Never throws for a storage
-        /// problem: the outcome is diagnostic and must not disturb the exit handling.
+        /// Armada acted on the exit) to decide the disposition, then classifies the cause, and stores the attempt's handoff
+        /// artifact linked to the outcome (<see cref="HandoffArtifactService"/>). Never throws for a storage problem: the
+        /// outcome is diagnostic and must not disturb the exit handling.
         /// </summary>
         /// <param name="capture">What the exit handler captured.</param>
         /// <param name="token">Cancellation token.</param>
@@ -111,6 +114,9 @@ namespace Armada.Core.Services
                 StageOutcome stored = await _Database.StageOutcomes.CreateAsync(outcome, token).ConfigureAwait(false);
                 if (stored.Disposition == StageDispositionEnum.Completed)
                     await LinkEscalationsAsync(stored, mission, capture.DockId, token).ConfigureAwait(false);
+
+                // Every attempt also leaves its handoff artifact for the next stage, linked to this outcome.
+                await _HandoffArtifacts.RecordAttemptAsync(mission, capture.StageCheck, capture.Captain, stored, token).ConfigureAwait(false);
                 return stored;
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))

@@ -2118,6 +2118,23 @@
     },
     {
       "method": "GET",
+      "route": "/api/v1/handoff-artifacts/{id}",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "HandoffArtifact",
+        "404": ""
+      },
+      "tags": [
+        "HandoffArtifacts"
+      ],
+      "summary": "Get a handoff artifact",
+      "experimental": false
+    },
+    {
+      "method": "GET",
       "route": "/api/v1/harbors",
       "auth": "Authenticated",
       "resource": "Harbor:Read",
@@ -2995,6 +3012,23 @@
         "Missions"
       ],
       "summary": "Get GitHub pull-request evidence for a mission",
+      "experimental": false
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/missions/{id}/handoff-artifacts",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<HandoffArtifact>",
+        "404": ""
+      },
+      "tags": [
+        "HandoffArtifacts"
+      ],
+      "summary": "List a mission's handoff artifacts",
       "experimental": false
     },
     {
@@ -9509,6 +9543,20 @@
       "experimental": false
     },
     {
+      "name": "get_handoff_artifact",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "arguments": [
+        {
+          "name": "artifactId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Get the complete handoff artifact of a stage attempt: numbered findings (file, line, severity, required fix), acceptance criteria, required actions, check results (passed, failed, skipped with reason, could not run), commit references, the full stage output and the full diff (or where to regenerate it). The prior-stage section of a mission brief names the artifact id.",
+      "experimental": false
+    },
+    {
       "name": "get_harbor",
       "auth": "Authenticated",
       "resource": "Harbor:Read",
@@ -10118,6 +10166,30 @@
         }
       ],
       "description": "List the failure-cause rules visible to the caller in evaluation order (priority ascending, then name), one page at a time: the caller's tenant plus the rules for every tenant, built-in rules included. The first enabled matching rule assigns a stage outcome's suspected cause.",
+      "experimental": false
+    },
+    {
+      "name": "list_handoff_artifacts",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "arguments": [
+        {
+          "name": "missionId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        }
+      ],
+      "description": "List the handoff artifacts of a mission (one per stage attempt), newest first, one page at a time. Output and diff text are left out (their lengths stay); use get_handoff_artifact for them. Returns an enumeration result (objects, totalRecords, totalPages).",
       "experimental": false
     },
     {
@@ -19367,6 +19439,12 @@
       "key": "gitHubToken",
       "type": "string",
       "default": "null",
+      "experimental": false
+    },
+    {
+      "key": "handoffBudgetTokens",
+      "type": "int",
+      "default": "4000",
       "experimental": false
     },
     {

@@ -156,6 +156,7 @@ namespace Armada.Server.Mcp
             McpAskTools.Register(register, askThreads, askTurns, askActions);
             McpMissionReviewTools.Register(register, database, missionService);
             McpStageOutcomeTools.Register(register, stageOutcomes);
+            McpHandoffArtifactTools.Register(register, new HandoffArtifactAccessService(database));
             McpModelProbeTools.Register(register, modelProbes);
             McpBatteryTools.Register(register, battery);
         }
@@ -245,6 +246,7 @@ namespace Armada.Server.Mcp
             RegisterCatalogGroup("Armada MCP / Ask Armada", register => McpAskTools.Register(register, null, null, null));
             RegisterCatalogGroup("Armada MCP / Review Gates", register => McpMissionReviewTools.Register(register, database, null));
             RegisterCatalogGroup("Armada MCP / Stage Outcomes", register => McpStageOutcomeTools.Register(register, null));
+            RegisterCatalogGroup("Armada MCP / Handoff Artifacts", register => McpHandoffArtifactTools.Register(register, null));
             RegisterCatalogGroup("Armada MCP / Evaluate", register => McpModelProbeTools.Register(register, null));
             RegisterCatalogGroup("Armada MCP / Battery", register => McpBatteryTools.Register(register, null));
 

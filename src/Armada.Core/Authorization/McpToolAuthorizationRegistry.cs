@@ -101,6 +101,8 @@ namespace Armada.Core.Authorization
             Add("get_stage_outcome", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("classify_stage_outcome", "StageOutcome", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("reclassify_stage_outcomes", "StageOutcome", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
+            Add("get_handoff_artifact", "HandoffArtifact", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_handoff_artifacts", "HandoffArtifact", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("draft_failure_cause_rule", "StageOutcome", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("list_failure_cause_rules", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_failure_cause_rule", "FailureCauseRule", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
