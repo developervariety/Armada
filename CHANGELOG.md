@@ -4,6 +4,13 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Dashboard delete wording
+
+- Mission delete confirmations and success messages now explain that the action cancels the mission and keeps its record.
+- Merge queue delete confirmations predict whether the entry will be deleted or cancelled from its current status. Bulk results report expected outcomes and failed requests separately.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
