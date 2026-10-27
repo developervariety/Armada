@@ -222,8 +222,12 @@ namespace Armada.Core.Services
         private async Task<bool> TryRejectNoOpCompletionAsync(Mission mission, Dock? dock, CancellationToken token)
         {
             // A work stage that ended without a commit, a diff or its completion line stopped early (a model ending its
-            // turn mid-task), however long it ran. Review and planning stages never commit, so they are exempt.
-            bool workStage = String.IsNullOrEmpty(mission.Persona) || PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Worker);
+            // turn mid-task), however long it ran. Review and planning stages never commit, so they are exempt. The
+            // repository decides, not the transcript: a missing or malformed completion line with nothing on the branch is
+            // unfinished work, and one with work on the branch is repaired later (RecordWorkStageRepairsAsync). A Test
+            // Engineer that reported a blocking defect ends with the blocked marker instead and is not unfinished.
+            bool workStage = IsRepositoryWorkStage(mission.Persona)
+                && !(PersonaCatalog.Matches(mission.Persona, PersonaCatalog.TestEngineer) && VerifierContract.IsBlocked(mission.AgentOutput));
             bool unfinished = workStage && dock != null
                 && NoOpCompletionDetector.IsUnfinishedWork(mission.DiffSnapshot, mission.AgentOutput, TryReadDockStartCommit(dock.Id), mission.CommitHash);
             if (!unfinished && !NoOpCompletionDetector.IsNoOp(mission.DiffSnapshot, mission.AgentOutput, mission.TotalRuntimeMs))
@@ -357,6 +361,7 @@ namespace Armada.Core.Services
             // A captain that edited files but never ran git commit (common for smaller local models) would otherwise
             // produce an empty diff, and the edits would be deleted with the dock. Commit them first.
             if (dock != null) await CommitLeftoverWorkAsync(mission, captain, dock, token).ConfigureAwait(false);
+            bool leftoverCommitted = _LeftoverCommitted.TryRemove(mission.Id, out _);
 
             // Record the exact commit this stage produced. The next stage verifies its dock starts from it, and rework
             // stagnation detection compares it across rounds. Landing later replaces it with the landed commit.
@@ -456,12 +461,20 @@ namespace Armada.Core.Services
                 return;
             }
 
+            // The work stage left work on its branch: a missing or malformed completion line, or a missing commit, is
+            // repaired from the repository and recorded.
+            if (!failedForScopeViolation && !isReadOnlyMission)
+                await RecordWorkStageRepairsAsync(mission, captain, dock, leftoverCommitted, token).ConfigureAwait(false);
+
             string? judgeBlockReason = null;
             if (!failedForScopeViolation && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
             {
                 // Only the structured [ARMADA:VERDICT] protocol line counts; a missing or conflicting verdict is no
-                // verdict, which blocks landing.
+                // verdict, which blocks landing. A single unambiguous verdict in a nearby non-canonical form is repaired
+                // (the canonical line is appended below the original output); anything ambiguous stays no verdict.
                 JudgeVerdictEnum verdict = JudgeVerdictParser.Parse(mission.AgentOutput);
+                if (verdict == JudgeVerdictEnum.None)
+                    verdict = await TryRepairJudgeVerdictAsync(mission, captain, token).ConfigureAwait(false);
                 string? verdictFailureReason = null;
                 bool rejectedPass = false;
 
