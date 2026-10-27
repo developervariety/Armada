@@ -915,6 +915,43 @@ describe('AskArmada mark read and unread', () => {
     expect(markAskThreadRead).not.toHaveBeenCalled();
   });
 
+  it('Mark unread on the open conversation survives an ask.thread event that arrives before the page re-renders', async () => {
+    // The server emits ask.thread from MarkUnreadAsync; deliver it synchronously, before React re-renders after the navigation.
+    vi.mocked(markAskThreadUnread).mockImplementation(async () => {
+      handlers.forEach((h) => h({ type: 'ask.thread', data: { threadId: 'ath_1', thread: { ...threads[0], unreadCount: 1 } } }));
+      return { ...threads[0], unreadCount: 1 };
+    });
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    vi.mocked(markAskThreadRead).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark unread' }));
+    await waitFor(() => expect(markAskThreadUnread).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    const row = threadRows().find((r) => r.getAttribute('title') === 'Billing fix')!;
+    await waitFor(() => expect(within(row).getByLabelText('1 unread')).toBeInTheDocument());
+    expect(markAskThreadRead).not.toHaveBeenCalled();
+    // A list refresh after closing keeps the server's unread count too.
+    emit('ask.thread', { threadId: 'ath_1', thread: { ...threads[0], unreadCount: 1 } });
+    expect(within(row).getByLabelText('1 unread')).toBeInTheDocument();
+    expect(markAskThreadRead).not.toHaveBeenCalled();
+  });
+
+  it('reopening a conversation marked unread marks it read again', async () => {
+    vi.mocked(markAskThreadUnread).mockResolvedValue({ ...threads[0], unreadCount: 1 });
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Mark unread' }));
+    await waitFor(() => expect(currentPath()).toBe('/ask'));
+    const row = threadRows().find((r) => r.getAttribute('title') === 'Billing fix')!;
+    await waitFor(() => expect(within(row).getByLabelText('1 unread')).toBeInTheDocument());
+    vi.mocked(markAskThreadRead).mockClear();
+    fireEvent.click(row);
+    await waitFor(() => expect(currentPath()).toBe('/ask/ath_1'));
+    await waitFor(() => expect(markAskThreadRead).toHaveBeenCalledWith('ath_1'));
+  });
+
   it('Mark read clears the badge and calls the server', async () => {
     renderAt('/ask');
     await screen.findByText('Dependency sweep');
