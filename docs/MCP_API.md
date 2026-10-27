@@ -1134,6 +1134,26 @@ authorization and refusal contract.
 
 ## Native Memory
 
+### armada_search_context
+
+One read-only local query over applicable external guidance, native records and
+the existing vessel code index. Supply `query`; operators also supply
+`vesselId`. Mission credentials use their active, owned mission's vessel and
+ordinary owner visibility. Optional arguments are `limit` (default 20, maximum
+40), `maxBytes` (default 24000, capped by server settings), and `includeCode`
+(default true).
+
+Returns `Required`, `Results`, `Sources`, `ResultBytes`, `Truncated` and
+`VesselId`. Required guidance is complete and outside optional text limits.
+Results retain source class, reference and version. Search makes no embedding
+call and never builds an index. A source can be unavailable; inspect `Sources`
+before treating an empty result as proof of absence. Existing context fetch
+settings control the kill switch, per-mission calls and optional byte cap.
+See [unified retrieval](CONTEXT_INDEX.md#unified-retrieval-and-the-armada_search_context-tool)
+for details and current migration limits.
+
+### Native record tools
+
 Durable native memory for captains, separate from the shared external memory
 repository. Records are classified as **Episodic** (what happened), **Semantic**
 (a standalone fact) or **Procedural** (how to do something). Working memory is

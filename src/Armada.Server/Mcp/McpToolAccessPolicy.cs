@@ -3,6 +3,7 @@ namespace Armada.Server.Mcp
     using System;
     using System.Collections.Generic;
     using Armada.Core.Models;
+    using Armada.Server.Mcp.Tools;
 
     /// <summary>
     /// Decides which MCP tools an authenticated caller may list and call.
@@ -51,6 +52,7 @@ namespace Armada.Server.Mcp
             "create_memory",
             "get_memory",
             "search_memory",
+            McpContextSearchTools.ToolName,
             "update_memory",
             "delete_memory",
 

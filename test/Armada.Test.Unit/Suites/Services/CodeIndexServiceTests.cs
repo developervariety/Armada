@@ -34,6 +34,44 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Unified query reuses the code index without query embeddings or implicit builds", async () =>
+            {
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    ["src/Packet.cs"] = "public class Packet { public bool VerifyChecksum() => true; }"
+                }).ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-context-query-");
+                try
+                {
+                    using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(db, repository.Path).ConfigureAwait(false);
+                        RecordingEmbeddingClient embeddings = new RecordingEmbeddingClient(new float[] { 1F, 0F, 0F });
+                        CodeIndexService code = CreateService(db, dataRoot, embeddings, settings => settings.UseSemanticSearch = true);
+                        ContextSearchService search = new ContextSearchService(db.Driver, code: code);
+                        AuthContext caller = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, false, "test");
+                        ContextSearchRequest request = new ContextSearchRequest { VesselId = vessel.Id, Query = "VerifyChecksum" };
+                        ContextSearchResponse missing = await search.SearchAsync(caller, request).ConfigureAwait(false);
+                        AssertFalse(missing.Sources.Single(source => source.Source == "code").Available, "An absent index is explicit");
+                        AssertEqual(0, embeddings.CallCount, "An absent index triggers no embedding or build");
+                        await code.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        int buildCalls = embeddings.CallCount;
+                        AssertTrue(buildCalls > 0, "The fixture has a semantic index");
+                        ContextSearchResponse result = await search.SearchAsync(caller, request).ConfigureAwait(false);
+                        ContextSearchItem hit = result.Results.Single(item => item.Source == Armada.Core.Enums.ContextSearchSourceEnum.Code);
+                        AssertContains("VerifyChecksum", hit.Text, "Actual source is returned");
+                        AssertContains("src/Packet.cs:", hit.Reference, "Source line pointer is retained");
+                        AssertEqual(repository.CommitSha, hit.Version, "Indexed commit is retained");
+                        AssertEqual(buildCalls, embeddings.CallCount, "Unified recall makes no query embedding call");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("DisabledSetting_BlocksReadAndBuildOperationsBeforeRepositoryWork", async () =>
             {
                 string dataRoot = NewTempDirectory("armada-code-index-disabled-");

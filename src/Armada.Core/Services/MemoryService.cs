@@ -363,8 +363,9 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private async Task<List<Memory>> LoadVisibleAsync(AuthContext auth, CancellationToken token)
+        internal async Task<List<Memory>> LoadVisibleAsync(AuthContext auth, CancellationToken token)
         {
+            RequireCaller(auth);
             if (auth.IsAdmin) return await _Database.Memories.EnumerateAsync(token).ConfigureAwait(false);
 
             List<Memory> tenantRecords = await _Database.Memories.EnumerateAsync(TenantOf(auth), token).ConfigureAwait(false);

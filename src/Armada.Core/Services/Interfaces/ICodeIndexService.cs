@@ -60,6 +60,15 @@ namespace Armada.Core.Services.Interfaces
         Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default);
 
         /// <summary>
+        /// Search existing local code without query embeddings or external inference. Implementations
+        /// without a local search path return a named unavailable result rather than calling a provider.
+        /// </summary>
+        Task<CodeSearchResponse> SearchLexicalAsync(CodeSearchRequest request, CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeSearchResponse { Available = false, UnavailableReason = "local_search_not_supported" });
+        }
+
+        /// <summary>
         /// Find groups of similar code chunks in one vessel's persisted index: identical content, and
         /// embedding similarity at or above a threshold when the index carries vectors. Defaults to an
         /// unavailable report so doubles and minimal implementations opt out unless they override it; an

@@ -594,6 +594,12 @@ Native captain memory keeps what earlier work learned: a vessel fact, a prior fi
 
 ### Interfaces
 
+`armada_search_context` reads applicable external guidance, native memory and
+existing vessel code indexes in one local query. Required guidance remains
+separate from ranked recall. It uses the configured database and makes no query
+embedding call. See [unified retrieval](docs/CONTEXT_INDEX.md#unified-retrieval-and-the-armada_search_context-tool)
+for scope, limits and the remaining migration work.
+
 Armada exposes the same operating model through multiple surfaces:
 
 - REST API for dashboards, scripts, and external services.

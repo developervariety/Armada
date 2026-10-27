@@ -147,6 +147,46 @@ changes, the four loaders stay in sync as today; the manifest regenerates on
 the next admiral start. A change to what is core is an owner-reviewed change to
 the tier configuration.
 
+## Unified retrieval and the `armada_search_context` tool
+
+`armada_search_context` is the first shared query path for applicable guidance,
+native memory and an existing vessel code index. It reads the current source
+stores. It adds no database, vector service or Memvid dependency. Native memory
+uses the configured SQLite, PostgreSQL, MySQL or SQL Server driver.
+
+Supply `query` and, for an operator call, `vesselId`. A mission credential fixes
+the vessel to its active, owned mission and uses ordinary owner visibility even
+when the mission owner is an administrator. Access checks run before ranking.
+Vessel recall includes native records about or originating from that vessel and
+visible records with no vessel association. Records from another tenant are
+excluded. Working facts retain memory authority; they cannot become rules.
+
+The response separates `Required` guidance from optional `Results`. Required
+core and applicable mandatory leaves are returned in full. `limit` (default 20,
+maximum 40) and `maxBytes` (default 24000) limit optional text only. Byte counts
+use UTF-8. Oversized matches are skipped so smaller matches can still fit.
+`Truncated` names omissions. Each item has a source class, source reference and
+version. Code references include the source line and indexed commit, with index
+freshness. Guidance versions are hashes of the loaded snapshot text.
+
+Optional guidance and facts use local BM25 ranking. Code uses the existing local
+lexical index. Source ranks are interleaved by reciprocal rank. Search makes no
+embedding or inference call and never creates an index. `Sources` distinguishes
+an available source with no matches from a missing or failed source. Set
+`includeCode` to false to omit code search.
+
+The existing `ContextRetrieval.FetchToolEnabled`, `MaxCallsPerMission` and
+`MaxLeafBytesPerCall` settings also govern this tool. Its mission call counter
+is process-local and separate from the older fetch tool's counter. A restart
+resets that counter. Required guidance is outside the optional byte cap.
+
+This first change unifies reads. Native memory writes, version checks, code
+index refresh, and the external guidance snapshot keep their existing owners.
+The older tools remain available. Captain prompt migration, tool retirement,
+persistent shared budgets and portable semantic retrieval need later changes
+and migration checks. Large native stores also need bounded candidate reads;
+this version ranks the caller-visible native records in memory.
+
 ## Retrieval and the `armada_fetch_context` tool
 
 `ContextRetrievalService` is the retrieval layer over the built index. It takes

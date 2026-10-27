@@ -5,6 +5,10 @@ Net changes since the latest full upstream merge on 2026-05-24
 This compares the merged tree with the current fork. It includes later selected
 upstream integrations and excludes changes already present at that baseline.
 
+## Unreleased
+
+- Add `armada_search_context`: one local query over applicable guidance, native memory and existing code indexes. Keep required guidance outside recall limits, retain source versions and enforce mission and owner scope. Use the existing database driver on SQLite, PostgreSQL, MySQL and SQL Server.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

@@ -497,6 +497,12 @@ namespace Armada.Core.Services
             return SearchCoreAsync(request, lexicalOnly: false, token);
         }
 
+        /// <inheritdoc />
+        public Task<CodeSearchResponse> SearchLexicalAsync(CodeSearchRequest request, CancellationToken token = default)
+        {
+            return SearchCoreAsync(request, lexicalOnly: true, token);
+        }
+
         /// <summary>
         /// Search the vessel index. Search never creates or refreshes an index: a vessel with no index
         /// returns a <see cref="CodeSearchResponse.NotIndexedReason"/> response and nothing reaches the

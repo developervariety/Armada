@@ -493,6 +493,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ObjectivePreflightGateTests());
             runner.AddSuite(new MemoryDatabaseTests());
             runner.AddSuite(new MemoryServiceTests());
+            runner.AddSuite(new ContextSearchServiceTests());
             runner.AddSuite(new McpMemoryToolsTests());
             runner.AddSuite(new OwnershipScopeTests());
             runner.AddSuite(new WebSocketDeliveryScopeTests());
