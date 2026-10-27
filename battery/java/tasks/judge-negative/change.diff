@@ -1,0 +1,47 @@
+diff --git a/inventory/Stock.java b/inventory/Stock.java
+--- a/inventory/Stock.java
++++ b/inventory/Stock.java
+@@ -1,6 +1,7 @@
+ package inventory;
+ 
+ import java.util.LinkedHashMap;
++import java.util.List;
+ import java.util.Map;
+ import java.util.Objects;
+ 
+@@ -78,4 +79,35 @@
+         for (Item item : items.values()) total += item.getQuantity();
+         return total;
+     }
++
++    /**
++     * Value on hand of the listed SKUs: unit price times quantity, summed.
++     * @param skus SKUs to value.
++     * @return Total value.
++     * @throws NullPointerException When skus is null.
++     */
++    public double valueOfSkus(List<String> skus) {
++        Objects.requireNonNull(skus, "skus");
++        double total = 0;
++        for (int i = 1; i < skus.size(); i++) {
++            Item item = find(skus.get(i));
++            total += item.getUnitPrice() * item.getQuantity();
++        }
++
++        return total;
++    }
++
++    /**
++     * Price of a bulk order after a whole-number percentage discount.
++     * @param sku SKU.
++     * @param quantity Units ordered.
++     * @param percentOff Discount in whole percent, 0 to 100.
++     * @return The discounted order price.
++     */
++    public double bulkPrice(String sku, int quantity, int percentOff) {
++        Item item = find(sku);
++        if (item == null) throw new UnknownSkuException(sku);
++        double rate = percentOff / 100;
++        return item.getUnitPrice() * quantity * (1 - rate);
++    }
+ }

@@ -1,0 +1,47 @@
+diff --git a/src/Reorder.php b/src/Reorder.php
+new file mode 100644
+--- /dev/null
++++ b/src/Reorder.php
+@@ -0,0 +1,42 @@
++<?php
++
++namespace Inventory;
++
++use InvalidArgumentException;
++
++/**
++ * Suggests which items to reorder.
++ */
++final class Reorder
++{
++    private int $threshold;
++
++    /**
++     * Create a reorder policy.
++     *
++     * @param int $threshold Reorder when fewer units than this are on hand.
++     * @throws InvalidArgumentException When threshold is negative.
++     */
++    public function __construct(int $threshold)
++    {
++        if ($threshold < 0) {
++            throw new InvalidArgumentException('threshold must not be negative');
++        }
++
++        $this->threshold = $threshold;
++    }
++
++    public function suggest(Stock $stock, array $skus): array
++    {
++        $result = [];
++        foreach ($skus as $sku) {
++            $item = $stock->find($sku);
++            if ($item != null && $item->getQuantity() < $this->threshold) {
++                echo 'Reorder ' . $sku . PHP_EOL;
++                $result[] = $sku;
++            }
++        }
++
++        return $result;
++    }
++}

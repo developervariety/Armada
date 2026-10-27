@@ -1,0 +1,42 @@
+diff --git a/inventory/Reorder.java b/inventory/Reorder.java
+new file mode 100644
+--- /dev/null
++++ b/inventory/Reorder.java
+@@ -0,0 +1,37 @@
++package inventory;
++
++import java.util.ArrayList;
++import java.util.List;
++import java.util.Objects;
++
++/**
++ * Suggests which items to reorder.
++ */
++public final class Reorder {
++    private final int threshold;
++
++    /**
++     * Create a reorder policy.
++     * @param threshold Reorder when fewer units than this are on hand.
++     * @throws IllegalArgumentException When threshold is negative.
++     */
++    public Reorder(int threshold) {
++        if (threshold < 0) throw new IllegalArgumentException("threshold must not be negative");
++        this.threshold = threshold;
++    }
++
++    public List<String> suggest(Stock stock, List<String> skus) {
++        Objects.requireNonNull(stock, "stock");
++        Objects.requireNonNull(skus, "skus");
++        var result = new ArrayList<String>();
++        for (String sku : skus) {
++            Item item = stock.find(sku);
++            if (item != null && item.getQuantity() < threshold && item.getSku() != "DISCONTINUED") {
++                System.out.println("Reorder " + sku);
++                result.add(sku);
++            }
++        }
++
++        return result;
++    }
++}

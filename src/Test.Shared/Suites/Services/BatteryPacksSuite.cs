@@ -30,7 +30,7 @@ namespace Test.Shared.Suites.Services
 
         private const string SuiteId = "Services.BatteryPacks";
 
-        private static readonly string[] _LanguagePacks = new[] { "csharp", "javascript", "python", "go", "rust" };
+        private static readonly string[] _LanguagePacks = new[] { "csharp", "javascript", "python", "go", "rust", "java", "php", "ruby" };
 
         private static readonly string[] _TemplateTaskIds = new[]
         {

@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "id": "ruby",
+  "name": "Ruby",
+  "version": 1,
+  "domain": "code",
+  "description": "A small Ruby inventory library with minitest tests (from the standard library) and a registry runner; no Gemfile or Bundler, nothing is installed. The ten template tasks of docs/MODEL_HETEROGENEITY.md, Part 2.",
+  "fixture": {
+    "path": "fixture",
+    "defaultBranch": "main"
+  },
+  "toolchain": [
+    {
+      "name": "ruby",
+      "executable": "ruby",
+      "arguments": [ "-e", "require 'minitest'" ],
+      "hint": "Ruby 2.6 or later with its bundled minitest gem on the Harbor's PATH"
+    },
+    {
+      "name": "git",
+      "executable": "git",
+      "arguments": [ "--version" ],
+      "hint": "git on the Harbor's PATH"
+    }
+  ],
+  "stageChecks": {
+    "testCommand": "ruby tests/run.rb"
+  },
+  "tasks": [
+    {
+      "id": "add-member",
+      "title": "Add a member to an existing class",
+      "persona": "Worker",
+      "difficulty": "easy",
+      "prompt": "In lib/inventory/item.rb add a method `total_value` to the Inventory::Item class that returns unit_price times quantity. Give it a comment like the other members. Keep the existing tests passing (`ruby tests/run.rb`).",
+      "grader": {
+        "type": "command",
+        "overlay": "tasks/add-member/grading",
+        "commands": [
+          { "executable": "ruby", "arguments": [ "tests/run.rb" ] },
+          { "executable": "ruby", "arguments": [ "tests/grading/check_total_value.rb" ] }
+        ]
+      }
+    },
+    {
+      "id": "two-place-edit",
+      "title": "Coordinated two-place edit: write a test method and register it",
+      "persona": "Worker",
+      "prompt": "Add a test method `test_stock_remove_more_than_available_raises` to StockTest in tests/stock_test.rb. It adds an item with 2 units and checks that removing 3 units raises Inventory::InsufficientStockError (lib/inventory/errors.rb). A test only runs when it is registered, so also register it in tests/registry.rb. `ruby tests/run.rb` must pass.",
+      "grader": {
+        "type": "command",
+        "commands": [
+          { "executable": "ruby", "arguments": [ "tests/run.rb", "--require", "test_stock_remove_more_than_available_raises" ] }
+        ]
+      }
+    },
+    {
+      "id": "fix-bug",
+      "title": "Fix a bug from a failing test",
+      "persona": "Worker",
+      "setup": "tasks/fix-bug/setup",
+      "prompt": "The test test_price_calculator_apply_discount_ten_percent fails (`ruby tests/run.rb`). Find and fix the bug in the library code. Do not change or remove the tests.",
+      "grader": {
+        "type": "command",
+        "commands": [
+          { "executable": "ruby", "arguments": [ "tests/run.rb", "--require", "test_price_calculator_apply_discount_ten_percent", "--require", "test_price_calculator_apply_discount_zero_keeps_price" ] }
+        ]
+      }
+    },
+    {
+      "id": "bom-crlf",
+      "title": "Edit a file with a UTF-8 BOM and CRLF line endings",
+      "persona": "Worker",
+      "prompt": "In lib/inventory/legacy_codes.rb change MAX_CODE_LENGTH from 8 to 12. Change nothing else. The file is UTF-8 with a byte order mark and CRLF line endings; keep both exactly as they are.",
+      "grader": {
+        "type": "byteComparison",
+        "files": [
+          { "path": "lib/inventory/legacy_codes.rb", "expected": "tasks/bom-crlf/expected/lib/inventory/legacy_codes.rb" }
+        ]
+      }
+    },
+    {
+      "id": "write-tests",
+      "title": "Write tests for an untested function, including negative paths",
+      "persona": "Test Engineer",
+      "prompt": "Inventory::TextUtil.truncate in lib/inventory/text_util.rb has no tests. Write minitest tests for it in a new file tests/text_util_test.rb (a TextUtilTest class), require that file in tests/registry.rb and register each test there. Cover the normal cases, the boundary where the value is exactly max_length, and the negative paths (nil value, max_length below 3), checking the error class each one raises. Do not change lib/. `ruby tests/run.rb` must pass.",
+      "grader": {
+        "type": "mutation",
+        "commands": [
+          { "executable": "ruby", "arguments": [ "tests/run.rb" ] }
+        ],
+        "mutants": [
+          { "id": "nil-guard-returns-empty", "file": "lib/inventory/text_util.rb", "find": "raise TypeError, 'value is required' if value.nil?", "replace": "return '' if value.nil?" },
+          { "id": "wrong-guard-error", "file": "lib/inventory/text_util.rb", "find": "raise ArgumentError, 'max_length must be at least 3' if max_length < 3", "replace": "raise RangeError, 'max_length must be at least 3' if max_length < 3" },
+          { "id": "boundary", "file": "lib/inventory/text_util.rb", "find": "return value if value.length <= max_length", "replace": "return value if value.length < max_length" },
+          { "id": "cut-length", "file": "lib/inventory/text_util.rb", "find": "value[0, max_length - 3]", "replace": "value[0, max_length - 2]" }
+        ]
+      }
+    },
+    {
+      "id": "judge-negative",
+      "title": "Review a diff with three seeded defects (negative control)",
+      "persona": "Judge",
+      "toolchain": [],
+      "prompt": "Review the change below against its original request. The change is shown as a diff; it is not applied to this repository, so read the diff and the current source of lib/inventory/stock.rb. Report every blocking defect.",
+      "attachments": [ "tasks/judge-negative/request.md", "tasks/judge-negative/change.diff" ],
+      "grader": {
+        "type": "seededSet",
+        "expectedVerdicts": [ "FAIL", "NEEDS_REVISION" ],
+        "blockingSections": [ "Affected Case" ],
+        "matchAnywhere": true,
+        "maxFalsePositives": 0,
+        "seeded": [
+          { "id": "off-by-one", "description": "The range (1...skus.length) starts at index 1 and skips the first SKU.", "keywords": [ "off-by-one", "off by one", "index 1", "(1...", "1...skus", "starts at 1", "skips the first", "skip the first", "first sku", "first element", "first item", "index 0" ] },
+          { "id": "unknown-sku-nil", "description": "An unknown SKU makes find return nil and item.unit_price raises NoMethodError instead of UnknownSkuError.", "keywords": [ "nomethoderror", "undefined method", "nil:nilclass", "returns nil", "is nil", "nil check", "dereference", "unknownskuerror", "unknown sku", "missing sku" ] },
+          { "id": "integer-division", "description": "percent_off / 100 is Integer division, so the rate is 0 below 100 and no discount is applied.", "keywords": [ "integer division", "integer", "100.0", "fdiv", "to_f", "always 0", "always zero", "truncat", "rounds down", "no discount" ] }
+        ]
+      }
+    },
+    {
+      "id": "judge-positive",
+      "title": "Review a correct diff (positive control)",
+      "persona": "Judge",
+      "toolchain": [],
+      "prompt": "Review the change below against its original request. The change is shown as a diff; it is not applied to this repository, so read the diff and the current source. Report every blocking defect, and only real ones.",
+      "attachments": [ "tasks/judge-positive/request.md", "tasks/judge-positive/change.diff" ],
+      "grader": {
+        "type": "seededSet",
+        "expectedVerdicts": [ "PASS" ],
+        "blockingSections": [ "Affected Case" ],
+        "maxFalsePositives": 0,
+        "seeded": []
+      }
+    },
+    {
+      "id": "architect-plan",
+      "title": "Turn a feature request into an armada-plan",
+      "persona": "Architect",
+      "toolchain": [],
+      "prompt": "Turn the feature request below into a plan of missions for this repository.",
+      "attachments": [ "tasks/architect-plan/request.md" ],
+      "grader": {
+        "type": "rubric",
+        "schema": "armada-plan",
+        "rubric": "tasks/architect-plan/rubric.md"
+      }
+    },
+    {
+      "id": "lint-diff",
+      "title": "Lint a diff with seeded style violations",
+      "persona": "Linter",
+      "toolchain": [],
+      "prompt": "Lint the diff below against STYLE.md in this repository. The diff is not applied. List each violation as its own bullet line naming the rule and the code. Do not edit files.",
+      "attachments": [ "tasks/lint-diff/change.diff" ],
+      "grader": {
+        "type": "seededSet",
+        "maxFalsePositives": 0,
+        "seeded": [
+          { "id": "frozen-string-literal", "description": "lib/inventory/reorder.rb lacks the `# frozen_string_literal: true` magic comment (rule 1).", "keywords": [ "frozen_string_literal", "frozen string literal", "magic comment" ] },
+          { "id": "missing-doc", "description": "Public method suggest has no comment above it (rule 2).", "keywords": [ "comment", "documentation", "undocumented", "doc" ] },
+          { "id": "camel-case", "description": "Local variable `lowItems` is camelCase instead of snake_case (rule 3).", "keywords": [ "lowitems", "camelcase", "camel case", "snake_case", "snake case" ] },
+          { "id": "puts", "description": "puts in library code under lib/ (rule 6).", "keywords": [ "puts" ] }
+        ]
+      }
+    },
+    {
+      "id": "summarize-voyage",
+      "title": "Summarize a voyage",
+      "persona": "Recorder",
+      "toolchain": [],
+      "prompt": "Summarize the voyage record below for the team: what was done, what failed and why, and the durable lessons. Do not edit files.",
+      "attachments": [ "tasks/summarize-voyage/voyage.md" ],
+      "grader": {
+        "type": "rubric",
+        "rubric": "tasks/summarize-voyage/rubric.md"
+      }
+    }
+  ]
+}

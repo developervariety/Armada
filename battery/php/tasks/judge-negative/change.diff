@@ -1,0 +1,45 @@
+diff --git a/src/Stock.php b/src/Stock.php
+--- a/src/Stock.php
++++ b/src/Stock.php
+@@ -86,5 +86,41 @@
+         }
+ 
+         return $total;
+     }
++
++    /**
++     * Value on hand of the listed SKUs: unit price times quantity, summed.
++     *
++     * @param list<string> $skus SKUs to value.
++     * @return float Total value.
++     */
++    public function valueOfSkus(array $skus): float
++    {
++        $total = 0.0;
++        for ($i = 1; $i < count($skus); $i++) {
++            $item = $this->find($skus[$i]);
++            $total += $item->getUnitPrice() * $item->getQuantity();
++        }
++
++        return $total;
++    }
++
++    /**
++     * Price of a bulk order after a whole-number percentage discount.
++     *
++     * @param string $sku SKU.
++     * @param int $quantity Units ordered.
++     * @param int $percentOff Discount in whole percent, 0 to 100.
++     * @return float The discounted order price.
++     */
++    public function bulkPrice(string $sku, int $quantity, int $percentOff): float
++    {
++        $item = $this->find($sku);
++        if ($item === null) {
++            throw new UnknownSkuException($sku);
++        }
++
++        $rate = intdiv($percentOff, 100);
++        return $item->getUnitPrice() * $quantity * (1 - $rate);
++    }
+ }
