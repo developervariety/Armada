@@ -52,6 +52,10 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 - The dashboard's Home and Missions row menus offer **Start** on Pending missions; the Missions menu shows **Restart**
   only for Failed, LandingFailed, and Cancelled missions.
 
+### Vessel form sizing
+
+- Create/Edit Vessel now uses 95% of the viewport width and height, with scrolling inside the modal.
+
 ### Fixture battery: data-defined packs and the C# pack
 
 - **Packs as data.** A pack lives in `battery/<pack>/` and has a `battery-pack.json` manifest, documented in
