@@ -2472,6 +2472,12 @@ namespace Armada.Core.Services
             bool missionFailed = false;
             if (mission != null)
             {
+                if (String.IsNullOrEmpty(mission.AgentOutput) && _Missions.OnGetMissionOutput != null)
+                {
+                    string? agentOutput = _Missions.OnGetMissionOutput(mission.Id);
+                    if (!String.IsNullOrEmpty(agentOutput)) mission.AgentOutput = agentOutput;
+                }
+
                 MissionStatusEnum observedStatus = mission.Status;
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = failureReason;
