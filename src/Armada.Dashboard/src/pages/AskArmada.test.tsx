@@ -152,6 +152,59 @@ beforeEach(() => {
 });
 
 describe('AskArmada thread list', () => {
+  it('refreshes with the current filters and preserves the open conversation and selection', async () => {
+    renderAt('/ask/ath_1');
+    await screen.findByText('Checkout tests');
+    await screen.findByText('Fix the billing retry bug');
+    fireEvent.change(screen.getByLabelText('Search conversations'), { target: { value: 'Billing' } });
+    await waitFor(() => expect(enumerateAskThreads).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'Billing' })));
+    fireEvent.click(screen.getByLabelText('Show archived'));
+    await waitFor(() => expect(enumerateAskThreads).toHaveBeenLastCalledWith(expect.objectContaining({ includeArchived: true })));
+    const refresh = screen.getByRole('button', { name: 'Refresh conversations' });
+    await waitFor(() => expect(refresh).toBeEnabled());
+    const calls = vi.mocked(enumerateAskThreads).mock.calls.length;
+    let finish!: (value: EnumerationResult<AskThread>) => void;
+    vi.mocked(enumerateAskThreads).mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(refresh);
+    expect(enumerateAskThreads).toHaveBeenCalledTimes(calls + 1);
+    expect(enumerateAskThreads).toHaveBeenLastCalledWith(expect.objectContaining({ pageNumber: 1, search: 'Billing', includeArchived: true }));
+    expect(refresh).toBeDisabled();
+    expect(refresh).toHaveAttribute('aria-busy', 'true');
+    expect(refresh).toHaveClass('refreshing');
+    expect(refresh).toHaveAttribute('title', 'Refresh conversations');
+    fireEvent.click(refresh);
+    expect(enumerateAskThreads).toHaveBeenCalledTimes(calls + 1);
+    await act(async () => { finish(page([{ ...threads[0], title: 'Billing refreshed' }])); });
+    expect(await screen.findByText('Billing refreshed')).toBeInTheDocument();
+    expect(refresh).toBeEnabled();
+    expect(currentPath()).toBe('/ask/ath_1');
+    expect(threadRows()[0]).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByText('Fix the billing retry bug')).toBeInTheDocument();
+    expect(getAskThread).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('Search conversations')).toHaveValue('Billing');
+    expect(screen.getByLabelText('Show archived')).toBeChecked();
+  });
+
+  it('keeps the previous list and conversation visible when refresh fails and allows retry', async () => {
+    renderAt('/ask/ath_1');
+    await screen.findByText('Checkout tests');
+    await screen.findByText('Fix the billing retry bug');
+    const refresh = screen.getByRole('button', { name: 'Refresh conversations' });
+    await waitFor(() => expect(refresh).toBeEnabled());
+    vi.mocked(enumerateAskThreads).mockRejectedValueOnce(new Error('Refresh unavailable'));
+    fireEvent.click(refresh);
+    expect(await screen.findByText('Refresh unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Checkout tests')).toBeInTheDocument();
+    expect(screen.getByText('Fix the billing retry bug')).toBeInTheDocument();
+    expect(currentPath()).toBe('/ask/ath_1');
+    expect(refresh).toBeEnabled();
+    vi.mocked(enumerateAskThreads).mockResolvedValueOnce({} as EnumerationResult<AskThread>);
+    fireEvent.click(refresh);
+    await waitFor(() => expect(threadRows()).toHaveLength(0));
+    expect(screen.queryByText('Refresh unavailable')).not.toBeInTheDocument();
+    expect(screen.getByText('Fix the billing retry bug')).toBeInTheDocument();
+  });
+
   it('lists threads pinned first with unread badges and working indicators, and marks the open thread read', async () => {
     renderAt('/ask/ath_1');
     const list = await screen.findByRole('navigation', { name: 'Conversations' });

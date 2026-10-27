@@ -765,6 +765,7 @@ export default function AskArmada() {
           hasMore={listHasMore}
           onLoadMore={() => void loadThreads(listPage + 1)}
           onRetry={() => void loadThreads(1)}
+          onRefresh={() => { if (!listLoading) void loadThreads(1); }}
           onSelect={(th) => { setDrawerOpen(false); navigate(`/ask/${encodeURIComponent(th.id)}`); }}
           onNew={() => newConversation(false)}
           onRename={(th, title) => void updateThread(th, { title })}

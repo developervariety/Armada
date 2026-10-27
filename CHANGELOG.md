@@ -15,6 +15,8 @@ mobile interfaces for the new surfaces. Since v1.1.0 was cut it also includes th
 setting, Quick probes, and the fixture battery with its C# pack. Schema migrations 96 and later apply automatically at
 startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
+- Ask Armada conversations now have a refresh control that preserves the open conversation and filters, shows loading progress, and retains the previous list on failure.
+
 ### Fixture battery: data-defined packs and the C# pack
 
 - **Packs as data.** A pack lives in `battery/<pack>/` and has a `battery-pack.json` manifest, documented in

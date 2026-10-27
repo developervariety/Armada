@@ -17,6 +17,7 @@ export interface AskThreadListProps {
   hasMore: boolean;
   onLoadMore: () => void;
   onRetry: () => void;
+  onRefresh?: () => void;
   onSelect: (thread: AskThread) => void;
   onNew: () => void;
   onRename: (thread: AskThread, title: string) => void;
@@ -45,7 +46,7 @@ export interface AskThreadListProps {
 export default function AskThreadList(props: AskThreadListProps) {
   const {
     threads, selectedId, activity, loading, error, search, onSearchChange, includeArchived, onIncludeArchivedChange,
-    hasMore, onLoadMore, onRetry, onSelect, onNew, onRename, onTogglePin, onSummarize, onToggleArchive, onMarkRead, onMarkUnread, onDelete, onClose,
+    hasMore, onLoadMore, onRetry, onRefresh, onSelect, onNew, onRename, onTogglePin, onSummarize, onToggleArchive, onMarkRead, onMarkUnread, onDelete, onClose,
     selectedIds, onToggleSelected, onSelectAll, onClearSelection, onDeleteSelected,
   } = props;
   const { t, formatRelativeTime } = useLocale();
@@ -114,6 +115,19 @@ export default function AskThreadList(props: AskThreadListProps) {
       <div className="ask-threads-top">
         <div className="ask-threads-title-row">
           <h3 className="ask-threads-title">{t('Conversations')}</h3>
+          {onRefresh && (
+            <button
+              type="button"
+              className={`btn btn-sm refresh-btn${loading ? ' refreshing' : ''}`}
+              onClick={onRefresh}
+              disabled={loading}
+              aria-busy={loading}
+              aria-label="Refresh conversations"
+              title="Refresh conversations"
+            >
+              <span className="refresh-btn-icon" aria-hidden="true">{'\u21BB'}</span>
+            </button>
+          )}
           {onClose && (
             <button type="button" className="ask-icon-btn ask-threads-close" onClick={onClose} aria-label={t('Close conversation list')} title={t('Close conversation list')}>
               &times;
