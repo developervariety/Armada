@@ -79,6 +79,8 @@ namespace Test.Shared.Suites.E2E
             cases.Add(CaseAsync("slow_client_does_not_block_handler_error", "SlowClient_DoesNotBlockHandlerError", TestTags.Positive, () =>
                 AssertSlowCommandSendDoesNotBlockAsync("{\"route\":\"subscribe\"}", "status unavailable", true)));
 
+            cases.Add(CaseAsync("outbound_queue_keeps_order_and_rejects_overflow_without_waiting", "OutboundQueue_KeepsOrderAndRejectsOverflowWithoutWaiting", TestTags.Positive, AssertOutputQueueIsolatesAHeldSendAsync));
+
             // Subscribe Tests
             cases.Add(CaseAsync("subscribe_returns_status_snapshot", "Subscribe_ReturnsStatusSnapshot", TestTags.Positive, async () =>
             {
@@ -1917,6 +1919,88 @@ namespace Test.Shared.Suites.E2E
                     }
 
                     await harness.DrainAsync().ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static async Task AssertOutputQueueIsolatesAHeldSendAsync()
+        {
+            TaskCompletionSource<bool> release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<bool> started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<bool> drained = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<bool> disconnected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource<bool> fastSent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            List<string> heldFrames = new List<string>();
+            int disconnects = 0;
+
+            using (WebSocketClientOutputQueue held = new WebSocketClientOutputQueue(
+                async frame =>
+                {
+                    lock (heldFrames)
+                    {
+                        heldFrames.Add(frame);
+                        if (heldFrames.Count >= 2) drained.TrySetResult(true);
+                    }
+
+                    started.TrySetResult(true);
+                    await release.Task.ConfigureAwait(false);
+                },
+                error =>
+                {
+                    Interlocked.Increment(ref disconnects);
+                    disconnected.TrySetResult(true);
+                },
+                1))
+            using (WebSocketClientOutputQueue fast = new WebSocketClientOutputQueue(
+                frame =>
+                {
+                    fastSent.TrySetResult(frame == "event");
+                    return Task.CompletedTask;
+                },
+                error => throw new InvalidOperationException("The other queue must stay open."),
+                1))
+            {
+                try
+                {
+                    Assert(held.TryEnqueue("first"), "The first frame must be accepted.");
+                    using (CancellationTokenSource startedTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+                    {
+                        await started.Task.WaitAsync(startedTimeout.Token).ConfigureAwait(false);
+                    }
+
+                    Assert(held.TryEnqueue("second"), "One waiting frame must fit behind the held send.");
+                    Assert(held.TryEnqueue("third") == false, "A full queue must reject the next frame without waiting.");
+                    using (CancellationTokenSource disconnectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
+                    {
+                        await disconnected.Task.WaitAsync(disconnectTimeout.Token).ConfigureAwait(false);
+                    }
+
+                    AssertEqual(1, Volatile.Read(ref disconnects));
+                    Assert(release.Task.IsCompleted == false, "Queue overflow must be reported while the send is still held.");
+                    Assert(fast.TryEnqueue("event"), "The other client must accept a frame while the first send is held.");
+                    using (CancellationTokenSource fastTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(1)))
+                    {
+                        bool sent = await fastSent.Task.WaitAsync(fastTimeout.Token).ConfigureAwait(false);
+                        Assert(sent, "The other client must receive its frame while the first send is held.");
+                    }
+
+                    lock (heldFrames) AssertEqual("first", heldFrames[0]);
+                }
+                finally
+                {
+                    release.TrySetResult(true);
+                }
+
+                using (CancellationTokenSource orderTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+                {
+                    await drained.Task.WaitAsync(orderTimeout.Token).ConfigureAwait(false);
+                }
+
+                lock (heldFrames)
+                {
+                    AssertEqual(2, heldFrames.Count);
+                    AssertEqual("first", heldFrames[0]);
+                    AssertEqual("second", heldFrames[1]);
                 }
             }
         }

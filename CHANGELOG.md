@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- A slow WebSocket client no longer blocks event delivery to other clients. Each authenticated connection has a bounded outbound queue and one sender. Broadcasts, CLI permission events, subscribe snapshots, command replies, and errors are queued without waiting for the network. A full queue or a failed send aborts only that connection, so the client must reconnect and refresh its state. Tenant and user filters are unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
