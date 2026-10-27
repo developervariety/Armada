@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### SQL Server captain delete keeps signal references with the captain
+
+- **Scoped deletes.** Each SQL Server captain delete clears `signals.from_captain_id` and `signals.to_captain_id` only for captains that match that delete, then deletes those captains, in one transaction. The id delete matches `id`. The tenant delete matches `tenant_id` and `id`. The user delete matches `tenant_id`, `user_id`, and `id`. A delete that matches no captain leaves the captain and both signal references unchanged. A delete that fails because another row still references the captain rolls the signal updates back. SQL Server still cannot declare two `ON DELETE SET NULL` keys from `signals` to `captains`, so this delete nulls the references.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
