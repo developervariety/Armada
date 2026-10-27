@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- A tunnel request applies its deadline to the send and to the response wait. A sender that does not return times out. Caller cancellation stays a cancellation, and the pending response entry is removed when the call ends.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
