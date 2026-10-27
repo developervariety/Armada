@@ -55,6 +55,7 @@ namespace Armada.Core.Services
             if (query == null) throw new ArgumentNullException(nameof(query));
 
             List<Runbook> runbooks = (await ReadPlaybooksAsync(auth, token).ConfigureAwait(false))
+                .Where(item => HasRunbookMarker(item.Content))
                 .Select(ParseRunbook)
                 .ToList();
 
@@ -112,7 +113,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
 
             Playbook? playbook = await ReadPlaybookAsync(auth, id, token).ConfigureAwait(false);
-            if (playbook == null) return null;
+            if (playbook == null || !HasRunbookMarker(playbook.Content)) return null;
             Runbook runbook = ParseRunbook(playbook);
             return ScopedVisibility.CanView(auth, runbook.Scope, runbook.TenantId, runbook.UserId) ? runbook : null;
         }
@@ -150,6 +151,8 @@ namespace Armada.Core.Services
 
             Playbook existing = await ReadPlaybookAsync(auth, id, token).ConfigureAwait(false)
                 ?? throw new KeyNotFoundException("Runbook not found.");
+            if (!HasRunbookMarker(existing.Content))
+                throw new KeyNotFoundException("Runbook not found.");
             if (!ScopedVisibility.CanView(auth, existing.Scope, existing.TenantId, existing.UserId))
                 throw new KeyNotFoundException("Runbook not found.");
             if (!ScopedVisibility.CanEdit(auth, existing.Scope, existing.TenantId, existing.UserId))
@@ -185,7 +188,9 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
 
             Playbook? existing = await ReadPlaybookAsync(auth, id, token).ConfigureAwait(false);
-            if (existing == null || !ScopedVisibility.CanView(auth, existing.Scope, existing.TenantId, existing.UserId))
+            if (existing == null
+                || !HasRunbookMarker(existing.Content)
+                || !ScopedVisibility.CanView(auth, existing.Scope, existing.TenantId, existing.UserId))
                 throw new KeyNotFoundException("Runbook not found.");
             if (!ScopedVisibility.CanEdit(auth, existing.Scope, existing.TenantId, existing.UserId))
                 throw new UnauthorizedAccessException("You may only delete your own runbooks; a tenant-wide runbook requires a tenant admin.");
@@ -596,6 +601,12 @@ namespace Armada.Core.Services
             string candidateId = candidate.Id ?? String.Empty;
             string existingId = existing.Id ?? String.Empty;
             return StringComparer.Ordinal.Compare(candidateId, existingId) > 0;
+        }
+
+        // Same rule as ParseMetadataDocument: the marker must be the first characters.
+        private static bool HasRunbookMarker(string content)
+        {
+            return content.StartsWith(_MetadataMarker, StringComparison.Ordinal);
         }
 
         private static RunbookMetadataDocument ParseMetadataDocument(string content, out string overviewMarkdown)

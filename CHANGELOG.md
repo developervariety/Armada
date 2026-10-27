@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Runbook operations stay on runbook records
+
+- **Ordinary playbooks are not runbooks.** List, read, update, delete, and start-execution apply only when the playbook content starts with the runbook metadata marker `<!-- armada:runbook`. A plain playbook is absent from the runbook list. Read returns no runbook. Update, delete, and start-execution report `Runbook not found.` and leave the playbook row and its content in place. Leading whitespace before the marker does not qualify. A record that starts with the marker remains a runbook.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
