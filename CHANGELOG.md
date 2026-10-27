@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Merge queue records a landing when the Landed write fails
+
+- **A push that succeeds stays landed when the Landed row write fails.** The queue reads the integration commit before the push. When that write fails, it fetches the target and checks that the commit is contained in the current target (`git merge-base --is-ancestor`). A later commit on the target still counts. The queue then writes Landed again and marks the linked mission Complete. When that second write also fails, the error is logged, the stored entry is left unchanged, and the target ref is not moved. A push that fails still marks the entry Failed and leaves the target unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

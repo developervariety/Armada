@@ -633,10 +633,16 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Land a single entry by pushing the integration branch to the target.
+        /// Land a single entry by pushing the integration branch to the target. A push that fails marks the entry
+        /// Failed. When the push succeeds and the Landed row write fails, the entry is recorded Landed when the
+        /// integration commit is contained in the current target. The target ref is not moved.
         /// </summary>
         private async Task LandEntryAsync(MergeEntry entry, MergeQueueHost host, string integrationBranch, CancellationToken token)
         {
+            // Read the commit before the push. The Landed write can fail after the remote has accepted it, and a
+            // later push can move the target tip past this commit.
+            string? integrationCommit = await ReadCommitShaAsync(host, "refs/heads/" + integrationBranch, token).ConfigureAwait(false);
+
             try
             {
                 await RunGitAsync(host, host.RepoPath, token, "push", "origin", integrationBranch + ":" + entry.TargetBranch).ConfigureAwait(false);
@@ -665,16 +671,119 @@ namespace Armada.Core.Services
                 return;
             }
 
+            await RecordLandedAfterPushAsync(entry, host, integrationCommit, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Store Landed after a push that exited 0. When that write fails, fetch the target and accept Landed when
+        /// <paramref name="integrationCommit"/> is an ancestor of the current target. One further write is attempted.
+        /// When that write also fails, the stored entry is left unchanged and is not marked Failed.
+        /// </summary>
+        /// <param name="entry">Entry whose push succeeded.</param>
+        /// <param name="host">Repository that pushed.</param>
+        /// <param name="integrationCommit">Commit that was pushed, or null when it could not be read.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task RecordLandedAfterPushAsync(MergeEntry entry, MergeQueueHost host, string? integrationCommit, CancellationToken token)
+        {
             entry.Status = MergeStatusEnum.Landed;
             entry.CompletedUtc = DateTime.UtcNow;
             entry.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            try
+            {
+                await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                bool contained = false;
+                if (!String.IsNullOrEmpty(integrationCommit))
+                {
+                    try
+                    {
+                        contained = await TargetContainsCommitAsync(host, entry.TargetBranch, integrationCommit, token).ConfigureAwait(false);
+                    }
+                    catch (Exception checkEx) when (!(checkEx is OperationCanceledException))
+                    {
+                        _Logging.Warn(_Header + "could not check whether " + integrationCommit + " is in " + entry.TargetBranch
+                            + " after landing " + entry.Id + ": " + checkEx.Message);
+                    }
+                }
+
+                if (!contained) throw;
+
+                _Logging.Warn(_Header + "Landed write failed after " + entry.Id + " reached " + entry.TargetBranch
+                    + " (" + integrationCommit + "): " + ex.Message);
+                entry.Status = MergeStatusEnum.Landed;
+                entry.CompletedUtc = DateTime.UtcNow;
+                entry.LastUpdateUtc = DateTime.UtcNow;
+                try
+                {
+                    await _Database.MergeEntries.UpdateAsync(entry, token).ConfigureAwait(false);
+                }
+                catch (Exception retryEx) when (!(retryEx is OperationCanceledException))
+                {
+                    _Logging.Warn(_Header + "could not record Landed for " + entry.Id + " after " + entry.TargetBranch
+                        + " already contained " + integrationCommit + ". The target was not moved and the entry was not marked Failed: "
+                        + retryEx.Message);
+                    return;
+                }
+            }
+
             ArmadaMetrics.MergeEntriesProcessed.Add(1);
             _Logging.Info(_Header + "landed " + entry.Id + " branch " + entry.BranchName);
 
             // Reconcile linked mission to Complete
             await ReconcileMissionStatusAsync(entry.MissionId, MissionStatusEnum.Complete,
                 "Landed via merge queue entry " + entry.Id, token, entry.TenantId).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Commit id for a ref in the host repository, or null when the ref does not resolve.
+        /// </summary>
+        /// <param name="host">Repository to read.</param>
+        /// <param name="gitRef">Ref or commit id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Commit id, or null.</returns>
+        private async Task<string?> ReadCommitShaAsync(MergeQueueHost host, string gitRef, CancellationToken token)
+        {
+            HostCommandResult parsed = await RunGitCaptureAsync(host, host.RepoPath, token, "rev-parse", "--verify", "--quiet", gitRef).ConfigureAwait(false);
+            if (!parsed.Success) return null;
+            string sha = parsed.StandardOutput.Trim();
+            if (sha.Length == 0) return null;
+            return sha;
+        }
+
+        /// <summary>
+        /// True when <paramref name="commit"/> is contained in the remote or local target branch. Fetches first so a
+        /// tip that moved after the push is visible. Does not move any ref.
+        /// </summary>
+        /// <param name="host">Repository that pushed.</param>
+        /// <param name="targetBranch">Target branch name.</param>
+        /// <param name="commit">Integration commit id.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the commit is an ancestor of a resolved target ref.</returns>
+        private async Task<bool> TargetContainsCommitAsync(MergeQueueHost host, string targetBranch, string commit, CancellationToken token)
+        {
+            try
+            {
+                HostCommandResult fetched = await RunGitCaptureAsync(host, host.RepoPath, token, "fetch", "--quiet", "origin").ConfigureAwait(false);
+                if (!fetched.Success)
+                {
+                    _Logging.Debug(_Header + "fetch before landed-status check failed in " + host.RepoPath + ": " + fetched.StandardError.Trim());
+                }
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                _Logging.Debug(_Header + "fetch before landed-status check failed in " + host.RepoPath + ": " + ex.Message);
+            }
+
+            foreach (string targetRef in new string[] { "refs/remotes/origin/" + targetBranch, "refs/heads/" + targetBranch })
+            {
+                if (!await RefResolvesAsync(host, targetRef, token).ConfigureAwait(false)) continue;
+                HostCommandResult ancestor = await RunGitCaptureAsync(host, host.RepoPath, token, "merge-base", "--is-ancestor", commit, targetRef).ConfigureAwait(false);
+                if (ancestor.ExitCode == 0) return true;
+            }
+
+            return false;
         }
 
         /// <summary>
