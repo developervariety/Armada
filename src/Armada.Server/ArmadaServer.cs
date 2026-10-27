@@ -1964,7 +1964,8 @@ namespace Armada.Server
                 _HarborJobControl,
                 _StageOutcomeAccess,
                 _ModelProbeAccess,
-                _BatteryAccess);
+                _BatteryAccess,
+                EmitEventAsync);
         }
 
         /// <summary>

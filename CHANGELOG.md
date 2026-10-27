@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- MCP `delete_dock` and `delete_event` record `dock.deleted` and `event.deleted` after a successful delete, with the same event name, entity, and message as the REST delete routes. A refused delete records nothing.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
