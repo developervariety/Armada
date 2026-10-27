@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Stored objective fields that cannot be decoded fail the read
+
+- **A damaged objective field is no longer read as an empty list or a default enum.** Non-empty list or playbook JSON that cannot be decoded, and a non-empty objective enum name that is not a defined member, throw `StoredObjectiveDataException` with the objective id and the field name. A single-row read and an enumeration both fail. The stored text stays as it was, so a later update of another field cannot replace it. Empty or null text still reads as an empty list or the existing enum fallback. A numeric enum string that `Enum.TryParse` accepts is unchanged. Refinement-session enum reads keep their own fallback.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
