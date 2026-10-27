@@ -158,8 +158,10 @@ Supply `query` and, for an operator call, `vesselId`. A mission credential fixes
 the vessel to its active, owned mission and uses ordinary owner visibility even
 when the mission owner is an administrator. Access checks run before ranking.
 Vessel recall includes native records about or originating from that vessel and
-visible records with no vessel association. Records from another tenant are
-excluded. Working facts retain memory authority; they cannot become rules.
+visible records with no vessel association. The database applies the tenant and
+vessel filter, so a query reads only that vessel's candidates. Records from
+another tenant are excluded. Working facts retain memory authority; they cannot
+become rules.
 
 The response separates `Required` guidance from optional `Results`. Required
 core and applicable mandatory leaves are returned in full. `limit` (default 20,
@@ -169,8 +171,10 @@ use UTF-8. Oversized matches are skipped so smaller matches can still fit.
 version. Code references include the source line and indexed commit, with index
 freshness. Guidance versions are hashes of the loaded snapshot text.
 
-Optional guidance and facts use local BM25 ranking. Code uses the existing local
-lexical index. Source ranks are interleaved by reciprocal rank. Search never
+Optional guidance and facts use local BM25 ranking over one shared candidate
+list, so the strongest match leads whether it is a rule, a document or a fact.
+Code uses the existing local lexical index, and its ranks join that list by
+reciprocal rank. Search never
 creates a code index. `Sources` distinguishes an available source with no
 matches from a missing or failed source. Set `includeCode` to false to omit code
 search.
@@ -241,9 +245,9 @@ have no mission counter. A missing budget store fails the call.
 Only exact shipped prompt passages are upgraded inside operator-edited built-in
 templates; other text is preserved. Unknown custom wording remains unchanged.
 Compatibility tool names remain available for those clients. Tool removal
-requires a verified client and template cutover. Bounded database candidate
-reads, import/rebuild proof and scale measurements remain separate work. Native recall currently ranks caller-visible records in
-memory. Authoring authority stays with the existing source owners.
+requires a verified client and template cutover. Import/rebuild proof and scale
+measurements remain separate work. Authoring authority stays with the existing
+source owners.
 
 ## Retrieval and the `armada_fetch_context` tool
 

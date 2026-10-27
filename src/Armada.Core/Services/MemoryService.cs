@@ -363,6 +363,19 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        /// <summary>
+        /// Records the caller may view that concern one vessel of one tenant: records about or originating from
+        /// the vessel, and records with no vessel association. The database applies the tenant and vessel filter.
+        /// </summary>
+        internal async Task<List<Memory>> LoadVisibleForVesselAsync(AuthContext auth, string tenantId, string vesselId, CancellationToken token)
+        {
+            RequireCaller(auth);
+            if (!auth.IsAdmin && !OwnershipPolicy.SameTenant(TenantOf(auth), tenantId)) return new List<Memory>();
+            List<Memory> records = await _Database.Memories.EnumerateForVesselAsync(tenantId, vesselId, token).ConfigureAwait(false);
+            if (auth.IsAdmin || auth.IsTenantAdmin) return records;
+            return records.Where(memory => CanView(auth, memory)).ToList();
+        }
+
         internal async Task<List<Memory>> LoadVisibleAsync(AuthContext auth, CancellationToken token)
         {
             RequireCaller(auth);

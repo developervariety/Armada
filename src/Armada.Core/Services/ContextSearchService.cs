@@ -140,14 +140,11 @@ namespace Armada.Core.Services
         {
             try
             {
-                List<Memory> memories = await _Memories.LoadVisibleAsync(scope, token).ConfigureAwait(false);
+                string tenantId = OwnershipPolicy.TenantOfRecord(vessel.TenantId);
+                List<Memory> memories = await _Memories.LoadVisibleForVesselAsync(scope, tenantId, vessel.Id, token).ConfigureAwait(false);
                 foreach (Memory memory in memories)
                 {
                     token.ThrowIfCancellationRequested();
-                    if (!OwnershipPolicy.SameTenant(memory.TenantId, vessel.TenantId)) continue;
-                    bool global = String.IsNullOrWhiteSpace(memory.VesselId) && String.IsNullOrWhiteSpace(memory.SourceVesselId);
-                    if (!global && !String.Equals(memory.VesselId, vessel.Id, StringComparison.Ordinal)
-                        && !String.Equals(memory.SourceVesselId, vessel.Id, StringComparison.Ordinal)) continue;
                     candidates.Add(new ContextSearchItem
                     {
                         Id = ContextEmbedding.MemorySourceKey(memory.Id), Source = ContextSearchSourceEnum.Memory,
@@ -272,15 +269,13 @@ namespace Armada.Core.Services
             };
         }
 
+        /// <summary>
+        /// Guidance and native facts are one ranked list, so the best match leads whatever its source.
+        /// Code results join that list by reciprocal rank.
+        /// </summary>
         private static void AssignRanks(List<ContextSearchItem> ranked)
         {
-            Dictionary<ContextSearchSourceEnum, int> ranks = new Dictionary<ContextSearchSourceEnum, int>();
-            foreach (ContextSearchItem item in ranked)
-            {
-                ranks.TryGetValue(item.Source, out int rank);
-                ranks[item.Source] = rank + 1;
-                item.Score = 1.0 / (61 + rank);
-            }
+            for (int rank = 0; rank < ranked.Count; rank++) ranked[rank].Score = 1.0 / (61 + rank);
         }
 
         #endregion

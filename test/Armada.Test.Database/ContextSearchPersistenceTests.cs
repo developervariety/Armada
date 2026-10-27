@@ -78,6 +78,50 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyVesselReadAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            System.Collections.Generic.List<Memory> created = new System.Collections.Generic.List<Memory>();
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("vessel-read", token: token).ConfigureAwait(false);
+                TenantMetadata otherTenant = await fixture.CreateTenantAsync("vessel-read-other", token: token).ConfigureAwait(false);
+                UserMaster owner = await fixture.CreateUserAsync(tenant.Id, "vessel-read-owner", token: token).ConfigureAwait(false);
+                UserMaster stranger = await fixture.CreateUserAsync(otherTenant.Id, "vessel-read-stranger", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, owner.Id, "vessel-read", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, owner.Id, fleet.Id, "vessel-read", token).ConfigureAwait(false);
+                Vessel other = await fixture.CreateVesselAsync(tenant.Id, owner.Id, fleet.Id, "vessel-read-other", token).ConfigureAwait(false);
+                AuthContext caller = AuthContext.Authenticated(tenant.Id, owner.Id, false, false, "test");
+                MemoryService memories = new MemoryService(_Driver);
+                async Task<Memory> CreateAsync(AuthContext auth, Memory memory)
+                {
+                    Memory stored = await memories.CreateAsync(auth, memory, token).ConfigureAwait(false);
+                    created.Add(stored);
+                    return stored;
+                }
+                Memory about = await CreateAsync(caller, new Memory { Content = "about", VesselId = vessel.Id, Tags = new System.Collections.Generic.List<string> { "about-tag" } }).ConfigureAwait(false);
+                Memory origin = await CreateAsync(caller, new Memory { Content = "origin", SourceVesselId = vessel.Id, VesselId = other.Id }).ConfigureAwait(false);
+                Memory global = await CreateAsync(caller, new Memory { Content = "global", Tags = new System.Collections.Generic.List<string> { "global-tag" } }).ConfigureAwait(false);
+                Memory elsewhere = await CreateAsync(caller, new Memory { Content = "elsewhere", VesselId = other.Id, Tags = new System.Collections.Generic.List<string> { "elsewhere-tag" } }).ConfigureAwait(false);
+                await CreateAsync(AuthContext.Authenticated(otherTenant.Id, stranger.Id, false, false, "test"), new Memory { Content = "foreign" }).ConfigureAwait(false);
+
+                System.Collections.Generic.List<Memory> read = await _Driver.Memories.EnumerateForVesselAsync(tenant.Id, vessel.Id, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(String.Join(",", new[] { about.Id, global.Id, origin.Id }.OrderBy(id => id, StringComparer.Ordinal)),
+                    String.Join(",", read.Select(memory => memory.Id).OrderBy(id => id, StringComparer.Ordinal)),
+                    "The database returns records about, originating from, or without a vessel, in this tenant only");
+                DatabaseAssert.Equal("about-tag", String.Join(",", read.Single(memory => memory.Id == about.Id).Tags), "Tags attach to filtered records");
+                DatabaseAssert.Equal("global-tag", String.Join(",", read.Single(memory => memory.Id == global.Id).Tags), "Tags attach to global records");
+                DatabaseAssert.True(read.All(memory => !memory.Tags.Contains("elsewhere-tag")), "Another vessel's tags are not attached");
+                DatabaseAssert.Equal(0, (await _Driver.Memories.EnumerateForVesselAsync(otherTenant.Id, vessel.Id, token).ConfigureAwait(false)).Count(memory => memory.Id != created[created.Count - 1].Id), "Another tenant sees only its own global records");
+                DatabaseAssert.True(!read.Any(memory => memory.Id == elsewhere.Id), "A record about another vessel is excluded");
+            }
+            finally
+            {
+                if (!_NoCleanup) foreach (Memory row in created) await _Driver.Memories.DeleteAsync(row.TenantId!, row.Id, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyEmbeddingsAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);

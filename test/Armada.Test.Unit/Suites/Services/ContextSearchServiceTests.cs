@@ -152,6 +152,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("The strongest guidance or fact leads the results whatever its source", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(db).ConfigureAwait(false);
+                    Memory fact = await new MemoryService(db.Driver).CreateAsync(Caller(), new Memory
+                    {
+                        Summary = "Lockout recovery sequence", Content = "The lockout recovery sequence waits for the delay timer, then retries the lockout recovery once.", VesselId = vessel.Id
+                    }).ConfigureAwait(false);
+                    ContextSearchService search = new ContextSearchService(db.Driver, new ContextRetrievalService(new[]
+                    {
+                        new ContextChunk { Topic = "timers", Path = "AI-Memory/repos/example/timers.md", Summary = "Timers", Text = "Every sequence has a timer." }
+                    }));
+                    ContextSearchResponse result = await search.SearchAsync(Caller(), new ContextSearchRequest { Query = "lockout recovery sequence", VesselId = vessel.Id, IncludeCode = false }).ConfigureAwait(false);
+                    AssertEqual(2, result.Results.Count, "Both the fact and the weaker rule match");
+                    AssertEqual(fact.Id, result.Results[0].Reference, "The far stronger fact ranks above the weaker rule");
+                    AssertEqual(ContextSearchSourceEnum.Rule, result.Results[1].Source, "The weaker rule follows");
+                }
+            });
+
             await RunTest("Registered tool applies server byte limits and mission call budget", async () =>
             {
                 using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -54,5 +54,11 @@ namespace Armada.Core.Database.Interfaces
         /// Enumerate the records of one tenant, newest first.
         /// </summary>
         Task<List<Memory>> EnumerateAsync(string tenantId, CancellationToken token = default);
+
+        /// <summary>
+        /// Enumerate the records of one tenant that concern one vessel: records about or originating from it,
+        /// and records with no vessel association. Newest first.
+        /// </summary>
+        Task<List<Memory>> EnumerateForVesselAsync(string tenantId, string vesselId, CancellationToken token = default);
     }
 }

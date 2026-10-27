@@ -41,6 +41,9 @@ namespace Armada.Core.Database
 
         private readonly StoredMethods<Memory> _Rows;
 
+        private const string _VesselCondition = "(vessel_id = @vessel_id OR source_vessel_id = @vessel_id "
+            + "OR ((vessel_id IS NULL OR vessel_id = '') AND (source_vessel_id IS NULL OR source_vessel_id = '')))";
+
         #endregion
 
         #region Constructors-and-Factories
@@ -198,6 +201,28 @@ namespace Armada.Core.Database
                 memories,
                 "SELECT t.memory_id, t.tag FROM memory_tags t INNER JOIN memories m ON m.id = t.memory_id WHERE m.tenant_id = @tenant_id;",
                 command => StoredValueBinder.Value(command, "@tenant_id", tenantId),
+                token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<List<Memory>> EnumerateForVesselAsync(string tenantId, string vesselId, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
+            if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+            List<Memory> memories = await _Rows.ListAsync(
+                Table.Filter().Key("tenant_id", tenantId).Condition(_VesselCondition, p => p.Text("@vessel_id", "vessel_id", vesselId)),
+                Order, token).ConfigureAwait(false);
+            if (memories.Count == 0) return memories;
+            return await WithTagsAsync(
+                memories,
+                "SELECT t.memory_id, t.tag FROM memory_tags t INNER JOIN memories m ON m.id = t.memory_id WHERE m.tenant_id = @tenant_id "
+                    + "AND (m.vessel_id = @vessel_id OR m.source_vessel_id = @vessel_id "
+                    + "OR ((m.vessel_id IS NULL OR m.vessel_id = '') AND (m.source_vessel_id IS NULL OR m.source_vessel_id = '')));",
+                command =>
+                {
+                    StoredValueBinder.Value(command, "@tenant_id", tenantId);
+                    StoredValueBinder.Value(command, "@vessel_id", vesselId);
+                },
                 token).ConfigureAwait(false);
         }
 
