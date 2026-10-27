@@ -4,6 +4,13 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Merge queue recovery
+
+- Resume merge entries left in `Testing` after the processing lease expires. Entries without a start time are also
+  resumed; entries with a recent start time remain untouched.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
