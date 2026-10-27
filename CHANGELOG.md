@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Git credential prompts
+
+- **Git launches fail without opening a credential prompt.** Shared Git launch settings disable terminal and Git Credential Manager interaction, so unattended commands return an authentication error when credentials are missing.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
