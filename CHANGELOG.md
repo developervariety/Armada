@@ -4,6 +4,13 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Process liveness heartbeat
+
+- Capture the cancellation token before starting the liveness task, and let an old loop remove only its own entry.
+  This prevents a stop race from faulting the task on a disposed source or removing a replacement loop.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

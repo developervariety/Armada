@@ -1248,6 +1248,7 @@ namespace Armada.Server
         private void StartProcessLivenessHeartbeat(int processId, string captainId, string missionId)
         {
             CancellationTokenSource cts = new CancellationTokenSource();
+            CancellationToken token = cts.Token;
             if (!_ProcessHeartbeatLoops.TryAdd(processId, cts))
             {
                 cts.Dispose();
@@ -1259,10 +1260,10 @@ namespace Armada.Server
             {
                 try
                 {
-                    while (!cts.Token.IsCancellationRequested)
+                    while (!token.IsCancellationRequested)
                     {
-                        await Task.Delay(interval, cts.Token).ConfigureAwait(false);
-                        if (cts.Token.IsCancellationRequested) break;
+                        await Task.Delay(interval, token).ConfigureAwait(false);
+                        if (token.IsCancellationRequested) break;
                         if (!IsTrackedProcessAlive(processId)) break;
 
                         string? mappedCaptainId = null;
@@ -1293,9 +1294,9 @@ namespace Armada.Server
                 }
                 finally
                 {
-                    if (_ProcessHeartbeatLoops.TryRemove(processId, out CancellationTokenSource? removed))
+                    if (_ProcessHeartbeatLoops.TryRemove(new KeyValuePair<int, CancellationTokenSource>(processId, cts)))
                     {
-                        removed.Dispose();
+                        cts.Dispose();
                     }
                 }
             });
