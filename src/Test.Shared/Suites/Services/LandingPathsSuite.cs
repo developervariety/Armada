@@ -174,24 +174,37 @@ namespace Test.Shared.Suites.Services
                     }
                 }));
 
-                cases.Add(CaseAsync(mode.ToString().ToLowerInvariant() + "_no_changes_completes_without_merge_or_push", mode + ": a mission with no diff completes without a merge or a push", TestTags.Positive, async () =>
+                foreach (string missingEvidence in new[] { "missing_diff", "empty_diff", "missing_branch" })
                 {
-                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    string evidence = missingEvidence;
+                    cases.Add(CaseAsync(mode.ToString().ToLowerInvariant() + "_" + evidence + "_keeps_work_unlanded", mode + ": " + evidence + " cannot count as a successful landing", TestTags.Negative, async () =>
                     {
-                        StubGitService git = new StubGitService();
-                        MissionLandingHandler handler = CreateHandler(testDb.Driver, git, new RecordingMergeQueueService());
-                        LandingTestEntitiesResult entities = await CreateEntitiesAsync(testDb.Driver, mode, null, git).ConfigureAwait(false);
-                        entities.Mission.DiffSnapshot = null;
-                        await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
+                        using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                        {
+                            StubGitService git = new StubGitService();
+                            RecordingMergeQueueService queue = new RecordingMergeQueueService();
+                            MissionLandingHandler handler = CreateHandler(testDb.Driver, git, queue);
+                            LandingTestEntitiesResult entities = await CreateEntitiesAsync(testDb.Driver, mode, null, git).ConfigureAwait(false);
+                            if (evidence == "missing_branch") git.ExistingBranches.Remove(entities.Dock.BranchName!);
+                            else entities.Mission.DiffSnapshot = evidence == "empty_diff" ? "  " : null;
+                            await testDb.Driver.Missions.UpdateAsync(entities.Mission).ConfigureAwait(false);
 
-                        await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
+                            await handler.HandleMissionCompleteAsync(entities.Mission, entities.Dock).ConfigureAwait(false);
 
-                        Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
-                        AssertEqual(MissionStatusEnum.Complete, mission!.Status);
-                        AssertEqual(0, git.MergeBranchCalls.Count, "no merge");
-                        AssertEqual(0, git.PushCalls.Count, "no push");
-                    }
-                }));
+                            Mission? mission = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id).ConfigureAwait(false);
+                            AssertEqual(MissionStatusEnum.WorkProduced, mission!.Status, "no confirmed landing");
+                            AssertNotEqual(MissionStatusEnum.Complete, mission.Status, "a recorded work commit is not a landing");
+                            AssertNull(mission.CompletedUtc, "not completed");
+                            AssertContains("Work remains unlanded", mission.FailureReason!);
+                            AssertEqual(0, git.MergeBranchCalls.Count, "no merge");
+                            AssertEqual(0, git.PushCalls.Count, "no push");
+                            AssertEqual(0, queue.Enqueued.Count, "not queued implicitly");
+                            AssertFalse(git.OperationCalls.Contains("delete-local-branch:" + entities.Dock.BranchName), "preserve the only copy of the work");
+                            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false);
+                            AssertFalse(events.Exists(e => e.EventType == "mission.completed"), "no false completion event");
+                        }
+                    }));
+                }
             }
 
             cases.Add(CaseAsync("voyage_merge_and_push_overrides_vessel_local_merge", "Voyage MergeAndPush over vessel LocalMerge: merges and pushes", TestTags.Positive, async () =>

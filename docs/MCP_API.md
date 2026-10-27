@@ -3811,7 +3811,9 @@ Get details of a specific merge queue entry.
 
 ### enqueue_merge
 
-Add a branch to the merge queue for testing and merging.
+Automatic completion remains blocked after a confirmed Failed stage check until a later check clears it. A CouldNotRun or TimedOut check is never treated as passing: the work proceeds to landing unverified and reaches Complete only after a confirmed landing. Local landing without a diff snapshot or confirmed source branch retains WorkProduced and preserves the branch. Resume-in-flight missions are excluded from orphan completion; an unconfirmed orphan exit holds work in WorkProduced for recovery.
+
+Add a branch to the merge queue for testing and merging. A Complete mission is refused as already landed only when it records a commit or its branch is confirmed contained in the target. Complete without landing evidence returns a Conflict describing the status mismatch; unavailable repositories do not establish landing.
 
 **Input Schema:**
 

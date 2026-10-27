@@ -354,7 +354,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Why an entry should not be enqueued because its work has already landed: its mission is Complete, or its
+        /// Why an entry should not be enqueued because its work has already landed: its mission records a landing commit, or its
         /// branch is already contained in the target branch in the repository that holds it. Null when it may be enqueued
         /// (including when the repository cannot be checked right now, for example while its Harbor is disconnected).
         /// </summary>
@@ -366,21 +366,26 @@ namespace Armada.Core.Services
         {
             if (entry == null) throw new ArgumentNullException(nameof(entry));
 
-            Mission? mission = await ReadMissionAsync(entry.MissionId, entry.TenantId, token).ConfigureAwait(false);
-            if (mission != null && mission.Status == MissionStatusEnum.Complete)
+            // API-key/global-admin calls use the system tenant, which must not hide the referenced mission.
+            string? tenantId = entry.TenantId == Constants.SystemTenantId ? null : entry.TenantId;
+            Mission? mission = await ReadMissionAsync(entry.MissionId, tenantId, token).ConfigureAwait(false);
+            if (mission != null && mission.Status == MissionStatusEnum.Complete && !String.IsNullOrWhiteSpace(mission.CommitHash))
             {
-                return "Mission " + mission.Id + " (" + mission.Title + ") already landed: it is Complete, so there is nothing to merge."
+                return "Mission " + mission.Id + " (" + mission.Title + ") already landed: it records landing commit " + mission.CommitHash + ", so there is nothing to merge."
                     + " Dispatch a new mission for further changes.";
             }
 
-            if (String.IsNullOrEmpty(entry.BranchName) || String.IsNullOrEmpty(entry.TargetBranch)) return null;
+            string? mismatch = mission?.Status == MissionStatusEnum.Complete
+                ? "Mission " + mission.Id + " has a status mismatch: Complete without a recorded landing commit or confirmed target-branch containment. Verify landing and correct the mission state before retrying."
+                : null;
+            if (String.IsNullOrEmpty(entry.BranchName) || String.IsNullOrEmpty(entry.TargetBranch)) return mismatch;
 
             try
             {
                 Dock? dock = await FindBranchDockAsync(entry, mission, token).ConfigureAwait(false);
-                if (IsWaitingOnHarbor(dock)) return null;
+                if (IsWaitingOnHarbor(dock)) return mismatch;
                 MergeQueueHost? host = await ResolveHostAsync(entry, dock, token).ConfigureAwait(false);
-                if (host == null) return null;
+                if (host == null) return mismatch;
                 bool? merged = await IsBranchMergedAsync(host, entry.BranchName, entry.TargetBranch, false, token).ConfigureAwait(false);
                 if (merged == true)
                 {
@@ -393,7 +398,7 @@ namespace Armada.Core.Services
                 _Logging.Debug(_Header + "could not check whether " + entry.BranchName + " already landed: " + ex.Message);
             }
 
-            return null;
+            return mismatch;
         }
 
         #endregion
