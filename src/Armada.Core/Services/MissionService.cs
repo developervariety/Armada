@@ -373,12 +373,12 @@ namespace Armada.Core.Services
                     + (mission.Tier.HasValue ? " (tier " + mission.Tier.Value + " or higher)" : "")
                     + ". Check the persona's captain priorities and the captains' allowed personas and tiers."
                     + (authorsIdle ? " Idle captains that ran an earlier stage of the reviewed work are excluded because ExcludeReviewAuthorsFromJudge is on." : "");
-                await DescribeCaptainsAsync(blocker, allCaptains, mission.TenantId, token).ConfigureAwait(false);
+                await DescribeCaptainsAsync(blocker, allCaptains, mission, token).ConfigureAwait(false);
                 return blocker;
             }
 
             blocker.Reason = MissionAssignmentBlockerReasonEnum.NoIdleCaptain;
-            await DescribeCaptainsAsync(blocker, allCaptains, mission.TenantId, token).ConfigureAwait(false);
+            await DescribeCaptainsAsync(blocker, allCaptains, mission, token).ConfigureAwait(false);
             List<DateTime> quarantineEnds = blocker.Captains
                 .Where(c => c.QuarantineUntilUtc.HasValue)
                 .Select(c => c.QuarantineUntilUtc!.Value)

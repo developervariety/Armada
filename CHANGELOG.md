@@ -176,6 +176,16 @@ process starts, .NET on macOS holds the allocator lock that the UI thread's text
   the new `ArmadaClient.GetVesselBranchCountAsync`. `ArmadaClient.MarkAskThreadUnreadAsync` is added, matching the
   dashboard's `markAskThreadUnread`.
 
+### Idle captains say whether they may take a waiting mission
+
+- **"Why This Mission Is Waiting" explains idle captains.** When no idle captain may take a Pending mission
+  (`NoEligibleCaptain`), each idle captain is listed as `idle (assigned)` or `idle (not assigned: <reason>)`, for
+  example `persona not allowed`, `tier below Premium`, `not in persona Worker's captain priorities` or `authored an
+  earlier stage`. The check is the same one that decides the blocker, so the two cannot disagree.
+- **`MissionAssignmentCaptainStatus.EligibleForMission`** (true or false for idle captains, null otherwise) carries
+  the same answer; the dashboard dims idle captains that may not take the mission. Working, planning, refining and
+  quarantined text is unchanged.
+
 ---
 
 ## v1.1.0 (2026-10-15)

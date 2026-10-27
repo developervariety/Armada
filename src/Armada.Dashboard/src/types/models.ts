@@ -362,6 +362,7 @@ export interface MissionAssignmentCaptainStatus {
   objectiveId: string | null;
   quarantineUntilUtc: string | null;
   quarantineReason: string | null;
+  eligibleForMission?: boolean | null;
 }
 
 export interface MissionAssignmentBlocker {
