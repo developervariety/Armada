@@ -17,7 +17,10 @@ STAGES = [
     ('agents', 'prune-agent-caches.py'),
     ('docker', 'prune-docker-storage.py'),
     ('test-databases', 'prune-test-databases.py'),
+    ('deploy-dumps', 'prune-deploy-dumps.py'),
 ]
+# A host opts in to deploy-dump rotation by naming the stage, because it needs its own config section.
+DEFAULT_STAGES = ['build', 'agents', 'docker', 'test-databases']
 DEFAULTS = {
     'lockPath': '/run/lock/armada-daily-storage-cleanup.lock',
     'receiptRetentionDays': 90,
@@ -25,7 +28,7 @@ DEFAULTS = {
     'diskUsagePath': '/',
     'python': sys.executable or '/usr/bin/python3',
     'scriptDirectory': None,
-    'stages': [name for name, _ in STAGES],
+    'stages': DEFAULT_STAGES,
 }
 
 

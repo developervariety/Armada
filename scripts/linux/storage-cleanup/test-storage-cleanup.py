@@ -30,6 +30,7 @@ def load_script(name):
 
 build = load_script('prune-build-outputs.py')
 docker = load_script('prune-docker-storage.py')
+dumps = load_script('prune-deploy-dumps.py')
 
 DAY = 86400
 STAGE_SECTIONS = {
@@ -38,6 +39,7 @@ STAGE_SECTIONS = {
     'prune-agent-caches.py': 'agentCaches',
     'prune-docker-storage.py': 'docker',
     'prune-test-databases.py': 'testDatabases',
+    'prune-deploy-dumps.py': 'deployDumps',
 }
 
 
@@ -130,6 +132,7 @@ class ConfigLoadingTests(unittest.TestCase):
             'agentCaches': ['home'],
             'docker': ['imageRepository'],
             'testDatabases': ['targets', 'runnerCommandPattern', 'runnerArgumentPatterns'],
+            'deployDumps': ['directory', 'pattern'],
         }
         for section, keys in required.items():
             with self.subTest(section=section):
@@ -341,6 +344,108 @@ class UnusedImageTagSelectionTests(unittest.TestCase):
                 parsed = docker.created_at({'Created': value})
                 self.assertEqual(parsed.replace(microsecond=0),
                                  datetime.datetime(2026, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc))
+
+
+class DeployDumpRotationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.settings = {'directory': str(self.root), 'pattern': 'db-pre-*.dump', 'keep': 2}
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def dump(self, name, age_days):
+        path = self.root / name
+        write_file(path, age_days)
+        return path
+
+    def report(self):
+        return {'kept': [], 'candidates': [], 'skipped': [], 'deleted': []}
+
+    def test_plan_keeps_the_newest_and_lists_the_older_without_deleting(self):
+        old = self.dump('db-pre-a.dump', 9)
+        older = self.dump('db-pre-b.dump', 12)
+        new = self.dump('db-pre-c.dump', 1)
+        newer = self.dump('db-pre-d.dump', 0.1)
+        report = self.report()
+        dumps.clean(False, self.settings, report, read_open_paths=set)
+        self.assertEqual(report['kept'], [str(newer), str(new)])
+        self.assertEqual([item['path'] for item in report['candidates']], [str(old), str(older)])
+        self.assertTrue(old.exists() and older.exists())
+        self.assertEqual(report['deleted'], [])
+
+    def test_apply_deletes_only_older_matching_regular_files(self):
+        old = self.dump('db-pre-a.dump', 9)
+        self.dump('db-pre-b.dump', 1)
+        self.dump('db-pre-c.dump', 0.1)
+        other = self.dump('notes.dump', 30)
+        nested = self.root / 'db-pre-folder.dump'
+        nested.mkdir()
+        outside = Path(self.temp.name + '-outside.dump')
+        write_file(outside, 30)
+        self.addCleanup(outside.unlink)
+        link = self.root / 'db-pre-link.dump'
+        link.symlink_to(outside)
+        report = self.report()
+        dumps.clean(True, self.settings, report, read_open_paths=set)
+        self.assertEqual([item['path'] for item in report['deleted']], [str(old)])
+        self.assertFalse(old.exists())
+        self.assertTrue(other.exists() and nested.is_dir() and link.is_symlink() and outside.exists())
+
+    def test_a_dump_held_open_is_kept(self):
+        old = self.dump('db-pre-a.dump', 9)
+        self.dump('db-pre-b.dump', 1)
+        self.dump('db-pre-c.dump', 0.1)
+        report = self.report()
+        dumps.clean(True, self.settings, report, read_open_paths=lambda: {str(old)})
+        self.assertTrue(old.exists())
+        self.assertEqual(report['deleted'], [])
+        self.assertEqual(report['skipped'][0]['reason'], 'open by a running process')
+
+    def test_a_dump_that_changes_between_plan_and_delete_is_kept(self):
+        old = self.dump('db-pre-a.dump', 9)
+        self.dump('db-pre-b.dump', 1)
+        self.dump('db-pre-c.dump', 0.1)
+        calls = []
+
+        def read_open_paths():
+            calls.append(1)
+            if len(calls) == 2:
+                with old.open('ab') as handle:
+                    handle.write(b'more')
+            return set()
+
+        report = self.report()
+        dumps.clean(True, self.settings, report, read_open_paths=read_open_paths)
+        self.assertTrue(old.exists())
+        self.assertEqual(report['skipped'][0]['reason'], 'changed before delete')
+
+    def test_keep_below_one_is_refused_before_anything_is_deleted(self):
+        only = self.dump('db-pre-a.dump', 9)
+        for keep in (0, -1, True, 1.5, '2'):
+            with self.subTest(keep=keep):
+                with self.assertRaisesRegex(ValueError, 'keep must be'):
+                    dumps.clean(True, dict(self.settings, keep=keep), self.report(), read_open_paths=set)
+        self.assertTrue(only.exists())
+
+    @unittest.skipIf(os.path.isdir('/proc/self') and os.geteuid() != 0,
+                     'the CLI process scan reads every /proc entry and needs root on Linux')
+    def test_cli_plans_without_apply_and_removes_with_apply(self):
+        old = self.dump('db-pre-a.dump', 9)
+        self.dump('db-pre-b.dump', 1)
+        self.dump('db-pre-c.dump', 0.1)
+        config = self.root / 'config.json'
+        config.write_text(json.dumps({'deployDumps': dict(self.settings, lockPath=str(self.root / 'lock'))}))
+        command = [sys.executable, str(HERE / 'prune-deploy-dumps.py'), '--config', str(config)]
+        plan = subprocess.run(command, capture_output=True, text=True, timeout=60)
+        self.assertEqual(plan.returncode, 0, plan.stdout + plan.stderr)
+        self.assertEqual(json.loads(plan.stdout)['candidates'][0]['path'], str(old))
+        self.assertTrue(old.exists())
+        applied = subprocess.run(command + ['--apply'], capture_output=True, text=True, timeout=60)
+        self.assertEqual(applied.returncode, 0, applied.stdout + applied.stderr)
+        self.assertEqual(json.loads(applied.stdout)['deleted_bytes'], 4096)
+        self.assertFalse(old.exists())
 
 
 if __name__ == '__main__':

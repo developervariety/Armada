@@ -10,7 +10,7 @@
     "diskUsagePath": "/",
     "python": "/usr/bin/python3",
     "scriptDirectory": null,
-    "stages": ["build", "agents", "docker", "test-databases"]
+    "stages": ["build", "agents", "docker", "test-databases", "deploy-dumps"]
   },
 
   "buildOutputs": {
@@ -70,5 +70,13 @@
     "runnerContainers": { "admiral": "armada-admiral" },
     "runnerCommandPattern": "dotnet|testhost|vstest|\\.Tests",
     "runnerArgumentPatterns": ["Armada\\.Test|exampletest", "test"]
+  },
+
+  "deployDumps": {
+    "_about": "prune-deploy-dumps.py: keeps the newest keep regular files whose name matches pattern directly in directory, by modification time, and removes the older ones. A file that a process holds open, or that changed between plan and delete, is kept. directory and pattern are required; the stage runs only when orchestrator.stages names deploy-dumps.",
+    "directory": "/path/to/backups",
+    "pattern": "example-pre-*.dump",
+    "keep": 2,
+    "lockPath": "/run/lock/armada-prune-deploy-dumps.lock"
   }
 }

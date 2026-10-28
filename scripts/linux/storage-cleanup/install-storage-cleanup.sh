@@ -39,7 +39,7 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
 fi
 
 SCRIPTS=(cleanup_config.py daily-storage-cleanup.py prune-agent-caches.py
-         prune-build-outputs.py prune-docker-storage.py prune-test-databases.py)
+         prune-build-outputs.py prune-deploy-dumps.py prune-docker-storage.py prune-test-databases.py)
 UNITS=(armada-storage-cleanup.service armada-storage-cleanup.timer)
 
 run install -d -m 0755 -o root -g root "${LIB_DIR}"

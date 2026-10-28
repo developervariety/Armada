@@ -512,9 +512,11 @@ JSON file, `/etc/armada/storage-cleanup.json`. Each script takes
 `--config <path>`, plans by default, and deletes only with `--apply`.
 `storage-cleanup.example.json` documents every key.
 
-`daily-storage-cleanup.py` runs the four stages in order under one lock and
-writes a `daily-<stamp>.json` receipt plus each stage's output to
-`receiptDirectory`:
+`daily-storage-cleanup.py` runs the stages that `orchestrator.stages` names, in
+order under one lock, and writes a `daily-<stamp>.json` receipt plus each
+stage's output to `receiptDirectory`. Without `stages` it runs the first four;
+`deploy-dumps` runs only when the list names it, because it needs its own
+`deployDumps` section:
 
 | Stage | Removes |
 | --- | --- |
@@ -522,6 +524,7 @@ writes a `daily-<stamp>.json` receipt plus each stage's output to
 | `prune-agent-caches.py` | Expired agent CLI session logs and outputs, orphan OpenCode snapshots, expired OpenCode sessions (native delete after a verified gzip backup, then `VACUUM` when worthwhile), and the old NuGet HTTP cache under `home`. |
 | `prune-docker-storage.py` | `rollback-before-*` tags once three dated retention sets exist, tags matching `unusedImageTagPatterns` that no container uses and that are older than `unusedImageMinAgeDays`, the reviewed `disposableVolumes`, and dangling layers. |
 | `prune-test-databases.py` | Generated test databases older than `minimumAgeHours` in each target Postgres container, only when no test runner is running. |
+| `prune-deploy-dumps.py` | Pre-deploy database dumps in `directory` whose name matches `pattern`, except the newest `keep` (default 2) by modification time. A dump that a process holds open is kept. |
 
 Every stage fails closed. It skips a path that a running process references, a
 path behind a symlink, and a candidate that changed between plan and delete.
