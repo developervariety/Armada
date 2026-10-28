@@ -116,7 +116,7 @@ Values for existing runtimes come from the current adapters (`src/Armada.Runtime
 | Armada MCP binding | isolation plan | `-c` overrides | workspace settings | project mcp.json | `--mcp-config` | `OPENCODE_CONFIG_CONTENT` | project `.pi/mcp.json` (see 3.3) |
 | Bypass flag | `--dangerously-skip-permissions` | full-auto/bypass | yolo | `--force` | `--yolo` | `--auto` | default behavior (no prompts) |
 | Refuse | acceptEdits | non-bypass | auto_edit | no `--force` | no `--yolo` | no `--auto` | `--exclude-tools bash` (see 3.4) |
-| ApproveInArmada | yes (`--permission-prompt-tool`) | falls back to Refuse | falls back | falls back | yes (Mux 1.5+) | falls back | falls back first; extension later (Phase 6) |
+| ApproveInArmada | yes (`--permission-prompt-tool`) | falls back to Refuse | falls back | falls back | yes (Mux 1.5+) | falls back | falls back first; extension later (Phase 5) |
 | Reasoning effort | thinking-token env | `ToCodexReasoningEffort` | none | none | `ToMuxEffort` | `--variant` minimal/high | `--thinking off..high` (1:1) |
 | Model selection | `--model` | `--model` | `--model` | `--model` | endpoint | `--model provider/id` | `--model provider/id` (+`--provider`) |
 | Resume (`SupportsResume`) | true | false | false | false | false | false | false at first; `--session-id` makes true possible |
@@ -282,10 +282,10 @@ pi never prompts; there is no flag to turn prompts on. Mapping of `CliPermission
   other prompting tools are refused. The pi equivalent is `--exclude-tools bash` (keeps `read`,
   `edit`, `write` and MCP tools; `--tools` would drop MCP tools only if an entry starts with
   `mcp__`, which Armada will not pass). Captain `AutoApprove=false` maps to Refuse, as for OpenCode.
-- ApproveInArmada: Phases 1-5 leave `CliPermissionPolicyResolver.SupportsPromptHook(Pi)` and
+- ApproveInArmada: Phases 1-4 leave `CliPermissionPolicyResolver.SupportsPromptHook(Pi)` and
   `PromptsOverMcp(Pi)` false, so the resolver's existing `ApplyFallback` downgrades to Refuse with
   `CliPermissionFallbackReasonEnum.RuntimeUnsupported` and a user-visible note. No new refusal path is needed.
-- Phase 6 (optional): ship an Armada extension, `src/Armada.Runtimes/Pi/armada-permission-gate.ts`
+- Phase 5 (optional): ship an Armada extension, `src/Armada.Runtimes/Pi/armada-permission-gate.ts`
   (NEW), loaded with `--extension <path>`. Its `tool_call` handler calls the Armada MCP tool
   `cli_permission_prompt` over the same scoped MCP connection (or the REST equivalent with
   `ARMADA_MCP_TOKEN`), awaits the decision, and returns `{ block: true, reason }` on deny. Then
@@ -319,6 +319,20 @@ the CLI policy.
   that does not identify the tool, so detection confirms with the first line of `pi --help`,
   which starts `pi - AI coding assistant`. Treat any other output as "not pi".
 
+### 3.6 Print + JSON mode versus RPC mode
+
+Recommendation: use print + `--mode json` for every Armada launch (missions, Ask turns, planning).
+
+- It matches `BaseAgentRuntime`'s one-process-per-launch lifecycle, process ledger, `StopAsync`,
+  Harbor remote execution (`RemoteAgentRuntime`, `LocalHarborJobRunner`) and the existing stdout
+  line pipeline. No new long-lived process management is needed.
+- The event shapes are the same as RPC mode, so the parser written now is reusable.
+- RPC mode adds steering, `abort`, `get_session_stats`, and `extension_ui_request` (a possible
+  native approval bridge with `ctx.hasUI=true`). Those matter only for a future interactive or
+  steerable captain; revisit RPC if Armada adds mid-mission steering or if the Phase 5 extension
+  needs `ctx.ui` dialogs. Track as an open question, not in this plan's scope.
+- The SDK is TypeScript-only and would require a Node sidecar; not recommended.
+
 ### 3.7 Mission instructions file
 
 VERIFIED: pi loads context files from the agent dir, then every parent directory from the
@@ -343,23 +357,11 @@ ignored in any repository that has `AGENTS.md`, including Armada itself. Changes
   output.
 - The `--append-system-prompt` line in 3.1 stays unused.
 
-### 3.6 Print + JSON mode versus RPC mode
-
-Recommendation: use print + `--mode json` for every Armada launch (missions, Ask turns, planning).
-
-- It matches `BaseAgentRuntime`'s one-process-per-launch lifecycle, process ledger, `StopAsync`,
-  Harbor remote execution (`RemoteAgentRuntime`, `LocalHarborJobRunner`) and the existing stdout
-  line pipeline. No new long-lived process management is needed.
-- The event shapes are the same as RPC mode, so the parser written now is reusable.
-- RPC mode adds steering, `abort`, `get_session_stats`, and `extension_ui_request` (a possible
-  native approval bridge with `ctx.hasUI=true`). Those matter only for a future interactive or
-  steerable captain; revisit RPC if Armada adds mid-mission steering or if the Phase 6 extension
-  needs `ctx.ui` dialogs. Track as an open question, not in this plan's scope.
-- The SDK is TypeScript-only and would require a Node sidecar; not recommended.
-
 ## 4. Ordered task list
 
-Each phase is sized to be one Armada mission. Tasks inside a phase are in order.
+Each phase is sized to be one Armada mission. Tasks inside a phase are in order. Every phase
+lands its own tests (listed under "Tests" in the phase and detailed in section 5); a phase is not
+done until its acceptance criteria and the listed test suites pass.
 
 ### Phase 1 - Runtime enum, adapter and command line (headless missions work)
 
@@ -394,7 +396,11 @@ Each phase is sized to be one Armada mission. Tasks inside a phase are in order.
     `src/Armada.Core/Models/CaptainApprovalOptions.cs` doc comments.
 Acceptance for the phase: `dotnet build src/Armada.sln` clean; a captain with runtime `Pi` can be
 created over REST and MCP; a mission with a stub `pi` executable launches with the expected
-arguments (see Phase 5 tests that land with this phase).
+arguments, prompt on stdin and `--no-session`.
+Tests: new `Services.PiRuntime` suite (builder, effort mapping, parser aliases); Pi cases in
+`AgentRuntimeFactorySuite`, `HarborRuntimeDetectionSuite`, `CaptainTierSuite`,
+`CaptainModelSuite`, `HarborDatabaseSuite`; the stub `pi` in `StubAgentProcesses.cs` (argv,
+stdin and environment recording only).
 
 ### Phase 2 - JSON stream parsing, final message, errors, telemetry
 
@@ -435,6 +441,14 @@ arguments (see Phase 5 tests that land with this phase).
     Acceptance: in a dock with `AGENTS.md`, the generated `AGENTS.override.md` holds the mission
     instructions followed by the repository's `AGENTS.md`; a stub-pi launch shows the file in the
     dock; `git status` is clean after the mission.
+Acceptance for the phase: a stub-pi mission replaying the 2.1 fixtures completes with the right
+final message, exit code, token counts and cost; a replay of the bad-key fixture fails the mission
+with a classified provider error even though the stub exits 0; an Ask turn on a pi captain
+streams text and tool calls in the dashboard; planning-session output contains no protocol lines.
+Tests: `PiStreamFixtures.cs` plus the stream, final-message and exit-code cases in
+`Services.PiRuntime`; Pi cases in `RuntimeProtocolParsingSuite`,
+`RuntimeProviderErrorParserSuite`, `ChatTurnTelemetryRecorderSuite`, `MissionStreamingSuite`;
+the stub `pi` gains fixture replay.
 
 ### Phase 3 - MCP binding and permission policy
 
@@ -447,10 +461,15 @@ arguments (see Phase 5 tests that land with this phase).
     `src/Armada.Core/Settings/McpSettings.cs` doc comment.
 3.3 `PiCommandBuilder` Refuse mapping and `src/Armada.Core/Services/CliPermissionPolicyResolver.cs`
     (no prompt hook, so ApproveInArmada falls back to Refuse with RuntimeUnsupported).
-    `src/Armada.Runtimes/CliPermissionPromptSetup.cs` unchanged until Phase 6.
+    `src/Armada.Runtimes/CliPermissionPromptSetup.cs` unchanged until Phase 5.
 Acceptance: a thread-scoped Ask turn on a pi captain can call `mcp__armada__status` with the
 session token; the token is not in argv or on disk; a host `armada` entry in
-`~/.pi/agent/mcp.json` is not used; the dock's `git status` is clean after the mission.
+`~/.pi/agent/mcp.json` is not used; the dock's `git status` is clean after the mission; a
+captain with `AutoApprove=false` launches with `--exclude-tools bash`; ApproveInArmada is
+recorded as falling back to Refuse with `RuntimeUnsupported` and the note is shown to the user.
+Tests: `PiMcpConfigFile.cs` helper; Pi cases in `CaptainThreadMcpPlannerSuite`,
+`CliPermissionPolicySuite`, `ThreadScopedLaunchSuite`, `SecurityHardeningSuite` (token never in
+argv), `McpClientHostSuite`; a crashed-launch case proving orphan recovery deletes `.pi/mcp.json`.
 
 ### Phase 4 - Clients, CLI, TUI, dashboard, docs
 
@@ -485,19 +504,41 @@ session token; the token is not in argv or on disk; a host `armada` entry in
 4.8 Installers / Harbor app: no runtime is bundled by the installers today (grep of `scripts`,
     `docker`, `factory`, `publisher.json` finds no runtime CLI installation), so nothing to add;
     confirm the Harbor tray's runtime list comes from `HarborRuntimeDetector`.
+Acceptance for the phase:
+- `armada mcp install` lists Pi when `pi` is on PATH (and not otherwise), writes an `armada`
+  entry under `mcpServers` in `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`) while
+  keeping existing entries, and works for both local and remote targets; the plain-text-token
+  note names Pi.
+- `armada captain add --runtime pi` and `captain update` accept Pi and the help text lists it.
+- The TUI captain form offers Pi, and auto-approve is available for it; the TUI Ask screen loads
+  `docs/INSTRUCTIONS_FOR_PI.md` for a pi captain.
+- The dashboard captain form, captain list and captain detail show Pi; the approval picker shows
+  ApproveInArmada as falling back to Refuse for Pi; the tooltip is translated in all eight
+  locales.
+- Every runtime list in the docs from 4.5, and the Postman description, includes Pi (and the
+  Postman one also Mux and OpenCode); `CHANGELOG.md` has an `## Unreleased` entry.
+- `docs/api-surface-1.0.json` and `docs/API_SURFACE_1.0.md` match the generator output.
+Tests: Pi cases in `HelmInputSuite` and `McpClientHostSuite` (config path, merge, availability);
+vitest cases in `captainForm.test.ts`, `captainApproval.test.ts` and an `askCaptain` test;
+gates `Tui`, `Client`, `E2E.ApiContract`, dashboard `npm run build` and `npm run test:run`
+(including the `*Catalog.test.ts` i18n suites).
 
-### Phase 5 - Tests (land each part with its phase)
+### Phase 5 (optional) - ApproveInArmada through a pi extension
 
-See section 5. Phase 1 lands the builder/parser/factory tests, Phase 2 the fixture tests,
-Phase 3 the MCP/permission tests, Phase 4 the dashboard tests.
-
-### Phase 6 (optional) - ApproveInArmada through a pi extension
-
-6.1 `src/Armada.Runtimes/Pi/armada-permission-gate.ts` (NEW) per 3.4, copied to the bin
+5.1 `src/Armada.Runtimes/Pi/armada-permission-gate.ts` (NEW) per 3.4, copied to the bin
     (csproj item; edit the `.csproj` as bytes, CRLF).
-6.2 `CliPermissionPolicyResolver.SupportsPromptHook`/`PromptsOverMcp` return true for Pi;
+5.2 `CliPermissionPolicyResolver.SupportsPromptHook`/`PromptsOverMcp` return true for Pi;
     `CliPermissionPromptSetup.cs` adds `--extension <path>` to the launch.
-6.3 Tests: allow, deny, Admiral unreachable (must block), timeout.
+5.3 Tests: allow, deny, Admiral unreachable (must block), extension timeout (must block), a
+    model response with two parallel tool calls (both decided, in order), and a stub-pi launch
+    whose argv contains `--extension <path>` pointing at a file that exists in the bin.
+Acceptance for the phase: with ApproveInArmada, a pi mission that runs `bash` raises an
+approval in the dashboard and Ask; approving runs the command, denying makes the tool result an
+error carrying the reason and the mission continues; if the Admiral is unreachable or the
+approval times out, the command does not run; the resolver no longer records a
+`RuntimeUnsupported` fallback for Pi; the extension ships in the build output on every target
+framework; `docs/INSTRUCTIONS_FOR_PI.md` and the dashboard approval text no longer say Pi falls
+back to Refuse.
 
 ## 5. Test plan
 
@@ -505,6 +546,8 @@ Test project: suites in `src/Test.Shared` (discovered by reflection), run with
 `dotnet run --project src/Test.Automated --framework net10.0 -- --suites <prefix>`; the same
 suites run under `src/Test.Xunit` and `src/Test.Nunit`. Dashboard tests run with vitest in
 `src/Armada.Dashboard`.
+
+Each bullet below lands with the phase named in that phase's "Tests" line (section 4).
 
 Unit tests (no pi needed):
 
@@ -541,6 +584,7 @@ Integration smoke test:
   git repo with prompt "create hello.txt containing hi and reply DONE", asserts exit 0, the file,
   the final message, and nonzero token counts. A second case runs with a deliberately bad API key
   (`--api-key` or env) and asserts the provider error is classified and the exit code is nonzero.
+- The smoke suite lands with Phase 2 (after the fixtures exist); Phase 5 adds an ApproveInArmada case.
 - Manual check per release on Windows (install.ps1, Git Bash present) since CI has no pi.
 
 Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Services.Captain`,
@@ -551,13 +595,13 @@ Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Servi
 
 - Resolved by the live check (see Sources): stdin prompt delivery (macOS), session header with
   `--no-session`, context-file precedence (now 3.7), no turn limit, SIGTERM behavior, long
-  extension waits (Phase 6), `pi auth check` options, and identifying pi on PATH.
+  extension waits (Phase 5), `pi auth check` options, and identifying pi on PATH.
 - UNVERIFIED: behavior on Windows beyond `docs/windows.md` (stdin prompt delivery through the npm
   `.cmd` wrapper, the bash tool requiring Git Bash, the optional `powershell` tool). Task 2.1
   settles it on a Windows host.
 - Risk: a repository with `AGENTS.md` silently drops mission instructions written to `CLAUDE.md`.
   Task 2.9 must land with Phase 2, before any real pi mission runs.
-- Risk: pi gates parallel tool calls one at a time in Phase 6, so a slow human approval stalls
+- Risk: pi gates parallel tool calls one at a time in Phase 5, so a slow human approval stalls
   every other tool call in that response.
 - Risk: JSON mode exits 0 on provider errors; if the exit-code override in 2.3 is missed, failed
   missions look successful.
@@ -572,7 +616,7 @@ Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Servi
   formatting.
 - Risk: `pi` command name collisions on PATH.
 - Open: should Pi ever use RPC mode (steering, `get_session_stats`, `extension_ui_request`
-  approvals)? Revisit after Phase 6.
+  approvals)? Revisit after Phase 5.
 - Open: `SupportsResume` could become true with `--session-id <missionId>`; out of scope until
   Armada needs resume for non-Claude runtimes.
 
@@ -580,9 +624,8 @@ Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Servi
 
 | Phase | Scope | Rough size |
 |---|---|---|
-| 1 | Enum, parser, builder, runtime, factory, detection, switches + tests | M: ~10 files changed, 2 new, 1 day |
-| 2 | Protocol models, final message, errors, telemetry, log, server consumers, mission stream + fixture tests | L: ~15 files, 8 new, 2-3 days |
-| 3 | MCP binding, worktree exclude/cleanup, permission mapping + tests | M: ~6 files, 1-2 days |
-| 4 | Helm, TUI, MCP schema text, dashboard, i18n (8 locales), docs, Postman, API surface | M: ~35 files mostly text, 1-2 days |
-| 5 | Smoke suite and stubs (spread across phases 1-3) | S: 0.5-1 day |
-| 6 | Optional permission-gate extension | M: 1-2 days |
+| 1 | Enum, parser, builder, runtime, factory, detection, switches + their tests and the argv stub | M: ~10 files changed, 3 new, 1-1.5 days |
+| 2 | Protocol models, final message, errors, telemetry, log, server consumers, mission stream, instructions file + fixture tests and smoke suite | L: ~16 files, 9 new, 3 days |
+| 3 | MCP binding, worktree exclude/cleanup, permission mapping + tests | M: ~7 files, 1 new, 1.5-2 days |
+| 4 | Helm, TUI, MCP schema text, dashboard, i18n (8 locales), docs, Postman, API surface + Helm and vitest tests | M: ~35 files mostly text, 1.5-2 days |
+| 5 | Optional permission-gate extension + tests | M: 1-2 days |
