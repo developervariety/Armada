@@ -24,13 +24,13 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 408 | 15 |
-| MCP tools | 195 | 8 |
+| REST routes | 410 | 15 |
+| MCP tools | 203 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 216 | 12 |
+| Settings keys | 217 | 12 |
 
 ## REST API
 
@@ -193,6 +193,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/jobs/{id}/cancel` | Authenticated |  | 200, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/memories` | Authenticated |  | 200 `EnumerationResult<Memory>` |  |
 | POST | `/api/v1/memories` | Authenticated | `Memory` | 201 `Memory`, 400 |  |
+| POST | `/api/v1/memories/enumerate` | Authenticated | `MemoryEnumerateRequest` (optional) | 200 `EnumerationResult<Memory>` |  |
 | DELETE | `/api/v1/memories/{id}` | Authenticated |  | 204, 404 |  |
 | GET | `/api/v1/memories/{id}` | Authenticated |  | 200 `Memory`, 404 |  |
 | PUT | `/api/v1/memories/{id}` | Authenticated | `Memory` | 200 `Memory`, 400, 404 |  |
@@ -426,6 +427,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | GET | `/api/v1/whoami` | Authenticated |  |  |  |
 | GET | `/api/v1/workflow-profiles` | Authenticated |  | 200 `EnumerationResult<WorkflowProfile>` |  |
 | POST | `/api/v1/workflow-profiles` | TenantAdmin | `WorkflowProfile` | 201 `WorkflowProfile`, 400 |  |
+| POST | `/api/v1/workflow-profiles/delete/multiple` | TenantAdmin | `DeleteMultipleRequest` | 200 `DeleteMultipleResult`, 400 |  |
 | POST | `/api/v1/workflow-profiles/enumerate` | Authenticated | `WorkflowProfileQuery` (optional) | 200 `EnumerationResult<WorkflowProfile>` |  |
 | GET | `/api/v1/workflow-profiles/preview/vessels/{vesselId}` | Authenticated |  | 200 `WorkflowProfileResolutionPreviewResult`, 404 |  |
 | GET | `/api/v1/workflow-profiles/resolve/vessels/{vesselId}` | Authenticated |  | 200 `WorkflowProfile`, 404 |  |
@@ -489,6 +491,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `create_playbook` | TenantAdmin | `active: boolean`, `content*: string`, `description: string`, `fileName*: string`, `scope: string` |  |
 | `create_prompt_template` | Authenticated | `active: boolean`, `category*: string`, `content*: string`, `description: string`, `name*: string`, `scope: string` |  |
 | `create_release` | TenantAdmin | `checkRunIds: array<string>`, `missionIds: array<string>`, `notes: string`, `status: string`, `summary: string`, `tagName: string`, `title: string`, `version: string`, `vesselId: string`, `voyageIds: array<string>`, `workflowProfileId: string` |  |
+| `create_workflow_profile` | TenantAdmin | `abbreviatedUnitTestCommand: string`, `active: boolean`, `buildCommand: string`, `changelogGenerationCommand: string`, `deploymentVerificationCommand: string`, `description: string`, `e2eTestCommand: string`, `environments: array<object>`, `expectedArtifacts: array<string>`, `fleetId: string`, `integrationTestCommand: string`, `isDefault: boolean`, `languageHints: array<string>`, `lintCommand: string`, `migrationCommand: string`, `name*: string`, `ownershipScope: string`, `packageCommand: string`, `performanceCommand: string`, `publishArtifactCommand: string`, `releaseVersioningCommand: string`, `requiredInputs: array<object>`, `rollbackVerificationCommand: string`, `scope: string`, `securityScanCommand: string`, `tenantId: string`, `unitTestCommand: string`, `vesselId: string` |  |
 | `decide_cli_permission_request` | Authenticated | `decision*: string`, `message: string`, `requestId*: string`, `rulePattern: string`, `ruleScope: string` |  |
 | `delete_ask_thread` | Authenticated | `threadId*: string` |  |
 | `delete_ask_threads` | Authenticated | `threadIds*: array<string>` |  |
@@ -517,6 +520,8 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `delete_vessel` | TenantAdmin | `vesselId*: string` |  |
 | `delete_vessels` | TenantAdmin | `ids*: array<string>` |  |
 | `delete_voyages` | TenantAdmin | `ids*: array<string>` |  |
+| `delete_workflow_profile` | TenantAdmin | `id*: string` |  |
+| `delete_workflow_profiles` | TenantAdmin | `ids*: array<string>` |  |
 | `deny_mission_review` | TenantAdmin | `action: string`, `comment: string`, `missionId*: string` |  |
 | `discover_vessels` | TenantAdmin | `directories: array<string>`, `maxDepth: integer`, `roots: array<string>`, `runInBackground: boolean` |  |
 | `dispatch` | TenantAdmin | `approvalOptions: object`, `captainAssignments: array<object>`, `description: string`, `isEvaluation: boolean`, `landingMode: string`, `missions: array<object>`, `objectiveId: string`, `pipeline: string`, `pipelineId: string`, `selectedPlaybooks: array<object>`, `title*: string`, `vesselId: string` |  |
@@ -563,6 +568,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `get_runbook_execution` | Authenticated | `runbookExecutionId*: string` |  |
 | `get_stage_outcome` | Authenticated | `outcomeId*: string` |  |
 | `get_vessel` | Authenticated | `vesselId*: string` |  |
+| `get_workflow_profile` | Authenticated | `id*: string` |  |
 | `health_check_model_endpoints` | Authenticated |  |  |
 | `import_vessels` | TenantAdmin | `allNew: boolean`, `applyFleetsAutomatically: boolean`, `batchId*: string`, `captainId: string`, `categorize: boolean`, `defaultPipelineId: string`, `fleetId: string`, `landingMode: string`, `paths: array<string>`, `prompt: string` |  |
 | `inbox` | Authenticated |  |  |
@@ -584,6 +590,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `mark_ask_thread_read` | Authenticated | `threadId*: string` |  |
 | `mission_status` | Authenticated | `missionId*: string` |  |
 | `papercut_summary` | Authenticated | `category: string`, `limit: integer`, `minSeverity: string`, `scanLimit: integer`, `sinceHours: integer`, `ungrouped: boolean`, `vesselId: string` |  |
+| `preview_workflow_profile` | Authenticated | `vesselId*: string`, `workflowProfileId: string` |  |
 | `process_merge_entry` | TenantAdmin | `entryId*: string` |  |
 | `process_merge_queue` | TenantAdmin |  |  |
 | `purge_dock` | TenantAdmin | `dockId*: string` |  |
@@ -599,6 +606,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `reorder_objectives` | TenantAdmin | `items*: array<object>` |  |
 | `repair_dock` | TenantAdmin | `dockId*: string` |  |
 | `reset_prompt_template` | Authenticated | `name*: string` |  |
+| `resolve_workflow_profile` | Authenticated | `vesselId*: string`, `workflowProfileId: string` |  |
 | `restart_mission` | TenantAdmin | `description: string`, `missionId*: string`, `title: string` |  |
 | `restore` | AdminOnly | `filePath*: string` |  |
 | `retry_check_run` | TenantAdmin | `checkRunId*: string` |  |
@@ -645,7 +653,9 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `update_prompt_template` | Authenticated | `content*: string`, `description: string`, `name*: string` |  |
 | `update_vessel` | TenantAdmin | `allowConcurrentMissions: boolean`, `auditCommand: string`, `autoApprove: boolean`, `autoLandEnabled: boolean`, `autoLandMaxFiles: integer`, `autoLandMaxLines: integer`, `autoLandPathAllowGlobs: array<string>`, `autoLandPathDenyGlobs: array<string>`, `clearAutoApprove: boolean`, `defaultBranch: string`, `defaultPipelineId: string`, `definitionOfDoneBuildCommand: string`, `definitionOfDoneEnabled: boolean`, `definitionOfDoneTestCommand: string`, `definitionOfDoneTimeoutSeconds: integer`, `enableModelContext: boolean`, `gitHubTokenOverride: string`, `lintCommand: string`, `modelContext: string`, `name: string`, `projectContext: string`, `repoUrl: string`, `styleGuide: string`, `testCommand: string`, `vesselId*: string`, `workingDirectory: string` |  |
 | `update_vessel_context` | TenantAdmin | `modelContext: string`, `projectContext: string`, `styleGuide: string`, `vesselId*: string` |  |
+| `update_workflow_profile` | TenantAdmin | `abbreviatedUnitTestCommand: string`, `active: boolean`, `buildCommand: string`, `changelogGenerationCommand: string`, `deploymentVerificationCommand: string`, `description: string`, `e2eTestCommand: string`, `environments: array<object>`, `expectedArtifacts: array<string>`, `fleetId: string`, `id*: string`, `integrationTestCommand: string`, `isDefault: boolean`, `languageHints: array<string>`, `lintCommand: string`, `migrationCommand: string`, `name: string`, `ownershipScope: string`, `packageCommand: string`, `performanceCommand: string`, `publishArtifactCommand: string`, `releaseVersioningCommand: string`, `requiredInputs: array<object>`, `rollbackVerificationCommand: string`, `scope: string`, `securityScanCommand: string`, `unitTestCommand: string`, `vesselId: string` |  |
 | `validate_model_endpoint` | Authenticated | `endpointId*: string` |  |
+| `validate_workflow_profile` | TenantAdmin | `abbreviatedUnitTestCommand: string`, `active: boolean`, `buildCommand: string`, `changelogGenerationCommand: string`, `deploymentVerificationCommand: string`, `description: string`, `e2eTestCommand: string`, `environments: array<object>`, `expectedArtifacts: array<string>`, `fleetId: string`, `integrationTestCommand: string`, `isDefault: boolean`, `languageHints: array<string>`, `lintCommand: string`, `migrationCommand: string`, `name*: string`, `ownershipScope: string`, `packageCommand: string`, `performanceCommand: string`, `publishArtifactCommand: string`, `releaseVersioningCommand: string`, `requiredInputs: array<object>`, `rollbackVerificationCommand: string`, `scope: string`, `securityScanCommand: string`, `unitTestCommand: string`, `vesselId: string` |  |
 | `verify_deployment` | TenantAdmin | `deploymentId*: string` |  |
 | `vessel_health` | Authenticated | `includeDependencies: boolean`, `vesselId*: string` |  |
 | `voyage_status` | Authenticated | `includeDescription: boolean`, `includeDiffs: boolean`, `includeLogs: boolean`, `includeMissions: boolean`, `summary: boolean`, `voyageId*: string` |  |
@@ -1038,6 +1048,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `telemetry.prometheusPort` | int | `9464` |  |
 | `telemetry.serviceName` | string | `"armada"` |  |
 | `terminalBell` | bool | `true` |  |
+| `toolWaitHardLimitMinutes` | int | `60` |  |
 | `transientOutageGraceMinutes` | int | `10` |  |
 | `transientResumeDelaySeconds` | int | `5` |  |
 | `verifyAllStageRuntimes` | bool | `true` |  |

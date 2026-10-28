@@ -48,6 +48,24 @@ namespace Armada.Core.Models
         /// </summary>
         public List<string> DidNotFit { get; set; } = new List<string>();
 
+        /// <summary>
+        /// The findings delivered in <see cref="Evidence"/>, in delivery order; findings that did not fit are listed in
+        /// <see cref="DidNotFit"/> instead.
+        /// </summary>
+        public List<HandoffFinding> Findings { get; set; } = new List<HandoffFinding>();
+
+        /// <summary>
+        /// The delivered findings exactly as they appear in <see cref="Evidence"/> (one numbered block per finding, with
+        /// severity, file, line and required fix), without the section title. Empty when no finding was delivered.
+        /// </summary>
+        public string FindingsText { get; set; } = "";
+
+        /// <summary>
+        /// <see cref="Evidence"/> without its findings section, for a prompt that lists <see cref="FindingsText"/>
+        /// elsewhere (the rework prompt), so the findings are delivered once and the budget still holds.
+        /// </summary>
+        public string EvidenceWithoutFindings { get; set; } = "";
+
         #endregion
 
         #region Constructors-and-Factories

@@ -229,6 +229,7 @@ namespace Armada.Core.Authorization
             // MemoryRoutes
             Add("GET", "/api/v1/memories", "Memory", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("POST", "/api/v1/memories", "Memory", ResourceOperationEnum.Create, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/memories/enumerate", "Memory", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/memories/{id}", "Memory", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/memories/{id}", "Memory", ResourceOperationEnum.Update, PermissionLevel.Authenticated);
             Add("DELETE", "/api/v1/memories/{id}", "Memory", ResourceOperationEnum.Delete, PermissionLevel.Authenticated);
@@ -516,6 +517,7 @@ namespace Armada.Core.Authorization
             Add("GET", "/api/v1/workflow-profiles/{id}", "WorkflowProfile", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("PUT", "/api/v1/workflow-profiles/{id}", "WorkflowProfile", ResourceOperationEnum.Update, PermissionLevel.TenantAdmin);
             Add("DELETE", "/api/v1/workflow-profiles/{id}", "WorkflowProfile", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
+            Add("POST", "/api/v1/workflow-profiles/delete/multiple", "WorkflowProfile", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
 
             // WorkspaceRoutes
             Add("GET", "/api/v1/workspace/vessels/{vesselId}/tree", "Workspace", ResourceOperationEnum.Read, PermissionLevel.Authenticated);

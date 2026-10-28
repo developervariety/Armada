@@ -27,6 +27,11 @@ namespace Armada.Core.Models
         public List<string> Commands { get; set; } = new List<string>();
 
         /// <summary>
+        /// Which unit-test command the check chose (full or abbreviated), or null when the profile had no unit-test command.
+        /// </summary>
+        public Armada.Core.Enums.UnitTestScopeEnum? UnitTestScope { get; set; } = null;
+
+        /// <summary>
         /// The command that failed or timed out, or null.
         /// </summary>
         public string? FailedCommand { get; set; } = null;

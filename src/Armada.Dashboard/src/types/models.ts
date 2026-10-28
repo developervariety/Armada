@@ -945,6 +945,7 @@ export interface WorkflowProfile {
   lintCommand: string | null;
   buildCommand: string | null;
   unitTestCommand: string | null;
+  abbreviatedUnitTestCommand: string | null;
   integrationTestCommand: string | null;
   e2eTestCommand: string | null;
   migrationCommand: string | null;
@@ -1403,6 +1404,7 @@ export type CheckRunType =
   | 'Lint'
   | 'Build'
   | 'UnitTest'
+  | 'AbbreviatedUnitTest'
   | 'IntegrationTest'
   | 'E2ETest'
   | 'Migration'
@@ -2921,6 +2923,35 @@ export interface Memory {
   tags: string[];
   createdUtc: string;
   lastUpdateUtc: string;
+}
+
+/** Column a memory enumeration sorts by; `order` gives the direction. */
+export type MemorySortField = 'Created' | 'Updated' | 'Salience' | 'Vessel' | 'Type' | 'Topic' | 'Summary' | 'Visibility';
+
+/**
+ * Body of POST /api/v1/memories/enumerate: the standard enumeration query plus memory filters. Filtering,
+ * sorting and paging all run on the server. Without sortBy or order the server orders by salience, then newest.
+ */
+export interface MemoryEnumerateQuery {
+  pageNumber?: number;
+  pageSize?: number;
+  order?: 'CreatedAscending' | 'CreatedDescending';
+  sortBy?: MemorySortField;
+  createdAfter?: string;
+  createdBefore?: string;
+  vesselId?: string;
+  voyageId?: string;
+  missionId?: string;
+  tenantId?: string;
+  userId?: string;
+  search?: string;
+  type?: MemoryType;
+  topic?: string;
+  topicContains?: string;
+  vesselName?: string;
+  summaryContains?: string;
+  scope?: ScopeEnum;
+  minSalience?: number;
 }
 
 // ---------------------------------------------------------------------------

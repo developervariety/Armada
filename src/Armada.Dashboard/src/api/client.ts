@@ -80,6 +80,7 @@ import type {
   HarborJobStopResult,
   ModelEndpoint,
   Memory,
+  MemoryEnumerateQuery,
   ModelEndpointProbeResult,
   ModelEndpointHealthSweepResponse,
   PasswordChangeRequest,
@@ -1157,6 +1158,9 @@ export const getWorkflowProfile = (id: string) => get<WorkflowProfile>(`/api/v1/
 export const createWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfile>('/api/v1/workflow-profiles', data);
 export const updateWorkflowProfile = (id: string, data: Partial<WorkflowProfile>) => put<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`, data);
 export const deleteWorkflowProfile = (id: string) => del<void>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`);
+export const enumerateWorkflowProfiles = (query?: { pageNumber?: number; pageSize?: number; scope?: string; fleetId?: string; vesselId?: string; search?: string; active?: boolean }) =>
+  post<EnumerationResult<WorkflowProfile>>('/api/v1/workflow-profiles/enumerate', query || {});
+export const deleteWorkflowProfilesBatch = (ids: string[]) => post<BatchDeleteResult>('/api/v1/workflow-profiles/delete/multiple', { Ids: ids });
 export const validateWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfileValidationResult>('/api/v1/workflow-profiles/validate', data);
 export const previewWorkflowProfileForVessel = (vesselId: string, workflowProfileId?: string | null) =>
   get<WorkflowProfileResolutionPreviewResult>(`/api/v1/workflow-profiles/preview/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);
@@ -1221,6 +1225,8 @@ export const healthCheckModelEndpoints = () =>
 // ==================== Memories ====================
 export const listMemories = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Memory>>(`/api/v1/memories${buildQuery(params)}`);
+export const enumerateMemories = (query?: MemoryEnumerateQuery) =>
+  post<EnumerationResult<Memory>>('/api/v1/memories/enumerate', query || {});
 export const getMemory = (id: string) => get<Memory>(`/api/v1/memories/${encodeURIComponent(id)}`);
 export const createMemory = (data: Partial<Memory>) => post<Memory>('/api/v1/memories', data);
 export const updateMemory = (id: string, data: Partial<Memory>) =>

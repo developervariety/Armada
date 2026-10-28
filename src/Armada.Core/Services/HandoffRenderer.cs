@@ -248,7 +248,7 @@ namespace Armada.Core.Services
             IEnumerable<HandoffFinding> open = artifact.Findings.Where(f => !f.Resolved)
                 .OrderBy(f => f.Severity == HandoffFindingSeverityEnum.Blocking ? 0 : 1).ThenBy(f => f.Number);
             foreach (HandoffFinding finding in open)
-                units.Add(new Unit("finding " + finding.Number + (finding.File != null ? " (" + finding.File + ")" : ""), FindingText(finding) + "\n", false));
+                units.Add(new Unit("finding " + finding.Number + (finding.File != null ? " (" + finding.File + ")" : ""), FindingText(finding) + "\n", false) { Finding = finding });
 
             if (artifact.CheckResults.Count > 0)
                 units.Add(new Unit("check results", "#### Check results\n" + ChecksText(artifact.CheckResults), false));
@@ -267,31 +267,50 @@ namespace Armada.Core.Services
 
         private static HandoffRendering Compose(string header, List<Unit> included, List<Unit>? all, string pointerText, List<string> didNotFit, bool final)
         {
+            // The evidence, and the same evidence without the findings section, for a reader (rework) that lists the
+            // delivered findings elsewhere in its prompt.
             StringBuilder evidence = new StringBuilder(header);
+            StringBuilder withoutFindings = new StringBuilder(header);
+            StringBuilder findings = new StringBuilder();
             List<Unit> evidenceUnits = included.Where(u => !u.IsDiff).ToList();
             bool anyFinding = evidenceUnits.Any(u => u.Label.StartsWith("finding ", StringComparison.Ordinal));
             if (anyFinding) evidence.Append("#### Unresolved findings\n");
             foreach (Unit unit in evidenceUnits)
             {
-                if (unit.Label.StartsWith("stage output", StringComparison.Ordinal)) evidence.Append("#### Stage output\n");
-                evidence.Append(unit.Text.TrimEnd()).Append('\n');
+                string text = unit.Text.TrimEnd() + "\n";
+                if (unit.Label.StartsWith("stage output", StringComparison.Ordinal))
+                {
+                    evidence.Append("#### Stage output\n");
+                    withoutFindings.Append("#### Stage output\n");
+                }
+
+                evidence.Append(text);
+                if (unit.Finding != null) findings.Append(text);
+                else withoutFindings.Append(text);
             }
 
-            if (final && all != null && all.Count == 0) evidence.Append("No findings, checks, output or diff were recorded for this stage.\n");
-            evidence.Append(pointerText);
-            evidence.Append("#### Did not fit\n");
+            StringBuilder tail = new StringBuilder();
+            if (final && all != null && all.Count == 0) tail.Append("No findings, checks, output or diff were recorded for this stage.\n");
+            tail.Append(pointerText);
+            tail.Append("#### Did not fit\n");
             if (didNotFit.Count == 0)
             {
-                evidence.Append("Nothing was left out.\n");
+                tail.Append("Nothing was left out.\n");
             }
             else
             {
-                foreach (string item in didNotFit.Take(_MaxDidNotFitLines)) evidence.Append(DidNotFitLine(item));
-                if (didNotFit.Count > _MaxDidNotFitLines) evidence.Append("- and ").Append(didNotFit.Count - _MaxDidNotFitLines).Append(" more items\n");
+                foreach (string item in didNotFit.Take(_MaxDidNotFitLines)) tail.Append(DidNotFitLine(item));
+                if (didNotFit.Count > _MaxDidNotFitLines) tail.Append("- and ").Append(didNotFit.Count - _MaxDidNotFitLines).Append(" more items\n");
             }
+
+            evidence.Append(tail);
+            withoutFindings.Append(tail);
 
             HandoffRendering rendering = new HandoffRendering();
             rendering.Evidence = evidence.ToString();
+            rendering.EvidenceWithoutFindings = withoutFindings.ToString();
+            rendering.FindingsText = findings.ToString();
+            rendering.Findings = evidenceUnits.Where(u => u.Finding != null).Select(u => u.Finding!).ToList();
             rendering.Diff = DiffText(included, final);
             rendering.DidNotFit = new List<string>(didNotFit);
             rendering.EstimatedTokens = EstimateTokens(rendering.Evidence) + EstimateTokens(rendering.Diff);
@@ -432,6 +451,8 @@ namespace Armada.Core.Services
             public bool IsDiff { get; set; } = false;
 
             public Unit? Source { get; set; } = null;
+
+            public HandoffFinding? Finding { get; set; } = null;
 
             public string? OmittedLabel { get; set; } = null;
 

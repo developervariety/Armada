@@ -6,19 +6,35 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Workflow profiles carry two unit-test commands: `UnitTestCommand` (full suite) and the new `AbbreviatedUnitTestCommand` (a fast subset). The abbreviated one runs for the new `AbbreviatedUnitTest` check type (the operator choosing directly) and in post-stage checks when `[ARMADA:UNIT-TESTS] abbreviated` appears in the mission description or, failing that, the stage persona's prompt (for example a customized Test Engineer prompt template); `[ARMADA:UNIT-TESTS] full` forces the full suite, and with no directive the full command runs. An unset abbreviated command falls back to the full one. Migration 100 adds `abbreviated_unit_test_command` on every database. The dashboard, TUI and mobile workflow-profile forms show both fields with tooltips explaining how each is chosen, and `StageCheckResult` records the `UnitTestScope` used.
+- `POST /api/v1/memories/enumerate` enumerates memories with a `MemoryEnumerateRequest` (every `EnumerationQuery` field plus `Search`, `Type`, `Topic`, `TopicContains`, `VesselName`, `SummaryContains`, `Scope`, `MinSalience`, and `SortBy`), returning `EnumerationResult<Memory>` like the other enumerate routes. `GET /api/v1/memories` accepts the same fields as query parameters (it previously dropped `order`, `createdAfter`, `createdBefore`, `voyageId`, and `missionId`). Visibility, filtering, sorting (including by vessel name) and paging now run in the database on SQLite, PostgreSQL, SQL Server and MySQL instead of loading every visible memory. Without `SortBy` or `Order` the historical order (salience, then newest) is kept. New `EnumerateMemoriesAsync` on `Armada.Client` and the Core `ArmadaApiClient`, and `enumerateMemories` in the dashboard client; the MCP `enumerate` tool honors `order` for memories.
+- The dashboard Memories page sorts, filters (vessel name, type, topic, summary, salience, visibility, search) and pages on the server through the enumerate route; its strings are translated in every locale.
+### Workflow profiles over MCP
+
+- New MCP tools `get_workflow_profile`, `create_workflow_profile`, `update_workflow_profile` (partial update: only the fields passed change; an empty string clears a command, fleetId or vesselId), `delete_workflow_profile`, `delete_workflow_profiles`, `validate_workflow_profile`, `resolve_workflow_profile` and `preview_workflow_profile`. Every settable field (name, description, scope, fleetId, vesselId, isDefault, active, ownershipScope, language hints, every command, required inputs, expected artifacts and environments) is in the schemas. Reads are Authenticated; writes and validate need a tenant admin, as over REST. Ask Armada treats get/validate/resolve/preview as read-only and the writes as proposals that need approval.
+- REST and MCP share `WorkflowProfileAccessService` (visibility, ownership, validation, unique default). A non-admin can no longer reference another tenant's fleet or vessel in a profile (refused as "not found", 400).
+- New `POST /api/v1/workflow-profiles/delete/multiple` (TenantAdmin) returns `DeleteMultipleResult`, skipping missing, foreign or non-editable ids.
+- .NET client: `EnumerateWorkflowProfilesAsync` and `DeleteWorkflowProfilesBatchAsync`; dashboard client: `enumerateWorkflowProfiles` and `deleteWorkflowProfilesBatch`.
+
 ### Fixed
 
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
 ### Fleet action scan and test runs
 
 - Add Findings outcomes counted separately from successful and failed targets, fourteen audit/test output parsers, redacted secret scan output, persisted scan summaries, and mission templates using a named source action through `{{scan.summary}}`.
-- Add executable preflight with `ToolMissing:<tool>` skips, offline network skips, optional Windows commands, and typed runtime inputs with defaults and validation before dispatch. REST, MCP, SDK models, Postman examples, and the dashboard run dialog carry the new fields. Migration 100 preserves action options and run snapshots across all database providers.
+- Add executable preflight with `ToolMissing:<tool>` skips, offline network skips, optional Windows commands, and typed runtime inputs with defaults and validation before dispatch. REST, MCP, SDK models, Postman examples, and the dashboard run dialog carry the new fields. Migration 101 preserves action options and run snapshots across all database providers.
 
 ### Handoff and landing resilience
 
 - Record failed landing callbacks as LandingFailed; periodically flag verified merge-queue missions missing a queue entry after five minutes for manual recovery.
 
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
+
+### Rework prompts built from the handoff artifact
+
+- The rework Worker's prompt replaces the former one-paragraph instruction (about 150 words, eight demands) with a structured section: the reviewer's numbered findings (severity, file, line and required fix) taken from its handoff artifact as rendered within the reader's handoff budget, findings that did not fit named in the did-not-fit list, the rework demands as a numbered list with one demand per line, and the output contract (`[ARMADA:RESULT] COMPLETE`) repeated at the end. A review without structured findings, or a launch without an artifact, falls back to the rendered handoff block. The findings are delivered once (not again in the evidence block); every former demand is kept. It applies to all prompt variants; non-rework prompts are unchanged. No migration. The effect on the battery has not been measured.
 
 ### Persona prompt variants for battery comparison
 
@@ -47,6 +63,11 @@ setting, Quick probes, and the fixture battery with its C# pack. Schema migratio
 startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
 - Ask Armada conversations now have a refresh control that preserves the open conversation and filters, shows loading progress, and retains the previous list on failure.
+
+### Memory enumeration: server-side paging, sorting and filtering
+
+- `POST /api/v1/memories/enumerate` enumerates memories with a `MemoryEnumerateRequest` (every `EnumerationQuery` field plus `Search`, `Type`, `Topic`, `TopicContains`, `VesselName`, `SummaryContains`, `Scope`, `MinSalience`, and `SortBy`), returning `EnumerationResult<Memory>` like the other enumerate routes. `GET /api/v1/memories` accepts the same fields as query parameters (it previously dropped `order`, `createdAfter`, `createdBefore`, `voyageId`, and `missionId`). Visibility, filtering, sorting (including by vessel name) and paging now run in the database on SQLite, PostgreSQL, SQL Server and MySQL instead of loading every visible memory. Without `SortBy` or `Order` the historical order (salience, then newest) is kept. New `EnumerateMemoriesAsync` on `Armada.Client` and the Core `ArmadaApiClient`, and `enumerateMemories` in the dashboard client; the MCP `enumerate` tool honors `order` for memories.
+- The dashboard Memories page sorts, filters (vessel name, type, topic, summary, salience, visibility, search) and pages on the server through the enumerate route; its strings are translated in every locale.
 
 ### Dashboard: consolidated navigation
 

@@ -8271,7 +8271,41 @@
                                 "memories"
                             ]
                         },
-                        "description": "List/search durable memories visible to the caller, ordered by salience then recency. Query: type (Episodic/Semantic/Procedural), topic, vesselId, search, pageNumber, pageSize. Returns a paged EnumerationResult."
+                        "description": "List/search durable memories visible to the caller. Query: pageNumber, pageSize, order, sortBy, createdAfter, createdBefore, vesselId, voyageId, missionId, tenantId, userId, search, type (Episodic/Semantic/Procedural), topic, topicContains, vesselName, summaryContains, scope, minSalience. Without sortBy or order, ordered by salience then recency. Returns a paged EnumerationResult."
+                    }
+                },
+                {
+                    "name": "Enumerate Memories",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/memories/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "memories",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "Paginated enumeration of the memories visible to the caller. Body: every EnumerationQuery field (PageNumber, PageSize, Order as the sort direction, CreatedAfter, CreatedBefore, VesselId, VoyageId, MissionId, TenantId, UserId) plus Search, Type, Topic, TopicContains, VesselName, SummaryContains, Scope, MinSalience, and SortBy (Created, Updated, Salience, Vessel, Type, Topic, Summary, Visibility). Without SortBy or Order, ordered by salience then recency. Returns a paged EnumerationResult.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"SortBy\": \"Updated\",\n  \"Order\": \"CreatedDescending\",\n  \"Type\": \"Procedural\",\n  \"VesselName\": \"billing\",\n  \"MinSalience\": 0.5\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
                     }
                 },
                 {
@@ -10134,6 +10168,36 @@
                             ]
                         },
                         "description": "Delete the current workflow profile."
+                    }
+                },
+                {
+                    "name": "Batch Delete Workflow Profiles",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Ids\": [\"wfp_abc123\", \"wfp_def456\"]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/workflow-profiles/delete/multiple",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "workflow-profiles",
+                                "delete",
+                                "multiple"
+                            ]
+                        },
+                        "description": "Batch delete multiple workflow profiles by ID (tenant admins). Missing, out-of-scope, or non-editable ids are skipped with a reason."
                     }
                 },
                 {
