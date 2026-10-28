@@ -113,7 +113,7 @@ how to find out which ones matter.
 
 | # | Challenge | How it shows up |
 |---|---|---|
-| D1 | **Runtime differences.** Tool-call format, how errors are returned, and whether malformed calls are retried differ between Mux, OpenCode, the API endpoint runtime and vendor CLIs. | The same model works in one runtime and fails in another. |
+| D1 | **Runtime differences.** Tool-call format, how errors are returned, and whether malformed calls are retried differ between Mux, OpenCode, pi, the API endpoint runtime and vendor CLIs. | The same model works in one runtime and fails in another. |
 | D2 | **Tooling bugs.** The Mux BOM bug, a repository that tracks a generated file, a Codex sandbox that cannot run `dotnet`. | These hit every model but count against whichever model was running. |
 | D3 | **Orchestration bugs.** A duplicate relaunch on the same dock, a stage-check timeout shorter than the test run, an exit -1 reported as a restart (see `DECISIONS.md`). | Failures are recorded against the model, and its scorecard is wrong. |
 

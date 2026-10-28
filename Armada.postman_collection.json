@@ -4001,7 +4001,7 @@
                                 "captains"
                             ]
                         },
-                        "description": "Registers a new captain (AI agent). Runtime options: ClaudeCode, Codex, Gemini, Cursor, Custom. Model is optional; when omitted, the runtime chooses automatically. SystemInstructions are optional per-captain instructions injected into every mission prompt. Invalid or unavailable models return a validation error. Auto-saves the ID to the captainId collection variable."
+                        "description": "Registers a new captain (AI agent). Runtime options: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, Pi, Custom. Model is optional; when omitted, the runtime chooses automatically. SystemInstructions are optional per-captain instructions injected into every mission prompt. Invalid or unavailable models return a validation error. Auto-saves the ID to the captainId collection variable."
                     },
                     "response": [
                         {

@@ -41,7 +41,7 @@ import ModelProbeEvaluate from '../components/ModelProbeEvaluate';
 const ALLOWED_PERSONAS_TOOLTIP = 'Personas this captain may take on, as a JSON array of persona names, for example ["Worker", "Judge"]. Blank lets it fill any persona.';
 const PREFERRED_PERSONA_TOOLTIP = 'A persona name, for example Worker. When several captains could take a mission, dispatch prefers this captain for work of this persona. Blank means no preference.';
 const LOG_READABLE_TOOLTIP = 'On: show the log as entries with tool calls named, secrets redacted and noise removed. Off: show the raw log text.';
-const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'ApiEndpoint', 'Custom'];
+const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'Pi', 'ApiEndpoint', 'Custom'];
 type CaptainDetailFormState = {
   name: string;
   runtime: string;

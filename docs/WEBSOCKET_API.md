@@ -3192,6 +3192,7 @@ mission or a voyage's missions are read; WebSocket commands and events do not co
 | `Cursor` | Cursor agent CLI |
 | `Mux` | Mux CLI |
 | `OpenCode` | OpenCode CLI |
+| `Pi` | pi coding agent CLI |
 | `ApiEndpoint` | In-process tool-calling loop driven by a configured model endpoint |
 | `Custom` | Custom agent runtime |
 

@@ -8,7 +8,7 @@ Set `captainPriorities` on a persona through REST, MCP, or its configuration edi
 
 | Field | Meaning |
 |---|---|
-| `runtime` | Exact Armada runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, or Custom |
+| `runtime` | Exact Armada runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, Pi, ApiEndpoint, or Custom |
 | `model` | Exact captain model identifier, ignoring case (maximum 1024 characters); no wildcard or substring matching |
 | `endpoint` | For `runtime: Mux`, an exact endpoint name ignoring case. For `runtime: ApiEndpoint`, the exact, case-sensitive managed inference endpoint ID (`mep_...`), matched against `Captain.ModelEndpointId`. Maximum 1024 characters. Other runtimes cannot set this field. |
 | `minimumTier` | Minimum effective Economy, Standard, or Premium tier; explicit captain tier overrides model classification (see Effective tier below) |

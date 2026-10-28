@@ -38,6 +38,10 @@ namespace Armada.Core.Services
     ///   <c>--strict-mcp-config</c>; the endpoint configuration in the Mux config directory is untouched.
     /// - OpenCode: <c>OPENCODE_CONFIG_CONTENT</c> (merged over the user's configuration) that disables every host Armada
     ///   entry and adds a fresh remote entry. OpenCode deep-merges entries, so a host entry is never reused.
+    /// - Pi (pi 1.4.0): a project <c>.pi/mcp.json</c> in the working directory (also a dock) that redefines <c>armada</c>
+    ///   and every host Armada alias as the scoped http server with deferred tool exposure, plus <c>--approve</c> so the
+    ///   headless run trusts the project and loads the file. The file is git-excluded and removed (or a pre-existing file
+    ///   restored) when the process exits.
     /// </summary>
     public static class CaptainThreadMcpPlanner
     {
@@ -79,6 +83,7 @@ namespace Armada.Core.Services
                 case AgentRuntimeEnum.Cursor:
                 case AgentRuntimeEnum.Mux:
                 case AgentRuntimeEnum.OpenCode:
+                case AgentRuntimeEnum.Pi:
                 case AgentRuntimeEnum.ApiEndpoint:
                     return true;
                 default:
@@ -217,6 +222,54 @@ namespace Armada.Core.Services
                             ["enabled"] = true,
                         };
                         plan.EnvironmentOverrides["OPENCODE_CONFIG_CONTENT"] = root.ToJsonString();
+                        break;
+                    }
+                case AgentRuntimeEnum.Pi:
+                    {
+                        // pi has no per-invocation MCP flag or config-content variable: it reads ~/.pi/agent/mcp.json and,
+                        // for a trusted project, .pi/mcp.json, where a project entry replaces a user entry of the same name.
+                        // Write the project file (also for isolated mission launches, which have no other way to carry the
+                        // token): the Armada server plus every host alias of it, each bound to the scoped token through
+                        // ${ARMADA_MCP_TOKEN}. --approve makes the headless run trust the project so the file is loaded.
+                        // The runtime excludes the file from git and removes (or restores) it when the process exits.
+                        List<string> names = new List<string> { ServerName };
+                        foreach (string document in request.HostPiMcpConfigDocuments)
+                        {
+                            foreach (string alias in FindKeyedArmadaServerNames(document, request.McpPort, request.McpHost))
+                            {
+                                if (!names.Contains(alias)) names.Add(alias);
+                            }
+                        }
+
+                        string? existing = PiProjectMcpConfig.IsGenerated(request.ExistingPiProjectMcpJson) ? null : request.ExistingPiProjectMcpJson;
+                        foreach (string alias in FindKeyedArmadaServerNames(existing, request.McpPort, request.McpHost))
+                        {
+                            if (!names.Contains(alias)) names.Add(alias);
+                        }
+
+                        JsonObject root = ParseObjectOrEmpty(existing);
+                        JsonObject servers = root["mcpServers"] as JsonObject ?? new JsonObject();
+                        root["mcpServers"] = servers;
+                        foreach (string name in names)
+                        {
+                            servers[name] = new JsonObject
+                            {
+                                ["type"] = "http",
+                                ["url"] = url,
+                                ["headers"] = new JsonObject { ["X-Token"] = "${" + TokenEnvironmentVariable + "}" },
+                                ["exposure"] = PiProjectMcpConfig.Exposure,
+                                ["description"] = PiProjectMcpConfig.GeneratedDescription,
+                            };
+                        }
+
+                        plan.FilesToWrite.Add(new IsolationConfigFile(PiProjectMcpConfig.RelativePath, root.ToJsonString(_Indented))
+                        {
+                            RelativeToWorkingDirectory = true,
+                            ExcludeFromGit = true,
+                            RemoveAfterExit = true,
+                            OriginalContents = existing
+                        });
+                        plan.ExtraArguments.Add("--approve");
                         break;
                     }
                 default:

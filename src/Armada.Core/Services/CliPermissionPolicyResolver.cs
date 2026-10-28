@@ -65,7 +65,9 @@ namespace Armada.Core.Services
         /// captains, whose built-in shell tool runs in-process behind Armada's own gate.
         /// </summary>
         /// <param name="runtime">Runtime.</param>
-        /// <returns>True for Claude Code, ApiEndpoint, and a Mux CLI that supports --permission-prompt-tool.</returns>
+        /// <returns>True for Claude Code, ApiEndpoint, and a Mux CLI that supports --permission-prompt-tool. False for pi,
+        /// which never prompts (ApproveInArmada runs as Refuse, <c>--exclude-tools bash</c>, until an Armada pi extension
+        /// answers its tool calls).</returns>
         public static bool SupportsPromptHook(AgentRuntimeEnum runtime)
         {
             if (runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint) return true;

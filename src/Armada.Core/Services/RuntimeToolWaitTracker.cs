@@ -54,6 +54,12 @@ namespace Armada.Core.Services
                     if (mux.EventType == MuxProtocolEvent.ToolCallProposed) Start(mux.ToolCall?.Id, nowUtc);
                     if (mux.EventType == MuxProtocolEvent.ToolCallCompleted) End(mux.ToolCallId);
                 }
+                else if (runtime == AgentRuntimeEnum.Pi && PiStreamEvent.TryParse(line, out PiStreamEvent? pi))
+                {
+                    if (pi!.IsRunEnd) _Started.Clear();
+                    if (pi.Type == PiStreamEvent.TypeToolExecutionStart) Start(pi.ToolCallId, nowUtc);
+                    if (pi.Type == PiStreamEvent.TypeToolExecutionEnd) End(pi.ToolCallId);
+                }
                 else if (runtime == AgentRuntimeEnum.ApiEndpoint && line.StartsWith("[tool-lifecycle] ", StringComparison.Ordinal))
                 {
                     try

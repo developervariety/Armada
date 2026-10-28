@@ -241,8 +241,9 @@ namespace Armada.Core.Services
             IDockFileSystem files = harborHost != null ? harborHost.Files : _LocalFiles;
             string? existing = await files.ReadTextAsync(instructionsPath, token).ConfigureAwait(false);
 
-            // A runtime whose instructions file is not the repository's own (MUX.md, CODEX.md, GEMINI.md, CURSOR.md)
-            // would otherwise never see the project's rules: mux loads MUX.md first and skips AGENTS.md and CLAUDE.md.
+            // A runtime whose instructions file is not the repository's own (MUX.md, CODEX.md, GEMINI.md, CURSOR.md,
+            // AGENTS.override.md for pi) would otherwise never see the project's rules: mux loads MUX.md first and skips
+            // AGENTS.md and CLAUDE.md, and pi's AGENTS.override.md hides the dock's AGENTS.md.
             // Carry the repository's AGENTS.md, else CLAUDE.md, into the generated file. Codex reads AGENTS.md itself.
             if (existing == null && !String.Equals(instructionsFileName, "CLAUDE.md", StringComparison.Ordinal))
             {

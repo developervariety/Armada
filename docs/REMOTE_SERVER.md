@@ -291,7 +291,7 @@ What the CLI does differently for a remote target:
   Remove --server/--profile, unset ARMADA_SERVER_URL, pass --profile local, or run 'armada profile use local'.`
 - Targeting errors exit with code 2. The full per-command list is in [section 9](#9-cli-command-reference-for-remote-targets).
 
-### MCP clients (Claude Code, Codex, Gemini CLI, Cursor, Mux, OpenCode)
+### MCP clients (Claude Code, Codex, Gemini CLI, Cursor, Mux, OpenCode, pi)
 
 Remote MCP needs a credential on every call. Let `armada mcp install` write the client configs:
 
@@ -364,6 +364,14 @@ OpenCode, `~/.config/opencode/opencode.json` (OpenCode **not run here**):
 ```json
 { "mcp": { "armada": {
   "type": "remote", "url": "https://armada.example.com:7891/mcp", "enabled": true,
+  "headers": { "Authorization": "Bearer <token>" } } } }
+```
+
+pi, `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`; pi **not run here**):
+
+```json
+{ "mcpServers": { "armada": {
+  "type": "http", "url": "https://armada.example.com:7891/mcp",
   "headers": { "Authorization": "Bearer <token>" } } } }
 ```
 

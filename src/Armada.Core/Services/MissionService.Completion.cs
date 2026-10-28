@@ -434,7 +434,7 @@ namespace Armada.Core.Services
                     mission.AgentOutput = agentOutput;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
-                    // The runtime's own usage report (mux contract 2 run_completed, a Claude Code / Codex / OpenCode
+                    // The runtime's own usage report (mux contract 2 run_completed, a Claude Code / Codex / OpenCode / pi
                     // usage event), read from its raw output as it arrived; without one (an older lifecycle handler),
                     // from the collected output; otherwise both counts are estimated from text length and flagged.
                     if (reported == null)

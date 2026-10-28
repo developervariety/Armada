@@ -271,6 +271,7 @@ and the server defaults ([CAPTAINS.md](CAPTAINS.md#cli-tool-permissions)):
 | Gemini | `--approval-mode yolo` | `--approval-mode auto_edit` |
 | Cursor | `--force` | no `--force` |
 | OpenCode | `--auto` | no `--auto` |
+| pi | pi's default (no prompts, all tools) | `--exclude-tools bash` (shell refused; file and MCP tools stay) |
 | Mux | `--yolo` | `--approval-policy deny` (an explicit Mux approval policy on the captain wins) |
 | ApiEndpoint | no CLI flags; the built-in `run_process` tool runs commands in-process | `run_process` refuses every call (the file tools still run) |
 

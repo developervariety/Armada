@@ -2142,6 +2142,14 @@ namespace Armada.Core.Services
                             return;
                         }
 
+                        // A pi launch whose exit was never handled may have left its generated .pi/mcp.json in the dock
+                        // (it is git-excluded and holds no token, but it must not linger).
+                        if (captain.Runtime == AgentRuntimeEnum.Pi && dock != null && !String.IsNullOrEmpty(dock.WorktreePath)
+                            && PiProjectMcpConfig.RemoveGenerated(dock.WorktreePath))
+                        {
+                            _Logging.Info(_Header + "removed the generated .pi/mcp.json left in orphaned mission " + mission.Id + "'s dock");
+                        }
+
                         // A vanished process has no confirmed exit result or stage check. Preserve its work for
                         // operator recovery, rather than treating it as a clean exit and starting landing.
                         Mission? recovered = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);

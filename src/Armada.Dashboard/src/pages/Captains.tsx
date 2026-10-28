@@ -462,6 +462,7 @@ export default function Captains() {
                   <option value="Cursor">Cursor</option>
                   <option value="Mux">Mux</option>
                   <option value="OpenCode">OpenCode</option>
+                  <option value="Pi">pi</option>
                   <option value="ApiEndpoint">API Endpoint</option>
                 </select>
               </label>

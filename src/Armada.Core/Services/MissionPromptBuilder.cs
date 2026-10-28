@@ -73,6 +73,9 @@ namespace Armada.Core.Services
                 "Cursor" => "CURSOR.md",
                 "Gemini" => "GEMINI.md",
                 "Mux" => "MUX.md",
+                // pi loads one context file per directory: AGENTS.override.md, else AGENTS.md, else CLAUDE.md. Only the
+                // override is always read, so a repository AGENTS.md cannot hide the mission instructions.
+                "Pi" => "AGENTS.override.md",
                 _ => "CLAUDE.md"
             };
         }

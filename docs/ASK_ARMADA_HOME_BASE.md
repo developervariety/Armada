@@ -118,7 +118,8 @@ stdout lines back over the link, so it is recorded the same way. All durations a
 Usage per runtime: Claude Code's stream-json `result` event (input, output, cache read and creation, `total_cost_usd`);
 Codex, which chat turns now run as `codex exec --json` (on a Harbor through the launch's `streamJsonOutput`), reports
 `turn.completed` usage (input, cached input, output) and its command and MCP tool items become tool-call chips;
-OpenCode's `step_finish` parts (tokens and cost, summed across steps). Mux (its `finalEstimatedTokens` is a
+OpenCode's `step_finish` parts (tokens and cost, summed across steps); pi's assistant `message_end` usage (input,
+output, cache, and cost, summed across messages). Mux (its `finalEstimatedTokens` is a
 whole-context estimate, not the reply), Gemini, Cursor, and the API endpoint runtime report no per-turn usage, so
 their replies carry timing, tool time, and an estimated output count.
 
@@ -564,7 +565,7 @@ These refine the contract above; the dashboard's "UI assumptions" (on `feature/a
   concurrency? }`; `/status` -> `status {}`; `/health` -> `evaluate_vessel_health {}` (optional `vesselIds`, `fleetId`,
   `force`); `/import` -> `discover_vessels { roots?, directories?, maxDepth?, runInBackground? }`.
 - **Thread-scoped MCP** works for every runtime: ApiEndpoint captains through the environment, and Claude Code, Codex,
-  Gemini, Cursor, Mux, and OpenCode through per-turn overrides that leave each CLI's login in place
+  Gemini, Cursor, Mux, OpenCode, and pi through per-turn overrides that leave each CLI's login in place
   (`CaptainThreadMcpPlanner`; the per-runtime mechanism is in `docs/CAPTAINS.md`). Only a `Custom` runtime is ungated,
   and the conversation then shows a persistent "Actions from this captain run without approval cards." note.
 - **Work linking** lists only tools that exist; `create_voyage` and `retry_mission` were removed from the table in the
