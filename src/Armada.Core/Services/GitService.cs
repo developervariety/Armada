@@ -847,12 +847,13 @@ namespace Armada.Core.Services
 
             try
             {
-                string output = await RunGitAsync(worktreePath, token, "diff", "--name-only", "--diff-filter=U").ConfigureAwait(false);
+                // -z emits each path as one raw field. A name that contains a newline, a quotation mark,
+                // or any other character Git would C-quote stays a single path.
+                string output = await RunGitAsync(worktreePath, token, "diff", "--name-only", "-z", "--diff-filter=U").ConfigureAwait(false);
                 List<string> files = new List<string>();
-                foreach (string line in output.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                foreach (string path in GitDiffPaths.SplitNulSeparated(output))
                 {
-                    string trimmed = line.Trim();
-                    if (trimmed.Length > 0) files.Add(trimmed);
+                    if (path.Length > 0) files.Add(path);
                 }
                 return files;
             }
@@ -1655,14 +1656,16 @@ namespace Armada.Core.Services
 
             try
             {
-                string result = await RunGitAsync(repoPath, "worktree", "list", "--porcelain").ConfigureAwait(false);
+                // Porcelain -z keeps each worktree path, including one that contains a newline, as one field.
+                string result = await RunGitAsync(repoPath, token, "worktree", "list", "--porcelain", "-z").ConfigureAwait(false);
                 string normalizedTarget = NormalizeWorktreePath(worktreePath);
 
-                foreach (string line in result.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                foreach (string record in result.Split(new[] { "\0\0" }, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    if (line.StartsWith("worktree "))
+                    foreach (string field in record.Split('\0'))
                     {
-                        string registeredPath = line.Substring("worktree ".Length).Trim();
+                        if (!field.StartsWith("worktree ", StringComparison.Ordinal)) continue;
+                        string registeredPath = field.Substring("worktree ".Length);
                         string normalizedRegistered = NormalizeWorktreePath(registeredPath);
                         if (String.Equals(normalizedRegistered, normalizedTarget, StringComparison.OrdinalIgnoreCase))
                             return true;
@@ -1671,7 +1674,7 @@ namespace Armada.Core.Services
 
                 return false;
             }
-            catch
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 return false;
             }

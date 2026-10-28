@@ -58,6 +58,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The API runtime MCP client opens one new session with the same caller credential and sends a request once more when that request carried a session id and received HTTP 404. A second 404, a timeout, an HTTP 5xx response, and a network failure stay failed.
 
+### Git reads
+
+- Worktree registration reads `git worktree list --porcelain -z`, so a registered path that contains a newline stays one path.
+- Conflicted-file names come from `git diff --name-only -z`, so a name that Git would C-quote stays one path.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

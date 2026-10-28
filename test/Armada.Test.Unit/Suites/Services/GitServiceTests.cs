@@ -2149,6 +2149,105 @@ namespace Armada.Test.Unit.Suites.Services
                 await AssertThrowsAsync<ArgumentNullException>(() => service.GetConflictedFilesAsync(null!)).ConfigureAwait(false);
             });
 
+            await RunTest("GetConflictedFilesAsync reports one unmerged path when the name contains a quotation mark", async () =>
+            {
+                GitService service = CreateService();
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                string conflictName = "odd \"name\".txt";
+
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    await RunGitAsync(rootDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, conflictName), "base\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "--", conflictName).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "base").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "checkout", "-b", "conflict-branch").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, conflictName), "branch-change\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "--", conflictName).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "branch change").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "checkout", "main").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(rootDir, conflictName), "main-change\n").ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "add", "--", conflictName).ConfigureAwait(false);
+                    await RunGitAsync(rootDir, "commit", "-m", "main change").ConfigureAwait(false);
+
+                    bool mergeFailed = false;
+                    try
+                    {
+                        await RunGitAsync(rootDir, "merge", "conflict-branch").ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        mergeFailed = true;
+                    }
+                    AssertTrue(mergeFailed, "the conflicting merge must fail");
+
+                    IReadOnlyList<string> conflicts = await service.GetConflictedFilesAsync(rootDir).ConfigureAwait(false);
+                    AssertEqual(1, conflicts.Count, "A quoted name is one unmerged path, not a C-quoted string or several lines. Got: " + String.Join(" | ", conflicts));
+                    AssertEqual(conflictName, conflicts[0]);
+                }
+                finally
+                {
+                    if (Directory.Exists(rootDir))
+                    {
+                        try { Directory.Delete(rootDir, true); }
+                        catch { }
+                    }
+                }
+            });
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest(
+                    "IsWorktreeRegisteredAsync reports a worktree path that contains a newline",
+                    "Windows paths cannot contain a newline.");
+            }
+            else
+            {
+                await RunTest("IsWorktreeRegisteredAsync reports a worktree path that contains a newline", async () =>
+                {
+                    GitService service = CreateService();
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-gitservice-" + Guid.NewGuid().ToString("N"));
+                    string repoDir = Path.Combine(rootDir, "repo");
+                    string worktreeDir = Path.Combine(rootDir, "check" + "\n" + "out");
+                    string prefixDir = Path.Combine(rootDir, "check");
+
+                    try
+                    {
+                        Directory.CreateDirectory(repoDir);
+                        await RunGitAsync(repoDir, "init", "-b", "main").ConfigureAwait(false);
+                        await RunGitAsync(repoDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await RunGitAsync(repoDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(repoDir, "commit", "--allow-empty", "-m", "base").ConfigureAwait(false);
+                        await RunGitAsync(repoDir, "worktree", "add", "--detach", "--", worktreeDir, "HEAD").ConfigureAwait(false);
+
+                        bool registered = await service.IsWorktreeRegisteredAsync(repoDir, worktreeDir).ConfigureAwait(false);
+                        AssertTrue(registered, "A registered worktree whose path contains a newline is registered");
+                        bool prefixRegistered = await service.IsWorktreeRegisteredAsync(repoDir, prefixDir).ConfigureAwait(false);
+                        AssertFalse(prefixRegistered, "The path before the newline is not a separate worktree");
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            if (Directory.Exists(worktreeDir))
+                                await RunGitAsync(repoDir, "worktree", "remove", "--force", "--", worktreeDir).ConfigureAwait(false);
+                        }
+                        catch { }
+                        if (Directory.Exists(rootDir))
+                        {
+                            try { Directory.Delete(rootDir, true); }
+                            catch { }
+                        }
+                    }
+                });
+            }
+
             await RunTest("ResolveTrackedPathSuffixAsync_NestedFileCitedByBasename_Resolves", async () =>
             {
                 // Regression: git ls-tree does not support the ':(glob)' pathspec magic, so the
