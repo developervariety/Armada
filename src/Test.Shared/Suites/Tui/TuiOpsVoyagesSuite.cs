@@ -172,7 +172,7 @@ namespace Test.Shared.Suites.Tui
                     screen.Vessel.Choose(screen.Vessel.Options[0]);
                     screen.MissionTitles[0].Value = "Update README";
                     screen.LandingMode.Choose(screen.LandingMode.Options.First(o => o.Value == "MergeAndPush"));
-                    AssertTrue(host.WaitForText("local working directory, then pushes it"), "hint follows the choice\n" + host.Screen());
+                    AssertTrue(host.WaitForText("then pushes the verified commit"), "hint follows the choice\n" + host.Screen());
                     host.Press("ctrl+s");
                     AssertTrue(host.PumpUntil(() => stub.CountFor("POST", "/api/v1/voyages") == 1), "create call");
                     StubRequest create = stub.Last("POST", "/api/v1/voyages");
