@@ -3,16 +3,19 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Reflection;
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
+    using Armada.Core.Database.Interfaces;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Runtimes;
+    using Armada.Runtimes.Interfaces;
     using Armada.Server;
     using SyslogLogging;
     using Test.Shared.Infrastructure;
@@ -23,8 +26,10 @@ namespace Test.Shared.Suites.Services
     /// Descriptors for <see cref="ObjectiveRefinementCoordinator"/>: transcript persistence and
     /// active-state recovery when the captain runtime is unsupported, assistant-transcript fallback
     /// summarization, objective field application with source-message selection, and stop cleanup
-    /// that releases the captain. Each case runs against a fresh SQLite store with a disposable
-    /// refinement coordinator fixture.
+    /// that releases the captain. Turn-claim cases cover a failed write before launch, the next
+    /// request at the moment the session is Active, and a stop that finishes while a turn is
+    /// failing. Each case runs against a fresh SQLite store with a disposable refinement coordinator
+    /// fixture.
     /// </summary>
     public sealed class ObjectiveRefinementCoordinatorSuite : IArmadaTestSuite
     {
@@ -229,6 +234,148 @@ namespace Test.Shared.Suites.Services
                 AssertNull(persistedCaptain.ProcessId);
             }));
 
+            cases.Add(CaseAsync("persistence_failure_before_turn_start_releases_the_claim", "A persistence failure before the turn starts releases the session claim", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                using SessionHookDriver hooked = new SessionHookDriver(testDb.Driver);
+                using CoordinatorFixture fixture = new CoordinatorFixture(hooked);
+
+                CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
+                Objective objective = await fixture.CreateObjectiveAsync("Claim released on failed write", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync("claim-custom", AgentRuntimeEnum.Custom, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
+                ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain).ConfigureAwait(false);
+                hooked.Messages.FailCreatesRemaining = 1;
+
+                IOException? persistenceFailure = null;
+                try
+                {
+                    await fixture.Coordinator.SendMessageAsync(session, "First attempt.").ConfigureAwait(false);
+                }
+                catch (IOException ex)
+                {
+                    persistenceFailure = ex;
+                }
+
+                AssertNotNull(persistenceFailure, "The failed write must reach the caller.");
+                ObjectiveRefinementMessage retry = await fixture.Coordinator.SendMessageAsync(session, "Retry after the failed write.").ConfigureAwait(false);
+                AssertEqual("User", retry.Role);
+
+                await WaitForAsync(async () =>
+                {
+                    ObjectiveRefinementSession? current = await testDb.Driver.ObjectiveRefinementSessions.ReadAsync(session.Id).ConfigureAwait(false);
+                    return current?.Status == ObjectiveRefinementSessionStatusEnum.Active;
+                }).ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("active_session_accepts_the_next_turn_and_keeps_that_turn_claim", "A session that has just become Active accepts the next message, and that new turn keeps its claim after the finished turn releases", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                using SessionHookDriver hooked = new SessionHookDriver(testDb.Driver);
+                GatedRefinementRuntime runtime = new GatedRefinementRuntime();
+                using CoordinatorFixture fixture = new CoordinatorFixture(hooked, new SingleRuntimeFactory(runtime));
+
+                CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
+                Objective objective = await fixture.CreateObjectiveAsync("Active means the next turn can start", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync("active-ready", AgentRuntimeEnum.ClaudeCode, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
+                ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain).ConfigureAwait(false);
+
+                TaskCompletionSource<Exception?> nextRequest = new TaskCompletionSource<Exception?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> allowFinishedTurnToReturn = new TaskCompletionSource<bool>(TaskCreationOptions.None);
+                int handledActive = 0;
+                int hookReturned = 0;
+                hooked.Sessions.AfterUpdateAsync = async updated =>
+                {
+                    if (updated.Id != session.Id || updated.Status != ObjectiveRefinementSessionStatusEnum.Active) return;
+                    if (Interlocked.Exchange(ref handledActive, 1) == 1) return;
+
+                    try
+                    {
+                        await fixture.Coordinator.SendMessageAsync(updated, "Next turn.").ConfigureAwait(false);
+                        nextRequest.TrySetResult(null);
+                    }
+                    catch (Exception ex)
+                    {
+                        nextRequest.TrySetResult(ex);
+                        return;
+                    }
+
+                    await allowFinishedTurnToReturn.Task;
+                    Volatile.Write(ref hookReturned, 1);
+                };
+
+                await fixture.Coordinator.SendMessageAsync(session, "First turn.").ConfigureAwait(false);
+                Exception? nextError = await WaitGateAsync(nextRequest.Task, "Expected the finished turn to publish Active.").ConfigureAwait(false);
+                AssertNull(nextError, "The next message at the moment the session became Active");
+                await WaitGateAsync(runtime.SecondTurnEntered.Task, "Expected the next turn to reach its runtime.").ConfigureAwait(false);
+
+                allowFinishedTurnToReturn.TrySetResult(true);
+                AssertEqual(1, Volatile.Read(ref hookReturned), "The finished turn must leave its session update before the new claim is checked.");
+
+                InvalidOperationException? busy = null;
+                try
+                {
+                    await fixture.Coordinator.SummarizeAsync(session, new ObjectiveRefinementSummaryRequest()).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    busy = ex;
+                }
+
+                AssertNotNull(busy, "The new turn must still own the session after the finished turn releases.");
+                AssertContains("already generating a response", busy!.Message);
+
+                runtime.ReleaseSecondTurn.TrySetResult(true);
+                await WaitForAsync(async () =>
+                {
+                    ObjectiveRefinementSession? current = await testDb.Driver.ObjectiveRefinementSessions.ReadAsync(session.Id).ConfigureAwait(false);
+                    return current?.Status == ObjectiveRefinementSessionStatusEnum.Active;
+                }).ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("stop_during_turn_failure_keeps_the_session_stopped", "A stop that finishes while a turn is failing keeps the session Stopped and the captain Idle", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                using SessionHookDriver hooked = new SessionHookDriver(testDb.Driver);
+                using CoordinatorFixture fixture = new CoordinatorFixture(hooked, new SingleRuntimeFactory(new ThrowingRefinementRuntime()));
+
+                CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
+                Objective objective = await fixture.CreateObjectiveAsync("Stop wins over a failing turn", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync("stop-during-failure", AgentRuntimeEnum.ClaudeCode, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
+                ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain).ConfigureAwait(false);
+
+                int phase = 0;
+                TaskCompletionSource<ObjectiveRefinementSessionStatusEnum> completionWrite = new TaskCompletionSource<ObjectiveRefinementSessionStatusEnum>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> allowCompletionWriteToReturn = new TaskCompletionSource<bool>(TaskCreationOptions.None);
+                hooked.Messages.AfterUpdateAsync = async message =>
+                {
+                    if (message.ObjectiveRefinementSessionId != session.Id) return;
+                    if ((message.Content ?? String.Empty).IndexOf("Refinement response failed", StringComparison.Ordinal) < 0) return;
+                    if (Interlocked.Exchange(ref phase, 1) != 0) return;
+
+                    await fixture.Coordinator.StopAsync(session).ConfigureAwait(false);
+                    Volatile.Write(ref phase, 2);
+                };
+                hooked.Sessions.AfterUpdateAsync = async updated =>
+                {
+                    if (updated.Id != session.Id || Volatile.Read(ref phase) != 2) return;
+                    if (!completionWrite.TrySetResult(updated.Status)) return;
+                    await allowCompletionWriteToReturn.Task;
+                };
+
+                try
+                {
+                    await fixture.Coordinator.SendMessageAsync(session, "Turn that fails.").ConfigureAwait(false);
+                    ObjectiveRefinementSessionStatusEnum written = await WaitGateAsync(completionWrite.Task, "Expected the failing turn to write the session after the stop.").ConfigureAwait(false);
+                    AssertEqual(ObjectiveRefinementSessionStatusEnum.Stopped, written, "The failing turn must not replace Stopped.");
+                    Captain persistedCaptain = await RequireCaptainAsync(testDb.Driver, captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, persistedCaptain.State, "A stopped captain stays Idle when the failing turn settles.");
+                }
+                finally
+                {
+                    allowCompletionWriteToReturn.TrySetResult(true);
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Objective Refinement Coordinator",
@@ -256,7 +403,7 @@ namespace Test.Shared.Suites.Services
             private readonly string _rootDirectory;
             private readonly LoggingModule _logging;
 
-            public CoordinatorFixture(DatabaseDriver database)
+            public CoordinatorFixture(DatabaseDriver database, AgentRuntimeFactory? runtimeFactory = null)
             {
                 Database = database;
                 Objectives = new ObjectiveService(database);
@@ -277,7 +424,7 @@ namespace Test.Shared.Suites.Services
                     _logging,
                     Database,
                     Settings,
-                    new AgentRuntimeFactory(_logging),
+                    runtimeFactory ?? new AgentRuntimeFactory(_logging),
                     (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
             }
 
@@ -411,6 +558,13 @@ namespace Test.Shared.Suites.Services
             }
         }
 
+        private static async Task<T> WaitGateAsync<T>(Task<T> task, string label)
+        {
+            Task finished = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(15))).ConfigureAwait(false);
+            AssertTrue(finished == task, label);
+            return await task.ConfigureAwait(false);
+        }
+
         private static async Task WaitForAsync(Func<Task<bool>> condition, int timeoutMs = 5000)
         {
             DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -461,6 +615,324 @@ namespace Test.Shared.Suites.Services
                 displayName: displayName,
                 executeAsync: (CancellationToken ct) => body(),
                 tags: new List<string> { tag });
+        }
+
+        /// <summary>
+        /// Database driver that shares a real driver's entity accessors and wraps refinement session and message
+        /// writes so a test can act when a write has reached the database and before the caller continues.
+        /// Disposing this driver does not dispose the inner driver.
+        /// </summary>
+        private sealed class SessionHookDriver : DatabaseDriver
+        {
+            private readonly DatabaseDriver _Inner;
+
+            public SessionHookDriver(DatabaseDriver inner)
+            {
+                _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
+                foreach (PropertyInfo property in typeof(DatabaseDriver).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                {
+                    MethodInfo? setter = property.SetMethod;
+                    if (setter == null || property.GetIndexParameters().Length > 0) continue;
+                    setter.Invoke(this, new object?[] { property.GetValue(inner) });
+                }
+
+                Sessions = new SessionUpdateHook(inner.ObjectiveRefinementSessions);
+                Messages = new MessageWriteHook(inner.ObjectiveRefinementMessages);
+                ObjectiveRefinementSessions = Sessions;
+                ObjectiveRefinementMessages = Messages;
+            }
+
+            public SessionUpdateHook Sessions { get; }
+
+            public MessageWriteHook Messages { get; }
+
+            public override Task InitializeAsync(CancellationToken token = default)
+            {
+                return _Inner.InitializeAsync(token);
+            }
+
+            public override Task<int> GetSchemaVersionAsync(CancellationToken token = default)
+            {
+                return _Inner.GetSchemaVersionAsync(token);
+            }
+
+            public override void Dispose()
+            {
+            }
+        }
+
+        /// <summary>
+        /// Runs a hook after each refinement-session update is stored.
+        /// </summary>
+        private sealed class SessionUpdateHook : IObjectiveRefinementSessionMethods
+        {
+            private readonly IObjectiveRefinementSessionMethods _Inner;
+
+            public SessionUpdateHook(IObjectiveRefinementSessionMethods inner)
+            {
+                _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            }
+
+            public Func<ObjectiveRefinementSession, Task>? AfterUpdateAsync { get; set; }
+
+            public Task<ObjectiveRefinementSession> CreateAsync(ObjectiveRefinementSession session, CancellationToken token = default)
+            {
+                return _Inner.CreateAsync(session, token);
+            }
+
+            public async Task<ObjectiveRefinementSession> UpdateAsync(ObjectiveRefinementSession session, CancellationToken token = default)
+            {
+                ObjectiveRefinementSession updated = await _Inner.UpdateAsync(session, token).ConfigureAwait(false);
+                Func<ObjectiveRefinementSession, Task>? hook = AfterUpdateAsync;
+                if (hook != null) await hook(updated).ConfigureAwait(false);
+                return updated;
+            }
+
+            public Task<ObjectiveRefinementSession?> ReadAsync(string id, CancellationToken token = default)
+            {
+                return _Inner.ReadAsync(id, token);
+            }
+
+            public Task<ObjectiveRefinementSession?> ReadAsync(string tenantId, string id, CancellationToken token = default)
+            {
+                return _Inner.ReadAsync(tenantId, id, token);
+            }
+
+            public Task<ObjectiveRefinementSession?> ReadAsync(string tenantId, string userId, string id, CancellationToken token = default)
+            {
+                return _Inner.ReadAsync(tenantId, userId, id, token);
+            }
+
+            public Task DeleteAsync(string id, CancellationToken token = default)
+            {
+                return _Inner.DeleteAsync(id, token);
+            }
+
+            public Task<List<ObjectiveRefinementSession>> EnumerateAsync(CancellationToken token = default)
+            {
+                return _Inner.EnumerateAsync(token);
+            }
+
+            public Task<List<ObjectiveRefinementSession>> EnumerateAsync(string tenantId, CancellationToken token = default)
+            {
+                return _Inner.EnumerateAsync(tenantId, token);
+            }
+
+            public Task<List<ObjectiveRefinementSession>> EnumerateAsync(string tenantId, string userId, CancellationToken token = default)
+            {
+                return _Inner.EnumerateAsync(tenantId, userId, token);
+            }
+
+            public Task<List<ObjectiveRefinementSession>> EnumerateByObjectiveAsync(string objectiveId, CancellationToken token = default)
+            {
+                return _Inner.EnumerateByObjectiveAsync(objectiveId, token);
+            }
+
+            public Task<List<ObjectiveRefinementSession>> EnumerateByCaptainAsync(string captainId, CancellationToken token = default)
+            {
+                return _Inner.EnumerateByCaptainAsync(captainId, token);
+            }
+
+            public Task<List<ObjectiveRefinementSession>> EnumerateByStatusAsync(ObjectiveRefinementSessionStatusEnum status, CancellationToken token = default)
+            {
+                return _Inner.EnumerateByStatusAsync(status, token);
+            }
+        }
+
+        /// <summary>
+        /// Fails a bounded number of message creates, and runs a hook after each message update is stored.
+        /// </summary>
+        private sealed class MessageWriteHook : IObjectiveRefinementMessageMethods
+        {
+            private readonly IObjectiveRefinementMessageMethods _Inner;
+
+            public MessageWriteHook(IObjectiveRefinementMessageMethods inner)
+            {
+                _Inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            }
+
+            public int FailCreatesRemaining { get; set; }
+
+            public Func<ObjectiveRefinementMessage, Task>? AfterUpdateAsync { get; set; }
+
+            public Task<ObjectiveRefinementMessage> CreateAsync(ObjectiveRefinementMessage message, CancellationToken token = default)
+            {
+                if (FailCreatesRemaining > 0)
+                {
+                    FailCreatesRemaining--;
+                    throw new IOException("persistence failed before the turn started");
+                }
+
+                return _Inner.CreateAsync(message, token);
+            }
+
+            public async Task<ObjectiveRefinementMessage> UpdateAsync(ObjectiveRefinementMessage message, CancellationToken token = default)
+            {
+                ObjectiveRefinementMessage updated = await _Inner.UpdateAsync(message, token).ConfigureAwait(false);
+                Func<ObjectiveRefinementMessage, Task>? hook = AfterUpdateAsync;
+                if (hook != null) await hook(updated).ConfigureAwait(false);
+                return updated;
+            }
+
+            public Task<ObjectiveRefinementMessage?> ReadAsync(string id, CancellationToken token = default)
+            {
+                return _Inner.ReadAsync(id, token);
+            }
+
+            public Task DeleteAsync(string id, CancellationToken token = default)
+            {
+                return _Inner.DeleteAsync(id, token);
+            }
+
+            public Task DeleteBySessionAsync(string objectiveRefinementSessionId, CancellationToken token = default)
+            {
+                return _Inner.DeleteBySessionAsync(objectiveRefinementSessionId, token);
+            }
+
+            public Task<List<ObjectiveRefinementMessage>> EnumerateBySessionAsync(string objectiveRefinementSessionId, CancellationToken token = default)
+            {
+                return _Inner.EnumerateBySessionAsync(objectiveRefinementSessionId, token);
+            }
+
+            public Task<List<ObjectiveRefinementMessage>> EnumerateByObjectiveAsync(string objectiveId, CancellationToken token = default)
+            {
+                return _Inner.EnumerateByObjectiveAsync(objectiveId, token);
+            }
+        }
+
+        /// <summary>
+        /// Factory that returns one runtime for every captain runtime type.
+        /// </summary>
+        private sealed class SingleRuntimeFactory : AgentRuntimeFactory
+        {
+            private readonly IAgentRuntime _Runtime;
+
+            public SingleRuntimeFactory(IAgentRuntime runtime)
+                : base(new LoggingModule())
+            {
+                _Runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+            }
+
+            public override IAgentRuntime Create(AgentRuntimeEnum runtimeType)
+            {
+                return _Runtime;
+            }
+        }
+
+        /// <summary>
+        /// Refinement runtime whose first start finishes immediately and whose second start waits until released.
+        /// Later starts finish immediately so a claim check cannot block them.
+        /// </summary>
+        private sealed class GatedRefinementRuntime : IAgentRuntime
+        {
+            private int _Starts;
+
+            public TaskCompletionSource<bool> SecondTurnEntered { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public TaskCompletionSource<bool> ReleaseSecondTurn { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public string Name => "gated-refinement";
+
+            public bool SupportsResume => false;
+
+            public bool SupportsPlanningSessions => true;
+
+            public event Action<int, string>? OnOutputReceived;
+
+            public event Action<int, string>? OnStdoutReceived;
+
+            public event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived;
+
+            public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived;
+
+            public event Action<int>? OnProcessStarted;
+
+            public event Action<int, int?>? OnProcessExited;
+
+            public async Task<int> StartAsync(
+                string workingDirectory,
+                string prompt,
+                Dictionary<string, string>? environment = null,
+                string? logFilePath = null,
+                string? finalMessageFilePath = null,
+                string? model = null,
+                Captain? captain = null,
+                bool showThinking = false,
+                CancellationToken token = default,
+                CaptainLaunchIsolationPlan? isolationPlan = null)
+            {
+                int start = Interlocked.Increment(ref _Starts);
+                int processId = 41000 + start;
+                if (start == 2)
+                {
+                    SecondTurnEntered.TrySetResult(true);
+                    await ReleaseSecondTurn.Task.ConfigureAwait(false);
+                }
+
+                if (!String.IsNullOrWhiteSpace(finalMessageFilePath))
+                    await File.WriteAllTextAsync(finalMessageFilePath, "refinement answer " + start, token).ConfigureAwait(false);
+                OnProcessExited?.Invoke(processId, 0);
+                return processId;
+            }
+
+            public Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default)
+            {
+                return Task.FromResult(AgentStopResult.Stopped());
+            }
+
+            public Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
+            {
+                return Task.FromResult(false);
+            }
+        }
+
+        /// <summary>
+        /// Refinement runtime that accepts the launch and then fails before a process id exists.
+        /// </summary>
+        private sealed class ThrowingRefinementRuntime : IAgentRuntime
+        {
+            public string Name => "throwing-refinement";
+
+            public bool SupportsResume => false;
+
+            public bool SupportsPlanningSessions => true;
+
+            public event Action<int, string>? OnOutputReceived;
+
+            public event Action<int, string>? OnStdoutReceived;
+
+            public event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived;
+
+            public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived;
+
+            public event Action<int>? OnProcessStarted;
+
+            public event Action<int, int?>? OnProcessExited;
+
+            public Task<int> StartAsync(
+                string workingDirectory,
+                string prompt,
+                Dictionary<string, string>? environment = null,
+                string? logFilePath = null,
+                string? finalMessageFilePath = null,
+                string? model = null,
+                Captain? captain = null,
+                bool showThinking = false,
+                CancellationToken token = default,
+                CaptainLaunchIsolationPlan? isolationPlan = null)
+            {
+                throw new InvalidOperationException("refinement runtime stopped");
+            }
+
+            public Task<AgentStopResult> StopAsync(int processId, CancellationToken token = default)
+            {
+                return Task.FromResult(AgentStopResult.NotRunning());
+            }
+
+            public Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
+            {
+                return Task.FromResult(false);
+            }
         }
 
         #endregion

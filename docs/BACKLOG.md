@@ -132,6 +132,8 @@ Refinement routes:
 - `POST /api/v1/objective-refinement-sessions/{id}/stop`
 - `DELETE /api/v1/objective-refinement-sessions/{id}`
 
+One session runs one turn at a time. The turn claims the session before it writes the transcript, and it releases that claim when the write fails before the turn starts. The session is published Active after the turn releases its own claim, so the next message, summary, or apply can start as soon as Active is stored. A finishing turn releases only that claim. A stop that has set Stopping or Stopped keeps that status when the turn finishes, and the captain stays Idle.
+
 Route permissions follow the normal Armada rules:
 
 - reads are available to authenticated callers in scope
