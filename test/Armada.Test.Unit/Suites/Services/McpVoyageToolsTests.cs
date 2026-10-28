@@ -32,44 +32,46 @@ namespace Armada.Test.Unit.Suites.Services
         {
             await RunTest("VoyageStatus_ExplicitFieldsSuppressUnrequestedReportPreviews", async () =>
             {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Compact status")
-                { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId }).ConfigureAwait(false);
-                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Requested title", new string('D', 5000))
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    VoyageId = voyage.Id, TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
-                    Persona = "Worker", Status = MissionStatusEnum.Complete, AgentOutput = new string('O', 6000)
-                }).ConfigureAwait(false);
-                Func<JsonElement?, Task<object>>? statusHandler = null;
-                McpVoyageTools.Register((name, _, _, handler) =>
-                { if (name == "armada_voyage_status") statusHandler = McpTestCaller.Wrap(handler); },
-                    testDb.Driver, new RecordingAdmiralDouble(), LegacyContextSettings());
-                AssertNotNull(statusHandler);
-                async Task<JsonElement> ReadAsync(bool description, string[]? fields)
-                {
-                    object response = await statusHandler!(JsonSerializer.SerializeToElement(new
-                    { voyageId = voyage.Id, summary = false, includeMissions = true, includeDescription = description, includeFields = fields })).ConfigureAwait(false);
-                    return JsonSerializer.SerializeToElement(response).GetProperty("Missions")[0];
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Compact status")
+                    { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId }).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Requested title", new string('D', 5000))
+                    {
+                        VoyageId = voyage.Id, TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                        Persona = "Worker", Status = MissionStatusEnum.Complete, AgentOutput = new string('O', 6000)
+                    }).ConfigureAwait(false);
+                    Func<JsonElement?, Task<object>>? statusHandler = null;
+                    McpVoyageTools.Register((name, _, _, handler) =>
+                    { if (name == "armada_voyage_status") statusHandler = McpTestCaller.Wrap(handler); },
+                        testDb.Driver, new RecordingAdmiralDouble(), LegacyContextSettings());
+                    AssertNotNull(statusHandler);
+                    async Task<JsonElement> ReadAsync(bool description, string[]? fields)
+                    {
+                        object response = await statusHandler!(JsonSerializer.SerializeToElement(new
+                        { voyageId = voyage.Id, summary = false, includeMissions = true, includeDescription = description, includeFields = fields })).ConfigureAwait(false);
+                        return JsonSerializer.SerializeToElement(response).GetProperty("Missions")[0];
+                    }
+                    JsonElement compact = await ReadAsync(false, new[] { "titles", "statuses", "persona" }).ConfigureAwait(false);
+                    AssertEqual(mission.Title, compact.GetProperty("Title").GetString());
+                    AssertEqual("Worker", compact.GetProperty("Persona").GetString());
+                    AssertEqual(JsonValueKind.Null, compact.GetProperty("Description").ValueKind);
+                    AssertEqual(JsonValueKind.Null, compact.GetProperty("AgentOutput").ValueKind);
+                    AssertTrue(compact.TryGetProperty("AssignmentState", out _), "Lifecycle fields remain available");
+                    JsonElement described = await ReadAsync(true, new[] { "titles" }).ConfigureAwait(false);
+                    AssertEqual(4096, described.GetProperty("Description").GetProperty("Text").GetString()!.Length);
+                    AssertTrue(described.GetProperty("Description").GetProperty("Truncated").GetBoolean());
+                    AssertEqual(5000, described.GetProperty("Description").GetProperty("FullLength").GetInt32());
+                    AssertEqual(JsonValueKind.Null, described.GetProperty("AgentOutput").ValueKind);
+                    JsonElement output = await ReadAsync(false, new[] { "output" }).ConfigureAwait(false);
+                    AssertEqual(4096, output.GetProperty("AgentOutput").GetProperty("Text").GetString()!.Length);
+                    AssertTrue(output.GetProperty("AgentOutput").GetProperty("Truncated").GetBoolean());
+                    AssertEqual(6000, output.GetProperty("AgentOutput").GetProperty("FullLength").GetInt32());
+                    AssertEqual(JsonValueKind.Null, output.GetProperty("Description").ValueKind);
+                    JsonElement compatible = await ReadAsync(false, null).ConfigureAwait(false);
+                    AssertEqual(4096, compatible.GetProperty("AgentOutput").GetProperty("Text").GetString()!.Length);
+                    AssertEqual(JsonValueKind.Null, compatible.GetProperty("Description").ValueKind);
                 }
-                JsonElement compact = await ReadAsync(false, new[] { "titles", "statuses", "persona" }).ConfigureAwait(false);
-                AssertEqual(mission.Title, compact.GetProperty("Title").GetString());
-                AssertEqual("Worker", compact.GetProperty("Persona").GetString());
-                AssertEqual(JsonValueKind.Null, compact.GetProperty("Description").ValueKind);
-                AssertEqual(JsonValueKind.Null, compact.GetProperty("AgentOutput").ValueKind);
-                AssertTrue(compact.TryGetProperty("AssignmentState", out _), "Lifecycle fields remain available");
-                JsonElement described = await ReadAsync(true, new[] { "titles" }).ConfigureAwait(false);
-                AssertEqual(4096, described.GetProperty("Description").GetProperty("Text").GetString()!.Length);
-                AssertTrue(described.GetProperty("Description").GetProperty("Truncated").GetBoolean());
-                AssertEqual(5000, described.GetProperty("Description").GetProperty("FullLength").GetInt32());
-                AssertEqual(JsonValueKind.Null, described.GetProperty("AgentOutput").ValueKind);
-                JsonElement output = await ReadAsync(false, new[] { "output" }).ConfigureAwait(false);
-                AssertEqual(4096, output.GetProperty("AgentOutput").GetProperty("Text").GetString()!.Length);
-                AssertTrue(output.GetProperty("AgentOutput").GetProperty("Truncated").GetBoolean());
-                AssertEqual(6000, output.GetProperty("AgentOutput").GetProperty("FullLength").GetInt32());
-                AssertEqual(JsonValueKind.Null, output.GetProperty("Description").ValueKind);
-                JsonElement compatible = await ReadAsync(false, null).ConfigureAwait(false);
-                AssertEqual(4096, compatible.GetProperty("AgentOutput").GetProperty("Text").GetString()!.Length);
-                AssertEqual(JsonValueKind.Null, compatible.GetProperty("Description").ValueKind);
             }).ConfigureAwait(false);
 
             await RunTest("Dispatch_AliasChain_CreatesInTopoOrderWithResolvedIds", async () =>

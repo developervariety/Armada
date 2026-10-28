@@ -1950,135 +1950,147 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Output and terminal markers from a prior process cannot contaminate a later launch of the same mission", async () =>
             {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                TerminalMarkerTracker markers = new TerminalMarkerTracker();
-                handler.SetTerminalMarkers(markers);
-                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("output-generation-owner")
-                { State = CaptainStateEnum.Working, ProcessId = 989822 }).ConfigureAwait(false);
-                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Same-ID later launch")
-                { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id, ProcessId = 989822 }).ConfigureAwait(false);
-                RegisterTrackedProcess(handler, 989821, captain.Id, mission.Id);
-                handler.HandleAgentOutput(989821, "Prior attempt output.");
-                RegisterTrackedProcess(handler, 989822, captain.Id, mission.Id);
-                handler.HandleAgentOutput(989822, "Current attempt output.");
-                handler.HandleAgentOutput(989821, "Stale output must stay outside the current report.");
-                handler.HandleAgentOutput(989821, "[ARMADA:RESULT] COMPLETE");
-                AssertFalse(markers.TryGet(mission.Id, out _), "An old launch cannot supply the current terminal marker");
-                string output = handler.GetAndClearMissionOutput(mission.Id) ?? String.Empty;
-                AssertContains("Current attempt output", output);
-                AssertFalse(output.Contains("Stale output", StringComparison.Ordinal));
-                AssertFalse(output.Contains("Prior attempt output", StringComparison.Ordinal));
-                handler.HandleAgentOutput(989822, "[ARMADA:RESULT] COMPLETE");
-                await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
-                AssertTrue(markers.TryGet(mission.Id, out _), "The current launch still supplies its own terminal marker");
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("output-generation-owner")
+                    { State = CaptainStateEnum.Working, ProcessId = 989822 }).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Same-ID later launch")
+                    { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id, ProcessId = 989822 }).ConfigureAwait(false);
+                    RegisterTrackedProcess(handler, 989821, captain.Id, mission.Id);
+                    handler.HandleAgentOutput(989821, "Prior attempt output.");
+                    RegisterTrackedProcess(handler, 989822, captain.Id, mission.Id);
+                    handler.HandleAgentOutput(989822, "Current attempt output.");
+                    handler.HandleAgentOutput(989821, "Stale output must stay outside the current report.");
+                    handler.HandleAgentOutput(989821, "[ARMADA:RESULT] COMPLETE");
+                    AssertFalse(markers.TryGet(mission.Id, out _), "An old launch cannot supply the current terminal marker");
+                    string output = handler.GetAndClearMissionOutput(mission.Id) ?? String.Empty;
+                    AssertContains("Current attempt output", output);
+                    AssertFalse(output.Contains("Stale output", StringComparison.Ordinal));
+                    AssertFalse(output.Contains("Prior attempt output", StringComparison.Ordinal));
+                    handler.HandleAgentOutput(989822, "[ARMADA:RESULT] COMPLETE");
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
+                    AssertTrue(markers.TryGet(mission.Id, out _), "The current launch still supplies its own terminal marker");
+                }
             }).ConfigureAwait(false);
 
             await RunTest("An old runtime subscriber cannot write after the operating system PID is reused", async () =>
             {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                TerminalMarkerTracker markers = new TerminalMarkerTracker(); handler.SetTerminalMarkers(markers);
-                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("reused-output-pid")).ConfigureAwait(false);
-                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Reused process identity")
-                { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id }).ConfigureAwait(false);
-                long previous = handler.TakeMissionStateOwnership(mission.Id);
-                handler.RegisterMissionProcess(989826, captain.Id, mission.Id, previous);
-                long current = handler.TakeMissionStateOwnership(mission.Id);
-                handler.RegisterMissionProcess(989826, captain.Id, mission.Id, current);
-                handler.HandleAgentOutputForLaunch(989826, "[ARMADA:RESULT] COMPLETE", previous);
-                AssertFalse(markers.TryGet(mission.Id, out _));
-                AssertNull(handler.GetAndClearMissionOutput(mission.Id));
-                handler.HandleAgentOutputForLaunch(989826, "Current process content", current);
-                AssertContains("Current process content", handler.GetAndClearMissionOutput(mission.Id) ?? String.Empty);
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker(); handler.SetTerminalMarkers(markers);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("reused-output-pid")).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Reused process identity")
+                    { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id }).ConfigureAwait(false);
+                    long previous = handler.TakeMissionStateOwnership(mission.Id);
+                    handler.RegisterMissionProcess(989826, captain.Id, mission.Id, previous);
+                    long current = handler.TakeMissionStateOwnership(mission.Id);
+                    handler.RegisterMissionProcess(989826, captain.Id, mission.Id, current);
+                    handler.HandleAgentOutputForLaunch(989826, "[ARMADA:RESULT] COMPLETE", previous);
+                    AssertFalse(markers.TryGet(mission.Id, out _));
+                    AssertNull(handler.GetAndClearMissionOutput(mission.Id));
+                    handler.HandleAgentOutputForLaunch(989826, "Current process content", current);
+                    AssertContains("Current process content", handler.GetAndClearMissionOutput(mission.Id) ?? String.Empty);
+                }
             }).ConfigureAwait(false);
 
             await RunTest("A delayed process-start callback cannot bind a later pending launch", async () =>
             {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                string launchKey = "captain:mission";
-                RegisterPendingLaunch(handler, launchKey, "captain", "mission");
-                ConcurrentDictionary<string, long> owners = (ConcurrentDictionary<string, long>)typeof(AgentLifecycleHandler)
-                    .GetField("_PendingLaunchOwners", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(handler)!;
-                long previous = owners[launchKey];
-                RegisterPendingLaunch(handler, launchKey, "captain", "mission");
-                long current = owners[launchKey];
-                MethodInfo started = typeof(AgentLifecycleHandler).GetMethod("HandleProcessStarted", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                started.Invoke(handler, new object[] { 989827, launchKey, previous });
-                handler.HandleAgentOutputForLaunch(989827, "Old started callback", current);
-                AssertNull(handler.GetAndClearMissionOutput("mission"));
-                started.Invoke(handler, new object[] { 989828, launchKey, current });
-                handler.HandleAgentOutputForLaunch(989828, "Current started callback", current);
-                AssertContains("Current started callback", handler.GetAndClearMissionOutput("mission") ?? String.Empty);
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    string launchKey = "captain:mission";
+                    RegisterPendingLaunch(handler, launchKey, "captain", "mission");
+                    ConcurrentDictionary<string, long> owners = (ConcurrentDictionary<string, long>)typeof(AgentLifecycleHandler)
+                        .GetField("_PendingLaunchOwners", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(handler)!;
+                    long previous = owners[launchKey];
+                    RegisterPendingLaunch(handler, launchKey, "captain", "mission");
+                    long current = owners[launchKey];
+                    MethodInfo started = typeof(AgentLifecycleHandler).GetMethod("HandleProcessStarted", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    started.Invoke(handler, new object[] { 989827, launchKey, previous });
+                    handler.HandleAgentOutputForLaunch(989827, "Old started callback", current);
+                    AssertNull(handler.GetAndClearMissionOutput("mission"));
+                    started.Invoke(handler, new object[] { 989828, launchKey, current });
+                    handler.HandleAgentOutputForLaunch(989828, "Current started callback", current);
+                    AssertContains("Current started callback", handler.GetAndClearMissionOutput("mission") ?? String.Empty);
+                }
             }).ConfigureAwait(false);
 
             await RunTest("A replay launch can report progress before its PID persistence finishes", async () =>
             {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
-                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("early-replay-progress")
-                { State = CaptainStateEnum.Working }).ConfigureAwait(false);
-                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Early replay progress")
-                { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id }).ConfigureAwait(false);
-                const string replayId = "rpl_early_progress";
-                using (Microsoft.Data.Sqlite.SqliteConnection connection = new Microsoft.Data.Sqlite.SqliteConnection(testDb.ConnectionString))
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    await connection.OpenAsync().ConfigureAwait(false);
-                    using Microsoft.Data.Sqlite.SqliteCommand update = connection.CreateCommand();
-                    update.CommandText = "UPDATE missions SET research_replay_id=@generation WHERE id=@id;";
-                    update.Parameters.AddWithValue("@generation", replayId); update.Parameters.AddWithValue("@id", mission.Id);
-                    await update.ExecuteNonQueryAsync().ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("early-replay-progress")
+                    { State = CaptainStateEnum.Working }).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Early replay progress")
+                    { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id }).ConfigureAwait(false);
+                    const string replayId = "rpl_early_progress";
+                    using (Microsoft.Data.Sqlite.SqliteConnection connection = new Microsoft.Data.Sqlite.SqliteConnection(testDb.ConnectionString))
+                    {
+                        await connection.OpenAsync().ConfigureAwait(false);
+                        using (Microsoft.Data.Sqlite.SqliteCommand update = connection.CreateCommand())
+                        {
+                            update.CommandText = "UPDATE missions SET research_replay_id=@generation WHERE id=@id;";
+                            update.Parameters.AddWithValue("@generation", replayId); update.Parameters.AddWithValue("@id", mission.Id);
+                            await update.ExecuteNonQueryAsync().ConfigureAwait(false);
+                        }
+                    }
+                    handler.RegisterMissionProcess(989823, captain.Id, mission.Id, handler.TakeMissionStateOwnership(mission.Id, replayId));
+                    AssertNull((await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.ProcessId);
+                    handler.HandleAgentOutput(989823, "[ARMADA:STATUS] Testing");
+                    await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Testing, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.Status);
                 }
-                handler.RegisterMissionProcess(989823, captain.Id, mission.Id, handler.TakeMissionStateOwnership(mission.Id, replayId));
-                AssertNull((await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.ProcessId);
-                handler.HandleAgentOutput(989823, "[ARMADA:STATUS] Testing");
-                await WaitForProgressSignalsAsync(testDb.Driver, captain.Id, 1).ConfigureAwait(false);
-                AssertEqual(MissionStatusEnum.Testing, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.Status);
             }).ConfigureAwait(false);
 
             await RunTest("Only the just-completed launch can deliver a final note queued behind completion", async () =>
             {
                 foreach (bool interveningLaunch in new[] { false, true })
                 {
-                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                    AdmiralService admiral = CreateRealAdmiral(testDb.Driver, new IntentionalProcessStops());
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, admiral);
-                    CoordinationService coordination = new CoordinationService(CreateLogging(), testDb.Driver);
-                    handler.SetCoordinationService(coordination);
-                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("final-note-generation")
-                    { State = CaptainStateEnum.Working, ProcessId = 989824 }).ConfigureAwait(false);
-                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Final note generation")
-                    { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id, ProcessId = 989824 }).ConfigureAwait(false);
-                    RegisterTrackedProcess(handler, 989824, captain.Id, mission.Id);
-                    using (await MissionExecutionBoundary.Locks.AcquireAsync(mission.Id).ConfigureAwait(false))
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
-                        handler.HandleAgentOutput(989824, "[ARMADA:NOTE] Final verified same-generation result.");
-                        int completingPid = 989824;
-                        if (interveningLaunch)
+                        AdmiralService admiral = CreateRealAdmiral(testDb.Driver, new IntentionalProcessStops());
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, null, admiral);
+                        CoordinationService coordination = new CoordinationService(CreateLogging(), testDb.Driver);
+                        handler.SetCoordinationService(coordination);
+                        Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("final-note-generation")
+                        { State = CaptainStateEnum.Working, ProcessId = 989824 }).ConfigureAwait(false);
+                        Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Final note generation")
+                        { Status = MissionStatusEnum.InProgress, CaptainId = captain.Id, ProcessId = 989824 }).ConfigureAwait(false);
+                        RegisterTrackedProcess(handler, 989824, captain.Id, mission.Id);
+                        using (await MissionExecutionBoundary.Locks.AcquireAsync(mission.Id).ConfigureAwait(false))
                         {
-                            completingPid = 989825;
-                            RegisterTrackedProcess(handler, completingPid, captain.Id, mission.Id);
-                            captain.ProcessId = completingPid;
-                            await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                            handler.HandleAgentOutput(989824, "[ARMADA:NOTE] Final verified same-generation result.");
+                            int completingPid = 989824;
+                            if (interveningLaunch)
+                            {
+                                completingPid = 989825;
+                                RegisterTrackedProcess(handler, completingPid, captain.Id, mission.Id);
+                                captain.ProcessId = completingPid;
+                                await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                            }
+                            mission.Status = MissionStatusEnum.Complete; mission.ProcessId = null; mission.CompletedUtc = DateTime.UtcNow;
+                            await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                            handler.HandleAgentProcessExited(completingPid, 0);
+                            await WaitForProcessExitCompletedAsync(handler, completingPid).ConfigureAwait(false);
                         }
-                        mission.Status = MissionStatusEnum.Complete; mission.ProcessId = null; mission.CompletedUtc = DateTime.UtcNow;
-                        await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                        handler.HandleAgentProcessExited(completingPid, 0);
-                        await WaitForProcessExitCompletedAsync(handler, completingPid).ConfigureAwait(false);
+                        FieldInfo ownersField = typeof(AgentLifecycleHandler).GetField("_MissionStateOwners", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                        FieldInfo pendingField = typeof(AgentLifecycleHandler).GetField("_DeferredOutputWriteCounts", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                        await WaitForConditionAsync(() =>
+                        {
+                            object owners = ownersField.GetValue(handler)!;
+                            lock (owners)
+                                return Task.FromResult(((Dictionary<long, int>)pendingField.GetValue(handler)!).Count == 0);
+                        }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                        AssertEqual(interveningLaunch ? 0 : 1, notes.Count,
+                            "A completed later retry cannot authorize an older queued note");
+                        if (!interveningLaunch) AssertEqual("Final verified same-generation result.", notes[0].Content);
                     }
-                    FieldInfo ownersField = typeof(AgentLifecycleHandler).GetField("_MissionStateOwners", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                    FieldInfo pendingField = typeof(AgentLifecycleHandler).GetField("_DeferredOutputWriteCounts", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                    await WaitForConditionAsync(() =>
-                    {
-                        object owners = ownersField.GetValue(handler)!;
-                        lock (owners)
-                            return Task.FromResult(((Dictionary<long, int>)pendingField.GetValue(handler)!).Count == 0);
-                    }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
-                    List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
-                    AssertEqual(interveningLaunch ? 0 : 1, notes.Count,
-                        "A completed later retry cannot authorize an older queued note");
-                    if (!interveningLaunch) AssertEqual("Final verified same-generation result.", notes[0].Content);
                 }
             }).ConfigureAwait(false);
 

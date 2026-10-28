@@ -1130,65 +1130,67 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A TestEngineer brief names native profile commands and inputs without exposing environment values", async () =>
             {
-                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                ArmadaSettings settings = CreateSettings();
-                MissionService service = CreateMissionService(CreateLogging(), testDb.Driver, settings, new StubGitService());
-                string tempDir = Path.Combine(Path.GetTempPath(), "armada_profile_brief_" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(tempDir);
-                try
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Profile brief", "https://example.invalid/repo")).ConfigureAwait(false);
-                    WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService service = CreateMissionService(CreateLogging(), testDb.Driver, settings, new StubGitService());
+                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_profile_brief_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
+                    try
                     {
-                        Name = "Native validation", Scope = WorkflowProfileScopeEnum.Vessel, VesselId = vessel.Id,
-                        BuildCommand = "dotnet build scoped.sln",
-                        UnitTestCommand = "sh scripts/check.sh opaque-profile-value",
-                        EnvironmentVariables = new Dictionary<string, string>
-                        { ["EXTERNAL_ARTIFACT_HOST"] = "opaque-profile-value", ["SERVICE_TOKEN"] = "hidden-profile-token" }
-                    }).ConfigureAwait(false);
-                    Mission mission = new Mission("Validate current source")
-                    { Persona = "TestEngineer", VesselId = vessel.Id };
-                    await service.GenerateClaudeMdAsync(tempDir, mission, vessel).ConfigureAwait(false);
-                    string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md")).ConfigureAwait(false);
-                    AssertContains("## Native Required Checks", brief);
-                    AssertContains("dotnet build scoped.sln", brief);
-                    AssertContains("sh scripts/check.sh", brief);
-                    AssertContains("EXTERNAL_ARTIFACT_HOST", brief);
-                    AssertContains("SERVICE_TOKEN", brief);
-                    AssertFalse(brief.Contains("opaque-profile-value", StringComparison.Ordinal));
-                    AssertFalse(brief.Contains("hidden-profile-token", StringComparison.Ordinal));
-                    AssertContains("operator settings", brief);
-                    AssertContains("missing inputs", brief);
-                    AssertContains("native Check", brief);
-                    foreach (string unsafeCommand in new[]
-                    {
-                        "tool --password inline-password-sentinel",
-                        "curl -H 'Authorization: Basic inline-basic-sentinel' https://example.invalid",
-                        "curl https://alice:inline-userinfo-sentinel@example.invalid/check",
-                        "curl -ualice:inline-attached-user-sentinel https://example.invalid/check",
-                        "curl -H'Cookie: inline-attached-header-sentinel' https://example.invalid/check",
-                        "curl -binline-cookie-sentinel https://example.invalid/check"
-                    })
-                    {
-                        profile.UnitTestCommand = unsafeCommand;
-                        profile.Name = new string('N', 6000) + "\nPROFILE_LABEL_TAIL";
-                        await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                        Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("Profile brief", "https://example.invalid/repo")).ConfigureAwait(false);
+                        WorkflowProfile profile = await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                        {
+                            Name = "Native validation", Scope = WorkflowProfileScopeEnum.Vessel, VesselId = vessel.Id,
+                            BuildCommand = "dotnet build scoped.sln",
+                            UnitTestCommand = "sh scripts/check.sh opaque-profile-value",
+                            EnvironmentVariables = new Dictionary<string, string>
+                            { ["EXTERNAL_ARTIFACT_HOST"] = "opaque-profile-value", ["SERVICE_TOKEN"] = "hidden-profile-token" }
+                        }).ConfigureAwait(false);
+                        Mission mission = new Mission("Validate current source")
+                        { Persona = "TestEngineer", VesselId = vessel.Id };
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel).ConfigureAwait(false);
-                        string protectedBrief = await File.ReadAllTextAsync(Path.Combine(tempDir,
-                            MissionPromptBuilder.GetGeneratedInstructionsRelativePath(null))).ConfigureAwait(false);
-                        AssertContains("[WITHHELD: credential-bearing native command", protectedBrief);
-                        AssertFalse(protectedBrief.Contains("inline-password-sentinel", StringComparison.Ordinal));
-                        AssertFalse(protectedBrief.Contains("inline-basic-sentinel", StringComparison.Ordinal));
-                        AssertFalse(protectedBrief.Contains("inline-userinfo-sentinel", StringComparison.Ordinal));
-                        AssertFalse(protectedBrief.Contains("inline-attached-user-sentinel", StringComparison.Ordinal));
-                        AssertFalse(protectedBrief.Contains("inline-attached-header-sentinel", StringComparison.Ordinal));
-                        AssertFalse(protectedBrief.Contains("inline-cookie-sentinel", StringComparison.Ordinal));
-                        AssertFalse(protectedBrief.Contains("PROFILE_LABEL_TAIL", StringComparison.Ordinal));
-                        AssertFalse(protectedBrief.Contains(new string('N', 161), StringComparison.Ordinal));
-                    }
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md")).ConfigureAwait(false);
+                        AssertContains("## Native Required Checks", brief);
+                        AssertContains("dotnet build scoped.sln", brief);
+                        AssertContains("sh scripts/check.sh", brief);
+                        AssertContains("EXTERNAL_ARTIFACT_HOST", brief);
+                        AssertContains("SERVICE_TOKEN", brief);
+                        AssertFalse(brief.Contains("opaque-profile-value", StringComparison.Ordinal));
+                        AssertFalse(brief.Contains("hidden-profile-token", StringComparison.Ordinal));
+                        AssertContains("operator settings", brief);
+                        AssertContains("missing inputs", brief);
+                        AssertContains("native Check", brief);
+                        foreach (string unsafeCommand in new[]
+                        {
+                            "tool --password inline-password-sentinel",
+                            "curl -H 'Authorization: Basic inline-basic-sentinel' https://example.invalid",
+                            "curl https://alice:inline-userinfo-sentinel@example.invalid/check",
+                            "curl -ualice:inline-attached-user-sentinel https://example.invalid/check",
+                            "curl -H'Cookie: inline-attached-header-sentinel' https://example.invalid/check",
+                            "curl -binline-cookie-sentinel https://example.invalid/check"
+                        })
+                        {
+                            profile.UnitTestCommand = unsafeCommand;
+                            profile.Name = new string('N', 6000) + "\nPROFILE_LABEL_TAIL";
+                            await testDb.Driver.WorkflowProfiles.UpdateAsync(profile).ConfigureAwait(false);
+                            await service.GenerateClaudeMdAsync(tempDir, mission, vessel).ConfigureAwait(false);
+                            string protectedBrief = await File.ReadAllTextAsync(Path.Combine(tempDir,
+                                MissionPromptBuilder.GetGeneratedInstructionsRelativePath(null))).ConfigureAwait(false);
+                            AssertContains("[WITHHELD: credential-bearing native command", protectedBrief);
+                            AssertFalse(protectedBrief.Contains("inline-password-sentinel", StringComparison.Ordinal));
+                            AssertFalse(protectedBrief.Contains("inline-basic-sentinel", StringComparison.Ordinal));
+                            AssertFalse(protectedBrief.Contains("inline-userinfo-sentinel", StringComparison.Ordinal));
+                            AssertFalse(protectedBrief.Contains("inline-attached-user-sentinel", StringComparison.Ordinal));
+                            AssertFalse(protectedBrief.Contains("inline-attached-header-sentinel", StringComparison.Ordinal));
+                            AssertFalse(protectedBrief.Contains("inline-cookie-sentinel", StringComparison.Ordinal));
+                            AssertFalse(protectedBrief.Contains("PROFILE_LABEL_TAIL", StringComparison.Ordinal));
+                            AssertFalse(protectedBrief.Contains(new string('N', 161), StringComparison.Ordinal));
+                        }
 
+                    }
+                    finally { Directory.Delete(tempDir, true); }
                 }
-                finally { Directory.Delete(tempDir, true); }
             }).ConfigureAwait(false);
 
             await RunTest("An Architect brief names the gate inputs its vessel's workflow profile declares", async () =>
