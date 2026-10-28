@@ -107,6 +107,23 @@ describe('RunActionModal', () => {
     await waitFor(() => expect(runFleetAction).toHaveBeenCalledWith('fac_1', { VesselIds: ['vsl_1', 'vsl_2'], Concurrency: 4, Overrides: { ApprovalOptions: { approveAll: false, timeoutSeconds: 45, timeoutDecision: 'Approve' } } }));
   });
 
+  it('renders typed runtime fields, applies defaults, and sends explicit overrides', async () => {
+    vi.mocked(enumerateFleetActions).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 500, totalPages: 1, totalRecords: 1, totalMs: 1, objects: [{ ...commandAction, inputs: [
+      { name: 'version', type: 'semver', required: true, default: '1.2.3', allowedValues: [], description: 'Release version' },
+      { name: 'mode', type: 'enum', required: true, default: 'safe', allowedValues: ['safe', 'fast'] },
+      { name: 'note', type: 'string', required: false, allowedValues: [] },
+    ] }] });
+    renderModal();
+    const version = await screen.findByLabelText(/version/);
+    await waitFor(() => expect(version).toHaveValue('1.2.3'));
+    fireEvent.change(version, { target: { value: '2.0.0' } });
+    fireEvent.change(screen.getByLabelText(/mode/), { target: { value: 'fast' } });
+    fireEvent.change(screen.getByLabelText('note'), { target: { value: 'release' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Review and run' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run on 2 vessels' }));
+    await waitFor(() => expect(runFleetAction).toHaveBeenCalledWith('fac_1', { VesselIds: ['vsl_1', 'vsl_2'], Concurrency: 4, InputValues: { version: '2.0.0', mode: 'fast', note: 'release' } }));
+  });
+
   it('previews the rendered command for the first vessel and confirms a saved Command run', async () => {
     renderModal();
     expect(await screen.findByText('git -C /code/api pull --ff-only')).toBeInTheDocument();

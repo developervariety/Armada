@@ -7852,6 +7852,11 @@
           "required": false
         },
         {
+          "name": "commandWindows",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "defaultConcurrency",
           "type": "integer",
           "required": false
@@ -7859,6 +7864,11 @@
         {
           "name": "description",
           "type": "string",
+          "required": false
+        },
+        {
+          "name": "inputs",
+          "type": "array<object>",
           "required": false
         },
         {
@@ -7870,6 +7880,11 @@
           "name": "name",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "outputParser",
+          "type": "string",
+          "required": false
         },
         {
           "name": "persona",
@@ -7887,8 +7902,23 @@
           "required": false
         },
         {
+          "name": "requiredTools",
+          "type": "array<string>",
+          "required": false
+        },
+        {
           "name": "requiresCleanWorkingTree",
           "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "requiresNetwork",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "scanSourceActionKey",
+          "type": "string",
           "required": false
         },
         {
@@ -11298,8 +11328,23 @@
           "required": false
         },
         {
+          "name": "commandWindows",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "concurrency",
           "type": "integer",
+          "required": false
+        },
+        {
+          "name": "inputValues",
+          "type": "object",
+          "required": false
+        },
+        {
+          "name": "inputs",
+          "type": "array<object>",
           "required": false
         },
         {
@@ -11309,6 +11354,11 @@
         },
         {
           "name": "name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "outputParser",
           "type": "string",
           "required": false
         },
@@ -11323,8 +11373,23 @@
           "required": false
         },
         {
+          "name": "requiredTools",
+          "type": "array<string>",
+          "required": false
+        },
+        {
           "name": "requiresCleanWorkingTree",
           "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "requiresNetwork",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "scanSourceActionKey",
+          "type": "string",
           "required": false
         },
         {
@@ -12214,6 +12279,11 @@
           "required": false
         },
         {
+          "name": "commandWindows",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "defaultConcurrency",
           "type": "integer",
           "required": false
@@ -12224,12 +12294,22 @@
           "required": false
         },
         {
+          "name": "inputs",
+          "type": "array<object>",
+          "required": false
+        },
+        {
           "name": "kind",
           "type": "string",
           "required": false
         },
         {
           "name": "name",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "outputParser",
           "type": "string",
           "required": false
         },
@@ -12249,8 +12329,23 @@
           "required": false
         },
         {
+          "name": "requiredTools",
+          "type": "array<string>",
+          "required": false
+        },
+        {
           "name": "requiresCleanWorkingTree",
           "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "requiresNetwork",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "scanSourceActionKey",
+          "type": "string",
           "required": false
         },
         {
@@ -20017,6 +20112,18 @@
       "key": "fleetActions.maxOutputBytes",
       "type": "int",
       "default": "65536",
+      "experimental": false
+    },
+    {
+      "key": "fleetActions.offline",
+      "type": "bool",
+      "default": "false",
+      "experimental": false
+    },
+    {
+      "key": "fleetActions.offlineHarborIds",
+      "type": "array<string>",
+      "default": "[]",
       "experimental": false
     },
     {

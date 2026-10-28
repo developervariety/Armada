@@ -87,6 +87,7 @@ namespace Armada.Core.Services
                     TestCommandVariable,
                     LintCommandVariable,
                     AuditCommandVariable,
+                    "scan.summary",
                     HealthSummaryVariable
                 };
             }
@@ -140,13 +141,14 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="template">Template text.</param>
         /// <exception cref="FleetActionTemplateException">Thrown for the first unknown variable.</exception>
-        public static void Validate(string? template)
+        /// <param name="inputNames">Declared runtime input names.</param>
+        public static void Validate(string? template, IEnumerable<string>? inputNames = null)
         {
             if (String.IsNullOrEmpty(template)) return;
             foreach (Match match in _VariablePattern.Matches(template))
             {
                 string raw = match.Groups[1].Value.Trim();
-                if (Canonicalize(raw) == null) throw new FleetActionTemplateException(raw);
+                if (Canonicalize(raw) == null && !(raw.StartsWith("input.", StringComparison.OrdinalIgnoreCase) && (inputNames ?? Enumerable.Empty<string>()).Contains(raw.Substring(6), StringComparer.OrdinalIgnoreCase))) throw new FleetActionTemplateException(raw);
             }
         }
 
@@ -163,10 +165,12 @@ namespace Armada.Core.Services
             if (context == null) throw new ArgumentNullException(nameof(context));
             if (String.IsNullOrEmpty(template)) return String.Empty;
 
-            Validate(template);
+            Validate(template, context.InputValues.Keys);
             return _VariablePattern.Replace(template, match =>
             {
-                string name = Canonicalize(match.Groups[1].Value.Trim())!;
+                string raw = match.Groups[1].Value.Trim();
+                if (raw.StartsWith("input.", StringComparison.OrdinalIgnoreCase)) return context.InputValues.First(p => String.Equals(p.Key, raw.Substring(6), StringComparison.OrdinalIgnoreCase)).Value;
+                string name = Canonicalize(raw)!;
                 return Resolve(name, context);
             });
         }
@@ -187,6 +191,7 @@ namespace Armada.Core.Services
 
         private static string Resolve(string name, FleetActionTemplateContext context)
         {
+            if (name == "scan.summary") return context.ScanSummary;
             if (name == VesselNameVariable) return context.VesselName;
             if (name == VesselIdVariable) return context.VesselId;
             if (name == DefaultBranchVariable) return context.DefaultBranch;

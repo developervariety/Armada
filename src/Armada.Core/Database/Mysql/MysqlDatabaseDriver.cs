@@ -1005,7 +1005,23 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE vessels ADD COLUMN lint_command TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN audit_command TEXT;"),
                 new SchemaMigration(100, "Add abbreviated_unit_test_command to workflow_profiles so a profile can carry a quick unit-test command next to the full one",
-                    @"ALTER TABLE workflow_profiles ADD COLUMN abbreviated_unit_test_command LONGTEXT NULL;")
+                    @"ALTER TABLE workflow_profiles ADD COLUMN abbreviated_unit_test_command LONGTEXT NULL;"),
+                new SchemaMigration(101, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"ALTER TABLE fleet_actions ADD COLUMN command_windows LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN output_parser LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN scan_source_action_key LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN required_tools_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN requires_network TINYINT(1) NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN inputs_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN command_windows LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN output_parser LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN scan_source_action_key LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN required_tools_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN requires_network TINYINT(1) NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN inputs_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN input_values_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN findings_count INT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary LONGTEXT NULL;")
 
 
             };
