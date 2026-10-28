@@ -1566,6 +1566,35 @@
 					}
 				},
 				{
+					"name": "Enumerate the Needs-you Inbox",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/inbox/enumerate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"inbox",
+								"enumerate"
+							]
+						},
+						"description": "Returns one page of the needs-you inbox, most urgent first. TotalRecords is the whole inbox count. Requires a global administrator."
+					}
+				},
+				{
 					"name": "Summarize Verified Production",
 					"request": {
 						"method": "GET",
@@ -5677,6 +5706,35 @@
 						"description": "List planning sessions visible to the authenticated caller."
 					},
 					"response": []
+				},
+				{
+					"name": "Enumerate Planning Sessions",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/planning-sessions/enumerate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"planning-sessions",
+								"enumerate"
+							]
+						},
+						"description": "Returns one page of the planning sessions visible to the caller, most recently updated first. TotalRecords counts only the sessions the caller may see."
+					}
 				},
 				{
 					"name": "Create Planning Session",
@@ -11503,6 +11561,35 @@
 					}
 				},
 				{
+					"name": "Enumerate Background Jobs",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50,\n  \"Status\": \"Accepted,Running\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/jobs/enumerate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"jobs",
+								"enumerate"
+							]
+						},
+						"description": "Returns one page of the Admiral's long-running jobs newest first, without their results. Status is a comma-separated list; vesselId, createdAfter, createdBefore and order also filter. TotalRecords counts every matching job and UnreadableJournalRecords counts journal records that could not be read. Requires a global administrator."
+					}
+				},
+				{
 					"name": "Get a Background Job",
 					"request": {
 						"method": "GET",
@@ -11599,6 +11686,35 @@
 							]
 						},
 						"description": "Returns all managed embedding/inference endpoints visible to the caller. API keys are never returned."
+					}
+				},
+				{
+					"name": "Enumerate Model Endpoints",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/model-endpoints/enumerate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"model-endpoints",
+								"enumerate"
+							]
+						},
+						"description": "Returns one page of the managed embedding/inference endpoints visible to the caller, newest first. TotalRecords counts only the endpoints the caller may see. API keys are never returned."
 					}
 				},
 				{

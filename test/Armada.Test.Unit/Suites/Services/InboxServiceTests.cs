@@ -1,10 +1,17 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Net;
+    using System.Net.Http;
+    using System.Text;
+    using System.Text.Json;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
+    using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -359,6 +366,76 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(InboxSeverityEnum.Critical, items[0].Severity, "the most-urgent item must come first");
                 }
             });
+            await RunTest("POST /api/v1/inbox/enumerate pages the inbox with a true total in the most-urgent-first order and a bounded page size", async () =>
+            {
+                string tempDir = Path.Combine(Path.GetTempPath(), "armada_inbox_pages_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
+                ArmadaSettings settings = LongRunningJobServiceTests.NewServerSettings(tempDir);
+                using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(settings.Database).ConfigureAwait(false))
+                {
+                    for (int i = 1; i <= 3; i++)
+                        await driver.Missions.CreateAsync(new Mission("Review me " + i) { Status = MissionStatusEnum.Review }).ConfigureAwait(false);
+                    await driver.Missions.CreateAsync(new Mission("Landing failed") { Status = MissionStatusEnum.LandingFailed }).ConfigureAwait(false);
+                }
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                ArmadaServer server = new ArmadaServer(logging, settings, quiet: true);
+                try
+                {
+                    await server.StartAsync().ConfigureAwait(false);
+                    using (HttpClient client = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:" + settings.AdmiralPort), Timeout = TimeSpan.FromSeconds(30) })
+                    {
+                        client.DefaultRequestHeaders.Add("X-Api-Key", settings.ApiKey);
+
+                        HttpResponseMessage wholeResponse = await client.GetAsync("/api/v1/inbox").ConfigureAwait(false);
+                        List<InboxItem> whole = JsonHelper.Deserialize<List<InboxItem>>(await wholeResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
+                        AssertEqual(4, whole.Count, "the whole-list route returns every item");
+
+                        List<InboxItem> paged = new List<InboxItem>();
+                        for (int pageNumber = 1; pageNumber <= 2; pageNumber++)
+                        {
+                            EnumerationResult<InboxItem> page = await ReadInboxPageAsync(client, new { PageNumber = pageNumber, PageSize = 3 }).ConfigureAwait(false);
+                            AssertEqual(4L, page.TotalRecords, "page " + pageNumber + " reports the whole count, not the page length");
+                            AssertEqual(2, page.TotalPages, "page count");
+                            AssertEqual(pageNumber == 1 ? 3 : 1, page.Objects.Count, "page " + pageNumber + " length");
+                            paged.AddRange(page.Objects);
+                        }
+                        AssertEqual(String.Join(",", whole.Select(item => item.EntityId)), String.Join(",", paged.Select(item => item.EntityId)), "pages concatenate in the most-urgent-first order of the whole list");
+                        AssertEqual(InboxSeverityEnum.Critical, paged[0].Severity, "the most urgent item leads the first page");
+
+                        EnumerationResult<InboxItem> beyond = await ReadInboxPageAsync(client, new { PageNumber = 3, PageSize = 3 }).ConfigureAwait(false);
+                        AssertEqual(4L, beyond.TotalRecords, "a page past the end still reports the true total");
+                        AssertEqual(0, beyond.Objects.Count, "a page past the end is empty");
+
+                        EnumerationResult<InboxItem> oversize = await ReadInboxPageAsync(client, new { PageNumber = 1, PageSize = 5000 }).ConfigureAwait(false);
+                        AssertEqual(EnumerationQuery.MaxPageSize, oversize.PageSize, "the page size is clamped to the maximum");
+                        AssertEqual(5000, oversize.RequestedPageSize ?? 0, "the response names the size that was asked for");
+                        AssertEqual(4, oversize.Objects.Count, "a large page holds every item");
+                    }
+                }
+                finally
+                {
+                    server.Stop();
+                    try
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                    catch (IOException)
+                    {
+                        // A stopped server can briefly hold log handles; the temporary directory is disposable.
+                    }
+                }
+            });
+        }
+
+        private async Task<EnumerationResult<InboxItem>> ReadInboxPageAsync(HttpClient client, object query)
+        {
+            HttpResponseMessage response = await client.PostAsync("/api/v1/inbox/enumerate",
+                new StringContent(JsonSerializer.Serialize(query), Encoding.UTF8, "application/json")).ConfigureAwait(false);
+            string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.OK, response.StatusCode, "the paged inbox is served: " + body);
+            return JsonHelper.Deserialize<EnumerationResult<InboxItem>>(body);
         }
 
         private static InboxService CreateService(SqliteDatabaseDriver database)

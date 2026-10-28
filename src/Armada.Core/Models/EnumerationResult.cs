@@ -129,6 +129,23 @@ namespace Armada.Core.Models
             return result;
         }
 
+        /// <summary>
+        /// Build one page over an already filtered and ordered list, using the paging of an enumeration query. The page
+        /// size is bounded by <see cref="EnumerationQuery.MaxPageSize"/>; a larger request is served at the maximum and
+        /// reported through <see cref="RequestedPageSize"/> and <see cref="MaxPageSize"/>.
+        /// </summary>
+        /// <param name="query">Enumeration query that carries the page number and page size.</param>
+        /// <param name="ordered">Filtered, ordered records. The total count is the length of this list.</param>
+        /// <returns>The page.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when query or ordered is null.</exception>
+        public static EnumerationResult<T> Page(EnumerationQuery query, List<T> ordered)
+        {
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            if (ordered == null) throw new ArgumentNullException(nameof(ordered));
+            List<T> page = ordered.Skip(query.Offset).Take(query.PageSize).ToList();
+            return Create(query, page, ordered.Count);
+        }
+
         #endregion
 
         #region Public-Methods

@@ -2,6 +2,7 @@ namespace Armada.Server.Routes
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using WatsonWebserver;
@@ -45,6 +46,35 @@ namespace Armada.Server.Routes
             Func<HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
+            app.Post("/api/v1/model-endpoints/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return RouteAuthRefusal.FromStatus(req);
+
+                if (!EnumerationRequestReader.TryRead(req, _BodyJsonOptions, out EnumerationQuery query, out string? queryError))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = queryError };
+                }
+
+                // The service applies the caller's tenant and owner scope before the page is cut, so the total counts only
+                // the endpoints the caller may see.
+                List<ModelEndpoint> visible = await _Endpoints.EnumerateAsync(ctx).ConfigureAwait(false);
+                List<ModelEndpoint> ordered = visible
+                    .OrderByDescending(endpoint => endpoint.CreatedUtc)
+                    .ThenBy(endpoint => endpoint.Id, StringComparer.Ordinal)
+                    .ToList();
+                return EnumerationResult<ModelEndpoint>.Page(query, ordered);
+            },
+            api => api
+                .WithTag("Model Endpoints")
+                .WithSummary("Enumerate model endpoints")
+                .WithDescription("Returns one page of the managed embedding/inference endpoints visible to the caller, newest first; TotalRecords counts only the endpoints the caller may see. API keys are never returned. Paging comes from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10).")
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<ModelEndpoint>>("One page of model endpoints"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/model-endpoints", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);

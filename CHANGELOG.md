@@ -13,6 +13,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Archive an expired history folder of at least `diskLifecycle.archiveBundleMinFiles` files (default 50) as one verified `.tar.gz` object instead of one object per file, so a folder of thousands of small files archives in one round trip. A deny-listed file inside an expired history folder keeps only itself: the rest of the folder is archived and freed around it. Keep a disk-lifecycle background job past the stale limit while its pass is still advancing, and remove idle evidence build outputs that hold read-only folders.
 
+### Paged routes for whole-list reads
+
+- Add paged `POST` routes beside four whole-list routes that return every record: `POST /api/v1/jobs/enumerate`, `POST /api/v1/inbox/enumerate`, `POST /api/v1/model-endpoints/enumerate` and `POST /api/v1/planning-sessions/enumerate`. Each takes an `EnumerationQuery` body or querystring and returns one `EnumerationResult` page. A page size above 1000 is served at 1000 and the response names the size that was asked for.
+- A page counts only the records the caller may see: the caller's scope applies before the page is cut, so `TotalRecords` never counts another tenant's or user's records. The order is fixed and ties break on the record id, so a record never repeats or moves between pages.
+- The jobs page filters by `Status` (a comma-separated list), `VesselId` and a submission-time range, and carries `UnreadableJournalRecords`, so a job journal record the Admiral cannot read is never missing without a count. The jobs and inbox routes keep the global-administrator requirement of their whole-list routes. The whole-list routes are unchanged.
+
 ### Harbor host metrics
 
 - A Harbor heartbeat may include a host sample: CPU percent, memory, the drive that holds the runner state, and counts of live jobs and live captain processes. An older Harbor omits the sample. The Admiral stores nothing for that heartbeat and the host read reports `no-data`.

@@ -38,6 +38,11 @@ using System.IO;
             public bool AsOrdinaryUser { get; }
         }
 
+        private sealed class PlanningSessionDetailResponse
+        {
+            public PlanningSession? Session { get; set; }
+        }
+
         private sealed class DoctorCheck
         {
             public string Name { get; set; } = String.Empty;
@@ -2336,6 +2341,114 @@ using System.IO;
 
                 HttpResponseMessage missing = await _AdminClient.GetAsync("/api/v1/jobs/job_missing").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.NotFound, missing.StatusCode, "An unknown job reads 404");
+            }).ConfigureAwait(false);
+
+            await RunTest("InboxAndJobsEnumerate_FromTenantAdminOrUser_Returns403", async () =>
+            {
+                foreach (HttpClient client in new[] { _ClientA!, _ClientA3! })
+                {
+                    foreach (string path in new[] { "/api/v1/inbox/enumerate", "/api/v1/jobs/enumerate" })
+                    {
+                        HttpResponseMessage response = await client.PostAsync(path, JsonHelper.ToJsonContent(new { PageNumber = 1, PageSize = 5 })).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, path + " keeps the administrator-only level of its whole-list route");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("PlanningSessionsEnumerate_PagesOnlyTheCallersOwnSessions", async () =>
+            {
+                List<string> sessionIds = new List<string>();
+                async Task<string> CreateSessionAsync(HttpClient client, string vesselId, string captainId, string title)
+                {
+                    HttpResponseMessage response = await client.PostAsync("/api/v1/planning-sessions",
+                        JsonHelper.ToJsonContent(new { Title = title, CaptainId = captainId, VesselId = vesselId })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, response.StatusCode, "create planning session " + title + ": " + await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    PlanningSessionDetailResponse detail = await JsonHelper.DeserializeAsync<PlanningSessionDetailResponse>(response).ConfigureAwait(false);
+                    sessionIds.Add(detail.Session!.Id);
+                    return detail.Session.Id;
+                }
+
+                async Task<EnumerationResult<PlanningSession>> EnumerateSessionsAsync(HttpClient client, int pageNumber, int pageSize)
+                {
+                    HttpResponseMessage response = await client.PostAsync("/api/v1/planning-sessions/enumerate",
+                        JsonHelper.ToJsonContent(new { PageNumber = pageNumber, PageSize = pageSize })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, response.StatusCode, "enumerate planning sessions");
+                    return await JsonHelper.DeserializeAsync<EnumerationResult<PlanningSession>>(response).ConfigureAwait(false);
+                }
+
+                HttpResponseMessage fleetAResponse = await _ClientA!.PostAsync("/api/v1/fleets",
+                    JsonHelper.ToJsonContent(new { Name = "xt-plan-fleet-A-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
+                Fleet fleetA = await JsonHelper.DeserializeAsync<Fleet>(fleetAResponse).ConfigureAwait(false);
+                Vessel vesselA = await CreateVesselWithServerPathsAsync(_ClientA!, "xt-plan-vessel-A-" + Guid.NewGuid().ToString("N").Substring(0, 8), fleetA.Id, "main", TestRepoHelper.GetLocalBareRepoUrl(), null).ConfigureAwait(false);
+                // A planning session claims its captain, so each session needs its own idle captain.
+                List<Captain> captainsA = new List<Captain>();
+                for (int i = 0; i < 3; i++)
+                {
+                    HttpResponseMessage captainAResponse = await _ClientA!.PostAsync("/api/v1/captains",
+                        JsonHelper.ToJsonContent(new { Name = "xt-plan-captain-A-" + i + "-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
+                    captainsA.Add(await JsonHelper.DeserializeAsync<Captain>(captainAResponse).ConfigureAwait(false));
+                }
+
+                HttpResponseMessage fleetBResponse = await _ClientB!.PostAsync("/api/v1/fleets",
+                    JsonHelper.ToJsonContent(new { Name = "xt-plan-fleet-B-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
+                Fleet fleetB = await JsonHelper.DeserializeAsync<Fleet>(fleetBResponse).ConfigureAwait(false);
+                Vessel vesselB = await CreateVesselWithServerPathsAsync(_ClientB!, "xt-plan-vessel-B-" + Guid.NewGuid().ToString("N").Substring(0, 8), fleetB.Id, "main", TestRepoHelper.GetLocalBareRepoUrl(), null).ConfigureAwait(false);
+                HttpResponseMessage captainBResponse = await _ClientB!.PostAsync("/api/v1/captains",
+                    JsonHelper.ToJsonContent(new { Name = "xt-plan-captain-B-" + Guid.NewGuid().ToString("N").Substring(0, 8) })).ConfigureAwait(false);
+                Captain captainB = await JsonHelper.DeserializeAsync<Captain>(captainBResponse).ConfigureAwait(false);
+
+                try
+                {
+                    List<string> idsA = new List<string>();
+                    for (int i = 1; i <= 3; i++)
+                        idsA.Add(await CreateSessionAsync(_ClientA!, vesselA.Id, captainsA[i - 1].Id, "xt-plan-A-" + i).ConfigureAwait(false));
+                    string idB = await CreateSessionAsync(_ClientB!, vesselB.Id, captainB.Id, "xt-plan-B-1").ConfigureAwait(false);
+
+                    List<string> pagedA = new List<string>();
+                    for (int pageNumber = 1; pageNumber <= 2; pageNumber++)
+                    {
+                        EnumerationResult<PlanningSession> page = await EnumerateSessionsAsync(_ClientA!, pageNumber, 2).ConfigureAwait(false);
+                        AssertEqual(3L, page.TotalRecords, "the total counts only the caller's own sessions");
+                        AssertEqual(2, page.TotalPages);
+                        AssertEqual(pageNumber == 1 ? 2 : 1, page.Objects.Count);
+                        pagedA.AddRange(page.Objects.Select(session => session.Id));
+                    }
+                    AssertEqual(3, pagedA.Distinct().Count(), "no session repeats across pages");
+                    AssertTrue(!pagedA.Contains(idB), "another tenant's session is never listed");
+                    AssertEqual(String.Join(",", idsA.OrderBy(id => id, StringComparer.Ordinal)), String.Join(",", pagedA.OrderBy(id => id, StringComparer.Ordinal)), "the pages hold exactly tenant A's sessions");
+                    EnumerationResult<PlanningSession> wholeA = await EnumerateSessionsAsync(_ClientA!, 1, 100).ConfigureAwait(false);
+                    AssertEqual(String.Join(",", pagedA), String.Join(",", wholeA.Objects.Select(session => session.Id)), "pages concatenate in the order of one large page");
+
+                    EnumerationResult<PlanningSession> pageB = await EnumerateSessionsAsync(_ClientB!, 1, 2).ConfigureAwait(false);
+                    AssertEqual(1L, pageB.TotalRecords, "the other tenant counts only its own session");
+                    AssertEqual(idB, pageB.Objects[0].Id);
+
+                    EnumerationResult<PlanningSession> otherUser = await EnumerateSessionsAsync(_ClientA3!, 1, 2).ConfigureAwait(false);
+                    AssertEqual(0L, otherUser.TotalRecords, "another user of the same tenant does not see, or count, a session it does not own");
+                    AssertEqual(0, otherUser.Objects.Count);
+
+                    EnumerationResult<PlanningSession> oversize = await EnumerateSessionsAsync(_ClientA!, 1, 5000).ConfigureAwait(false);
+                    AssertEqual(EnumerationQuery.MaxPageSize, oversize.PageSize, "the page size is bounded");
+
+                    HttpResponseMessage legacy = await _ClientA!.GetAsync("/api/v1/planning-sessions").ConfigureAwait(false);
+                    List<PlanningSession> legacyList = await JsonHelper.DeserializeAsync<List<PlanningSession>>(legacy).ConfigureAwait(false);
+                    AssertEqual(3, legacyList.Count, "the whole-list route still returns every session of the caller");
+                }
+                finally
+                {
+                    foreach (string sessionId in sessionIds)
+                    {
+                        await _AdminClient.PostAsync("/api/v1/planning-sessions/" + sessionId + "/stop", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false);
+                        await _AdminClient.DeleteAsync("/api/v1/planning-sessions/" + sessionId).ConfigureAwait(false);
+                    }
+                    foreach (Captain captainA in captainsA)
+                        await _AdminClient.DeleteAsync("/api/v1/captains/" + captainA.Id).ConfigureAwait(false);
+                    await _AdminClient.DeleteAsync("/api/v1/captains/" + captainB.Id).ConfigureAwait(false);
+                    await _AdminClient.DeleteAsync("/api/v1/vessels/" + vesselA.Id).ConfigureAwait(false);
+                    await _AdminClient.DeleteAsync("/api/v1/vessels/" + vesselB.Id).ConfigureAwait(false);
+                    await _AdminClient.DeleteAsync("/api/v1/fleets/" + fleetA.Id).ConfigureAwait(false);
+                    await _AdminClient.DeleteAsync("/api/v1/fleets/" + fleetB.Id).ConfigureAwait(false);
+                }
             }).ConfigureAwait(false);
 
             // The storage inventory lists server-wide paths, sizes and database tables, so only a global

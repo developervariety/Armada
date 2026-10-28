@@ -43,6 +43,46 @@ namespace Armada.Server.Routes
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
+            app.Post("/api/v1/planning-sessions/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+
+                if (!EnumerationRequestReader.TryRead(req, _jsonOptions, out EnumerationQuery query, out string? queryError))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = queryError };
+                }
+
+                try
+                {
+                    // The caller's tenant and owner scope is applied by the read, before the page is cut, so the total
+                    // counts only the sessions the caller may see.
+                    List<PlanningSession> sessions = await EnumerateSessionsAsync(ctx).ConfigureAwait(false);
+                    List<PlanningSession> ordered = sessions
+                        .OrderByDescending(s => s.LastUpdateUtc)
+                        .ThenBy(s => s.Id, StringComparer.Ordinal)
+                        .ToList();
+                    return (object)EnumerationResult<PlanningSession>.Page(query, ordered);
+                }
+                catch (NotSupportedException ex)
+                {
+                    req.Http.Response.StatusCode = 501;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Planning")
+                .WithSummary("Enumerate planning sessions")
+                .WithDescription("Returns one page of the planning sessions visible to the authenticated user, most recently updated first; TotalRecords counts only the sessions the caller may see. Paging comes from the JSON body (EnumerationQuery) or the querystring (pageNumber, pageSize 1 to 1000, default 10); order and filters do not apply.")
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<PlanningSession>>("One page of planning sessions"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/planning-sessions", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

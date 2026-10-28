@@ -561,9 +561,97 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+            await RunTest("POST /api/v1/jobs/enumerate pages journalled jobs with a true total, a stable order, a bounded page size and the unreadable-record count", async () =>
+            {
+                string tempDir = Path.Combine(Path.GetTempPath(), "armada_job_pages_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
+                ArmadaSettings settings = NewServerSettings(tempDir);
+
+                string journalDirectory = Path.Combine(tempDir, "jobs");
+                LongRunningJobService previous = new LongRunningJobService(journalDirectory: journalDirectory);
+                List<string> jobIds = new List<string>();
+                for (int i = 0; i < 5; i++)
+                {
+                    LongRunningJob finished = previous.Start("code_index_update", _ => Task.FromResult<object?>(new { Value = i }), "obj_example", "vsl_example");
+                    await WaitTerminalAsync(previous, finished.JobId);
+                    jobIds.Add(finished.JobId);
+                    await Task.Delay(15);
+                }
+                File.WriteAllText(Path.Combine(journalDirectory, "job_corrupt.json"), "{ this is not a job record");
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                ArmadaServer server = new ArmadaServer(logging, settings, quiet: true);
+                try
+                {
+                    await server.StartAsync();
+                    using (HttpClient client = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:" + settings.AdmiralPort), Timeout = TimeSpan.FromSeconds(30) })
+                    {
+                        client.DefaultRequestHeaders.Add("X-Api-Key", settings.ApiKey);
+
+                        JobPageResponse whole = await ReadJobPageAsync(client, new { PageNumber = 1, PageSize = 100 });
+                        AssertEqual(5, whole.Objects.Count, "one large page holds every job");
+
+                        List<string> paged = new List<string>();
+                        for (int pageNumber = 1; pageNumber <= 3; pageNumber++)
+                        {
+                            JobPageResponse page = await ReadJobPageAsync(client, new { PageNumber = pageNumber, PageSize = 2 });
+                            AssertEqual(5L, page.TotalRecords, "page " + pageNumber + " reports the whole count, not the page length");
+                            AssertEqual(3, page.TotalPages, "page " + pageNumber + " reports the page count");
+                            AssertEqual(pageNumber == 3 ? 1 : 2, page.Objects.Count, "page " + pageNumber + " length");
+                            AssertEqual(1, page.UnreadableJournalRecords, "page " + pageNumber + " keeps the unreadable journal record count");
+                            AssertTrue(page.Objects.All(job => job.Result == null), "a listed job omits its Result");
+                            paged.AddRange(page.Objects.Select(job => job.JobId));
+                        }
+                        AssertEqual(5, paged.Distinct().Count(), "no job repeats across pages");
+                        AssertEqual(String.Join(",", whole.Objects.Select(job => job.JobId)), String.Join(",", paged), "the pages concatenate to the order of one large page");
+                        AssertEqual(String.Join(",", jobIds.AsEnumerable().Reverse()), String.Join(",", paged), "jobs are newest first");
+
+                        JobPageResponse failedOnly = await ReadJobPageAsync(client, new { PageNumber = 1, PageSize = 2, Status = "Failed" });
+                        AssertEqual(0L, failedOnly.TotalRecords, "the status filter applies before paging");
+                        JobPageResponse succeededOnly = await ReadJobPageAsync(client, new { PageNumber = 1, PageSize = 2, Status = "Failed,Succeeded" });
+                        AssertEqual(5L, succeededOnly.TotalRecords, "a status list matches any listed status");
+
+                        JobPageResponse oversize = await ReadJobPageAsync(client, new { PageNumber = 1, PageSize = 5000 });
+                        AssertEqual(EnumerationQuery.MaxPageSize, oversize.PageSize, "the page size is clamped to the maximum");
+                        AssertEqual(5000, oversize.RequestedPageSize ?? 0, "the response names the size that was asked for");
+                        AssertEqual(EnumerationQuery.MaxPageSize, oversize.MaxPageSize ?? 0, "the response names the maximum");
+
+                        HttpResponseMessage legacy = await client.GetAsync("/api/v1/jobs");
+                        string legacyBody = await legacy.Content.ReadAsStringAsync();
+                        AssertTrue(legacyBody.Contains("\"TotalRecords\":5", StringComparison.OrdinalIgnoreCase), "the whole-list route still returns every job: " + legacyBody);
+                    }
+                }
+                finally
+                {
+                    server.Stop();
+                    try
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                    catch (IOException)
+                    {
+                        // A stopped server can briefly hold log handles; the temporary directory is disposable.
+                    }
+                }
+            });
         }
 
-        private static ArmadaSettings NewServerSettings(string tempDir)
+        private sealed class JobPageResponse : EnumerationResult<LongRunningJob>
+        {
+            public int UnreadableJournalRecords { get; set; }
+        }
+
+        private async Task<JobPageResponse> ReadJobPageAsync(HttpClient client, object query)
+        {
+            HttpResponseMessage response = await client.PostAsync("/api/v1/jobs/enumerate",
+                new StringContent(JsonSerializer.Serialize(query), Encoding.UTF8, "application/json"));
+            string body = await response.Content.ReadAsStringAsync();
+            AssertEqual(HttpStatusCode.OK, response.StatusCode, "the paged job list is served: " + body);
+            return JsonHelper.Deserialize<JobPageResponse>(body);
+        }
+
+        internal static ArmadaSettings NewServerSettings(string tempDir)
         {
             DatabaseSettings dbSettings = new DatabaseSettings
             {

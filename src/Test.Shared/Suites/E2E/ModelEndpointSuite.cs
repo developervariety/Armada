@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.E2E
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Net;
     using System.Net.Http;
     using System.Net.Http.Headers;
@@ -309,6 +310,81 @@ namespace Test.Shared.Suites.E2E
                 }
             }));
 
+            cases.Add(CaseAsync("enumerate_pages_only_the_endpoints_the_caller_may_see", "ModelEndpointRoutes_EnumeratePagesOnlyVisibleEndpoints", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                RoutePrincipal tenantX = await CreateRoutePrincipalAsync(fixture, "endpoint-page-x").ConfigureAwait(false);
+                RoutePrincipal tenantY = await CreateRoutePrincipalAsync(fixture, "endpoint-page-y").ConfigureAwait(false);
+                UserMaster plainUser = new UserMaster
+                {
+                    TenantId = tenantX.Tenant.Id,
+                    Email = "endpoint-page-plain-" + Guid.NewGuid().ToString("N") + "@example.test",
+                    PasswordSha256 = UserMaster.ComputePasswordHash("route-test-password"),
+                    IsTenantAdmin = false,
+                    IsAdmin = false
+                };
+                using (HttpResponseMessage userResponse = await fixture.AuthClient.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(plainUser)).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, userResponse.StatusCode);
+                    plainUser = await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false);
+                }
+                Credential plainCredential = await CreateCredentialAsync(fixture, tenantX.Tenant.Id, plainUser.Id, "endpoint-page-plain").ConfigureAwait(false);
+
+                try
+                {
+                    using (HttpClient adminXClient = CreateBearerClient(fixture, tenantX.Credential.BearerToken))
+                    using (HttpClient adminYClient = CreateBearerClient(fixture, tenantY.Credential.BearerToken))
+                    using (HttpClient plainClient = CreateBearerClient(fixture, plainCredential.BearerToken))
+                    {
+                        for (int i = 1; i <= 3; i++)
+                            await CreateEndpointAsync(adminXClient, "x-wide-" + i, Armada.Core.Enums.ScopeEnum.TenantWide).ConfigureAwait(false);
+                        await CreateEndpointAsync(adminXClient, "x-private-admin", Armada.Core.Enums.ScopeEnum.UserSpecific).ConfigureAwait(false);
+                        await CreateEndpointAsync(plainClient, "x-private-plain", Armada.Core.Enums.ScopeEnum.UserSpecific).ConfigureAwait(false);
+                        for (int i = 1; i <= 2; i++)
+                            await CreateEndpointAsync(adminYClient, "y-wide-" + i, Armada.Core.Enums.ScopeEnum.TenantWide).ConfigureAwait(false);
+
+                        // The plain user sees the three tenant-wide endpoints and its own: four, never the admin's private
+                        // endpoint or the other tenant's. The total counts only those four.
+                        List<string> plainNames = new List<string>();
+                        for (int pageNumber = 1; pageNumber <= 2; pageNumber++)
+                        {
+                            EnumerationResult<ModelEndpoint> page = await EnumerateEndpointsAsync(plainClient, new { PageNumber = pageNumber, PageSize = 3 }).ConfigureAwait(false);
+                            AssertEqual(4L, page.TotalRecords, "The total counts only endpoints the caller may see.");
+                            AssertEqual(2, page.TotalPages);
+                            AssertEqual(pageNumber == 1 ? 3 : 1, page.Objects.Count);
+                            plainNames.AddRange(page.Objects.Select(endpoint => endpoint.Name));
+                        }
+                        AssertEqual(4, plainNames.Distinct().Count(), "No endpoint repeats across pages.");
+                        AssertEqual("x-private-plain,x-wide-1,x-wide-2,x-wide-3", String.Join(",", plainNames.OrderBy(name => name, StringComparer.Ordinal)), "Only the visible endpoints are listed.");
+                        AssertEqual(String.Join(",", plainNames), String.Join(",", (await EnumerateEndpointsAsync(plainClient, new { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false)).Objects.Select(endpoint => endpoint.Name)), "Pages concatenate in the order of one large page.");
+
+                        // A tenant administrator sees every endpoint of its own tenant, including a user's private one.
+                        EnumerationResult<ModelEndpoint> adminX = await EnumerateEndpointsAsync(adminXClient, new { PageNumber = 1, PageSize = 2 }).ConfigureAwait(false);
+                        AssertEqual(5L, adminX.TotalRecords);
+                        AssertEqual(2, adminX.Objects.Count);
+                        EnumerationResult<ModelEndpoint> adminY = await EnumerateEndpointsAsync(adminYClient, new { PageNumber = 1, PageSize = 10 }).ConfigureAwait(false);
+                        AssertEqual(2L, adminY.TotalRecords, "The other tenant lists only its own endpoints.");
+                        AssertTrue(adminY.Objects.All(endpoint => endpoint.Name.StartsWith("y-wide-", StringComparison.Ordinal)));
+
+                        EnumerationResult<ModelEndpoint> oversize = await EnumerateEndpointsAsync(plainClient, new { PageNumber = 1, PageSize = 5000 }).ConfigureAwait(false);
+                        AssertEqual(EnumerationQuery.MaxPageSize, oversize.PageSize, "The page size is bounded.");
+                        AssertEqual(5000, oversize.RequestedPageSize ?? 0);
+
+                        using (HttpResponseMessage legacy = await plainClient.GetAsync("/api/v1/model-endpoints").ConfigureAwait(false))
+                        {
+                            AssertEqual(HttpStatusCode.OK, legacy.StatusCode);
+                            List<ModelEndpoint> all = await JsonHelper.DeserializeAsync<List<ModelEndpoint>>(legacy).ConfigureAwait(false);
+                            AssertEqual(4, all.Count, "The whole-list route still returns every visible endpoint.");
+                        }
+                    }
+                }
+                finally
+                {
+                    using (HttpResponseMessage response = await fixture.AuthClient.DeleteAsync("/api/v1/tenants/" + tenantX.Tenant.Id).ConfigureAwait(false)) { }
+                    using (HttpResponseMessage response = await fixture.AuthClient.DeleteAsync("/api/v1/tenants/" + tenantY.Tenant.Id).ConfigureAwait(false)) { }
+                }
+            }));
+
             cases.Add(CaseAsync("non_admin_health_sweep_is_forbidden", "ModelEndpointHealthSweep_RejectsAuthenticatedNonAdmin", TestTags.Negative, async () =>
             {
                 E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
@@ -562,6 +638,31 @@ namespace Test.Shared.Suites.E2E
                 }
                 Credential credential = await CreateCredentialAsync(fixture, tenant.Id, user.Id, name + "-credential").ConfigureAwait(false);
                 return new RoutePrincipal(tenant, credential);
+            }
+        }
+
+        private static async Task CreateEndpointAsync(HttpClient client, string name, Armada.Core.Enums.ScopeEnum scope)
+        {
+            using (HttpResponseMessage response = await client.PostAsync("/api/v1/model-endpoints", JsonHelper.ToJsonContent(new ModelEndpointCreateRequest
+            {
+                Name = name,
+                Kind = Armada.Core.Enums.ModelEndpointKindEnum.Inference,
+                Scope = scope,
+                Provider = Armada.Core.Enums.ModelProviderEnum.OpenAI,
+                BaseUrl = "http://127.0.0.1:1",
+                Model = "page-model"
+            })).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.Created, response.StatusCode, "create endpoint " + name);
+            }
+        }
+
+        private static async Task<EnumerationResult<ModelEndpoint>> EnumerateEndpointsAsync(HttpClient client, object query)
+        {
+            using (HttpResponseMessage response = await client.PostAsync("/api/v1/model-endpoints/enumerate", JsonHelper.ToJsonContent(query)).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.OK, response.StatusCode, "enumerate endpoints");
+                return await JsonHelper.DeserializeAsync<EnumerationResult<ModelEndpoint>>(response).ConfigureAwait(false);
             }
         }
 

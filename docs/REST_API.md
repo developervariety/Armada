@@ -168,6 +168,7 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/typed-decisions`, `/api/v1/typed-decisions/...` | All | AdminOnly | Global decision modes, keys and custom-decision administration |
 | `/api/v1/usage-accounts/...` | All | AdminOnly | Server subscription account credentials, login state and usage refresh |
 | `/api/v1/model-endpoints/health-check` | POST | AdminOnly | Probes endpoints across all tenants. Individual endpoint CRUD and validation remain caller-scoped |
+| `/api/v1/model-endpoints`, `/api/v1/model-endpoints/enumerate` | GET, POST | Authenticated | The list and the POST enumeration return only the endpoints the caller may see: its tenant's tenant-wide endpoints, its own user-specific endpoints, and every endpoint of its tenant for a tenant administrator |
 | `/api/v1/project-profiles`, `/api/v1/project-profiles/...` | Writes | TenantAdmin | Includes validation. POST enumeration uses the authenticated read policy |
 | `/api/v1/skills`, `/api/v1/skills/...` | Writes | TenantAdmin | POST enumeration uses the authenticated read policy |
 | `/api/v1/fleets` | ALL | Authenticated | Tenant-scoped |
@@ -186,9 +187,9 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/prompt-templates` | POST/PUT, POST `/{name}/reset` | AdminOnly | Global admin only, because a change affects every tenant. Create records the caller's tenant and user |
 | `/api/v1/personas` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
 | `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the persona by name as the caller sees it (the caller's own tenant first, then a built-in record) and require edit rights under the ownership rule. Every tenant uses a built-in persona, so only a global admin may update one; anyone else receives `403`. REST, MCP and WebSocket share one persona service |
-| `/api/v1/inbox` | GET | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
+| `/api/v1/inbox` | GET, POST `/enumerate` | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
-| `/api/v1/jobs` | GET | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
+| `/api/v1/jobs` | GET, POST `/enumerate` | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
 | `/api/v1/storage` | GET | AdminOnly | Global admin only. The inventory lists server-wide paths, sizes and database tables |
 | `/api/v1/storage/refresh` | POST | AdminOnly | Global admin only. Starts a bounded background collection |
 | `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
@@ -279,6 +280,7 @@ git status, the vessels in `GET /api/v1/fleets/{id}`, the missions in
 `GET /api/v1/voyages/{id}` and the active missions in workspace status are its
 own records only, as in its lists. A tenant admin reads the whole tenant.
 | `/api/v1/planning-sessions` | GET | Authenticated | Planning-session list in caller scope |
+| `/api/v1/planning-sessions/enumerate` | POST | Authenticated | One page of the planning sessions in caller scope |
 | `/api/v1/planning-sessions` | POST | TenantAdmin | Create one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}` | GET | Authenticated | Read one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}` | DELETE | TenantAdmin | Delete one planning session in caller scope |
@@ -4242,6 +4244,14 @@ List planning sessions visible to the authenticated caller.
 
 - Response: `200 OK` - `PlanningSession[]`
 
+#### POST /api/v1/planning-sessions/enumerate
+
+One page of the planning sessions visible to the authenticated caller, most recently updated first (the session id breaks a tie, so a page boundary never moves between requests). The caller's tenant and owner scope applies before the page is cut, so `TotalRecords` counts only the sessions the caller may see.
+
+- Request Body: [EnumerationQuery](#enumerationquery) (optional). Only `PageNumber` and `PageSize` apply; order and filters do not.
+- Response: `200 OK` - [EnumerationResult](#enumerationresultt)\<`PlanningSession`\>
+- `400 Bad Request` when the body is not a valid enumeration query.
+
 #### POST /api/v1/planning-sessions
 
 Create a planning session, reserve the selected captain, and provision a planning dock.
@@ -4362,6 +4372,20 @@ captains, merges and incidents, so a narrower caller receives `403`.
 curl http://localhost:7890/api/v1/inbox
 ```
 
+#### POST /api/v1/inbox/enumerate
+
+One page of the same inbox, most urgent first. `TotalRecords` is the whole inbox count and a page past the end is empty. Requires a global administrator.
+
+**Request Body:** [EnumerationQuery](#enumerationquery) (optional). Only `PageNumber` and `PageSize` apply; order and filters do not.
+
+**Response:** `200 OK` - [EnumerationResult](#enumerationresultt)\<`InboxItem`\>
+
+```bash
+curl -X POST http://localhost:7890/api/v1/inbox/enumerate \
+  -H "Content-Type: application/json" \
+  -d '{"PageNumber": 1, "PageSize": 50}'
+```
+
 ---
 
 ### Incidents
@@ -4464,6 +4488,28 @@ is the MCP session that submitted the job, or null for a job submitted without
 one; a `Failed` or `Lost` job posts a board note addressed to it. `UnreadableJournalRecords`
 counts journal records the Admiral could not read. Each one is also written to
 the Admiral log as a warning, so a shorter list is never silent.
+
+#### POST /api/v1/jobs/enumerate
+
+One page of the same job list, newest submitted first with the job id as tie-break, so a page boundary never moves between requests. `TotalRecords` counts every job that matches the filters. Requires a global administrator.
+
+**Request Body:** [EnumerationQuery](#enumerationquery) (optional). These fields apply:
+
+| Field | Description |
+|---|---|
+| `PageNumber`, `PageSize` | Paging. `PageSize` is 1 to 1000 (default 10); a larger request is served at 1000 and the response carries `RequestedPageSize` and `MaxPageSize` |
+| `Status` | Comma-separated job statuses to keep: `Accepted`, `Running`, `Succeeded`, `Failed`, `Lost`. An unknown status is refused with `400` |
+| `VesselId` | Keep the jobs of one vessel |
+| `CreatedAfter`, `CreatedBefore` | Keep the jobs submitted in the range |
+| `Order` | `CreatedDescending` (default) or `CreatedAscending`, by submission time |
+
+**Response:** `200 OK` - the [EnumerationResult](#enumerationresultt) envelope of the jobs with one more field, `UnreadableJournalRecords`: the count of journal records the Admiral could not read, whatever the page. Entries omit `Result`.
+
+```bash
+curl -X POST http://localhost:7890/api/v1/jobs/enumerate \
+  -H "Content-Type: application/json" \
+  -d '{"PageNumber": 1, "PageSize": 50, "Status": "Accepted,Running"}'
+```
 
 #### GET /api/v1/jobs/{id}
 
@@ -5845,6 +5891,10 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 103 | POST | `/api/v1/merge-queue/{id}/cancel` | Cancel an active merge entry; a finished entry is refused | Yes |
 | 104 | GET | `/api/v1/missions/{id}/change-summary` | Paths one mission stage committed, from its recorded commit pair, with no dock | Yes |
 | 105 | GET | `/api/v1/vessels/{id}/repository-health` | Advisory repository health; does not block dispatch | Yes |
+| 106 | POST | `/api/v1/jobs/enumerate` | One page of background jobs | Yes |
+| 107 | POST | `/api/v1/inbox/enumerate` | One page of the needs-you inbox | Yes |
+| 108 | POST | `/api/v1/model-endpoints/enumerate` | One page of the model endpoints the caller may see | Yes |
+| 109 | POST | `/api/v1/planning-sessions/enumerate` | One page of the planning sessions the caller may see | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 
