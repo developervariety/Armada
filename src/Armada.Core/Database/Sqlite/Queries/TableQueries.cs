@@ -2265,8 +2265,11 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_battery_task_results_mission ON battery_task_results(mission_id);"),
                 new SchemaMigration(96, "Add is_evaluation to voyages and missions so evaluation work (fixture battery and model evaluation) is flagged first-class instead of inferred from the vessel pipeline",
                     @"ALTER TABLE voyages ADD COLUMN is_evaluation INTEGER NOT NULL DEFAULT 0;",
-                    @"ALTER TABLE missions ADD COLUMN is_evaluation INTEGER NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN is_evaluation INTEGER NOT NULL DEFAULT 0;"),
 
+                new SchemaMigration(97, "Add process_started_utc beside process_id on captains and missions",
+                    @"ALTER TABLE captains ADD COLUMN process_started_utc TEXT NULL;",
+                    @"ALTER TABLE missions ADD COLUMN process_started_utc TEXT NULL;")
 
 
             };

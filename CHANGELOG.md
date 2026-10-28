@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### Process launch identity
+
+- A local agent stop or a liveness check succeeds only when the live process start time matches the start time captured at that launch. A start time one second away is a different process. A missing, unreadable, or different start time leaves the process running and is reported as `process_identity_unverified` or `process_identifier_reused`. Captains and missions store that start time beside the process id. Changing or clearing the process id clears the stored start time. Rows that already have a process id and no start time stay unverified, so a later stop does not signal that process.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

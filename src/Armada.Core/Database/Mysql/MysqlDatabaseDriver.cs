@@ -959,7 +959,11 @@ namespace Armada.Core.Database.Mysql
                     @"CREATE INDEX idx_battery_task_results_mission ON battery_task_results(mission_id);"),
                 new SchemaMigration(96, "Add is_evaluation to voyages and missions so evaluation work (fixture battery and model evaluation) is flagged first-class instead of inferred from the vessel pipeline",
                     @"ALTER TABLE voyages ADD COLUMN is_evaluation TINYINT(1) NOT NULL DEFAULT 0;",
-                    @"ALTER TABLE missions ADD COLUMN is_evaluation TINYINT(1) NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN is_evaluation TINYINT(1) NOT NULL DEFAULT 0;"),
+
+                new SchemaMigration(97, "Add process_started_utc beside process_id on captains and missions",
+                    @"ALTER TABLE captains ADD COLUMN process_started_utc DATETIME(6) NULL;",
+                    @"ALTER TABLE missions ADD COLUMN process_started_utc DATETIME(6) NULL;")
 
 
             };
@@ -1145,6 +1149,7 @@ namespace Armada.Core.Database.Mysql
             captain.CurrentMissionId = NullableString(reader["current_mission_id"]);
             captain.CurrentDockId = NullableString(reader["current_dock_id"]);
             captain.ProcessId = NullableInt(reader["process_id"]);
+            try { captain.ProcessStartedUtc = FromIso8601Nullable(reader["process_started_utc"]); } catch { }
             captain.RecoveryAttempts = Convert.ToInt32(reader["recovery_attempts"]);
             captain.LastHeartbeatUtc = FromIso8601Nullable(reader["last_heartbeat_utc"]);
             try { captain.LastProcessAliveUtc = FromIso8601Nullable(reader["last_process_alive_utc"]); } catch { }

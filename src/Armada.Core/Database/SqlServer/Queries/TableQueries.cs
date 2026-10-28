@@ -1935,7 +1935,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_battery_task_results_mission') CREATE INDEX idx_battery_task_results_mission ON battery_task_results(mission_id);"),
                 new SchemaMigration(96, "Add is_evaluation to voyages and missions so evaluation work (fixture battery and model evaluation) is flagged first-class instead of inferred from the vessel pipeline",
                     @"IF COL_LENGTH('voyages','is_evaluation') IS NULL ALTER TABLE voyages ADD is_evaluation BIT NOT NULL CONSTRAINT DF_voyages_is_evaluation DEFAULT 0;",
-                    @"IF COL_LENGTH('missions','is_evaluation') IS NULL ALTER TABLE missions ADD is_evaluation BIT NOT NULL CONSTRAINT DF_missions_is_evaluation DEFAULT 0;")
+                    @"IF COL_LENGTH('missions','is_evaluation') IS NULL ALTER TABLE missions ADD is_evaluation BIT NOT NULL CONSTRAINT DF_missions_is_evaluation DEFAULT 0;"),
+
+                new SchemaMigration(97, "Add process_started_utc beside process_id on captains and missions",
+                    @"IF COL_LENGTH('captains', 'process_started_utc') IS NULL ALTER TABLE captains ADD process_started_utc NVARCHAR(64) NULL;",
+                    @"IF COL_LENGTH('missions', 'process_started_utc') IS NULL ALTER TABLE missions ADD process_started_utc NVARCHAR(64) NULL;")
 
 
             };

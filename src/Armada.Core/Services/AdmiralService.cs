@@ -760,19 +760,18 @@ namespace Armada.Core.Services
 
             foreach (Captain captain in workingCaptains)
             {
-                // Verify liveness with PID identity: a process whose start time is later than the
-                // mission launch is a recycled PID, not our agent, so the captain is treated as
-                // stale rather than left stuck in Working forever.
+                // A live process id is this captain only when its start time matches the recorded launch.
                 Mission? currentMission = null;
                 if (!String.IsNullOrEmpty(captain.CurrentMissionId))
                 {
                     currentMission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
                 }
 
+                DateTime? recordedStartUtc = captain.ProcessStartedUtc ?? currentMission?.ProcessStartedUtc;
                 bool processAlive = captain.ProcessId.HasValue &&
                     (OnIsProcessTracked?.Invoke(captain.ProcessId.Value) == true ||
                      OnIsProcessExitHandled?.Invoke(captain.ProcessId.Value) == true ||
-                     ProcessSupervisor.IsTrackedProcessAlive(captain.ProcessId.Value, currentMission?.StartedUtc));
+                     ProcessSupervisor.IsTrackedProcessAlive(captain.ProcessId.Value, recordedStartUtc));
 
                 if (processAlive) continue;
 
@@ -1471,7 +1470,10 @@ namespace Armada.Core.Services
                     }
                     else
                     {
-                        isAlive = true;
+                        DateTime? recordedStartUtc = captain.ProcessStartedUtc ?? mission?.ProcessStartedUtc;
+                        LaunchedProcessIdentityEnum identity = ProcessSupervisor.Classify(processId.Value, recordedStartUtc);
+                        isAlive = identity == LaunchedProcessIdentityEnum.Verified;
+                        if (!isAlive) exitCode = -1;
                     }
                 }
                 catch (ArgumentException)

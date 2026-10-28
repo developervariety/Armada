@@ -7,6 +7,8 @@ namespace Test.Shared.Suites.Runtimes
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
     using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -288,8 +290,11 @@ namespace Test.Shared.Suites.Runtimes
             {
                 using (StandInProcess standIn = StartStandIn())
                 {
+                    ProcessSupervisor.ForgetLaunch(standIn.Process.Id);
                     TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
-                    await runtime.StopAsync(standIn.Process.Id).ConfigureAwait(false);
+                    AgentStopResult stopped = await runtime.StopAsync(standIn.Process.Id).ConfigureAwait(false);
+                    AssertEqual(AgentStopOutcomeEnum.Refused, stopped.Outcome, "a stop with no recorded launch start time is refused");
+                    AssertEqual(AgentStopResult.IdentityUnverifiedReason, stopped.Reason, "the refusal names the missing launch identity");
                     bool exited = standIn.Process.WaitForExit(400);
                     AssertFalse(exited, "a stop with no recorded launch start time must leave the process running");
                     AssertFalse(standIn.Process.HasExited, "the stand-in process is still alive after the refused stop");
@@ -300,6 +305,7 @@ namespace Test.Shared.Suites.Runtimes
             {
                 using (StandInProcess standIn = StartStandIn())
                 {
+                    ProcessSupervisor.ForgetLaunch(standIn.Process.Id);
                     DateTime startUtc = standIn.Process.StartTime.ToUniversalTime();
                     bool mismatched = ProcessSupervisor.IsTrackedProcessAlive(standIn.Process.Id, startUtc.AddSeconds(-30));
                     AssertFalse(mismatched, "a start time 30 seconds away is a different process, not the recorded launch");
@@ -312,9 +318,25 @@ namespace Test.Shared.Suites.Runtimes
             {
                 using (StandInProcess standIn = StartStandIn())
                 {
+                    ProcessSupervisor.ForgetLaunch(standIn.Process.Id);
                     DateTime startUtc = standIn.Process.StartTime.ToUniversalTime();
                     bool reused = ProcessSupervisor.IsTrackedProcessAlive(standIn.Process.Id, startUtc.AddSeconds(-1));
                     AssertFalse(reused, "a process with a one-second start-time difference must not match");
+                    ProcessSupervisor.RecordLaunch(standIn.Process.Id, startUtc.AddSeconds(-1));
+                    try
+                    {
+                        TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                        AgentStopResult stopped = await runtime.StopAsync(standIn.Process.Id).ConfigureAwait(false);
+                        AssertEqual(AgentStopOutcomeEnum.Refused, stopped.Outcome, "a one-second start-time difference refuses the stop");
+                        AssertEqual(AgentStopResult.IdentifierReusedReason, stopped.Reason, "the refusal names the reused process id");
+                        bool exited = standIn.Process.WaitForExit(400);
+                        AssertFalse(exited, "a process that starts one second after the recorded launch is left running");
+                        AssertFalse(standIn.Process.HasExited, "the stand-in process is still alive");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.ForgetLaunch(standIn.Process.Id);
+                    }
                 }
             }));
 
@@ -322,8 +344,53 @@ namespace Test.Shared.Suites.Runtimes
             {
                 using (StandInProcess standIn = StartStandIn())
                 {
+                    ProcessSupervisor.ForgetLaunch(standIn.Process.Id);
                     bool alive = ProcessSupervisor.IsTrackedProcessAlive(standIn.Process.Id, null);
                     AssertFalse(alive, "liveness requires a recorded launch start time");
+                }
+            }));
+
+            cases.Add(CaseAsync("recorded_start_time_stops_the_process", "StopAsync stops a live process when the recorded start time matches", TestTags.Positive, async () =>
+            {
+                using (StandInProcess standIn = StartStandIn())
+                {
+                    DateTime startUtc = standIn.Process.StartTime.ToUniversalTime();
+                    ProcessSupervisor.RecordLaunch(standIn.Process.Id, startUtc);
+                    try
+                    {
+                        TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                        AgentStopResult stopped = await runtime.StopAsync(standIn.Process.Id).ConfigureAwait(false);
+                        AssertEqual(AgentStopOutcomeEnum.Stopped, stopped.Outcome, "a matching launch start time allows the stop");
+                        bool exited = standIn.Process.WaitForExit(2000);
+                        AssertTrue(exited || standIn.Process.HasExited, "the recorded process exits");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.ForgetLaunch(standIn.Process.Id);
+                    }
+                }
+            }));
+
+            cases.Add(CaseAsync("recorded_different_start_time_leaves_the_process_running", "StopAsync leaves a live process running when the recorded start time differs", TestTags.Negative, async () =>
+            {
+                using (StandInProcess standIn = StartStandIn())
+                {
+                    DateTime startUtc = standIn.Process.StartTime.ToUniversalTime();
+                    ProcessSupervisor.RecordLaunch(standIn.Process.Id, startUtc.AddSeconds(-30));
+                    try
+                    {
+                        TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                        AgentStopResult stopped = await runtime.StopAsync(standIn.Process.Id).ConfigureAwait(false);
+                        AssertEqual(AgentStopOutcomeEnum.Refused, stopped.Outcome, "a different recorded start time refuses the stop");
+                        AssertEqual(AgentStopResult.IdentifierReusedReason, stopped.Reason, "the refusal names the reused process id");
+                        bool exited = standIn.Process.WaitForExit(400);
+                        AssertFalse(exited, "the process is left running");
+                        AssertFalse(standIn.Process.HasExited, "the stand-in process is still alive");
+                    }
+                    finally
+                    {
+                        ProcessSupervisor.ForgetLaunch(standIn.Process.Id);
+                    }
                 }
             }));
 
