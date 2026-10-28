@@ -44,6 +44,12 @@ upstream integrations and excludes changes already present at that baseline.
 - The session cookie is marked `Secure` when `secureCookie` is set or a trusted forwarded scheme is `https`. A login with `"setCookie": false` sets no cookie; the native `X-Armada-Proxy-Session` header continues to work. Every `/proxy-api/v1` response carries `Cache-Control: no-store`.
 - `X-Forwarded-For`, `Forwarded` and `X-Forwarded-Proto` are ignored unless `trustForwardedHeaders` is set, so a client cannot choose the address its failures are counted against. The requester address the proxy relays to an Armada instance is the socket peer address unless the setting is on.
 
+### Ask Armada
+
+- Ask turns launch a captain's CLI runtime with read-only native tools by default: no native shell execution and no file writes or edits. The restriction applies to saved and temporary Ask turns, is resolved on each launch's own copy, and leaves mission launch defaults and the exact MCP proposal approval unchanged.
+- `ask.nativeToolAccess` widens Ask launches to the mission launch defaults. It hot-reloads, and the Dashboard Server page and `PUT /api/v1/settings` edit it.
+- Each CLI runtime maps the read-only policy to its own controls: Claude Code, Codex, Gemini, Cursor, OpenCode and Mux. A CLI runtime without a read-only mapping is refused for Ask with a message that names it.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

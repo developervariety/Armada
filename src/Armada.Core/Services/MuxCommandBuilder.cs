@@ -37,6 +37,11 @@ namespace Armada.Core.Services
         /// </summary>
         public const string ScopedMcpConfigFileName = "mux-mcp.json";
 
+        /// <summary>
+        /// Approval policy of a read-only launch.
+        /// </summary>
+        public const string ReadOnlyApprovalPolicy = "deny";
+
         #endregion
 
         #region Public-Methods
@@ -66,13 +71,15 @@ namespace Armada.Core.Services
         /// <param name="options">Captain runtime options selecting the backend.</param>
         /// <param name="showThinking">When true, add --show-thinking so the model's reasoning is
         /// streamed. Mux is the only runtime with a headless reasoning channel.</param>
+        /// <param name="readOnly">When true, use the deny approval policy instead of --yolo or the captain's policy.</param>
         /// <returns>Argument list for the Mux CLI.</returns>
         public static List<string> BuildPrintArguments(
             string workingDirectory,
             string? model,
             string? finalMessageFilePath,
             MuxCaptainOptions? options,
-            bool showThinking = false)
+            bool showThinking = false,
+            bool readOnly = false)
         {
             if (String.IsNullOrWhiteSpace(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
 
@@ -103,7 +110,9 @@ namespace Armada.Core.Services
             args.Add("-w");
             args.Add(workingDirectory);
 
-            string? approvalPolicy = GetPrintApprovalPolicy(options);
+            // A read-only launch denies every tool call that needs approval, whatever policy the captain's own
+            // options select for mission launches.
+            string? approvalPolicy = readOnly ? ReadOnlyApprovalPolicy : GetPrintApprovalPolicy(options);
             if (approvalPolicy == null)
             {
                 args.Add("--yolo");

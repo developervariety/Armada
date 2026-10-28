@@ -108,6 +108,11 @@ namespace Armada.Server
         public VoyageDispatchUpdate? VoyageDispatch { get; set; }
 
         /// <summary>
+        /// Optional Ask Armada update. Every member is individually optional.
+        /// </summary>
+        public AskUpdate? Ask { get; set; }
+
+        /// <summary>
         /// Optional extra prompt templates. When supplied, replaces the list outright.
         /// Applied at the next process start for seeding; the in-memory settings
         /// update immediately and persist to settings.json.
@@ -221,6 +226,28 @@ namespace Armada.Server
             if (ModelCapabilityProfiles != null) target.ModelCapabilityProfiles = ModelCapabilityProfiles;
             if (CapabilityHintDimensionMap != null) target.CapabilityHintDimensionMap = CapabilityHintDimensionMap;
             if (PreferNonNativeFirst.HasValue) target.PreferNonNativeFirst = PreferNonNativeFirst.Value;
+        }
+    }
+
+    /// <summary>
+    /// Partial update for Ask Armada settings. A null member leaves the current value in place.
+    /// </summary>
+    public class AskUpdate
+    {
+        /// <summary>
+        /// Native shell and file tool access of CLI runtimes launched for an Ask turn.
+        /// </summary>
+        public NativeToolAccessEnum? NativeToolAccess { get; set; }
+
+        /// <summary>
+        /// Apply the supplied members to the live settings object, in place.
+        /// </summary>
+        /// <param name="target">Live settings object to mutate.</param>
+        public void ApplyTo(AskSettings target)
+        {
+            if (target == null) return;
+            if (NativeToolAccess.HasValue)
+                target.NativeToolAccess = NativeToolAccess.Value;
         }
     }
 

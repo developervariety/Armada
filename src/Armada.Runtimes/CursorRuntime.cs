@@ -1,5 +1,6 @@
 namespace Armada.Runtimes
 {
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using System.Diagnostics;
@@ -137,6 +138,11 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Cursor expresses read-only native tools through its ask mode.
+        /// </summary>
+        public override bool SupportsReadOnlyNativeTools => true;
+
+        /// <summary>
         /// Build Cursor agent CLI arguments. Uses --print as a boolean (current
         /// cursor-agent CLI semantics; older releases accepted -p as a
         /// flag-with-value, which silently failed to enable headless mode and
@@ -168,7 +174,19 @@ namespace Armada.Runtimes
             // forwarded: cursor-agent CLI v2026.04.29-c83a488 exposes no --thinking-effort /
             // --reasoning-effort flag. Wire this block when cursor-agent CLI gains the flag.
 
-            args.Add("--force");
+            if (NativeToolAccess == NativeToolAccessEnum.ReadOnly)
+            {
+                // Ask mode is Cursor's read-only question-and-answer mode, and --force (which pre-approves
+                // commands) is left out. The sandbox stays on for anything the mode still runs.
+                args.Add("--mode");
+                args.Add("ask");
+                args.Add("--sandbox");
+                args.Add("enabled");
+            }
+            else
+            {
+                args.Add("--force");
+            }
             args.Add("--trust");
             // A workspace-level .cursor/mcp.json is discovered by cursor-agent but its servers
             // stay "not loaded (needs approval)" in a non-interactive --print run, so the dock's

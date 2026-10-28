@@ -251,6 +251,13 @@ keeps the question and any partial reply when the response is lost or times
 out. It shows an unconfirmed-result notice and releases the composer without
 a tab reload. Check the result before resending a request that can run tools.
 
+Ask turns launch a captain's CLI runtime with read-only native tools by default: no
+native shell commands and no file writes or edits. The Dashboard Server page
+(Ask Settings) and `ask.nativeToolAccess` in `settings.json` widen that to the
+mission launch defaults for every Ask turn. A runtime that cannot express read-only
+is refused for Ask with a message that names it. Mission launches never use this
+setting. See [native tool access](ASK_CONVERSATIONS.md#native-tool-access).
+
 The home dashboard reports failed reads in an inline alert and keeps the last
 available rows and voyage labels. The alert names the failed section and its
 error. Retry and the next scheduled or relevant event refresh use the same

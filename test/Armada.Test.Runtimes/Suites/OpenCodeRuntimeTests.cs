@@ -143,6 +143,40 @@ namespace Armada.Test.Runtimes.Suites
                     try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
                 }
             }).ConfigureAwait(false);
+            await RunTest("StartAsync_ReadOnlyPlanDeniesNativePermissionsEvenWhenTheEnvironmentGrantsThem", async () =>
+            {
+                if (OperatingSystem.IsWindows()) { Console.WriteLine("SKIP: OpenCode environment capture uses a POSIX test executable."); return; }
+                string root = Path.Combine(Path.GetTempPath(), "armada-opencode-readonly-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(root);
+                string capture = Path.Combine(root, "env.json");
+                string script = Path.Combine(root, "opencode");
+                await File.WriteAllTextAsync(script, "#!/bin/sh\nprintf '%s' \"$OPENCODE_CONFIG_CONTENT\" > \"" + capture + "\"\n");
+                File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                string prior = Environment.GetEnvironmentVariable("ARMADA_TEST_OPENCODE") ?? String.Empty;
+                try
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", script);
+                    InspectableOpenCodeRuntime runtime = CreateRuntime();
+                    CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.OpenCode, 7891, root, McpCredentialReference.ForMission("armada-opencode-test-token"));
+                    plan.NativeToolAccess = NativeToolAccessEnum.ReadOnly;
+                    int processId = await runtime.StartAsync(root, "test prompt", environment: new Dictionary<string, string> { ["OPENCODE_CONFIG_CONTENT"] = "{\"permission\":{\"bash\":\"allow\",\"read\":\"allow\"}}" }, isolationPlan: plan);
+                    for (int i = 0; i < 40 && (!File.Exists(capture) || await runtime.IsRunningAsync(processId)); i++) await Task.Delay(25);
+                    AssertTrue(File.Exists(capture), "A read-only OpenCode launch must receive its permission overlay through the environment.");
+                    OpenCodeConfigProbe parsed = JsonSerializer.Deserialize<OpenCodeConfigProbe>(await File.ReadAllTextAsync(capture))!;
+                    AssertNotNull(parsed.Permission);
+                    foreach (string name in new[] { "edit", "bash", "webfetch", "external_directory" })
+                        AssertEqual("deny", parsed.Permission![name].ToString(), name + " is denied");
+                    AssertEqual("allow", parsed.Permission!["read"].ToString(), "A permission the overlay does not name is left alone");
+                    AssertEqual("remote", parsed.Mcp["armada"].Type);
+                    AssertEqual(NativeToolAccessEnum.ReadOnly, runtime.NativeToolAccess, "The launch takes its access from the plan");
+                    AssertFalse(runtime.Args("test prompt").Contains("--dangerously-skip-permissions"), "A read-only launch builds its arguments without the permission bypass");
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", String.IsNullOrEmpty(prior) ? null : prior);
+                    try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+                }
+            }).ConfigureAwait(false);
             if (OperatingSystem.IsWindows())
             {
                 SkipTest("ProcessProviderError_UsesExplicitOpenCodeErrorPayload", "the provider stub is a POSIX shell script");

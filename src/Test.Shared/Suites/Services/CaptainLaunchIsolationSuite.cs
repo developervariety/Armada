@@ -241,6 +241,7 @@ namespace Test.Shared.Suites.Services
                 {
                     CaptainLaunchIsolationPlan seeded = CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, true, 7891, scoped, missionCredential);
                     AssertTrue(seeded.ExtraArguments.Count > 0, runtime + " keeps its scoped MCP arguments");
+                    AssertEqual(NativeToolAccessEnum.Unrestricted, seeded.NativeToolAccess, runtime + " mission launch keeps its native tool defaults");
                     AssertEqual(missionSessionToken, seeded.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable], runtime + " carries the mission scoped credential");
                     AssertFalse(seeded.EnvironmentOverrides.Values.Any(value => value.StartsWith(retiredLaunchTokenPrefix, StringComparison.Ordinal)), runtime + " never carries the retired global-token format");
                     AssertTrue(CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, false, 7891, scoped, missionCredential).IsEmpty, runtime + " gets an empty plan when MCP delivery is disabled");

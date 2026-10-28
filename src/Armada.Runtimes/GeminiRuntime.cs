@@ -1,5 +1,6 @@
 namespace Armada.Runtimes
 {
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using System.Diagnostics;
@@ -42,6 +43,16 @@ namespace Armada.Runtimes
         /// Current CLI values include default, auto_edit, yolo, and plan.
         /// </summary>
         public string ApprovalMode { get; set; } = "yolo";
+
+        /// <summary>
+        /// Approval mode of a read-only launch: Gemini's plan mode offers only read-only tools.
+        /// </summary>
+        public const string ReadOnlyApprovalMode = "plan";
+
+        /// <summary>
+        /// Gemini expresses read-only native tools through its plan approval mode.
+        /// </summary>
+        public override bool SupportsReadOnlyNativeTools => true;
 
         #endregion
 
@@ -111,7 +122,7 @@ namespace Armada.Runtimes
             // No -p: Gemini runs headless when stdin is not a terminal and takes the piped
             // text as the prompt (see UsePromptStdin).
             args.Add("--approval-mode");
-            args.Add(ApprovalMode);
+            args.Add(NativeToolAccess == NativeToolAccessEnum.ReadOnly ? ReadOnlyApprovalMode : ApprovalMode);
             args.Add("--output-format");
             args.Add("stream-json");
 

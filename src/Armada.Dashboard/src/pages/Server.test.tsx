@@ -92,4 +92,17 @@ describe('Server settings drafts', () => {
     await waitFor(() => expect(maxCaptainsInput()).toHaveValue(9));
     expect(heartbeatInput()).toHaveValue(60);
   });
+
+  it('saves the Ask native tool access without touching the other sections', async () => {
+    vi.mocked(getSettings).mockResolvedValue({ ...saved(4), ask: { nativeToolAccess: 'ReadOnly' } } as never);
+    vi.mocked(updateSettings).mockResolvedValue({ ...saved(4), ask: { nativeToolAccess: 'Unrestricted' } } as never);
+    render(<Server />);
+    await waitFor(() => expect(maxCaptainsInput()).toHaveValue(4));
+    const access = screen.getByTitle('Native tool access for Ask conversations') as HTMLSelectElement;
+    expect(access).toHaveValue('ReadOnly');
+    fireEvent.change(access, { target: { value: 'Unrestricted' } });
+    fireEvent.click(screen.getByText('Save Ask Settings'));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ ask: { nativeToolAccess: 'Unrestricted' } }));
+    await waitFor(() => expect(access).toHaveValue('Unrestricted'));
+  });
 });

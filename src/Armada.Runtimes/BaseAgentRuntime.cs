@@ -50,6 +50,27 @@ namespace Armada.Runtimes
         protected bool ShowThinking { get; private set; }
 
         /// <summary>
+        /// Native shell and file tool access of the current launch. <see cref="StartAsync"/> takes it from the
+        /// launch's isolation plan; a runtime instance serves one launch, so setting it never affects another
+        /// launch. <see cref="NativeToolAccessEnum.Unrestricted"/> keeps the runtime's permissive launch defaults.
+        /// </summary>
+        public NativeToolAccessEnum NativeToolAccess { get; set; } = NativeToolAccessEnum.Unrestricted;
+
+        /// <summary>
+        /// Whether this runtime can launch with <see cref="NativeToolAccessEnum.ReadOnly"/>. A runtime that cannot
+        /// express read-only native tools refuses the launch instead of running with permissive defaults, so a new
+        /// runtime must opt in explicitly.
+        /// </summary>
+        public virtual bool SupportsReadOnlyNativeTools => false;
+
+        /// <summary>
+        /// The reason a read-only launch is refused for this runtime, or null when the runtime supports it.
+        /// </summary>
+        public string? ReadOnlyNativeToolsRefusal => SupportsReadOnlyNativeTools
+            ? null
+            : Name + " cannot restrict its native tools to read-only, so it cannot run an Ask turn. Use a runtime that can, or widen Ask native tool access in the server settings.";
+
+        /// <summary>
         /// Whether this launch can write a final reply artifact.
         /// </summary>
         protected bool FinalReplyRequested
@@ -175,6 +196,10 @@ namespace Armada.Runtimes
             ResetFinalReplyCapture(!String.IsNullOrEmpty(finalMessageFilePath));
 
             ShowThinking = showThinking;
+
+            if (isolationPlan != null) NativeToolAccess = isolationPlan.NativeToolAccess;
+            if (NativeToolAccess == NativeToolAccessEnum.ReadOnly && !SupportsReadOnlyNativeTools)
+                throw new InvalidOperationException(ReadOnlyNativeToolsRefusal);
 
             // Recorded so activity records can render dock-relative paths. A runtime instance is
             // created per launch (AgentRuntimeFactory.Create), so this is not shared across missions.

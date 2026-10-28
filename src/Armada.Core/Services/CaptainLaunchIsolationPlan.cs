@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System.Collections.Generic;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// The concrete steps needed to launch a captain in an isolated agent configuration for one runtime:
@@ -31,9 +32,16 @@ namespace Armada.Core.Services
         public List<IsolationConfigFile> FilesToWrite { get; } = new List<IsolationConfigFile>();
 
         /// <summary>
+        /// Native shell and file tool access of this launch. A plan is built per launch, so setting it here
+        /// restricts that launch only and never the shared runtime settings. Mission launches leave the default.
+        /// </summary>
+        public NativeToolAccessEnum NativeToolAccess { get; set; } = NativeToolAccessEnum.Unrestricted;
+
+        /// <summary>
         /// True when this plan carries no isolation steps (nothing to apply).
         /// </summary>
-        public bool IsEmpty => ExtraArguments.Count == 0 && EnvironmentOverrides.Count == 0 && FilesToWrite.Count == 0;
+        public bool IsEmpty => ExtraArguments.Count == 0 && EnvironmentOverrides.Count == 0 && FilesToWrite.Count == 0
+            && NativeToolAccess == NativeToolAccessEnum.Unrestricted;
 
         #endregion
     }

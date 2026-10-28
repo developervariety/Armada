@@ -47,6 +47,46 @@ namespace Armada.Test.Unit.Suites.Services
 
         private const string DeferredDiscoveryToolName = "armada_discover_mcp_tools";
 
+        /// <summary>A CLI runtime with no read-only mapping; reaching StartAsync is recorded and fails the launch.</summary>
+        private sealed class NoReadOnlyCliRuntime : BaseAgentRuntime
+        {
+            public NoReadOnlyCliRuntime(LoggingModule logging) : base(logging) { }
+
+            public override string Name => "NoReadOnlyCli";
+
+            public override bool SupportsResume => false;
+
+            public CaptainLaunchIsolationPlan? StartedWith { get; private set; }
+
+            public override Task<int> StartAsync(string workingDirectory, string prompt, Dictionary<string, string>? environment = null,
+                string? logFilePath = null, string? finalMessageFilePath = null, string? model = null, Captain? captain = null,
+                bool showThinking = false, CancellationToken token = default, CaptainLaunchIsolationPlan? isolationPlan = null)
+            {
+                StartedWith = isolationPlan;
+                throw new InvalidOperationException("launch reached the process start");
+            }
+
+            protected override string GetCommand() => "no-read-only-cli";
+
+            protected override List<string> BuildArguments(string workingDirectory, string prompt, string? model, string? finalMessageFilePath, Captain? captain) =>
+                new List<string>();
+        }
+
+        private sealed class NoReadOnlyCliRuntimeFactory : AgentRuntimeFactory
+        {
+            private readonly LoggingModule _Logging;
+
+            public NoReadOnlyCliRuntimeFactory(LoggingModule logging) : base(logging) { _Logging = logging; }
+
+            public NoReadOnlyCliRuntime? LastRuntime { get; private set; }
+
+            public override IAgentRuntime Create(AgentRuntimeEnum runtimeType)
+            {
+                LastRuntime = new NoReadOnlyCliRuntime(_Logging);
+                return LastRuntime;
+            }
+        }
+
         private static LoggingModule CreateLogging()
         {
             LoggingModule logging = new LoggingModule();
@@ -210,6 +250,60 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(response.Success, "Chat must refuse without an account login.");
                     AssertContains(CaptainAccountLaunch.ReasonAccountRequired, response.Error ?? String.Empty, "Chat names account_required.");
                     AssertTrue(factory.LastRuntime == null, "No runtime may start for a refused chat.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An Ask turn launches every CLI runtime read-only by default, and the operator setting widens it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    SessionTokenService sessionTokens = new SessionTokenService();
+                    ArmadaSettings settings = new ArmadaSettings { McpPort = 51790 };
+                    AuthContext caller = AuthContext.Authenticated("tenant-native", "user-native", true, true, "Session");
+
+                    foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Mux })
+                    {
+                        Captain captain = new Captain("chat-native-" + runtime, runtime);
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        ReplayRuntimeFactory factory = new ReplayRuntimeFactory(logging, new[] { "reply" });
+                        CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, settings, sessionTokens);
+                        AskTurn savedTurn = new AskTurn { ThreadId = "thread-native", RequestId = "turn-native-" + runtime, CaptainId = captain.Id };
+
+                        settings.Ask.NativeToolAccess = NativeToolAccessEnum.ReadOnly;
+                        await chat.ChatAsync(caller, captain.Id, new CaptainChatRequest { Message = "question" }).ConfigureAwait(false);
+                        AssertEqual(NativeToolAccessEnum.ReadOnly, factory.LastRuntime!.ReceivedIsolationPlan!.NativeToolAccess, runtime + " chat turn launches read-only");
+                        await chat.ChatSavedAsync(caller, savedTurn, new CaptainChatRequest { Message = "saved question" }).ConfigureAwait(false);
+                        AssertEqual(NativeToolAccessEnum.ReadOnly, factory.LastRuntime!.ReceivedIsolationPlan!.NativeToolAccess, runtime + " saved turn launches read-only");
+                        AssertEqual(NativeToolAccessEnum.ReadOnly, settings.Ask.NativeToolAccess, runtime + ": the launch leaves the shared setting alone");
+
+                        settings.Ask.NativeToolAccess = NativeToolAccessEnum.Unrestricted;
+                        await chat.ChatSavedAsync(caller, savedTurn, new CaptainChatRequest { Message = "saved question" }).ConfigureAwait(false);
+                        AssertEqual(NativeToolAccessEnum.Unrestricted, factory.LastRuntime!.ReceivedIsolationPlan!.NativeToolAccess, runtime + " launches with mission defaults once the operator widens Ask");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An Ask turn is refused for a CLI runtime that cannot express read-only native tools", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    Captain captain = new Captain("chat-no-read-only", AgentRuntimeEnum.Cursor);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    NoReadOnlyCliRuntimeFactory factory = new NoReadOnlyCliRuntimeFactory(logging);
+                    ArmadaSettings settings = new ArmadaSettings();
+                    CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, settings);
+
+                    CaptainChatResponse refused = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "question" }).ConfigureAwait(false);
+                    AssertFalse(refused.Success, "The Ask turn must be refused");
+                    AssertContains("NoReadOnlyCli cannot restrict its native tools to read-only", refused.Error ?? String.Empty, "The refusal names the runtime and the reason");
+                    AssertNull(factory.LastRuntime!.StartedWith, "A refused Ask turn must never start the runtime");
+
+                    settings.Ask.NativeToolAccess = NativeToolAccessEnum.Unrestricted;
+                    CaptainChatResponse widened = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "question" }).ConfigureAwait(false);
+                    AssertContains("launch reached the process start", widened.Error ?? String.Empty, "Widened Ask launches the runtime with mission defaults");
+                    AssertEqual(NativeToolAccessEnum.Unrestricted, factory.LastRuntime!.StartedWith!.NativeToolAccess, "The widened launch carries no restriction");
                 }
             }).ConfigureAwait(false);
 

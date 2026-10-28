@@ -7,6 +7,7 @@ namespace Armada.Runtimes
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using System.Text.Json.Nodes;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -37,6 +38,27 @@ namespace Armada.Runtimes
         /// OpenCode does not support session resume.
         /// </summary>
         public override bool SupportsResume => false;
+
+        /// <summary>
+        /// Agent a read-only launch runs as.
+        /// </summary>
+        public const string ReadOnlyAgent = "plan";
+
+        /// <summary>
+        /// OpenCode expresses read-only native tools through its plan agent and a permission overlay.
+        /// </summary>
+        public override bool SupportsReadOnlyNativeTools => true;
+
+        /// <summary>
+        /// Permissions a read-only launch denies in its inline configuration.
+        /// </summary>
+        public static readonly IReadOnlyList<string> ReadOnlyDeniedPermissions = new List<string>
+        {
+            "edit",
+            "bash",
+            "webfetch",
+            "external_directory"
+        };
 
         /// <summary>
         /// Starts an OpenCode captain process, adding the external-provider overlay only
@@ -83,6 +105,14 @@ namespace Armada.Runtimes
                     mcpConfig.Contents);
             }
 
+            NativeToolAccessEnum access = isolationPlan?.NativeToolAccess ?? NativeToolAccess;
+            if (access == NativeToolAccessEnum.ReadOnly)
+            {
+                launchEnvironment ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = DenyNativePermissions(
+                    launchEnvironment.TryGetValue("OPENCODE_CONFIG_CONTENT", out string? inlineConfig) ? inlineConfig : null);
+            }
+
             return await base.StartAsync(
                 workingDirectory,
                 prompt,
@@ -113,6 +143,22 @@ namespace Armada.Runtimes
                 captain?.ApiKey,
                 captain?.ApiBaseUrl,
                 _ModelProviders);
+        }
+
+        /// <summary>
+        /// Set every read-only denial in the inline configuration's permission section. A denial replaces any
+        /// permission the configuration already grants, so an operator-supplied configuration cannot widen a
+        /// read-only launch.
+        /// </summary>
+        private static string DenyNativePermissions(string? existingConfig)
+        {
+            JsonObject config = String.IsNullOrWhiteSpace(existingConfig)
+                ? new JsonObject()
+                : (JsonNode.Parse(existingConfig) as JsonObject) ?? new JsonObject();
+            JsonObject permission = config["permission"] as JsonObject ?? new JsonObject();
+            foreach (string name in ReadOnlyDeniedPermissions) permission[name] = "deny";
+            config["permission"] = permission;
+            return config.ToJsonString();
         }
 
         private static string MergeOpenCodeConfig(string? existingConfig, string overlayConfig)
@@ -270,7 +316,9 @@ namespace Armada.Runtimes
             // for external_directory and the non-interactive run-mode permission
             // preset (which a permissive config file has been reported not to
             // override). Added unconditionally for the standalone run path.
-            args.Add("--dangerously-skip-permissions");
+            // A read-only launch omits the bypass: its permission overlay denies shell, edit and web access.
+            if (NativeToolAccess != NativeToolAccessEnum.ReadOnly)
+                args.Add("--dangerously-skip-permissions");
 
             // Forward per-captain reasoning effort as --variant when set.
             // Null/blank means the captain has no runtime options or the option
@@ -283,7 +331,11 @@ namespace Armada.Runtimes
                 args.Add(reasoningEffort.Trim());
             }
 
-            string resolvedAgent = _Connection.ResolveAgent();
+            // OpenCode's plan agent is its read-only agent; a read-only launch uses it whatever agent the
+            // captain's mission launches use, because an agent definition can grant tools the overlay denies.
+            string resolvedAgent = NativeToolAccess == NativeToolAccessEnum.ReadOnly
+                ? ReadOnlyAgent
+                : _Connection.ResolveAgent();
             if (!String.IsNullOrWhiteSpace(resolvedAgent))
             {
                 args.Add("--agent");

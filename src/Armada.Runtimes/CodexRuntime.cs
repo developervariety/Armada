@@ -6,6 +6,7 @@ namespace Armada.Runtimes
     using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using SyslogLogging;
@@ -239,6 +240,11 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Codex expresses read-only native tools through its sandbox mode and its shell tool features.
+        /// </summary>
+        public override bool SupportsReadOnlyNativeTools => true;
+
+        /// <summary>
         /// Build Codex CLI arguments.
         /// </summary>
         protected override List<string> BuildArguments(
@@ -252,7 +258,18 @@ namespace Armada.Runtimes
 
             args.Add("exec");
             args.Add("--json");
-            if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
+            if (NativeToolAccess == NativeToolAccessEnum.ReadOnly)
+            {
+                // A read-only filesystem sandbox, and no shell tool for the model to call. The approval mode of
+                // the captain's mission launch is not consulted.
+                args.Add("--sandbox");
+                args.Add("read-only");
+                args.Add("-c");
+                args.Add("features.shell_tool=false");
+                args.Add("-c");
+                args.Add("features.unified_exec=false");
+            }
+            else if (String.Equals(ApprovalMode, "dangerous", StringComparison.OrdinalIgnoreCase))
             {
                 args.Add("--dangerously-bypass-approvals-and-sandbox");
             }

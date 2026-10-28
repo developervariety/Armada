@@ -549,6 +549,12 @@ namespace Armada.Server.Routes
                         + " prefixCount=" + _settings.VoyageDispatch.StagePersonaTitlePrefixes.Count);
                 }
 
+                if (body.Ask != null)
+                {
+                    body.Ask.ApplyTo(_settings.Ask);
+                    _logging.Info(_Header + "ask settings updated via API: nativeToolAccess=" + _settings.Ask.NativeToolAccess);
+                }
+
                 if (body.AdditionalPromptTemplates != null)
                     _settings.AdditionalPromptTemplates = body.AdditionalPromptTemplates;
 
@@ -688,6 +694,7 @@ namespace Armada.Server.Routes
                 ModelTier = _settings.ModelTier,
                 ProviderUsage = _settings.ModelTier.UsageRouting.Accounts.Select(account => UsageRoutingService.For(_settings).GetStatus(account, null, DateTime.UtcNow)).ToList(),
                 VoyageDispatch = _settings.VoyageDispatch,
+                Ask = _settings.Ask,
                 AdditionalPromptTemplates = _settings.AdditionalPromptTemplates,
                 AdditionalPersonas = _settings.AdditionalPersonas,
                 AdditionalPipelines = _settings.AdditionalPipelines,

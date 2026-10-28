@@ -1,5 +1,6 @@
 namespace Armada.Runtimes
 {
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using System.Diagnostics;
@@ -70,6 +71,37 @@ namespace Armada.Runtimes
             "Bash(declare -x)",
             "Bash(declare -p)"
         };
+
+        /// <summary>
+        /// Native tools a read-only launch keeps: file reads and searches inside the launch's working directory.
+        /// Every other native tool, including shell, file writes and edits, notebook edits and web access, is not
+        /// offered to the model.
+        /// </summary>
+        public static readonly IReadOnlyList<string> ReadOnlyNativeTools = new List<string>
+        {
+            "Read",
+            "Grep",
+            "Glob"
+        };
+
+        /// <summary>
+        /// Native tools a read-only launch refuses by name, in addition to leaving them out of
+        /// <see cref="ReadOnlyNativeTools"/>.
+        /// </summary>
+        public static readonly IReadOnlyList<string> ReadOnlyDeniedTools = new List<string>
+        {
+            "Bash",
+            "Edit",
+            "MultiEdit",
+            "Write",
+            "NotebookEdit"
+        };
+
+        /// <summary>
+        /// Permission rule that lets a read-only launch call the tools of the scoped Armada MCP server. The
+        /// server's own authorization decides what each tool may do.
+        /// </summary>
+        public const string ArmadaMcpAllowRule = "mcp__armada";
 
         /// <summary>
         /// Whether to use --dangerously-skip-permissions flag.
@@ -152,6 +184,11 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Claude Code expresses read-only native tools through its tool list and permission rules.
+        /// </summary>
+        public override bool SupportsReadOnlyNativeTools => true;
+
+        /// <summary>
         /// Build Claude Code CLI arguments.
         /// </summary>
         protected override List<string> BuildArguments(
@@ -182,8 +219,10 @@ namespace Armada.Runtimes
 
             // The launch already removes admiral secrets from the captain environment; refusing the bare
             // environment-listing commands keeps whatever else the environment holds out of the transcript.
+            bool readOnly = NativeToolAccess == NativeToolAccessEnum.ReadOnly;
             args.Add("--disallowedTools");
             args.AddRange(EnvironmentListingDenyRules);
+            if (readOnly) args.AddRange(ReadOnlyDeniedTools);
             args.Add("--strict-mcp-config");
 
             if (ExcludeDynamicSystemPromptSections)
@@ -210,7 +249,17 @@ namespace Armada.Runtimes
                 args.Add(effectiveModel);
             }
 
-            if (SkipPermissions)
+            if (readOnly)
+            {
+                // No permission bypass: the model is offered only the read-only native tools, and a headless run
+                // answers every other permission request with a denial. The scoped Armada MCP server stays
+                // callable, since the endpoint authorizes each of its tools.
+                args.Add("--tools");
+                args.Add(String.Join(",", ReadOnlyNativeTools));
+                args.Add("--allowedTools");
+                args.Add(String.Join(",", ReadOnlyNativeTools.Concat(new[] { ArmadaMcpAllowRule })));
+            }
+            else if (SkipPermissions)
             {
                 args.Add("--dangerously-skip-permissions");
             }

@@ -1,7 +1,9 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Settings;
+    using Armada.Server;
     using Armada.Test.Common;
 
     public class SettingsTests : TestSuite
@@ -27,6 +29,26 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(50, live.BranchCleanupSweepIntervalCycles, "a reloaded branch cleanup cadence is applied");
                 AssertEqual(3, live.BranchCleanupPreservedRefRetentionDays, "a reloaded preserved-ref retention is applied");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ArmadaSettings Ask native tool access defaults to read-only, reloads in place and reads from settings.json", () =>
+            {
+                ArmadaSettings live = new ArmadaSettings();
+                AskSettings section = live.Ask;
+                AssertEqual(NativeToolAccessEnum.ReadOnly, live.Ask.NativeToolAccess, "a fresh install restricts Ask native tools");
+
+                ArmadaSettings edited = ArmadaSettings.FromJson("{\"ask\":{\"nativeToolAccess\":\"Unrestricted\"}}", "settings.json");
+                AssertEqual(NativeToolAccessEnum.Unrestricted, edited.Ask.NativeToolAccess, "settings.json names the widened access as a string");
+
+                live.ApplyHotReloadableFrom(edited);
+                AssertTrue(Object.ReferenceEquals(section, live.Ask), "the Ask section object survives a reload");
+                AssertEqual(NativeToolAccessEnum.Unrestricted, section.NativeToolAccess, "a reloaded Ask access reaches the next launch");
+
+                new AskUpdate { NativeToolAccess = NativeToolAccessEnum.ReadOnly }.ApplyTo(live.Ask);
+                AssertEqual(NativeToolAccessEnum.ReadOnly, live.Ask.NativeToolAccess, "the settings update applies the access in place");
+                new AskUpdate().ApplyTo(live.Ask);
+                AssertEqual(NativeToolAccessEnum.ReadOnly, live.Ask.NativeToolAccess, "an update that names no access leaves it alone");
                 return Task.CompletedTask;
             });
 

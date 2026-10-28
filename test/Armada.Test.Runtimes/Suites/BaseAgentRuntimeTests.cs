@@ -1,7 +1,12 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.Diagnostics;
+    using Armada.Core;
+    using Armada.Core.Enums;
+    using Armada.Core.Harbor;
+    using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -15,6 +20,35 @@ namespace Armada.Test.Runtimes.Suites
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return logging;
+        }
+
+        private sealed class ArgumentCapturingHarborHost : IHarborProcessHost
+        {
+            public List<string> Arguments { get; private set; } = new List<string>();
+
+            public Task<int> LaunchAsync(HarborProcessLaunch launch, IHarborProcessEvents events, CancellationToken token = default)
+            {
+                Arguments = new List<string>(launch.Request!.Arguments);
+                return Task.FromResult(ProcessSupervisor.SyntheticProcessIdFloor + 1);
+            }
+        }
+
+        // Builds the arguments a real runtime adapter would launch with, without starting a process.
+        private async Task<List<string>> LaunchArgumentsAsync(AgentRuntimeEnum runtime, NativeToolAccessEnum access, Captain? captain = null, OpenCodeServerSettings? openCode = null)
+        {
+            AgentRuntimeFactory factory = new AgentRuntimeFactory(CreateLogging(), openCode);
+            BaseAgentRuntime adapter = factory.CreateLaunchPlanAdapter(runtime);
+            adapter.NativeToolAccess = access;
+            ArgumentCapturingHarborHost host = new ArgumentCapturingHarborHost();
+            await adapter.StartOnHarborAsync(host, new HarborProcessLaunch { WorkingDirectory = "/runner/work" }, "prompt", captain: captain).ConfigureAwait(false);
+            return host.Arguments;
+        }
+
+        private string ValueAfter(List<string> args, string flag)
+        {
+            int index = args.IndexOf(flag);
+            AssertTrue(index >= 0 && index + 1 < args.Count, flag + " must be present and carry a value");
+            return args[index + 1];
         }
 
         private static bool WaitForProcessExit(int pid, TimeSpan within)
@@ -276,6 +310,111 @@ namespace Armada.Test.Runtimes.Suites
                 ProcessStartInfo startInfo = runtime.CapturedStartInfo!;
                 AssertTrue(startInfo.ArgumentList.Contains("--mcp-config"), "Expected launch-scoped MCP argument");
                 AssertEqual("enabled", startInfo.Environment["ARMADA_TEST_SCOPED_CONFIG"]);
+            });
+
+            await RunTest("StartAsync_ReadOnlyPlan_RefusesARuntimeThatCannotExpressReadOnly", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.CaptureStartInfoAndThrow = true;
+                CaptainLaunchIsolationPlan plan = new CaptainLaunchIsolationPlan { NativeToolAccess = NativeToolAccessEnum.ReadOnly };
+
+                string refusal = String.Empty;
+                try
+                {
+                    await runtime.StartAsync(Path.GetTempPath(), "test prompt", isolationPlan: plan);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    refusal = ex.Message;
+                }
+
+                AssertContains("TestRuntime cannot restrict its native tools to read-only", refusal, "the refusal names the runtime and the reason");
+                AssertTrue(runtime.CapturedStartInfo == null, "A refused read-only launch must not reach process start");
+                AssertTrue(runtime.AccessSeenByBuildArguments == null, "A refused read-only launch must not build permissive arguments");
+
+                runtime.ReadOnlySupportedOverride = true;
+                await AssertThrowsAsync<InvalidOperationException>(() =>
+                    runtime.StartAsync(Path.GetTempPath(), "test prompt", isolationPlan: plan));
+                AssertTrue(runtime.CapturedStartInfo != null, "The same launch proceeds once the runtime can express read-only");
+                AssertEqual(NativeToolAccessEnum.ReadOnly, runtime.AccessSeenByBuildArguments, "The runtime builds its arguments with the plan's access");
+            });
+
+            await RunTest("StartAsync_PlanWithoutRestriction_KeepsTheRuntimeUnrestricted", async () =>
+            {
+                TestAgentRuntime runtime = new TestAgentRuntime(CreateLogging());
+                runtime.CaptureStartInfoAndThrow = true;
+
+                await AssertThrowsAsync<InvalidOperationException>(() =>
+                    runtime.StartAsync(Path.GetTempPath(), "test prompt", isolationPlan: new CaptainLaunchIsolationPlan()));
+
+                AssertEqual(NativeToolAccessEnum.Unrestricted, runtime.AccessSeenByBuildArguments, "A mission plan never restricts native tools");
+                AssertTrue(runtime.CapturedStartInfo != null, "A runtime that cannot express read-only still launches for a mission");
+            });
+
+            await RunTest("ReadOnlyLaunch_RestrictsNativeToolsForEveryRuntime_AndMissionLaunchKeepsItsDefaults", async () =>
+            {
+                Captain muxAuto = new Captain("mux-auto", AgentRuntimeEnum.Mux)
+                {
+                    RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new MuxCaptainOptions { ApprovalPolicy = "auto" })
+                };
+                OpenCodeServerSettings openCode = new OpenCodeServerSettings { CaptainAgent = "captain-build" };
+
+                foreach (AgentRuntimeEnum runtime in Enum.GetValues<AgentRuntimeEnum>())
+                {
+                    string label = runtime.ToString();
+                    Captain? captain = runtime == AgentRuntimeEnum.Mux ? muxAuto : null;
+                    if (runtime == AgentRuntimeEnum.ApiEndpoint || runtime == AgentRuntimeEnum.Custom)
+                    {
+                        await AssertThrowsAsync<InvalidOperationException>(() =>
+                            LaunchArgumentsAsync(runtime, NativeToolAccessEnum.ReadOnly, captain, openCode));
+                        continue;
+                    }
+
+                    List<string> readOnly = await LaunchArgumentsAsync(runtime, NativeToolAccessEnum.ReadOnly, captain, openCode);
+                    List<string> mission = await LaunchArgumentsAsync(runtime, NativeToolAccessEnum.Unrestricted, captain, openCode);
+                    AssertFalse(readOnly.Contains("--dangerously-skip-permissions") || readOnly.Contains("--dangerously-bypass-approvals-and-sandbox")
+                        || readOnly.Contains("--full-auto") || readOnly.Contains("--yolo") || readOnly.Contains("--force"),
+                        label + ": a read-only launch carries no permission bypass: " + String.Join(" ", readOnly));
+
+                    switch (runtime)
+                    {
+                        case AgentRuntimeEnum.ClaudeCode:
+                            AssertEqual("Read,Grep,Glob", ValueAfter(readOnly, "--tools"), label + ": only read-only native tools are offered");
+                            AssertContains("mcp__armada", ValueAfter(readOnly, "--allowedTools"), label + ": the scoped Armada MCP server stays callable");
+                            foreach (string denied in new[] { "Bash", "Edit", "Write" })
+                                AssertTrue(readOnly.Contains(denied), label + ": " + denied + " is refused by name");
+                            AssertTrue(mission.Contains("--dangerously-skip-permissions"), label + ": a mission launch keeps its permission bypass");
+                            AssertFalse(mission.Contains("--tools"), label + ": a mission launch keeps every native tool");
+                            break;
+                        case AgentRuntimeEnum.Codex:
+                            AssertEqual("read-only", ValueAfter(readOnly, "--sandbox"), label + ": the sandbox is read-only");
+                            AssertTrue(readOnly.Contains("features.shell_tool=false"), label + ": the shell tool is off");
+                            AssertTrue(mission.Contains("--dangerously-bypass-approvals-and-sandbox") || mission.Contains("--full-auto"), label + ": a mission launch keeps its automatic approvals");
+                            AssertFalse(mission.Contains("--sandbox"), label + ": a mission launch selects no explicit sandbox");
+                            break;
+                        case AgentRuntimeEnum.Gemini:
+                            AssertEqual("plan", ValueAfter(readOnly, "--approval-mode"), label + ": plan mode offers read-only tools");
+                            AssertEqual("yolo", ValueAfter(mission, "--approval-mode"), label + ": a mission launch keeps its approval mode");
+                            break;
+                        case AgentRuntimeEnum.Cursor:
+                            AssertEqual("ask", ValueAfter(readOnly, "--mode"), label + ": ask mode is read-only");
+                            AssertTrue(mission.Contains("--force"), label + ": a mission launch keeps force");
+                            AssertFalse(mission.Contains("--mode"), label + ": a mission launch selects no read-only mode");
+                            break;
+                        case AgentRuntimeEnum.OpenCode:
+                            AssertEqual("plan", ValueAfter(readOnly, "--agent"), label + ": the plan agent is read-only, whatever agent missions use");
+                            AssertTrue(mission.Contains("--dangerously-skip-permissions"), label + ": a mission launch keeps its permission bypass");
+                            AssertEqual("captain-build", ValueAfter(mission, "--agent"), label + ": a mission launch keeps the configured agent");
+                            break;
+                        case AgentRuntimeEnum.Mux:
+                            AssertEqual("deny", ValueAfter(readOnly, "--approval-policy"), label + ": the captain's own auto policy does not widen a read-only launch");
+                            AssertEqual("auto", ValueAfter(mission, "--approval-policy"), label + ": a mission launch keeps the captain's policy");
+                            break;
+                        default:
+                            AssertTrue(false, label + ": a new CLI runtime needs a read-only mapping in this table");
+                            break;
+                    }
+                }
             });
 
             // Agent CLIs and the builds they run leave files in the temporary directory; one CLI unpacks a

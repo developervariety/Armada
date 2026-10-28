@@ -1,5 +1,6 @@
 namespace Armada.Runtimes
 {
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using System.Text.Json;
@@ -81,6 +82,11 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Mux expresses read-only native tools through its deny approval policy.
+        /// </summary>
+        public override bool SupportsReadOnlyNativeTools => true;
+
+        /// <summary>
         /// Build Mux CLI arguments.
         /// </summary>
         protected override List<string> BuildArguments(
@@ -91,7 +97,7 @@ namespace Armada.Runtimes
             Captain? captain)
         {
             MuxCaptainOptions? options = CaptainRuntimeOptions.GetMuxOptions(captain);
-            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, model, finalMessageFilePath, options, ShowThinking);
+            return MuxCommandBuilder.BuildPrintArguments(workingDirectory, model, finalMessageFilePath, options, ShowThinking, NativeToolAccess == NativeToolAccessEnum.ReadOnly);
         }
 
         /// <summary>

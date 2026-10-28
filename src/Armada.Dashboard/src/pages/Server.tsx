@@ -72,6 +72,12 @@ interface RemoteControlSettings {
   allowInvalidCertificates: boolean;
 }
 
+type AskNativeToolAccess = 'ReadOnly' | 'Unrestricted';
+
+interface AskSettings {
+  nativeToolAccess: AskNativeToolAccess;
+}
+
 interface ServerSettings {
   admiralPort: number;
   mcpPort: number;
@@ -83,6 +89,7 @@ interface ServerSettings {
   planningSessionAbandonmentTimeoutMinutes: number;
   planningSessionRetentionDays: number;
   autoCreatePr: boolean;
+  ask?: AskSettings;
   dataDirectory: string;
   databasePath: string;
   logDirectory: string;
@@ -290,6 +297,21 @@ export default function Server() {
       const updated = await updateSettings(sent);
       applySavedSettings(updated as unknown as ServerSettings, sent);
       showToast('success', t('Agent settings saved'));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : t('Unknown error');
+      showToast('error', t('Failed: {{message}}', { message: msg }));
+    }
+  };
+
+  const handleSaveAskSettings = async () => {
+    if (!settings) return;
+    try {
+      const sent = {
+        ask: { nativeToolAccess: settings.ask?.nativeToolAccess ?? 'ReadOnly' },
+      };
+      const updated = await updateSettings(sent);
+      applySavedSettings(updated as unknown as ServerSettings, sent);
+      showToast('success', t('Ask settings saved'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('Unknown error');
       showToast('error', t('Failed: {{message}}', { message: msg }));
@@ -827,6 +849,42 @@ export default function Server() {
               title={t('Save agent settings changes')}
             >
               {t('Save Agent Settings')}
+            </button>
+          </fieldset>
+        </div>
+      )}
+
+      {settings && (
+        <div className="settings-section" style={{ marginTop: '1.5rem' }}>
+          <h3 title={t('Controls what the shell and file tools of a CLI runtime can do during an Ask Armada conversation.')}>{t('Ask Settings')}</h3>
+          <p className="text-muted" style={{ marginBottom: '0.75rem' }}>
+            {t('Ask conversations run a captain\'s CLI runtime without native shell commands and without file writes or edits. Widening this setting gives an Ask conversation the same native tool access as a mission launch.')}
+          </p>
+          <fieldset disabled={remoteSettingsLocked} style={{ border: 'none', margin: 0, padding: 0 }}>
+            <div className="settings-grid">
+              <div className="form-group">
+                <label title={t('Native shell and file tool access of CLI runtimes launched for an Ask conversation.')}>{t('Native Tool Access')}</label>
+                <select
+                  value={settings.ask?.nativeToolAccess ?? 'ReadOnly'}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      ask: { nativeToolAccess: e.target.value as AskNativeToolAccess },
+                    })
+                  }
+                  title={t('Native tool access for Ask conversations')}
+                >
+                  <option value="ReadOnly">{t('Read-only (default)')}</option>
+                  <option value="Unrestricted">{t('Unrestricted (same as missions)')}</option>
+                </select>
+              </div>
+            </div>
+            <button
+              className="btn-primary btn-sm"
+              onClick={handleSaveAskSettings}
+              title={t('Save Ask settings changes')}
+            >
+              {t('Save Ask Settings')}
             </button>
           </fieldset>
         </div>

@@ -1090,6 +1090,9 @@ Returns current server settings including ports, agent configuration, system pat
   "StallThresholdMinutes": 10,
   "IdleCaptainTimeoutSeconds": 0,
   "AutoCreatePr": false,
+  "Ask": {
+    "NativeToolAccess": "ReadOnly"
+  },
   "DataDirectory": "C:\\Users\\joelc\\.armada",
   "DatabasePath": "C:\\Users\\joelc\\.armada\\armada.db",
   "LogDirectory": "C:\\Users\\joelc\\.armada\\logs",
@@ -1136,6 +1139,11 @@ Accepts partial updates to editable server settings. When `RemoteControl` is sup
 **Response:** `200 OK`
 
 Returns the updated settings payload in the same shape as `GET /api/v1/settings`.
+
+A supplied `Ask.NativeToolAccess` (`ReadOnly` or `Unrestricted`) sets the native shell and file tool access of CLI
+runtimes launched for Ask turns, and an omitted member leaves the current value. `ReadOnly` is the default.
+`Unrestricted` gives Ask turns the mission launch defaults. See
+[native tool access](ASK_CONVERSATIONS.md#native-tool-access).
 
 A supplied `ModelTier.UsageRouting` is validated before anything is applied: the policy shape and ranges, each
 account's key file path against the Admiral's account folder root, and each account's runtime against the captains

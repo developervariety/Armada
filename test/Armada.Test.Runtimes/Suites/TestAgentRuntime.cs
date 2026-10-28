@@ -1,6 +1,7 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.Diagnostics;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Runtimes;
     using Armada.Test.Common;
@@ -21,11 +22,15 @@ namespace Armada.Test.Runtimes.Suites
         public bool UsePromptStdinOverride { get; set; } = false;
         public bool WriteStderrToLogFileOverride { get; set; } = true;
         public bool CaptureStartInfoAndThrow { get; set; } = false;
+        public bool ReadOnlySupportedOverride { get; set; } = false;
+        public NativeToolAccessEnum? AccessSeenByBuildArguments { get; private set; }
         public ProcessStartInfo? CapturedStartInfo { get; private set; }
 
         public TestAgentRuntime(LoggingModule logging) : base(logging)
         {
         }
+
+        public override bool SupportsReadOnlyNativeTools => ReadOnlySupportedOverride;
 
         protected override string GetCommand() => CommandOverride;
 
@@ -40,7 +45,11 @@ namespace Armada.Test.Runtimes.Suites
             string prompt,
             string? model,
             string? finalMessageFilePath,
-            Captain? captain) => ArgsOverride;
+            Captain? captain)
+        {
+            AccessSeenByBuildArguments = NativeToolAccess;
+            return ArgsOverride;
+        }
 
         protected override void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain, string? model = null)
         {

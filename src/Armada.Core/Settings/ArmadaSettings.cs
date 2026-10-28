@@ -905,6 +905,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Ask Armada conversation policy, including the native shell and file tool access of CLI runtimes
+        /// launched for an Ask turn. Defaults to read-only native tools.
+        /// </summary>
+        public AskSettings Ask
+        {
+            get => _Ask;
+            set => _Ask = value ?? new AskSettings();
+        }
+
+        /// <summary>
         /// Read-only captain-log screening policy. Default off with an empty boundary-pattern
         /// list, so a fresh install reads no captain log and the boundary rule reports nothing
         /// until an operator supplies the terms their deployment treats as private.
@@ -1139,6 +1149,7 @@ namespace Armada.Core.Settings
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
         private WebSocketSettings _WebSocket = new WebSocketSettings();
         private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
+        private AskSettings _Ask = new AskSettings();
         private ResourcePressureAdmissionSettings _ResourcePressureAdmission = new ResourcePressureAdmissionSettings();
         private IncidentLifecycleSettings _IncidentLifecycle = new IncidentLifecycleSettings();
         private AutonomousObjectiveSchedulerSettings _AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings();
@@ -1287,6 +1298,10 @@ namespace Armada.Core.Settings
             ApiCaptainCloudProviders = source.ApiCaptainCloudProviders;
             ModelTier.CopyFrom(source.ModelTier);
             VoyageDispatch.CopyFrom(source.VoyageDispatch);
+
+            // The chat service reads this section through the shared settings instance on every Ask launch;
+            // it is copied in place so a reload reaches the next launch.
+            Ask.CopyFrom(source.Ask);
 
             // The log screen is constructed with a reference to this nested object, so it is copied
             // in place: a sub-section left out of this copy is silently ignored on every reload and

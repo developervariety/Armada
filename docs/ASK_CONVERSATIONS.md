@@ -56,8 +56,9 @@ matching typed contracts. Clients must retain the request identifier until they
 know the result. Transport failure is not permission to submit the same text
 under a new identifier.
 
-The fork does not import upstream CLI permission overrides, automatic approval,
-retention pruning or bulk thread deletion with this feature. Temporary chat MCP access uses the captain chat service's current caller scope.
+The fork does not import upstream's central CLI permission requests and rules,
+automatic approval, retention pruning or bulk thread deletion with this feature.
+Temporary chat MCP access uses the captain chat service's current caller scope.
 Saved turns use a separate turn-bound MCP credential and the manual approval gate. Saved threads
 do not change dispatch, landing, rescue or deployment authority.
 
@@ -77,6 +78,37 @@ Thread updates use presence flags (`setTitle`, `setCaptainId`, `setPinned`,
 null captain clears it. Absent flags leave fields unchanged. Thread lists return
 an enumeration result. Turn lists return a bounded array in ascending sequence
 order, using the exclusive `beforeSequence` cursor for older pages.
+
+## Native tool access
+
+The Armada approval gate below covers Armada MCP tools. A CLI runtime also has
+shell and file tools of its own, and a mission launch runs those without a prompt.
+An Ask turn does not inherit that authority. Every Ask turn, saved or temporary,
+resolves its native tool access on a copy made for that launch. The copy lives on
+the turn's launch plan, so the server settings and the mission launch defaults
+stay as they are.
+
+The default is `ReadOnly`: no native shell execution and no file writes or edits.
+Read tools and the turn's scoped Armada MCP tools remain. The `ask.nativeToolAccess`
+setting widens an Ask launch. `Unrestricted` gives Ask the same native tool defaults as a
+mission launch. The setting applies to every Ask turn on the server. It hot-reloads
+in place, and the Dashboard Server page and `PUT /api/v1/settings` edit it.
+
+Each runtime expresses `ReadOnly` through its own controls:
+
+| Runtime | Read-only launch |
+| --- | --- |
+| Claude Code | No permission bypass. The model is offered only `Read`, `Grep` and `Glob`; `Bash`, `Edit`, `MultiEdit`, `Write` and `NotebookEdit` are also refused by name. The `armada` MCP server is allowed. |
+| Codex | `--sandbox read-only` with the shell tool and unified exec features off. No bypass or full-auto flag. |
+| Gemini | `--approval-mode plan`, Gemini's read-only mode. |
+| Cursor | `--mode ask` with the sandbox enabled and no `--force`. |
+| OpenCode | No permission bypass; the `plan` agent; the inline configuration denies `edit`, `bash`, `webfetch` and `external_directory`, replacing any grant already in that configuration. |
+| Mux | `--approval-policy deny`, whatever policy the captain's own options select for missions. |
+| API endpoint | Chat never offers `run_command`; the runtime has no other shell. |
+
+A CLI runtime that cannot express read-only native tools is refused for Ask with
+a message that names the runtime. It never launches with its permissive defaults.
+A new CLI runtime refuses Ask until it declares a read-only mapping.
 
 ## Proposed actions and work
 

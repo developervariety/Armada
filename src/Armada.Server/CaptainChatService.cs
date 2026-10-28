@@ -183,6 +183,10 @@ namespace Armada.Server
                     runtimeConfigDirectory,
                     chatCredential);
                 CaptainLaunchIsolationPlanner.ApplyAccountFromSettings(isolationPlan, captain, _Settings.ModelTier.UsageRouting);
+
+                // The native shell and file tools of an Ask turn follow the Ask setting, not the mission launch
+                // defaults. The restriction rides on this turn's own plan, so no shared setting changes.
+                isolationPlan.NativeToolAccess = _Settings.Ask.NativeToolAccess;
                 MaterializeIsolationPlan(isolationPlan, runtimeConfigDirectory);
 
                 try
@@ -212,6 +216,12 @@ namespace Armada.Server
                 {
                     return Fail("This captain's runtime (" + captain.Runtime + ") could not be launched for chat: " + e.Message);
                 }
+
+                // A CLI runtime that cannot express read-only native tools is refused for Ask rather than
+                // launched with its permissive defaults. An API-endpoint runtime has no shell tool in chat.
+                if (isolationPlan.NativeToolAccess == NativeToolAccessEnum.ReadOnly
+                    && runtime is BaseAgentRuntime cliRuntime && !cliRuntime.SupportsReadOnlyNativeTools)
+                    return Fail(cliRuntime.ReadOnlyNativeToolsRefusal!);
 
                 // Claude Code streams token-by-token only in streaming-JSON mode; enable it for chat so the
                 // reply renders incrementally and we can read a clean final message + metrics from the
