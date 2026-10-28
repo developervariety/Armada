@@ -2455,6 +2455,8 @@ export interface HistoricalTimelineQuery {
   toUtc?: string | null;
   pageNumber?: number;
   pageSize?: number;
+  /** Server ordering by occurrence time: CreatedDescending (newest first, default) or CreatedAscending. */
+  order?: 'CreatedAscending' | 'CreatedDescending';
 }
 
 export interface DispatchRequest {
@@ -3673,7 +3675,7 @@ export interface CliPermissionDecisionRequest {
   ruleScope?: CliPermissionRuleScope;
 }
 
-/** Query of GET /api/v1/cli-permissions/requests. */
+/** Filters and paging of POST /api/v1/cli-permissions/requests/enumerate; `limit` is the page size. */
 export interface CliPermissionRequestQuery {
   status?: CliPermissionRequestStatus | null;
   missionId?: string | null;
@@ -3681,6 +3683,7 @@ export interface CliPermissionRequestQuery {
   captainId?: string | null;
   vesselId?: string | null;
   limit?: number | null;
+  pageNumber?: number | null;
 }
 
 /** An allow or deny rule in Claude Code permission rule syntax, e.g. Bash(git status:*). */

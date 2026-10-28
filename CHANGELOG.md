@@ -223,18 +223,39 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
 ### Paged APIs replace whole-list APIs
 
-- **Every list that returned a whole collection in one response now has a paged replacement**, and Armada's own clients (dashboard, mobile, TUI, CLI, both .NET clients) use the replacements. Each returns one page (`pageNumber`, `pageSize` 1 to 1000) with `TotalRecords`. See [DEPRECATION.md](DEPRECATION.md), the managed list of deprecations: tests keep it in step with the code and fail if a first-party client calls a deprecated route.
-- **New:** `POST /api/v1/harbors/enumerate`, `/model-endpoints/enumerate`, `/planning-sessions/enumerate`, `/objectives/{id}/refinement-sessions/enumerate`, `/backlog/{id}/refinement-sessions/enumerate`, `/inbox/enumerate`, `/cli-permissions/rules/enumerate`, `/push/devices/enumerate`, `/releases/{id}/github/pull-requests/enumerate`, and `/vessels/{id}/branches/enumerate`; the MCP `enumerate` tool gains `inbox` and `cli_permission_rules`.
-- **Bounded:** a body `PageSize` on the check-run, deployment, release, environment, skill, workflow-profile, project-profile, and history enumerate routes is clamped to 1 to 1000 (it was passed to the database as sent); log reads return at most 5000 lines per request (REST, MCP, WebSocket); `GET /api/v1/signals/recent` returns at most 1000.
+- **Armada exposes no API that returns a whole stored collection in one response.** Every list is read through a paged route or tool (`pageNumber`, `pageSize` 1 to 1000 or a lower route cap, `TotalRecords`), and Armada's own clients (dashboard, mobile, TUI, CLI, both .NET clients) use the paged forms. [DEPRECATION.md](DEPRECATION.md) is the managed list (Removed, IDs D-001 to D-018, and the bounded exceptions); tests keep it in step with `RetiredSurface.cs` and fail if a first-party client calls a removed route.
 
-#### Deprecated
+#### Removed (breaking)
 
-Each keeps working unchanged and is removed in 2.0 (OpenAPI marks the routes `deprecated: true`; MCP descriptions start with `[Deprecated]`):
+These were deprecated earlier in this release cycle and are now gone. A removed REST route answers `410 Gone` with a message naming the replacement; a removed MCP tool is no longer listed by `tools/list`.
 
-- `GET /api/v1/harbors`, `GET /api/v1/model-endpoints`, `GET /api/v1/planning-sessions`, `GET /api/v1/objectives/{id}/refinement-sessions`, `GET /api/v1/backlog/{id}/refinement-sessions`, `GET /api/v1/inbox`, `GET /api/v1/cli-permissions/rules`, `GET /api/v1/push/devices`, `GET /api/v1/releases/{id}/github/pull-requests`, and `GET /api/v1/vessels/{id}/branches`: use the `POST .../enumerate` route beside each.
+- `GET /api/v1/harbors`: use `POST /api/v1/harbors/enumerate`.
+- `GET /api/v1/model-endpoints`: use `POST /api/v1/model-endpoints/enumerate`.
+- `GET /api/v1/planning-sessions`: use `POST /api/v1/planning-sessions/enumerate`.
+- `GET /api/v1/objectives/{id}/refinement-sessions`: use `POST /api/v1/objectives/{id}/refinement-sessions/enumerate`.
+- `GET /api/v1/backlog/{id}/refinement-sessions`: use `POST /api/v1/backlog/{id}/refinement-sessions/enumerate`.
+- `GET /api/v1/inbox`: use `POST /api/v1/inbox/enumerate`.
+- `GET /api/v1/cli-permissions/rules`: use `POST /api/v1/cli-permissions/rules/enumerate`.
+- `GET /api/v1/cli-permissions/requests`: use `POST /api/v1/cli-permissions/requests/enumerate` (its `limit` stopped at 1000).
+- `GET /api/v1/push/devices`: use `POST /api/v1/push/devices/enumerate`.
+- `GET /api/v1/releases/{id}/github/pull-requests`: use `POST /api/v1/releases/{id}/github/pull-requests/enumerate`.
+- `GET /api/v1/vessels/{id}/branches`: use `POST /api/v1/vessels/{id}/branches/enumerate`.
 - `GET /api/v1/signals/recipient/{captainId}`: use `POST /api/v1/signals/enumerate` with `toCaptainId` (and `unreadOnly`).
-- MCP `inbox` and `list_cli_permission_rules`: use `enumerate` with `entityType` `inbox` or `cli_permission_rules`.
-- `GET /api/v1/jobs` without paging or filter parameters (it returns every job): send `pageNumber` and `pageSize`. In 2.0 the parameterless form returns the first page.
+- `GET /api/v1/signals/recent`: use `POST /api/v1/signals/enumerate` (newest first).
+- MCP `inbox`: use `enumerate` with `entityType` `inbox`.
+- MCP `list_cli_permission_rules`: use `enumerate` with `entityType` `cli_permission_rules`.
+- MCP `list_cli_permission_requests`: use `enumerate` with `entityType` `cli_permission_requests`.
+- `GET /api/v1/jobs` without paging or filter parameters no longer returns every job: it returns the first page of 100 (`EnumerationResult<Job>`). Send `pageNumber` and `pageSize`, or use `POST /api/v1/jobs/enumerate`.
+- WebSocket command `list_cli_permission_requests` returns one page (`query.pageNumber`, `query.pageSize`, default 10) as an enumeration result instead of a bare list of up to 100.
+
+#### Added
+
+- `POST /api/v1/harbors/enumerate`, `/model-endpoints/enumerate`, `/planning-sessions/enumerate`, `/objectives/{id}/refinement-sessions/enumerate`, `/backlog/{id}/refinement-sessions/enumerate`, `/inbox/enumerate`, `/cli-permissions/rules/enumerate`, `/push/devices/enumerate`, `/releases/{id}/github/pull-requests/enumerate`, and `/vessels/{id}/branches/enumerate` (the replacements above).
+- Paged `POST .../enumerate` forms beside the existing paged `GET` lists, each taking a JSON body with the same auth as its `GET` (querystring `pageNumber` and `pageSize` override the body): `POST /api/v1/tenants/enumerate` (AdminOnly), `/users/enumerate`, `/credentials/enumerate` (`EnumerationQuery`), `/jobs/enumerate` (`JobQuery`: `Statuses`, `Kind`, `PageSize` 1 to 1000, default 100), `/token-usage/enumerate` (`TokenUsageQuery`, `PageSize` 1 to 500, default 25), `/request-history/enumerate` (`RequestHistoryQuery`, 1 to 500, default 25), `/stage-outcomes/enumerate` (`StageOutcomeQuery`), `/failure-cause-rules/enumerate`, `/model-probe-runs/enumerate` (`ModelProbeRunQuery`), `/battery/packs/enumerate`, `/harbors/{id}/jobs/enumerate` (`?open=true`), `/missions/{id}/handoff-artifacts/enumerate`, and `/cli-permissions/requests/enumerate` (`CliPermissionRequestEnumerateRequest`: `EnumerationQuery` plus `ThreadId`; `Status` is `Pending`, `Allowed`, `Denied`, `Expired`, or `Cancelled`, anything else is `400`).
+- The MCP `enumerate` tool gains the `inbox`, `cli_permission_rules`, and `cli_permission_requests` entity types (`cli_permission_requests` filters by `status`, `missionId`, `threadId`, `captainId`, and `vesselId`) and a `threadId` argument.
+- **History pages on the server with the standard contract.** `GET /api/v1/history` and `POST /api/v1/history/enumerate` take `HistoricalTimelineQuery`, now an `EnumerationQuery`: `PageNumber`, `PageSize` (1 to 1000, default 50; the `GET` cap was 500) and `Order` (`CreatedDescending`, newest occurrence first, the default; or `CreatedAscending`; `GET` accepts `?order=`). Entries with the same time get a stable tie-break, so consecutive pages never overlap or skip. Dashboard Activity > History pages, filters, and orders on the server, shows the true total, and returns to page 1 when a filter changes.
+- **Guard suite `E2E.CollectionSurface`.** It fails when a REST route or MCP tool returns an unpaged list without an entry in its allowlist (the fixed `GET /api/v1/ask/quick-actions` / `list_ask_quick_actions` catalog and `GET /api/v1/runtimes/mux/endpoints`), and checks that every removed route answers `410 Gone`.
+- **Bounded:** a body `PageSize` on the check-run, deployment, release, environment, skill, workflow-profile, project-profile, and history enumerate routes is clamped to 1 to 1000 (it was passed to the database as sent); log reads return at most 5000 lines per request (REST, MCP, WebSocket).
 
 ### Cancelling a mission stops its agent
 

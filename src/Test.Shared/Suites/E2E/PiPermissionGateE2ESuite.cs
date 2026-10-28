@@ -87,7 +87,7 @@ namespace Test.Shared.Suites.E2E
             AssertFalse(denied[0].Allowed, "denied: the command does not run");
             AssertContains("no pushes from captains", denied[0].Result!.Reason ?? "", "the approver's message reaches the model");
 
-            List<CliPermissionRequest> recorded = await JsonHelper.DeserializeAsync<List<CliPermissionRequest>>(await a.GetAsync("/api/v1/cli-permissions/requests?threadId=" + thread.Id).ConfigureAwait(false)).ConfigureAwait(false);
+            List<CliPermissionRequest> recorded = (await JsonHelper.DeserializeAsync<EnumerationResult<CliPermissionRequest>>(await a.PostAsync("/api/v1/cli-permissions/requests/enumerate", JsonHelper.ToJsonContent(new { ThreadId = thread.Id, PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false)).Objects;
             AssertEqual(CliPermissionRequestStatusEnum.Allowed, recorded.Single(r => r.Id == first.Id).Status);
             AssertEqual(CliPermissionRequestStatusEnum.Denied, recorded.Single(r => r.Id == second.Id).Status);
         }
@@ -103,10 +103,10 @@ namespace Test.Shared.Suites.E2E
                     AssertTrue(false, "the gate finished before its request was pending: " + detail);
                 }
 
-                HttpResponseMessage resp = await client.GetAsync("/api/v1/cli-permissions/requests?status=Pending&threadId=" + threadId).ConfigureAwait(false);
+                HttpResponseMessage resp = await client.PostAsync("/api/v1/cli-permissions/requests/enumerate", JsonHelper.ToJsonContent(new { Status = "Pending", ThreadId = threadId, PageSize = 1000 })).ConfigureAwait(false);
                 if (resp.StatusCode == HttpStatusCode.OK)
                 {
-                    List<CliPermissionRequest> rows = await JsonHelper.DeserializeAsync<List<CliPermissionRequest>>(resp).ConfigureAwait(false);
+                    List<CliPermissionRequest> rows = (await JsonHelper.DeserializeAsync<EnumerationResult<CliPermissionRequest>>(resp).ConfigureAwait(false)).Objects;
                     CliPermissionRequest? found = CliPermissionPendingWait.FirstWithCard(rows.Where(r => r.SummaryText == summary).ToList());
                     if (found != null) return found;
                 }

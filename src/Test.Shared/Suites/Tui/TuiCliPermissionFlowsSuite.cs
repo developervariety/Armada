@@ -41,6 +41,7 @@ namespace Test.Shared.Suites.Tui
         private const string Suite = "Tui.CliPermissionFlows";
         private const string RulesPath = "/api/v1/cli-permissions/rules";
         private const string RulesListPath = "/api/v1/cli-permissions/rules/enumerate";
+        private const string RequestsListPath = "/api/v1/cli-permissions/requests/enumerate";
         private const string DecidePath = "/api/v1/cli-permissions/requests/cpr_1/decide";
         private const string ThreadPolicyPath = "/api/v1/ask/threads/ath_1/cli-permission-policy";
 
@@ -217,14 +218,18 @@ namespace Test.Shared.Suites.Tui
                 other.CreatedUtc = DateTime.UtcNow.AddMinutes(-1);
                 CliPermissionRequest linked = Request("cpr_1", null, true, true);
                 linked.CreatedUtc = DateTime.UtcNow.AddMinutes(-5);
-                stub.Json("GET", "/api/v1/cli-permissions/requests", ArmadaJson.Serialize(new List<CliPermissionRequest> { other, linked }));
+                stub.Page(RequestsListPath, ArmadaJson.Serialize(new List<CliPermissionRequest> { other, linked }));
                 stub.Json("POST", DecidePath, ArmadaJson.Serialize(Decided(linked, CliPermissionRequestStatusEnum.Allowed)));
                 using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/cli-permissions?request=cpr_1", stub))
                 {
                     CliPermissionRequestsScreen screen = Content<CliPermissionRequestsScreen>(host);
                     AssertEqual("/server?request=cpr_1&tab=cli-permissions", host.Tui.Context.Router.Current!.FullPath, "the legacy deep link lands on the Settings tab");
                     AssertTrue(host.WaitForText("Bash: git push origin main"), "listed\n" + host.Screen());
-                    AssertTrue(stub.Saw("GET", "/api/v1/cli-permissions/requests", r => r.QueryValue("status") == "Pending"), "pending by default");
+                    CliPermissionRequestEnumerateRequest sent = stub.LastBody<CliPermissionRequestEnumerateRequest>("POST", RequestsListPath);
+                    AssertEqual("Pending", sent.Status, "pending by default");
+                    AssertEqual(1, sent.PageNumber, "first page");
+                    AssertEqual(200, sent.PageSize, "bounded page size");
+                    AssertFalse(stub.Saw("GET", "/api/v1/cli-permissions/requests"), "the retired whole-collection GET is not called");
                     AssertTrue(host.PumpUntil(() => screen.Grid.Current?.Id == "cpr_1"), "the linked request is selected");
                     string frame = host.Screen();
                     TuiCase.Contains(frame, "[ Allow once a ]", "allow once button");
@@ -928,7 +933,7 @@ namespace Test.Shared.Suites.Tui
             stub.On("DELETE", RulesPath + "/cpl_1", body => StubHttpHandler.Response(HttpStatusCode.NoContent, ""));
             stub.Json("GET", "/api/v1/vessels", "{\"Objects\":[{\"Id\":\"vsl_1\",\"Name\":\"web\"}],\"TotalRecords\":1}");
             stub.Json("GET", "/api/v1/captains", "{\"Objects\":[{\"Id\":\"cpt_1\",\"Name\":\"claude-1\",\"Runtime\":\"ClaudeCode\"}],\"TotalRecords\":1}");
-            stub.Json("GET", "/api/v1/cli-permissions/requests", "[]");
+            stub.Page(RequestsListPath, "[]");
             return stub;
         }
 

@@ -56,7 +56,6 @@ namespace Armada.Core.Authorization
             Add("get_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("resolve_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("preview_workflow_profile", "WorkflowProfile", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
-            Add("inbox", "Inbox", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             // Ask Armada conversations are private: the services scope every call to the caller's own conversations.
             Add("list_ask_threads", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_ask_thread", "AskThread", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
@@ -86,9 +85,7 @@ namespace Armada.Core.Authorization
             Add("voyage_status", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("fleet_action_run_status", "FleetActionRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("evaluate_autoland", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
-            Add("list_cli_permission_requests", "CliPermission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("get_cli_permission_request", "CliPermission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
-            Add("list_cli_permission_rules", "CliPermission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
 
             // CLI tool permissions. The prompt tool is callable only by a captain's scoped session and deciding only by a
             // person (checked in the handlers); rule and policy changes need an admin.

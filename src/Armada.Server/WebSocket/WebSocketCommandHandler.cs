@@ -791,7 +791,9 @@ namespace Armada.Server.WebSocket
                     }
 
                     if (!String.IsNullOrWhiteSpace(command.CaptainId)) cliQuery.CaptainId = command.CaptainId;
-                    List<CliPermissionRequest> cliRequests = await CliPermissions.ListAsync(caller, cliQuery).ConfigureAwait(false);
+                    // One page (query.pageNumber, query.pageSize 1-1000, default 10), never the whole list.
+                    EnumerationQuery cliPage = command.Query ?? new EnumerationQuery();
+                    EnumerationResult<CliPermissionRequest> cliRequests = await CliPermissions.EnumerateAsync(caller, cliQuery, cliPage.PageNumber, cliPage.PageSize).ConfigureAwait(false);
                     return new { type = "command.result", action, data = (object)cliRequests };
                 }
 

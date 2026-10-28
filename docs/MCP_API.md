@@ -33,7 +33,6 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
 - [Tools](#tools)
   - **Status**
     - [status](#status)
-    - [inbox](#inbox)
     - [token_usage_summary](#token_usage_summary)
     - [papercut_summary](#papercut_summary)
     - [stop_server](#stop_server)
@@ -128,10 +127,8 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [cancel_fleet_action_run](#cancel_fleet_action_run)
   - **CLI Permissions**
     - [cli_permission_prompt](#cli_permission_prompt)
-    - [list_cli_permission_requests](#list_cli_permission_requests)
     - [get_cli_permission_request](#get_cli_permission_request)
     - [decide_cli_permission_request](#decide_cli_permission_request)
-    - [list_cli_permission_rules](#list_cli_permission_rules)
     - [create_cli_permission_rule](#create_cli_permission_rule)
     - [update_cli_permission_rule](#update_cli_permission_rule)
     - [delete_cli_permission_rule](#delete_cli_permission_rule)
@@ -253,9 +250,7 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
 **Contract.** Tool names, argument names and types, and which arguments are required are frozen for 1.0 and listed in
 [API_SURFACE_1.0.md](API_SURFACE_1.0.md) (rules: [COMPATIBILITY.md](COMPATIBILITY.md)). Arguments are camelCase (matched
 case-insensitively); tool results carry the same entity shapes as the REST API, with PascalCase property names (the
-camelCase exceptions are the `inbox` envelope, `count`, `criticalCount`, `warningCount`, and `items`, the
-`list_prompt_templates` envelope and rows, the `list_cli_permission_requests` and `list_cli_permission_rules`
-envelopes, the `delete_cli_permission_rule` result, and the `cli_permission_prompt` answer). Unlike REST, MCP results keep null-valued properties. Enums are emitted as their
+camelCase exceptions are the `list_prompt_templates` envelope and rows, the `delete_cli_permission_rule` result, and the `cli_permission_prompt` answer). Unlike REST, MCP results keep null-valued properties. Enums are emitted as their
 names, as on REST. New tools, new optional arguments,
 and new result fields may be added in minor releases. Tools whose description starts with `[Experimental]` (the Harbor
 tools `get_harbor`, `get_harbor_metrics`, `create_harbor`, `update_harbor`, `delete_harbor`, `set_harbor_enabled`, `list_harbor_jobs`, `stop_harbor_job`) are excluded from the
@@ -367,7 +362,7 @@ call against the caller (including Ask Armada proposals executed after approval)
 
 | Level | Tools |
 |---|---|
-| Authenticated | Reads (`status`, `enumerate`, `get_*`, `list_*`, `mission_status`, `voyage_status`, logs, diffs, `inbox`, `vessel_health`, `search_memory`, `token_usage_summary`, ...), writes to caller-owned resources (memories, model endpoints, harbors), persona, pipeline, and prompt-template writes (as on REST: a regular user creates only `UserSpecific` ones and edits only their own), and `cli_permission_prompt` and `decide_cli_permission_request` (the handlers check the caller; see [CLI Permissions](#cli-permissions)) |
+| Authenticated | Reads (`status`, `enumerate`, `get_*`, `list_*`, `mission_status`, `voyage_status`, logs, diffs, `vessel_health`, `search_memory`, `token_usage_summary`, ...), writes to caller-owned resources (memories, model endpoints, harbors), persona, pipeline, and prompt-template writes (as on REST: a regular user creates only `UserSpecific` ones and edits only their own), and `cli_permission_prompt` and `decide_cli_permission_request` (the handlers check the caller; see [CLI Permissions](#cli-permissions)) |
 | TenantAdmin | Every other write or execution (dispatch, captains, missions, voyages, docks, merge queue, signals, events, objectives, backlog, playbooks, workflow profiles (including `validate_workflow_profile`, as on REST), releases, deployments, runbooks, check runs, fleet actions, vessel import, vessel health) |
 | AdminOnly | `backup`, `restore`, `stop_server` (a credential is required even on loopback; use `X-Api-Key` from `settings.json`) |
 
@@ -414,7 +409,8 @@ Other CLI runtimes keep their host MCP configuration in thread turns and are not
 The MCP authentication handler validates the token like any session token and adds an `askThreadId` claim. Every tool
 handler is registered through the Ask gate, which checks that claim:
 
-- **Read-only tools** run normally: `status`, `enumerate`, `inbox`, `voyage_status`, `mission_status`,
+- **Read-only tools** run normally: `status`, `enumerate` (including the `inbox`, `cli_permission_rules`, and
+  `cli_permission_requests` entity types), `voyage_status`, `mission_status`,
   `fleet_action_run_status`, `vessel_health`, `papercut_summary`, `token_usage_summary`, `search_memory`,
   `evaluate_autoland`, every `get_*` reader (`get_backlog_item`, `get_backlog_planning_session`,
   `get_backlog_refinement_session`, `get_captain`, `get_captain_log`, `get_captain_tools`, `get_check_run`,
@@ -424,7 +420,7 @@ handler is registered through the Ask gate, which checks that claim:
   workflow profile readers (`validate_workflow_profile`, `resolve_workflow_profile`, `preview_workflow_profile`; validate
   saves nothing), and the `list_*` readers
   (`list_backlog`, `list_backlog_refinement_sessions`, `list_objectives`, `list_prompt_templates`,
-  `list_cli_permission_requests`, `list_cli_permission_rules`, plus `get_cli_permission_request`), and the Ask Armada
+  plus `get_cli_permission_request`), and the Ask Armada
   readers (`list_ask_threads`, `get_ask_thread`, `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`). The list lives in
   `AskToolPolicy`; any tool not on it (including tools added later) is treated as state-changing.
 - **`cli_permission_prompt`** (the captain CLI's own permission prompt) runs without becoming a proposal: an approver
@@ -575,85 +571,6 @@ No parameters required.
 
 ---
 
-### inbox
-
-> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns every item in one result. Use `enumerate` with `entityType` `inbox` (one page with `TotalRecords`). It keeps working unchanged until then, and stays on the Ask Armada read-only allowlist.
-
-Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Call this to answer a user asking *"Is there anything waiting on me?"*, *"Is there anything that needs my attention?"*, or *"Do I have any action items from Armada work?"*.
-
-**What qualifies.** Two kinds of item appear:
-
-- **Awaiting your decision (human-in-the-loop):** a mission in `Review` (approve or reject), a deployment in `PendingApproval`, a pending Ask Armada action proposal in one of your own conversations, or a pending CLI permission request (a captain waiting to run one of its own tools, such as a shell command).
-- **Failed and needs intervention (human-out-of-the-loop):** a failed mission, a mission whose work could not be merged (landing failed), a failed merge, a failed or verification-failed deployment, or a stalled captain.
-
-Purely informational events (completions, normal progress) are deliberately excluded -- the inbox answers *"what needs me?"*, not *"what happened?"* (use `enumerate` or the Activity log for history). An empty `items` list means nothing currently needs the operator. Operational items are scoped like other reads (global admin: everything; tenant admin: the tenant; regular user: own items); Ask proposals are always limited to the caller's own threads, and proposals older than `Ask.ProposalExpiryMinutes` are left out (the same rule as `GET /api/v1/inbox`). Every item is returned (no category is capped), so `count` is the true number of items needing attention; only pending CLI permission requests stop at 1000, since they expire within minutes. Items are ordered by severity (`Critical` first), then title.
-
-**Item kinds and severity:**
-
-| `Kind` | Meaning | Severity |
-|---|---|---|
-| `review` | Mission awaiting your review/approval | `Warning`, or `Critical` if the review deadline has passed |
-| `landing_failed` | Mission produced work that could not be merged | `Critical` |
-| `failed` | Mission failed | `Warning` |
-| `merge_failed` | Queued merge failed testing or landing | `Critical` |
-| `deployment_approval` | Deployment waiting for your approval before it runs | `Warning` |
-| `deployment_failed` | Deployment failed or failed verification | `Critical` |
-| `stalled_captain` | Captain is stalled and may need recovery or a dock reclaim | `Warning` |
-| `ask_proposal` | Ask Armada action proposal waiting for your approval (`Href` is the conversation, `/ask/<threadId>`) | `Warning` |
-| `cli_permission` | CLI permission request waiting for an approver; visible to global admins, the tenant's tenant admins, and the owner of the thread or mission (`Href` is `/ask/<threadId>` for the caller's own conversation, otherwise `/server?tab=cli-permissions&request=<id>`; the pre-v1.2.0 `/cli-permissions?request=<id>` still redirects there) | `Warning` |
-
-**Input Schema:**
-
-```json
-{
-  "type": "object",
-  "properties": {}
-}
-```
-
-No parameters required.
-
-**Response:** counts plus the ordered item list. The wrapper fields are camelCase (`count`, `criticalCount`,
-`warningCount`, `items`); each item is an `InboxItem` with `Kind`, `Severity`, `Title`, `Detail`, `EntityType`,
-`EntityName` (display name of the referenced entity; use it instead of parsing `Title`), `EntityId`, and a dashboard
-`Href`. Deployment items also carry `EnvironmentName` and `DeploymentTitle`, and their `Title` reads
-"Deploy to <environment>: <title>". `cli_permission` items carry `CliPermission` (the request, with the caller's
-`CanDecide`) and `ExpiresUtc`. `Severity` is `Critical`, `Warning`, or `Info`.
-
-```json
-{
-  "count": 2,
-  "criticalCount": 1,
-  "warningCount": 1,
-  "items": [
-    {
-      "Kind": "landing_failed",
-      "Severity": "Critical",
-      "Title": "Landing failed: Add JWT validation",
-      "Detail": "The work could not be landed.",
-      "EntityType": "mission",
-      "EntityName": "Add JWT validation",
-      "EntityId": "msn_1a2b3c",
-      "Href": "/missions/msn_1a2b3c"
-    },
-    {
-      "Kind": "review",
-      "Severity": "Warning",
-      "Title": "Review: Refactor auth service",
-      "Detail": "Awaiting your review.",
-      "EntityType": "mission",
-      "EntityName": "Refactor auth service",
-      "EntityId": "msn_4d5e6f",
-      "Href": "/missions/msn_4d5e6f"
-    }
-  ]
-}
-```
-
-> Also exposed over REST as `GET /api/v1/inbox` and in the CLI as `armada inbox`.
-
----
-
 ### token_usage_summary
 
 For daily token heatmaps, supply explicit `fromUtc`/`toUtc` and `bucketMinutes: 1440`. Optional `sourceId` isolates a synthetic batch; `syntheticCount` reports included synthetic rows. Synthetic imports are available only through the global-admin REST endpoint, not MCP.
@@ -790,7 +707,7 @@ No parameters required.
 
 ### enumerate
 
-Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: inbox (the needs-you items, most urgent first; replaces the deprecated `inbox` tool), cli_permission_rules (replaces the deprecated `list_cli_permission_rules`), objectives (aliases `backlog`, `backlog_item`, `backlog_items`), fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health.
+Paginated enumeration of any entity type with filtering and sorting. This is the MCP equivalent of the `POST /api/v1/{entity}/enumerate` REST endpoints. Returns paginated results with total counts, page metadata, and query timing. Supports: inbox (the needs-you items, most urgent first; replaces the removed `inbox` tool), cli_permission_rules (replaces the removed `list_cli_permission_rules`), cli_permission_requests (replaces the removed `list_cli_permission_requests`), objectives (aliases `backlog`, `backlog_item`, `backlog_items`), fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health.
 
 **Input Schema:**
 
@@ -798,7 +715,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 {
   "type": "object",
   "properties": {
-    "entityType": { "type": "string", "description": "Entity type to enumerate (inbox [the needs-you items, most urgent first], cli_permission_rules [vesselId and captainId filter], objectives [aliases backlog, backlog_item, backlog_items], fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health)" },
+    "entityType": { "type": "string", "description": "Entity type to enumerate (inbox [the needs-you items, most urgent first], cli_permission_rules [vesselId and captainId filter], cli_permission_requests [newest first; status, missionId, threadId, captainId, vesselId filter], objectives [aliases backlog, backlog_item, backlog_items], fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health)" },
     "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
     "pageSize": { "type": "integer", "description": "Results per page (default 10, max 1000)" },
     "order": { "type": "string", "description": "Sort order: CreatedAscending, CreatedDescending" },
@@ -811,6 +728,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
     "captainId": { "type": "string", "description": "Filter by captain ID (missions, events, signals)" },
     "voyageId": { "type": "string", "description": "Filter by voyage ID (missions, events)" },
     "missionId": { "type": "string", "description": "Filter by mission ID (events)" },
+    "threadId": { "type": "string", "description": "Filter by Ask thread ID (ath_ prefix; cli_permission_requests)" },
     "eventType": { "type": "string", "description": "Filter by event type (events only)" },
     "signalType": { "type": "string", "description": "Filter by signal type (signals only)" },
     "toCaptainId": { "type": "string", "description": "Filter by recipient captain (signals only)" },
@@ -830,6 +748,9 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 
 | `entityType` value | Supported filters |
 |---|---|
+| `inbox` | Paging only; most urgent first (see [Inbox items](#inbox-items-entitytype-inbox)) |
+| `cli_permission_rules` | `vesselId`, `captainId` |
+| `cli_permission_requests` (alias `cli-permission-requests`) | `status` (Pending/Allowed/Denied/Expired/Cancelled), `missionId`, `threadId`, `captainId`, `vesselId`; newest first (see [CLI permission requests](#cli-permission-requests-entitytype-cli_permission_requests)) |
 | `objectives` (aliases `backlog`, `backlog_item`, `backlog_items`) | `status`, `vesselId`, `voyageId`, `missionId`, `search` |
 | `fleets` | `createdAfter`, `createdBefore` |
 | `vessels` | `fleetId`, `createdAfter`, `createdBefore` |
@@ -898,6 +819,86 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 ```
 
 > **Note:** When enumerating `missions`, the `DiffSnapshot` field is excluded from results to keep payloads compact. Use `get_mission_diff` to retrieve the full diff for a specific mission.
+
+#### Inbox items (`entityType` `inbox`)
+
+`enumerate` with `entityType` `inbox` returns one page of the operator's inbox: everything across the fleet that
+requires a human's attention or action right now, ordered most-urgent first. Call it to answer a user asking *"Is there
+anything waiting on me?"*, *"Is there anything that needs my attention?"*, or *"Do I have any action items from Armada
+work?"*. It replaces the removed `inbox` tool (D-012), which returned every item in one result.
+
+**What qualifies.** Two kinds of item appear:
+
+- **Awaiting your decision (human-in-the-loop):** a mission in `Review` (approve or reject), a deployment in `PendingApproval`, a pending Ask Armada action proposal in one of your own conversations, or a pending CLI permission request (a captain waiting to run one of its own tools, such as a shell command).
+- **Failed and needs intervention (human-out-of-the-loop):** a failed mission, a mission whose work could not be merged (landing failed), a failed merge, a failed or verification-failed deployment, or a stalled captain.
+
+Purely informational events (completions, normal progress) are deliberately excluded -- the inbox answers *"what needs me?"*, not *"what happened?"* (use `enumerate` or the Activity log for history). An empty page (`TotalRecords` 0) means nothing currently needs the operator. Operational items are scoped like other reads (global admin: everything; tenant admin: the tenant; regular user: own items); Ask proposals are always limited to the caller's own threads, and proposals older than `Ask.ProposalExpiryMinutes` are left out (the same rule as `GET /api/v1/inbox`). Every item is returned (no category is capped), so `count` is the true number of items needing attention; only pending CLI permission requests stop at 1000, since they expire within minutes. Items are ordered by severity (`Critical` first), then title.
+
+**Item kinds and severity:**
+
+| `Kind` | Meaning | Severity |
+|---|---|---|
+| `review` | Mission awaiting your review/approval | `Warning`, or `Critical` if the review deadline has passed |
+| `landing_failed` | Mission produced work that could not be merged | `Critical` |
+| `failed` | Mission failed | `Warning` |
+| `merge_failed` | Queued merge failed testing or landing | `Critical` |
+| `deployment_approval` | Deployment waiting for your approval before it runs | `Warning` |
+| `deployment_failed` | Deployment failed or failed verification | `Critical` |
+| `stalled_captain` | Captain is stalled and may need recovery or a dock reclaim | `Warning` |
+| `ask_proposal` | Ask Armada action proposal waiting for your approval (`Href` is the conversation, `/ask/<threadId>`) | `Warning` |
+| `cli_permission` | CLI permission request waiting for an approver; visible to global admins, the tenant's tenant admins, and the owner of the thread or mission (`Href` is `/ask/<threadId>` for the caller's own conversation, otherwise `/server?tab=cli-permissions&request=<id>`; the pre-v1.2.0 `/cli-permissions?request=<id>` still redirects there) | `Warning` |
+
+Each object on the page is an `InboxItem` with `Kind`, `Severity`, `Title`, `Detail`, `EntityType`, `EntityName`
+(display name of the referenced entity; use it instead of parsing `Title`), `EntityId`, and a dashboard `Href`.
+Deployment items also carry `EnvironmentName` and `DeploymentTitle`, and their `Title` reads
+"Deploy to <environment>: <title>". `cli_permission` items carry `CliPermission` (the request, with the caller's
+`CanDecide`) and `ExpiresUtc`. `Severity` is `Critical`, `Warning`, or `Info`.
+
+```json
+{ "entityType": "inbox", "pageNumber": 1, "pageSize": 25 }
+```
+
+```json
+{
+  "Success": true,
+  "PageNumber": 1,
+  "PageSize": 25,
+  "TotalPages": 1,
+  "TotalRecords": 1,
+  "Objects": [
+    {
+      "Kind": "landing_failed",
+      "Severity": "Critical",
+      "Title": "Landing failed: Add JWT validation",
+      "Detail": "The work could not be landed.",
+      "EntityType": "mission",
+      "EntityName": "Add JWT validation",
+      "EntityId": "msn_1a2b3c",
+      "Href": "/missions/msn_1a2b3c"
+    }
+  ]
+}
+```
+
+> Also exposed over REST as `POST /api/v1/inbox/enumerate` and in the CLI as `armada inbox`.
+
+#### CLI permission requests (`entityType` `cli_permission_requests`)
+
+`enumerate` with `entityType` `cli_permission_requests` returns one page of CLI permission requests, newest first, with
+`TotalRecords`. Filters: `status` (`Pending`, `Allowed`, `Denied`, `Expired`, or `Cancelled`; any other value is an
+`InvalidArgument` error), `missionId`, `threadId` (Ask thread, `ath_`), `captainId`, and `vesselId`; paging is
+`pageNumber` and `pageSize` (1 to 1000, default 10). Visibility is the same as `get_cli_permission_request` (see
+[CLI Permissions](#cli-permissions)); each request carries the tool name, redacted `InputText`, `SummaryText`,
+`SuggestedRule`, captain, vessel, mission or thread, `Status`, `ExpiresUtc`, and the caller's `CanDecide` and
+`CanRemember`. It replaces the removed `list_cli_permission_requests` tool (D-017), whose `limit` stopped at 1000.
+REST: `POST /api/v1/cli-permissions/requests/enumerate`.
+
+```json
+{ "entityType": "cli_permission_requests", "status": "Pending", "pageSize": 25 }
+```
+
+`entityType` `cli_permission_rules` (filters `vesselId` and `captainId`) replaces the removed
+`list_cli_permission_rules` tool (D-013).
 
 ---
 
@@ -1028,14 +1029,14 @@ Who may call what:
 | Tool | Caller |
 |---|---|
 | `cli_permission_prompt` | Only a captain's own mission- or Ask-thread-scoped session (a presented session token); every other caller gets `Forbidden` |
-| `list_cli_permission_requests`, `get_cli_permission_request` | Any authenticated person: global admins see every request, tenant admins their tenant, other users requests from their own Ask threads and missions. Captain sessions get an empty list (and `NotFound` by id) |
+| `enumerate` (`cli_permission_requests`), `get_cli_permission_request` | Any authenticated person: global admins see every request, tenant admins their tenant, other users requests from their own Ask threads and missions. Captain sessions get an empty page (and `NotFound` by id) |
 | `decide_cli_permission_request` | A global admin, a tenant admin of the request's tenant, or the owner when `Permissions.AllowOwnerApproval` is true; `AllowAndRemember` needs an admin. Requires a presented credential: captain sessions and the unauthenticated loopback identity get `Forbidden`, so a captain can never approve its own prompt |
-| `list_cli_permission_rules` | Any authenticated person (the caller's tenant plus rules for every tenant; captain sessions get an empty list) |
+| `enumerate` (`cli_permission_rules`) | Any authenticated person (the caller's tenant plus rules for every tenant; captain sessions get an empty page) |
 | `create_cli_permission_rule`, `update_cli_permission_rule`, `delete_cli_permission_rule` | TenantAdmin: global admins (any tenant, or every tenant), tenant admins (their own tenant) |
 | `set_captain_cli_permission_policy` | TenantAdmin: a global admin or a tenant admin of the captain's tenant; never a captain session |
 
-In an Ask conversation, `cli_permission_prompt` bypasses the proposal gate (an approver answers it instead), the three
-readers run like other read-only tools, and the decide, rule, and policy tools are refused outright with `Forbidden`
+In an Ask conversation, `cli_permission_prompt` bypasses the proposal gate (an approver answers it instead), the readers
+(`enumerate` and `get_cli_permission_request`) run like other read-only tools, and the decide, rule, and policy tools are refused outright with `Forbidden`
 (never proposed), so a captain cannot get its own prompts approved through a proposal.
 
 ### cli_permission_prompt
@@ -1075,21 +1076,6 @@ Denied (by an approver, a rule, expiry, or cancellation):
 
 A session whose mission or thread no longer exists gets `NotFound`.
 
-### list_cli_permission_requests
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `status` | string | No | `Pending`, `Allowed`, `Denied`, `Expired`, or `Cancelled` |
-| `missionId` | string | No | Mission filter (`msn_`) |
-| `threadId` | string | No | Ask thread filter (`ath_`) |
-| `captainId` | string | No | Captain filter (`cpt_`) |
-| `vesselId` | string | No | Vessel filter (`vsl_`) |
-| `limit` | int | No | 1-1000, default 100 |
-
-**Response:** `{ "count": 1, "limit": 100, "truncated": false, "requests": [CliPermissionRequest, ...] }`, newest first. `count` is the number returned; `truncated` is true when `limit` was reached, so more requests exist (raise `limit` or narrow the filters). Each request carries the tool
-name, redacted `InputText`, `SummaryText`, `SuggestedRule`, captain, vessel, mission or thread, `Status`, `ExpiresUtc`,
-and the caller's `CanDecide` and `CanRemember`.
-
 ### get_cli_permission_request
 
 | Parameter | Type | Required | Description |
@@ -1111,18 +1097,6 @@ Allow once, allow and remember, or deny a pending request; the waiting captain c
 | `ruleScope` | string | No | `Global`, `Vessel`, or `Captain` (default `Captain`) for that rule |
 
 **Response:** the decided CliPermissionRequest. `Conflict` when it is no longer pending.
-
-### list_cli_permission_rules
-
-> **Deprecated** (removed in 2.0; see [DEPRECATION.md](../DEPRECATION.md)): returns every rule in one result. Use `enumerate` with `entityType` `cli_permission_rules` (`vesselId` and `captainId` filter). It keeps working unchanged until then.
-
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `scope` | string | No | `Global`, `Vessel`, or `Captain` |
-| `vesselId` | string | No | Vessel filter (`vsl_`) |
-| `captainId` | string | No | Captain filter (`cpt_`) |
-
-**Response:** `{ "count": 1, "rules": [CliPermissionRule, ...] }`.
 
 ### create_cli_permission_rule
 

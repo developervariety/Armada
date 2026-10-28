@@ -1056,7 +1056,7 @@ Commands are sent via the `command` route. Each command returns a `command.resul
 | | `create_captain` | Create captain | `data` |
 | | `update_captain` | Update captain (preserves operational fields) | `id`, `data` |
 | | `delete_captain` | Delete captain (refused while `Working` or with active missions) | `id` |
-| **CLI Permission** | `list_cli_permission_requests` | List CLI permission requests, newest first | optional `status`, `captainId` |
+| **CLI Permission** | `list_cli_permission_requests` | One page of CLI permission requests, newest first | optional `status`, `captainId`, `query` (`pageNumber`, `pageSize`) |
 | | `decide_cli_permission_request` | Allow once, allow and remember, or deny a pending request | `id`, `data` ([CliPermissionDecisionRequest](REST_API.md#clipermissiondecisionrequest)) |
 | **Signal** | `list_signals` | List/enumerate signals | optional `query` |
 | | `send_signal` | Create signal | `data` |
@@ -2318,7 +2318,8 @@ REST (`POST /api/v1/cli-permissions/requests/{id}/decide`) or MCP.
 
 #### list_cli_permission_requests
 
-List CLI permission requests (newest first, at most 100).
+List one page of CLI permission requests, newest first. The command never returns the whole list: paging comes from
+`query.pageNumber` (default 1) and `query.pageSize` (1 to 1000, default 10).
 
 **Request:**
 
@@ -2327,7 +2328,8 @@ List CLI permission requests (newest first, at most 100).
   "Route": "command",
   "action": "list_cli_permission_requests",
   "status": "Pending",
-  "captainId": "cpt_abc123"
+  "captainId": "cpt_abc123",
+  "query": { "pageNumber": 1, "pageSize": 25 }
 }
 ```
 
@@ -2336,8 +2338,21 @@ List CLI permission requests (newest first, at most 100).
 | `action` | string | Yes | `"list_cli_permission_requests"` |
 | `status` | string | No | `Pending`, `Allowed`, `Denied`, `Expired`, or `Cancelled` (`InvalidArgument` otherwise) |
 | `captainId` | string | No | Captain filter |
+| `query` | object | No | `pageNumber` (default 1) and `pageSize` (1 to 1000, default 10) |
 
-**Response:** `command.result` whose `data` is an array of [CliPermissionRequest](REST_API.md#clipermissionrequest).
+**Response:** `command.result` whose `data` is an enumeration result (`success`, `pageNumber`, `pageSize`, `totalPages`,
+`totalRecords`, `objects`) of [CliPermissionRequest](REST_API.md#clipermissionrequest).
+
+```json
+{
+  "type": "command.result",
+  "action": "list_cli_permission_requests",
+  "data": { "success": true, "pageNumber": 1, "pageSize": 25, "totalPages": 1, "totalRecords": 1, "objects": [ { "id": "cpr_abc123", "status": "Pending" } ] }
+}
+```
+
+> **Breaking change** (see [DEPRECATION.md](../DEPRECATION.md), D-018): `data` used to be a bare array of up to 100
+> requests; it is now one page with `totalRecords`.
 
 ---
 

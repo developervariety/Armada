@@ -102,9 +102,6 @@ namespace Test.Shared.Suites.E2E
             "list_objectives",
             "list_backlog_refinement_sessions",
             "search_memory",
-            "inbox",
-            "list_cli_permission_requests",
-            "list_cli_permission_rules",
             "list_stage_outcomes",
             "reclassify_stage_outcomes",
             "list_model_probe_runs",
@@ -117,7 +114,8 @@ namespace Test.Shared.Suites.E2E
             "objectives", "jobs", "model_endpoints", "harbors", "vessel_health", "fleets", "vessels", "captains", "missions",
             "voyages", "docks", "signals", "events", "releases", "deployments", "incidents", "runbooks", "runbook_executions",
             "merge_queue", "personas", "memories", "prompt_templates", "pipelines", "playbooks", "workflow_profiles",
-            "project_profiles", "skills", "check_runs", "vessel_import_batch", "fleet_action", "fleet_action_run"
+            "project_profiles", "skills", "check_runs", "vessel_import_batch", "fleet_action", "fleet_action_run",
+            "inbox", "cli_permission_rules", "cli_permission_requests"
         };
 
         private SecurityTestServer? _Server;

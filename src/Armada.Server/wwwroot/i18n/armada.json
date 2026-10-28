@@ -6153,7 +6153,8 @@
         "Unknown disposition": "Disposición desconocida",
         "These could not be proven safe (uncommitted or unmerged work, shared paths, unreachable Harbors, or unclear ownership). They cannot be cleaned up.": "No se pudo demostrar que sean seguros (trabajo sin confirmar o sin fusionar, rutas compartidas, Harbors inalcanzables o propiedad poco clara). No se pueden limpiar.",
         "Clean up vessel resources": "Limpiar recursos del repositorio",
-        "Clean up": "Limpiar"
+        "Clean up": "Limpiar",
+        "Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.": "Se exportaron las primeras {{count}} de {{total}} entradas. Restrinja los filtros para exportar el resto."
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -11243,7 +11244,8 @@
         "Unknown disposition": "状态未知",
         "These could not be proven safe (uncommitted or unmerged work, shared paths, unreachable Harbors, or unclear ownership). They cannot be cleaned up.": "无法证明这些资源可以安全清理（存在未提交或未合并的工作、共享路径、无法连接的 Harbor 或归属不明确）。无法清理。",
         "Clean up vessel resources": "清理仓库资源",
-        "Clean up": "清理"
+        "Clean up": "清理",
+        "Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.": "已导出 {{total}} 条记录中的前 {{count}} 条。请缩小筛选范围以导出其余记录。"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -16296,7 +16298,8 @@
         "Unknown disposition": "狀態未知",
         "These could not be proven safe (uncommitted or unmerged work, shared paths, unreachable Harbors, or unclear ownership). They cannot be cleaned up.": "無法證明這些資源可以安全清理（有未提交或未合併的工作、共用路徑、無法連線的 Harbor 或歸屬不明確）。無法清理。",
         "Clean up vessel resources": "清理儲存庫資源",
-        "Clean up": "清理"
+        "Clean up": "清理",
+        "Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.": "已匯出 {{total}} 筆記錄中的前 {{count}} 筆。請縮小篩選範圍以匯出其餘記錄。"
       },
       "sections": {}
     },
@@ -21309,7 +21312,8 @@
         "Unknown disposition": "狀態唔明",
         "These could not be proven safe (uncommitted or unmerged work, shared paths, unreachable Harbors, or unclear ownership). They cannot be cleaned up.": "證明唔到呢啲資源可以安全清理（有未提交或者未合併嘅工作、共用路徑、連唔到嘅 Harbor 或者擁有權唔清楚）。清理唔到。",
         "Clean up vessel resources": "清理儲存庫資源",
-        "Clean up": "清理"
+        "Clean up": "清理",
+        "Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.": "已經匯出咗 {{total}} 項記錄入面嘅頭 {{count}} 項。收窄篩選範圍就可以匯出其餘記錄。"
       },
       "sections": {}
     },
@@ -26338,7 +26342,8 @@
         "Unknown disposition": "状態不明",
         "These could not be proven safe (uncommitted or unmerged work, shared paths, unreachable Harbors, or unclear ownership). They cannot be cleaned up.": "安全であることを証明できませんでした (未コミットまたは未マージの作業、共有パス、接続できない Harbor、所有者が不明確)。クリーンアップできません。",
         "Clean up vessel resources": "リポジトリのリソースをクリーンアップ",
-        "Clean up": "クリーンアップ"
+        "Clean up": "クリーンアップ",
+        "Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.": "{{total}} 件中、最初の {{count}} 件をエクスポートしました。残りをエクスポートするにはフィルターを絞り込んでください。"
       },
       "sections": {}
     },
@@ -31358,7 +31363,8 @@
         "Unknown disposition": "Unbekannter Status",
         "These could not be proven safe (uncommitted or unmerged work, shared paths, unreachable Harbors, or unclear ownership). They cannot be cleaned up.": "Diese konnten nicht als sicher nachgewiesen werden (nicht committete oder nicht gemergte Arbeit, geteilte Pfade, nicht erreichbare Harbors oder unklarer Besitz). Sie können nicht bereinigt werden.",
         "Clean up vessel resources": "Repository-Ressourcen bereinigen",
-        "Clean up": "Bereinigen"
+        "Clean up": "Bereinigen",
+        "Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.": "Die ersten {{count}} von {{total}} Einträgen wurden exportiert. Grenzen Sie die Filter ein, um den Rest zu exportieren."
       },
       "sections": {}
     },
@@ -36378,7 +36384,8 @@
         "Unknown disposition": "Disposition inconnue",
         "These could not be proven safe (uncommitted or unmerged work, shared paths, unreachable Harbors, or unclear ownership). They cannot be cleaned up.": "Leur sûreté n'a pas pu être prouvée (travail non commité ou non fusionné, chemins partagés, Harbors injoignables ou propriété incertaine). Ils ne peuvent pas être nettoyés.",
         "Clean up vessel resources": "Nettoyer les ressources du dépôt",
-        "Clean up": "Nettoyer"
+        "Clean up": "Nettoyer",
+        "Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.": "Les {{count}} premières entrées sur {{total}} ont été exportées. Affinez les filtres pour exporter le reste."
       },
       "sections": {}
     },
@@ -41398,7 +41405,8 @@
         "Unknown disposition": "Disposizione sconosciuta",
         "These could not be proven safe (uncommitted or unmerged work, shared paths, unreachable Harbors, or unclear ownership). They cannot be cleaned up.": "Non è stato possibile dimostrare che siano sicuri (lavoro non committato o non unito, percorsi condivisi, Harbor non raggiungibili o proprietà incerta). Non possono essere puliti.",
         "Clean up vessel resources": "Pulisci le risorse del repository",
-        "Clean up": "Pulisci"
+        "Clean up": "Pulisci",
+        "Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.": "Sono state esportate le prime {{count}} voci su {{total}}. Restringi i filtri per esportare il resto."
       },
       "sections": {}
     }
