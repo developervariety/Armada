@@ -67,6 +67,7 @@ namespace Test.Shared.Suites.E2E
             ["GET /api/v1/vessel-health/summary"] = "Aggregated summary",
             ["GET /api/v1/vessels/import/browse"] = "One directory listing",
             ["GET /api/v1/vessels/import/categorization/default-prompt"] = "One prompt",
+            ["GET /api/v1/vessels/{id}/cleanup"] = "One vessel's cleanup inventory (VesselCleanupInventory)",
             ["GET /api/v1/vessels/{id}/git-status"] = "One working tree status",
             ["GET /api/v1/vessels/{id}/health"] = "One vessel's health",
             ["GET /api/v1/vessels/{id}/history/activity"] = "Aggregated commit activity buckets",

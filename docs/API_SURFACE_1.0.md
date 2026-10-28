@@ -24,7 +24,7 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 410 | 15 |
+| REST routes | 412 | 15 |
 | MCP tools | 200 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
@@ -408,6 +408,8 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/vessels/{id}/branches/merge` | TenantAdmin |  | 200, 400, 404, 422 `ApiStatusErrorResponse`, 503 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/vessels/{id}/branches/push` | TenantAdmin |  | 200, 400, 404, 422 `ApiStatusErrorResponse`, 503 `ApiStatusErrorResponse` |  |
 | POST | `/api/v1/vessels/{id}/build-context` | TenantAdmin | `VesselBuildContextRequest` | 200 `Vessel`, 400, 404, 501 `ApiStatusErrorResponse`, 504 `ApiStatusErrorResponse` |  |
+| GET | `/api/v1/vessels/{id}/cleanup` | Authenticated |  | 200 `VesselCleanupInventory`, 404 |  |
+| POST | `/api/v1/vessels/{id}/cleanup` | TenantAdmin | `VesselCleanupRequest` | 200 `VesselCleanupResult`, 400, 404 |  |
 | PATCH | `/api/v1/vessels/{id}/context` | TenantAdmin | `Vessel` | 200 `Vessel`, 404 |  |
 | GET | `/api/v1/vessels/{id}/git-status` | Authenticated |  | 200, 404 |  |
 | GET | `/api/v1/vessels/{id}/health` | Authenticated |  | 200 `VesselHealthDetail`, 404 |  |
