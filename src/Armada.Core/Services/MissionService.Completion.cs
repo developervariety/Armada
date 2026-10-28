@@ -777,8 +777,8 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrEmpty(completionDockId) && !retainDockForReview
                 && mission.Status != MissionStatusEnum.LandingFailed
-                && mission.Status != MissionStatusEnum.WorkProduced
-                && mission.Status != MissionStatusEnum.Review)
+                && !(mission.Status == MissionStatusEnum.WorkProduced
+                    && !hasDependentPipelineStages && !preparedDownstreamStages))
             {
                 try
                 {
