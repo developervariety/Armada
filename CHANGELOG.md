@@ -6,11 +6,6 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
-### Added
-
-- `POST /api/v1/memories/enumerate` enumerates memories with a `MemoryEnumerateRequest` (every `EnumerationQuery` field plus `Search`, `Type`, `Topic`, `TopicContains`, `VesselName`, `SummaryContains`, `Scope`, `MinSalience`, and `SortBy`), returning `EnumerationResult<Memory>` like the other enumerate routes. `GET /api/v1/memories` accepts the same fields as query parameters (it previously dropped `order`, `createdAfter`, `createdBefore`, `voyageId`, and `missionId`). Visibility, filtering, sorting (including by vessel name) and paging now run in the database on SQLite, PostgreSQL, SQL Server and MySQL instead of loading every visible memory. Without `SortBy` or `Order` the historical order (salience, then newest) is kept. New `EnumerateMemoriesAsync` on `Armada.Client` and the Core `ArmadaApiClient`, and `enumerateMemories` in the dashboard client; the MCP `enumerate` tool honors `order` for memories.
-- The dashboard Memories page sorts, filters (vessel name, type, topic, summary, salience, visibility, search) and pages on the server through the enumerate route; its strings are translated in every locale.
-
 ### Fixed
 
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
@@ -52,6 +47,11 @@ setting, Quick probes, and the fixture battery with its C# pack. Schema migratio
 startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 
 - Ask Armada conversations now have a refresh control that preserves the open conversation and filters, shows loading progress, and retains the previous list on failure.
+
+### Memory enumeration: server-side paging, sorting and filtering
+
+- `POST /api/v1/memories/enumerate` enumerates memories with a `MemoryEnumerateRequest` (every `EnumerationQuery` field plus `Search`, `Type`, `Topic`, `TopicContains`, `VesselName`, `SummaryContains`, `Scope`, `MinSalience`, and `SortBy`), returning `EnumerationResult<Memory>` like the other enumerate routes. `GET /api/v1/memories` accepts the same fields as query parameters (it previously dropped `order`, `createdAfter`, `createdBefore`, `voyageId`, and `missionId`). Visibility, filtering, sorting (including by vessel name) and paging now run in the database on SQLite, PostgreSQL, SQL Server and MySQL instead of loading every visible memory. Without `SortBy` or `Order` the historical order (salience, then newest) is kept. New `EnumerateMemoriesAsync` on `Armada.Client` and the Core `ArmadaApiClient`, and `enumerateMemories` in the dashboard client; the MCP `enumerate` tool honors `order` for memories.
+- The dashboard Memories page sorts, filters (vessel name, type, topic, summary, salience, visibility, search) and pages on the server through the enumerate route; its strings are translated in every locale.
 
 ### Dashboard: consolidated navigation
 
