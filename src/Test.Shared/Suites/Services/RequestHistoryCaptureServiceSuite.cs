@@ -54,9 +54,9 @@ namespace Test.Shared.Suites.Services
                     Route = "/api/v1/missions",
                     QueryString = "?scope=repo&token=secret-token",
                     RequestContentType = "application/json",
-                    RequestBodyText = "{\"title\":\"Mission\",\"password\":\"hunter2\",\"gitHubToken\":\"ghp_global\",\"nested\":{\"apiKey\":\"abc123\",\"gitHubTokenOverride\":\"ghp_vessel\"}}",
+                    RequestBodyText = "{\"title\":\"Mission\",\"password\":\"hunter2\",\"currentPassword\":\"old-pw-value\",\"newPassword\":\"new-pw-value\",\"gitHubToken\":\"ghp_global\",\"nested\":{\"apiKey\":\"abc123\",\"gitHubTokenOverride\":\"ghp_vessel\"}}",
                     ResponseContentType = "application/json",
-                    ResponseBodyText = "{\"ok\":true}",
+                    ResponseBodyText = "{\"ok\":true,\"adminPassword\":\"generated-pw-value\"}",
                     RequestHeaders = new Dictionary<string, string?>
                     {
                         ["Authorization"] = "Bearer raw-token",
@@ -79,6 +79,9 @@ namespace Test.Shared.Suites.Services
                 AssertFalse((record.Detail.QueryParamsJson ?? string.Empty).Contains("secret-token"));
                 AssertContains("[REDACTED]", record.Detail.RequestBodyText ?? string.Empty);
                 AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("hunter2"));
+                AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("old-pw-value"), "current password is redacted");
+                AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("new-pw-value"), "new password is redacted");
+                AssertFalse((record.Detail.ResponseBodyText ?? string.Empty).Contains("generated-pw-value"), "generated admin password is redacted");
                 AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("abc123"));
                 AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("ghp_global"));
                 AssertFalse((record.Detail.RequestBodyText ?? string.Empty).Contains("ghp_vessel"));
