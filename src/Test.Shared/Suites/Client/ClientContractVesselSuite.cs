@@ -36,6 +36,27 @@ namespace Test.Shared.Suites.Client
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(Case("vessel_cleanup", "Vessel cleanup inventory is read-only and cleanup revalidates selected keys", async (c, fx) =>
+            {
+                VesselSetup setup = await LiveServerSetup.CreateVesselAsync(c, "cleanup");
+                string id = setup.Vessel.Id;
+                VesselCleanupInventory? inventory = await c.GetVesselCleanupInventoryAsync(id);
+                AssertEqual(id, inventory?.VesselId, "inventory vessel");
+                AssertEqual(inventory!.Resources.Count, inventory.SafeCount + inventory.InUseCount + inventory.UnknownCount, "every resource is classified");
+
+                VesselCleanupResult? result = await c.RunVesselCleanupAsync(id, new List<string> { "dock:dck_does_not_exist" });
+                AssertNotNull(result, "cleanup result");
+                AssertEqual(1, result.Skipped, "a missing key is skipped, not deleted");
+                AssertEqual(0, result.Deleted, "nothing deleted");
+                AssertEqual(id, result.Inventory.VesselId, "refreshed inventory");
+
+                ArmadaApiException? empty = null;
+                try { await c.RunVesselCleanupAsync(id, new List<string>()); }
+                catch (ArmadaApiException ex) { empty = ex; }
+                AssertNotNull(empty, "empty selection is rejected");
+                AssertEqual(400, empty.StatusCode, "empty selection is a 400");
+            }));
+
             cases.Add(Case("vessels_and_branches", "Vessel get, list, update, git status, branches, landing preview, push and merge a branch, build context", async (c, fx) =>
             {
                 VesselSetup setup = await LiveServerSetup.CreateVesselAsync(c, "vessel");

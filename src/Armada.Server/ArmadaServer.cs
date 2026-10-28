@@ -1534,6 +1534,10 @@ namespace Armada.Server
             new VesselHealthRoutes(_VesselHealthService)
                 .Register(_App, authenticate, _AuthorizationService);
 
+            // Vessel cleanup inventory and garbage collection
+            new VesselCleanupRoutes(_Database, new VesselCleanupService(_Database, _Settings, _Docks, new DockHostResolver(_Git, _Logging, _HarborConnectionManager), _Logging))
+                .Register(_App, authenticate, _AuthorizationService);
+
             // Prompt templates
             new PromptTemplateRoutes(_Database, _PromptTemplateService, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);

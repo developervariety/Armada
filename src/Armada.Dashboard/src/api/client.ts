@@ -875,6 +875,64 @@ export const pushVesselBranch = (id: string, branch: string) =>
 export const mergeVesselBranch = (id: string, source: string, target: string, push: boolean) =>
   post<{ vesselId: string; source: string; target: string; merged: boolean; pushed: boolean }>(`/api/v1/vessels/${id}/branches/merge`, { Source: source, Target: target, Push: push });
 
+export type VesselCleanupDisposition = 'Safe' | 'InUse' | 'Unknown';
+export type VesselCleanupResourceType = 'Dock' | 'Worktree' | 'Branch' | 'Repository';
+
+/** One resource in a vessel cleanup inventory. sizeBytes is null when it could not be measured (never estimated). */
+export interface VesselCleanupResource {
+  key: string;
+  resourceType: VesselCleanupResourceType;
+  disposition: VesselCleanupDisposition;
+  reason: string;
+  identity: string;
+  path: string | null;
+  branchName: string | null;
+  repositoryPath: string | null;
+  harborId: string | null;
+  dockId: string | null;
+  missionId: string | null;
+  missionStatus: string | null;
+  voyageId: string | null;
+  captainId: string | null;
+  sizeBytes: number | null;
+}
+
+export interface VesselCleanupInventory {
+  vesselId: string;
+  vesselName: string;
+  scannedUtc: string;
+  resources: VesselCleanupResource[];
+  safeCount: number;
+  inUseCount: number;
+  unknownCount: number;
+  safeMeasuredBytes: number;
+  safeUnmeasuredCount: number;
+}
+
+export interface VesselCleanupItemResult {
+  key: string;
+  resourceType: VesselCleanupResourceType | null;
+  identity: string | null;
+  status: 'Deleted' | 'Skipped' | 'Failed';
+  message: string;
+}
+
+export interface VesselCleanupResult {
+  results: VesselCleanupItemResult[];
+  deleted: number;
+  skipped: number;
+  failed: number;
+  inventory: VesselCleanupInventory;
+}
+
+/** Read-only cleanup inventory of a vessel's docks, worktrees, and Armada-managed branches. Deletes nothing. */
+export const getVesselCleanupInventory = (id: string) =>
+  get<VesselCleanupInventory>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { timeout: 300000 });
+
+/** Clean up the selected inventory keys; the server revalidates each one and returns per-item outcomes plus a fresh inventory. */
+export const runVesselCleanup = (id: string, keys: string[]) =>
+  post<VesselCleanupResult>(`/api/v1/vessels/${encodeURIComponent(id)}/cleanup`, { Keys: keys }, { timeout: 600000 });
+
 // ==================== Vessel History ====================
 /** Per-day commit counts for a vessel branch (heatmap). A missing repo or branch returns 200 with `error` set. */
 export const getVesselCommitActivity = (id: string, params?: VesselCommitActivityQuery) => {
