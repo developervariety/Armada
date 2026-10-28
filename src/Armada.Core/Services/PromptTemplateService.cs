@@ -300,6 +300,23 @@ namespace Armada.Core.Services
             "when the diff changes test infrastructure or build configuration. The [DOD:DOC-ONLY] rule still applies: a " +
             "document-only diff runs no test suite.\n";
 
+        /// <summary>Heading of the blocking-rule section on the Judge template.</summary>
+        private const string _JudgeBlockingRuleMarker = "## When To Block";
+
+        /// <summary>
+        /// The blocking rule added to the Judge persona: NEEDS_REVISION is reserved for a defect the Judge can
+        /// show, and requests for more evidence, report or commit hygiene, harmless extra files, pending Checks
+        /// and style go to Suggested Follow-ups. A NEEDS_REVISION discards the voyage's work and starts a rescue,
+        /// so a block on a non-defect costs a full re-run of every stage.
+        /// </summary>
+        private const string _JudgeBlockingRule =
+            "\n" +
+            _JudgeBlockingRuleMarker + "\n" +
+            "Block only on a defect you show by `path/File.ext:LINE` or a failing command: a criterion's behaviour missing " +
+            "or wrong, a failing test or build, a regression, a security or data-loss fault, or an out-of-scope behaviour " +
+            "change. Wanting more tests or evidence, report or commit hygiene, pending Checks, or style is a Suggested " +
+            "Follow-up, not a block.\n";
+
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -338,6 +355,7 @@ namespace Armada.Core.Services
             AddTestAuthoringGate();
             AddJudgeCriterionConflict();
             AddJudgeTestSelection();
+            AddSectionToEmbedded("persona.judge", _JudgeBlockingRuleMarker, _JudgeBlockingRule);
         }
 
         #endregion
@@ -455,6 +473,7 @@ namespace Armada.Core.Services
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestAuthoringGateMarker, _TestAuthoringGate, "authoring-gate").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.judge", _JudgeCriterionConflictMarker, _JudgeCriterionConflict, "criterion-conflict").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.judge", _JudgeTestSelectionMarker, _JudgeTestSelection, "test-selection").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "persona.judge", _JudgeBlockingRuleMarker, _JudgeBlockingRule, "blocking-rule").ConfigureAwait(false);
         }
 
         /// <summary>

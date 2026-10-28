@@ -609,7 +609,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("The Judge criterion-conflict and test-selection sections reach an edited built-in row once, and the example is not read as a conflict", async () =>
+            await RunTest("The Judge criterion-conflict, test-selection and blocking-rule sections reach an edited built-in row once, and the example is not read as a conflict", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -634,10 +634,11 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("where this template says to run the test suite, run the tests this section names", judge.Content,
                         "the section governs an edited row's own full-suite wording");
                     AssertContains(JudgeCheckEvidence.Heading, judge.Content, "the section points at the brief's Check evidence");
+                    AssertContains("## When To Block", judge.Content, "the blocking-rule section reaches an existing built-in row");
 
                     await service.SeedDefaultsAsync().ConfigureAwait(false);
                     PromptTemplate? reseeded = await service.ResolveAsync("persona.judge").ConfigureAwait(false);
-                    foreach (string heading in new[] { "## When A Required Fix Breaks A Criterion", "## Choosing Which Tests To Run" })
+                    foreach (string heading in new[] { "## When A Required Fix Breaks A Criterion", "## Choosing Which Tests To Run", "## When To Block" })
                     {
                         AssertEqual(1, reseeded!.Content.Split(heading).Length - 1, "a second seed does not append " + heading + " again");
                     }
@@ -645,6 +646,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string embedded = service.GetEmbeddedDefault("persona.judge") ?? String.Empty;
                     AssertContains("## When A Required Fix Breaks A Criterion", embedded, "the embedded default carries the criterion-conflict section");
                     AssertContains("## Choosing Which Tests To Run", embedded, "the embedded default carries the test-selection section");
+                    AssertContains("## When To Block", embedded, "the embedded default carries the blocking-rule section");
                     AssertEqual(0, JudgeCriterionConflicts.Extract(embedded).Count,
                         "the embedded default's placeholder line is not read as a declared conflict");
                 }

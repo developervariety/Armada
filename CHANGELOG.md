@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Judge blocking rule
+
+- The Judge persona carries a `## When To Block` section: NEEDS_REVISION is for a defect the Judge can show (a criterion whose behaviour is missing or wrong, a failing test, build or command, a regression, data-loss or security fault, or an out-of-scope behaviour change). Requests for more tests or evidence, report or commit hygiene, pending Checks and style are Suggested Follow-ups, not blocks. An existing built-in Judge row receives the section on the next start.
+
 ### Claude client label
 
 - The `claudeCodeEntrypoint` setting names the label every Claude Code process sends as `CLAUDE_CODE_ENTRYPOINT`. Unset, the variable stays out and `claude --print` sends `sdk-cli`. See [Claude client label](docs/USAGE_ROUTING.md#claude-client-label).
