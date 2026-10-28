@@ -882,6 +882,43 @@
 					]
 				},
 				{
+					"name": "Change Own Password",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"CurrentPassword\": \"password\",\n  \"NewPassword\": \"a-new-password\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/account/password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"account",
+								"password"
+							]
+						},
+						"description": "Changes the authenticated user's password after verifying the current one. The new password must be at least 8 characters and must not be the default password. Changing the seeded admin's default password also deactivates the seeded default bearer token."
+					},
+					"response": [
+						{
+							"name": "Updated Identity",
+							"status": "OK",
+							"code": 200,
+							"body": "{\n  \"Tenant\": {\n    \"Id\": \"default\",\n    \"Name\": \"Default Tenant\"\n  },\n  \"User\": {\n    \"Id\": \"default\",\n    \"Email\": \"admin@armada\",\n    \"PasswordSha256\": \"********\"\n  },\n  \"PasswordChangeRequired\": false\n}"
+						}
+					]
+				},
+				{
 					"name": "Onboarding (Self-Register)",
 					"request": {
 						"auth": {

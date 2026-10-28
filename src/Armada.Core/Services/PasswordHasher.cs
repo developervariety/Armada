@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Globalization;
     using System.Security.Cryptography;
     using System.Text;
@@ -48,6 +49,8 @@ namespace Armada.Core.Services
 
         private const int _MinIterations = 1000;
         private const int _MaxIterations = 10000000;
+        private const int _MaxDefaultPasswordCacheEntries = 256;
+        private static readonly ConcurrentDictionary<string, bool> _DefaultPasswordCache = new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
 
         #endregion
 
@@ -134,6 +137,23 @@ namespace Armada.Core.Services
         {
             if (!TryParse(stored, out int iterations, out byte[]? _, out byte[]? _)) return true;
             return iterations < Iterations;
+        }
+
+        /// <summary>
+        /// Whether a stored value matches the well-known default password. The result is cached per stored value (a
+        /// password change produces a new value with a new salt), because the check can run on every authenticated
+        /// request of the seeded admin and PBKDF2 is deliberately slow.
+        /// </summary>
+        /// <param name="stored">Stored value.</param>
+        /// <returns>True when the stored value is the default password.</returns>
+        public static bool MatchesDefaultPassword(string? stored)
+        {
+            if (String.IsNullOrEmpty(stored)) return false;
+            if (_DefaultPasswordCache.TryGetValue(stored, out bool cached)) return cached;
+            bool matches = Verify(Constants.DefaultUserPassword, stored);
+            if (_DefaultPasswordCache.Count >= _MaxDefaultPasswordCacheEntries) _DefaultPasswordCache.Clear();
+            _DefaultPasswordCache[stored] = matches;
+            return matches;
         }
 
         #endregion

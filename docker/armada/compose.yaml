@@ -6,6 +6,11 @@ services:
     ports:
       - "7890:7890"
       - "7891:7891"
+    environment:
+      # The container listens on every interface, so the Admiral refuses to start while the seeded
+      # default admin password is active. Set this on the first start; it applies once and never
+      # overwrites a password changed later.
+      - ARMADA_INITIAL_ADMIN_PASSWORD=${ARMADA_INITIAL_ADMIN_PASSWORD:-}
     volumes:
       - ./armada.json:/app/data/armada.json
       - ./db:/app/data/db

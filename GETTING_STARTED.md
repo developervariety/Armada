@@ -357,14 +357,11 @@ docker compose up -d
 
 This starts the Armada server on port 7890 and an optional React dashboard on port 3000. Open `http://localhost:7890/dashboard` or `http://localhost:3000` in your browser.
 
-Log in with the default credentials:
-
-| Field | Value |
-|-------|-------|
-| Email | `admin@armada` |
-| Password | `password` |
-
-For API access from scripts or curl, use `Authorization: Bearer default`.
+The container listens on every interface, so set the first-start admin password
+in the environment (`ARMADA_INITIAL_ADMIN_PASSWORD=<admin-password> docker compose up -d`);
+without it the Admiral refuses to start. Log in as `admin@armada` with that
+password. See [Docker](docs/DOCKER.md#initial-admin-password) for the details
+and the explicit override for unattended hosts.
 
 Data is persisted in `docker/armada/db/`. To stop: `docker compose down`. To reset all data: run `docker/factory/reset.sh` (or `reset.bat` on Windows).
 
@@ -374,15 +371,15 @@ See the [README](README.md#running-locally-with-docker) for full Docker details 
 
 ## Authentication (v0.3.0)
 
-As of v0.3.0, all REST API endpoints require authentication. The default bearer token (`default`) provides backward-compatible access:
+All REST API endpoints require authentication. A new database seeds the admin account `admin@armada` with the password `password` and a bearer token `default`. These published defaults work only while the Admiral listens on a loopback address (the default `localhost`):
 
 ```bash
 curl -H "Authorization: Bearer default" http://localhost:7890/api/v1/status
 ```
 
-The dashboard login screen accepts the default email (`admin@armada`) and password (`password`). After login, the dashboard uses encrypted session tokens automatically.
+Changing the admin password (dashboard, or `PUT /api/v1/account/password`) deactivates the `default` bearer token; create a credential for scripts afterwards. The Admiral refuses to start on a non-loopback `rest.hostname` while the default password or token is active. Set `ARMADA_INITIAL_ADMIN_PASSWORD` for the first start, or change the password while listening on localhost. After login, the dashboard uses encrypted session tokens automatically.
 
-Creating a tenant through the admin UI/API also seeds a protected `admin@armada` user and default credential for that tenant.
+Creating a tenant through the admin UI/API also seeds a protected `admin@armada` user and credential for that tenant.
 
 `IsAdmin` is the global admin flag. `IsTenantAdmin` is the tenant-scoped admin flag. Tenant-created seeded admins are created with `IsAdmin = false` and `IsTenantAdmin = true`.
 
@@ -398,6 +395,6 @@ Operational records are owned by both tenant and user. Armada persists and index
 
 User creation and user updates accept a plaintext `Password` field. Armada hashes the password server-side before storing it. If `Password` is omitted on update, the existing password is preserved. The dashboard Users modal supports both admin-managed password resets and self-service password changes.
 
-Server shutdown is authenticated by default: `RequireAuthForShutdown` defaults to `true`, so `POST /api/v1/server/stop` and `POST /api/v1/server/restart` require a global admin user with `IsAdmin = true`; tenant admins and regular users cannot stop the server through the REST API. Helm sends its configured credential (the seeded `default` credential when none is set), so `armada server stop` keeps working locally. Set it to `false` only on a server that no untrusted client can reach.
+Server shutdown is authenticated by default: `RequireAuthForShutdown` defaults to `true`, so `POST /api/v1/server/stop` and `POST /api/v1/server/restart` require a global admin user with `IsAdmin = true`; tenant admins and regular users cannot stop the server through the REST API. Helm sends its configured credential (the seeded `default` credential when none is set, which works only until the admin password changes), so `armada server stop` keeps working locally; set Helm's `ApiKey` to a real credential once the default token is deactivated. Set it to `false` only on a server that no untrusted client can reach.
 
 For production use, create additional users and credentials via the admin API or dashboard. See `docs/REST_API.md` for details.

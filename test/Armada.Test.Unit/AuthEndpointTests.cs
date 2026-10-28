@@ -73,6 +73,160 @@ namespace Armada.Test.Unit
             });
 
             // ================================================================
+            // Seeded default credentials: startup policy and retirement
+            // ================================================================
+
+            await RunTest("Default credential startup policy refuses a non-loopback listener and allows loopback", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DefaultCredentialService defaults = new DefaultCredentialService(testDb.Driver, CreateQuietLogging());
+                    foreach (string host in new[] { "0.0.0.0", "*", "10.1.2.3", "armada.example.test", "" })
+                    {
+                        await AssertThrowsAsync<DefaultCredentialPolicyException>(
+                            () => defaults.EnforceStartupPolicyAsync(host, false, null),
+                            "non-loopback host '" + host + "' with seeded defaults must be refused").ConfigureAwait(false);
+                    }
+                    foreach (string host in new[] { "localhost", "127.0.0.1", "[::1]" })
+                    {
+                        List<string> remaining = await defaults.EnforceStartupPolicyAsync(host, false, null).ConfigureAwait(false);
+                        AssertEqual(2, remaining.Count, "loopback start reports the default password and bearer token for " + host);
+                    }
+                }
+            });
+
+            await RunTest("Default credential startup policy override warns loudly instead of refusing", async () =>
+            {
+                string logPath = Path.Combine(Path.GetTempPath(), "armada_default_cred_" + Guid.NewGuid().ToString("N") + ".log");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        LoggingModule logging = new LoggingModule(logPath, FileLoggingMode.SingleLogFile, false);
+                        logging.Settings.EnableConsole = false;
+                        DefaultCredentialService defaults = new DefaultCredentialService(testDb.Driver, logging);
+
+                        List<string> remaining = await defaults.EnforceStartupPolicyAsync("0.0.0.0", true, null).ConfigureAwait(false);
+                        AssertEqual(2, remaining.Count, "override leaves the defaults active");
+                        await logging.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+                        string logText = File.ReadAllText(logPath);
+                        AssertContains("AllowDefaultCredentialsOnNetwork", logText, "override warning names the setting");
+                        AssertContains("default credentials in use", logText, "override warning names the exposure");
+                    }
+                }
+                finally
+                {
+                    if (File.Exists(logPath)) File.Delete(logPath);
+                }
+            });
+
+            await RunTest("Default credential startup policy retires the seeded bearer once the admin password was changed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    AuthenticationService auth = CreateAuthService(db);
+                    DefaultCredentialService defaults = new DefaultCredentialService(db, CreateQuietLogging());
+
+                    AuthContext before = await auth.AuthenticateAsync("Bearer " + Constants.DefaultBearerToken, null, null).ConfigureAwait(false);
+                    AssertTrue(before.IsAuthenticated, "seeded bearer authenticates while the default password is in use");
+
+                    // An existing install whose admin already set a real password but still holds the seeded bearer row.
+                    UserMaster admin = (await db.Users.ReadByIdAsync(Constants.DefaultUserId).ConfigureAwait(false))!;
+                    admin.PasswordSha256 = UserMaster.ComputePasswordHash("real-admin-pw1");
+                    await db.Users.UpdateAsync(admin).ConfigureAwait(false);
+
+                    AuthContext rejected = await auth.AuthenticateAsync("Bearer " + Constants.DefaultBearerToken, null, null).ConfigureAwait(false);
+                    AssertFalse(rejected.IsAuthenticated, "seeded bearer stops authenticating the moment the password is real");
+                    Credential rowBefore = (await db.Credentials.ReadByIdAsync(Constants.DefaultCredentialId).ConfigureAwait(false))!;
+                    AssertTrue(rowBefore.Active, "the stored credential is still active until startup retires it");
+
+                    List<string> remaining = await defaults.EnforceStartupPolicyAsync("0.0.0.0", false, null).ConfigureAwait(false);
+                    AssertEqual(0, remaining.Count, "a deployment with real credentials starts on a non-loopback listener");
+                    Credential rowAfter = (await db.Credentials.ReadByIdAsync(Constants.DefaultCredentialId).ConfigureAwait(false))!;
+                    AssertFalse(rowAfter.Active, "startup deactivates the seeded credential row");
+
+                    // Resetting the password to the default later must not revive the retired token.
+                    admin = (await db.Users.ReadByIdAsync(Constants.DefaultUserId).ConfigureAwait(false))!;
+                    admin.PasswordSha256 = UserMaster.ComputePasswordHash(Constants.DefaultUserPassword);
+                    await db.Users.UpdateAsync(admin).ConfigureAwait(false);
+                    AuthContext revived = await auth.AuthenticateAsync("Bearer " + Constants.DefaultBearerToken, null, null).ConfigureAwait(false);
+                    AssertFalse(revived.IsAuthenticated, "a retired seeded bearer stays retired");
+                }
+            });
+
+            await RunTest("Default credential initial admin password replaces the seeded password once and never overwrites a later one", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    DefaultCredentialService defaults = new DefaultCredentialService(db, CreateQuietLogging());
+
+                    await AssertThrowsAsync<DefaultCredentialPolicyException>(
+                        () => defaults.EnforceStartupPolicyAsync("0.0.0.0", false, "short")).ConfigureAwait(false);
+                    await AssertThrowsAsync<DefaultCredentialPolicyException>(
+                        () => defaults.EnforceStartupPolicyAsync("0.0.0.0", false, Constants.DefaultUserPassword)).ConfigureAwait(false);
+
+                    List<string> remaining = await defaults.EnforceStartupPolicyAsync("0.0.0.0", false, "first-start-secret").ConfigureAwait(false);
+                    AssertEqual(0, remaining.Count, "the initial password satisfies the non-loopback guard");
+                    UserMaster admin = (await db.Users.ReadByIdAsync(Constants.DefaultUserId).ConfigureAwait(false))!;
+                    AssertTrue(admin.VerifyPassword("first-start-secret"), "initial password is stored");
+                    AssertFalse(admin.VerifyPassword(Constants.DefaultUserPassword), "default password no longer signs in");
+                    AuthContext bearer = await CreateAuthService(db).AuthenticateAsync("Bearer " + Constants.DefaultBearerToken, null, null).ConfigureAwait(false);
+                    AssertFalse(bearer.IsAuthenticated, "seeded bearer is retired with the initial password");
+
+                    admin.PasswordSha256 = UserMaster.ComputePasswordHash("operator-changed-it");
+                    await db.Users.UpdateAsync(admin).ConfigureAwait(false);
+                    await defaults.EnforceStartupPolicyAsync("0.0.0.0", false, "first-start-secret").ConfigureAwait(false);
+                    admin = (await db.Users.ReadByIdAsync(Constants.DefaultUserId).ConfigureAwait(false))!;
+                    AssertTrue(admin.VerifyPassword("operator-changed-it"), "restart with the variable still set keeps the later password");
+                }
+            });
+
+            await RunTest("Account password route requires the current password, retires the seeded bearer and clears the default-password flag", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    JsonSerializerOptions json = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    SurfaceReply login = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate", new AuthenticateRequest
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        Email = Constants.DefaultUserEmail,
+                        Password = Constants.DefaultUserPassword
+                    }).ConfigureAwait(false);
+                    AuthenticateResult session = JsonSerializer.Deserialize<AuthenticateResult>(login.Body, json)!;
+                    AssertTrue(session.Success);
+                    AssertTrue(session.PasswordChangeRequired, "login reports the default password until it changes");
+                    AssertEqual(200, await WhoAmIStatusWithBearerAsync(harness, Constants.DefaultBearerToken).ConfigureAwait(false), "the seeded bearer authenticates before the change");
+                    SurfaceReply identity = await harness.RestAsync(HttpMethod.Get, "/api/v1/whoami", sessionToken: session.Token).ConfigureAwait(false);
+                    AssertTrue(JsonSerializer.Deserialize<WhoAmIResult>(identity.Body, json)!.PasswordChangeRequired, "whoami reports the default password");
+
+                    SurfaceReply wrong = await harness.RestAsync(HttpMethod.Put, "/api/v1/account/password",
+                        new PasswordChangeRequest { CurrentPassword = "wrong-password", NewPassword = "real-admin-pw1" }, session.Token).ConfigureAwait(false);
+                    AssertEqual(403, wrong.Status, "wrong current password is refused");
+                    SurfaceReply missing = await harness.RestAsync(HttpMethod.Put, "/api/v1/account/password",
+                        new PasswordChangeRequest { NewPassword = "real-admin-pw1" }, session.Token).ConfigureAwait(false);
+                    AssertEqual(400, missing.Status, "missing current password is refused");
+                    SurfaceReply weak = await harness.RestAsync(HttpMethod.Put, "/api/v1/account/password",
+                        new PasswordChangeRequest { CurrentPassword = Constants.DefaultUserPassword, NewPassword = "short" }, session.Token).ConfigureAwait(false);
+                    AssertEqual(400, weak.Status, "short new password is refused");
+                    UserMaster unchanged = (await harness.Driver.Users.ReadByIdAsync(Constants.DefaultUserId).ConfigureAwait(false))!;
+                    AssertTrue(unchanged.VerifyPassword(Constants.DefaultUserPassword), "refused changes leave the stored password alone");
+
+                    SurfaceReply changed = await harness.RestAsync(HttpMethod.Put, "/api/v1/account/password",
+                        new PasswordChangeRequest { CurrentPassword = Constants.DefaultUserPassword, NewPassword = "real-admin-pw1" }, session.Token).ConfigureAwait(false);
+                    AssertEqual(200, changed.Status, "correct current password changes the password");
+                    AssertFalse(JsonSerializer.Deserialize<WhoAmIResult>(changed.Body, json)!.PasswordChangeRequired);
+                    UserMaster updated = (await harness.Driver.Users.ReadByIdAsync(Constants.DefaultUserId).ConfigureAwait(false))!;
+                    AssertTrue(updated.VerifyPassword("real-admin-pw1"));
+                    Credential seeded = (await harness.Driver.Credentials.ReadByIdAsync(Constants.DefaultCredentialId).ConfigureAwait(false))!;
+                    AssertFalse(seeded.Active, "the password change deactivates the seeded bearer credential");
+
+                    AssertEqual(401, await WhoAmIStatusWithBearerAsync(harness, Constants.DefaultBearerToken).ConfigureAwait(false), "the seeded bearer no longer authenticates over HTTP");
+                }
+            });
+
+            // ================================================================
             // SessionTokenService
             // ================================================================
 
@@ -431,6 +585,25 @@ namespace Armada.Test.Unit
                     return Convert.ToBase64String(output.ToArray());
                 }
             }
+        }
+
+        private static async Task<int> WhoAmIStatusWithBearerAsync(SurfaceParityHarness harness, string bearer)
+        {
+            // A client without the harness operator key, so only the presented bearer authenticates.
+            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/whoami"))
+            using (HttpClient anonymous = new HttpClient { BaseAddress = harness.Rest.BaseAddress })
+            {
+                request.Headers.Add("Authorization", "Bearer " + bearer);
+                using (HttpResponseMessage response = await anonymous.SendAsync(request).ConfigureAwait(false))
+                    return (int)response.StatusCode;
+            }
+        }
+
+        private static LoggingModule CreateQuietLogging()
+        {
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            return logging;
         }
 
         private AuthenticationService CreateAuthService(

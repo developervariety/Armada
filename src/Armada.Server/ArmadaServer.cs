@@ -73,6 +73,7 @@ namespace Armada.Server
         private bool _Quiet;
 
         private DatabaseDriver _Database = null!;
+        private DefaultCredentialService _DefaultCredentials = null!;
         private IGitService _Git = null!;
         private HarborCheckoutService _HarborCheckouts = null!;
         private IDockService _Docks = null!;
@@ -281,6 +282,16 @@ namespace Armada.Server
             await _Database.InitializeAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "database initialized");
             await PasswordHashUpgradeService.UpgradeLegacyHashesAsync(_Database, _Logging).ConfigureAwait(false);
+
+            // Seeded default credentials are checked before anything binds: a non-loopback listener
+            // with the published default password or bearer token active is refused unless the operator
+            // accepted that risk in settings.
+            _DefaultCredentials = new DefaultCredentialService(_Database, _Logging);
+            await _DefaultCredentials.EnforceStartupPolicyAsync(
+                _Settings.Rest.Hostname,
+                _Settings.AllowDefaultCredentialsOnNetwork,
+                Environment.GetEnvironmentVariable(DefaultCredentialService.InitialAdminPasswordEnvironmentVariable),
+                _TokenSource.Token).ConfigureAwait(false);
 
             // One reload path for the manual endpoint and the file watcher: both read the bound
             // settings file and validate the candidate against the live captain roster.
@@ -1549,11 +1560,11 @@ namespace Armada.Server
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate = AuthenticateRequestAsync;
 
             // Authentication & identity
-            new AuthRoutes(_SessionTokenService, _AuthenticationService, _Database, _Settings, _JsonOptions)
+            new AuthRoutes(_SessionTokenService, _AuthenticationService, _Database, _Settings, _JsonOptions, _DefaultCredentials)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Tenants, users, credentials
-            new TenantRoutes(_Database, _JsonOptions)
+            new TenantRoutes(_Database, _JsonOptions, _DefaultCredentials)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Status, health, doctor, settings, server control

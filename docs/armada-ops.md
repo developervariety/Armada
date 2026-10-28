@@ -352,3 +352,20 @@ the kernel journal (`journalctl -k`).
 Reads that span the whole history are bounded. The history timeline reads at
 most 2000 records from each large source, newest first, and names a source
 with more records in `TruncatedSources`.
+
+## Startup refusal for default credentials
+
+A new database seeds the admin `admin@armada` with a published default password
+and a `default` bearer token. Before the REST listener binds, the admiral
+checks them against `Rest.Hostname`. On a loopback host it logs a warning. On
+any other host it exits with code 4 and prints `STARTUP REFUSED` with the active
+credentials; nothing is bound, so a restart loop reads as a crash, not an
+outage. Resolve it with `ARMADA_INITIAL_ADMIN_PASSWORD` (applies once, while the
+default password is active), by changing the password through
+`PUT /api/v1/account/password`, or by setting `AllowDefaultCredentialsOnNetwork`
+to `true`, which logs a warning at every start and accepts the exposure.
+
+Changing the admin password deactivates the `default` bearer token. Any client
+that still sends it, including Helm's stop command without a configured
+`ApiKey`, receives `401` until it uses a real credential. MCP authentication and
+caller scopes do not change.

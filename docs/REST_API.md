@@ -65,7 +65,7 @@ Bearer tokens are the canonical authentication mechanism. Each token is a 64-cha
 Authorization: Bearer <token>
 ```
 
-The default installation seeds a credential with bearer token `default`, so `Authorization: Bearer default` works out of the box for single-user setups.
+A new database seeds a credential with bearer token `default`, so `Authorization: Bearer default` works out of the box for a single-user setup on a loopback listener. The token is valid only while its owner, the seeded admin `admin@armada`, still has the default password. Changing that password deactivates the token, and the Admiral refuses to start on a non-loopback `rest.hostname` while the default password or token is active (see [Default credentials at startup](#default-credentials-at-startup)).
 
 ### Encrypted Session Token
 
@@ -131,6 +131,7 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/tenants/lookup` | POST | NoAuthRequired | Input: email, returns matching tenants |
 | `/api/v1/onboarding` | POST | NoAuthRequired | Gated by `AllowSelfRegistration` setting |
 | `/api/v1/whoami` | GET | Authenticated | |
+| `/api/v1/account/password` | PUT | Authenticated | Changes the caller's own password; requires the current password |
 | `/api/v1/status` | GET | Authenticated | Tenant-scoped |
 | `/api/v1/settings` | GET | AdminOnly | Server configuration and remote-control settings |
 | `/api/v1/settings` | PUT | AdminOnly | Partial update of server configuration and remote-control settings |
@@ -451,7 +452,8 @@ Authenticate with email and password to receive an encrypted session token. This
 {
   "Success": true,
   "Token": "eyJhbGciOi...",
-  "ExpiresUtc": "2026-03-16T12:00:00Z"
+  "ExpiresUtc": "2026-03-16T12:00:00Z",
+  "PasswordChangeRequired": true
 }
 ```
 
@@ -495,8 +497,48 @@ Returns the authenticated user's tenant and user information.
 }
 ```
 
+`PasswordChangeRequired` is `true` while the caller is a seeded admin account that still has the default password.
+
 **Errors:**
 - `401 Unauthorized` - Not authenticated
+
+---
+
+#### PUT /api/v1/account/password
+
+Change the authenticated user's own password. The caller proves knowledge of the current password.
+
+**Permission:** Authenticated
+
+**Request Body:** [PasswordChangeRequest](#passwordchangerequest)
+
+```json
+{
+  "CurrentPassword": "password",
+  "NewPassword": "a-new-password"
+}
+```
+
+**Response:** `200 OK` - [WhoAmIResult](#whoamiresult)
+
+Changing the seeded admin's default password also deactivates the seeded `default` bearer token.
+
+**Errors:**
+- `400 Bad Request` - Missing field, new password shorter than 8 characters or equal to the default password, or new password equal to the current password
+- `401 Unauthorized` - Not authenticated
+- `403 Forbidden` - `CurrentPassword` is incorrect
+
+---
+
+#### Default credentials at startup
+
+A new database seeds the admin `admin@armada` (password `password`) and the bearer token `default`. Before the REST listener binds, the Admiral applies this policy:
+
+- `ARMADA_INITIAL_ADMIN_PASSWORD`, when set, replaces the seeded password while it is still the default and deactivates the `default` token. It must be at least 8 characters and not `password`. It never overwrites a password changed later.
+- The `default` token is deactivated once its owner no longer has the default password.
+- On a loopback `rest.hostname` (`localhost`, `127.0.0.0/8`, `::1`) any remaining default credential only logs a warning.
+- On any other hostname (including `0.0.0.0`) the Admiral refuses to start while the default password or the `default` token is active, and the message names how to resolve it. An `admin@armada` account of another tenant that still has the default password counts as well.
+- `AllowDefaultCredentialsOnNetwork` (settings, default `false`) set to `true` accepts that risk: startup logs a warning instead of refusing.
 
 ---
 
@@ -4471,7 +4513,8 @@ Result of `GET /api/v1/whoami`.
 ```json
 {
   "Tenant": { ... },
-  "User": { ... }
+  "User": { ... },
+  "PasswordChangeRequired": false
 }
 ```
 
@@ -4479,6 +4522,18 @@ Result of `GET /api/v1/whoami`.
 |---|---|---|
 | `Tenant` | [TenantMetadata](#tenantmetadata) | Tenant information |
 | `User` | [UserMaster](#usermaster) | User information (password redacted) |
+| `PasswordChangeRequired` | boolean | `true` while the caller is a seeded admin account that still has the default password |
+
+---
+
+#### PasswordChangeRequest
+
+Request body for `PUT /api/v1/account/password`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `CurrentPassword` | string | Yes | The caller's current password |
+| `NewPassword` | string | Yes | At least 8 characters, not the default password, different from the current password |
 
 ---
 
@@ -5498,6 +5553,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 |---|---|---|---|---|
 | 1 | POST | `/api/v1/authenticate` | Authenticate (get session token) | No |
 | 2 | GET | `/api/v1/whoami` | Get current identity | Yes |
+| 2a | PUT | `/api/v1/account/password` | Change own password | Yes |
 | 3 | POST | `/api/v1/tenants/lookup` | Lookup tenants by email | No |
 | 4 | POST | `/api/v1/onboarding` | Self-register new user | No* |
 | 5 | GET | `/api/v1/tenants` | List tenants (paginated) | Admin |

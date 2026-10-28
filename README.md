@@ -129,6 +129,13 @@ Both versions use salted PBKDF2-HMAC-SHA256 password storage. The fork keeps
 the SHA-256 API input and upgrades legacy rows with conditional password-only
 writes, so a concurrent password reset is preserved.
 
+Both versions refuse a non-loopback start while the seeded default admin
+password or `default` bearer token is active, deactivate that token once the
+password changes, and accept `ARMADA_INITIAL_ADMIN_PASSWORD` on the first start.
+The fork names its override `AllowDefaultCredentialsOnNetwork`, reports the
+default-password state on `whoami` and `authenticate` without blocking the
+session, and keeps its strict MCP authentication and caller scopes.
+
 Both versions protect cancelled missions from stale full-row writes. The fork
 keeps explicit status-conditioned transitions and restart to `Pending`, and stops
 completion and handoff paths when they observe cancellation.
@@ -877,6 +884,15 @@ credentials but never a global administrator or a protected user, and only a
 global administrator and a credential's own user read its bearer token.
 Stopping or restarting the server requires a global administrator unless a
 deployment sets `RequireAuthForShutdown` to `false`.
+
+A new database seeds the admin `admin@armada` with a published default password
+and a `default` bearer token. These work only on a loopback listener: the
+Admiral refuses to start on any other `rest.hostname` while either is active,
+unless `AllowDefaultCredentialsOnNetwork` is `true` (a warning is logged at every
+start). `ARMADA_INITIAL_ADMIN_PASSWORD` sets the admin password on the first
+start, and changing that password through `PUT /api/v1/account/password`
+deactivates the `default` token. MCP keeps its strict authentication and caller
+scopes in every case.
 
 ---
 

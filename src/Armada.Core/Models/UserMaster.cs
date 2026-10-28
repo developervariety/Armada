@@ -164,6 +164,20 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
+        /// Whether this is a seeded admin account (the first-boot user, or an account with email
+        /// <see cref="Constants.DefaultUserEmail"/>) that still uses the well-known default password
+        /// <see cref="Constants.DefaultUserPassword"/>.
+        /// </summary>
+        /// <returns>True when the default password is still in use.</returns>
+        public bool UsesDefaultPassword()
+        {
+            bool seeded = String.Equals(Id, Constants.DefaultUserId, StringComparison.Ordinal)
+                || String.Equals(Email, Constants.DefaultUserEmail, StringComparison.OrdinalIgnoreCase);
+            if (!seeded) return false;
+            return PasswordHasher.MatchesDefaultPassword(PasswordSha256);
+        }
+
+        /// <summary>
         /// Return a copy of the user with the password redacted.
         /// </summary>
         /// <param name="user">User to redact.</param>

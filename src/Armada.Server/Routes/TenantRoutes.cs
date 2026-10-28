@@ -12,6 +12,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -21,16 +22,19 @@ namespace Armada.Server.Routes
     {
         private readonly DatabaseDriver _database;
         private readonly JsonSerializerOptions _jsonOptions;
+        private readonly DefaultCredentialService? _defaults;
 
         /// <summary>
         /// Instantiate.
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
-        public TenantRoutes(DatabaseDriver database, JsonSerializerOptions jsonOptions)
+        /// <param name="defaults">Default credential service; when supplied, a user update retires the seeded bearer token once its owner has a real password.</param>
+        public TenantRoutes(DatabaseDriver database, JsonSerializerOptions jsonOptions, DefaultCredentialService? defaults = null)
         {
             _database = database;
             _jsonOptions = jsonOptions;
+            _defaults = defaults;
         }
 
         /// <summary>
@@ -302,6 +306,7 @@ namespace Armada.Server.Routes
                     user.Active = existing.Active;
                 }
                 user = await _database.Users.UpdateAsync(user).ConfigureAwait(false);
+                if (_defaults != null) await _defaults.RetireDefaultBearerTokenAsync().ConfigureAwait(false);
                 return (object)UserMaster.Redact(user);
             },
             api => api.WithTag("Users").WithSummary("Update user (admin only)"));

@@ -71,6 +71,39 @@ number or run an old migration script because its filename looks similar.
   watcher and disk lifecycle scans do not provide its file/database/Harbor
   inventory, growth history or System > Storage page.
 
+## Seeded default credentials
+
+A new database seeds the admin `admin@armada` with a published default password
+and a `default` bearer token. The Admiral now checks them before the REST
+listener binds.
+
+- **Admin password already changed.** The server starts as before. It
+  deactivates the stored `default` bearer credential, and the token stops
+  authenticating. Scripts, Helm (`armada server stop`) and any client that
+  still sends `Authorization: Bearer default` need a real credential first:
+  create one in the Dashboard and update the client (Helm's `ApiKey`). Do this
+  before the upgrade. A rollback to the previous executable does not reactivate
+  the credential; the restored pre-upgrade database does.
+- **Default password still active, loopback `rest.hostname`** (`localhost`,
+  `127.0.0.1`, `::1`). The server starts and logs a warning at every start.
+- **Default password still active, any other `rest.hostname`** (including
+  `0.0.0.0`, as in the Docker stack). The server exits with code 4 and a message
+  that names the active credentials. Resolve it with one of:
+  1. Set `ARMADA_INITIAL_ADMIN_PASSWORD` (at least 8 characters, not `password`).
+     It applies only while the admin still has the default password.
+  2. Change the admin password first: start on `localhost` and call
+     `PUT /api/v1/account/password`, or change it in the Dashboard.
+  3. Set `AllowDefaultCredentialsOnNetwork` to `true` in settings. Startup then
+     logs a warning instead of refusing. This accepts that anyone who can reach
+     the port can sign in with the published defaults.
+- **Other tenants.** A tenant admin `admin@armada` that was seeded earlier with
+  the default password also counts as an active default. Change those passwords
+  (an administrator resets them through the user update route) before the
+  non-loopback start.
+
+Run the upgrade rehearsal on the restored copy with the production
+`rest.hostname` so this check runs before the cutover.
+
 ## Verify and roll back
 
 After an approved deployment, check health, product version and build commit;

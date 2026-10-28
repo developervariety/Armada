@@ -620,6 +620,14 @@ namespace Armada.Core.Settings
         public bool AllowSelfRegistration { get; set; } = true;
 
         /// <summary>
+        /// Whether the Admiral may start on a non-loopback REST hostname while the seeded default credentials (the
+        /// default admin password or the well-known "default" bearer token) are still active. False by default: startup
+        /// refuses, naming the credentials and how to replace them. Setting this to true is an explicit risk
+        /// acceptance for unattended hosts; startup then logs a warning instead of refusing.
+        /// </summary>
+        public bool AllowDefaultCredentialsOnNetwork { get; set; } = false;
+
+        /// <summary>
         /// Whether POST /api/v1/server/stop and POST /api/v1/server/restart require a global administrator.
         /// True by default, so an unauthenticated caller cannot stop the server. Helm sends its configured
         /// bearer credential (the seeded default credential when none is configured), so local stop and

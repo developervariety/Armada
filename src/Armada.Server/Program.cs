@@ -231,6 +231,13 @@ namespace Armada.Server
                 ReportMigrationBackupRefusal(ex);
                 return;
             }
+            catch (DefaultCredentialPolicyException ex)
+            {
+                _Server.Stop();
+                Console.Error.WriteLine("STARTUP REFUSED: " + ex.Message);
+                Environment.ExitCode = 4;
+                return;
+            }
 
             Console.WriteLine("Admiral running on port " + _Settings.AdmiralPort);
             Console.WriteLine("MCP server on port " + _Settings.McpPort);

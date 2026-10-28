@@ -43,18 +43,30 @@ Open the dashboard at **http://localhost:3000** (React SPA) or **http://localhos
 > directory (`~/.armada/dashboard`), run `scripts/common/deploy-dashboard.sh`
 > after the server image rebuild.
 
-### Default Credentials
+### Initial admin password
 
-| Field | Value |
-|-------|-------|
-| Email | `admin@armada` |
-| Password | `password` |
-
-For API access from scripts or curl:
+The container listens on every interface (`rest.hostname` is `0.0.0.0`). A new
+database seeds the admin account `admin@armada` with the published default
+password and a `default` bearer token, so the Admiral refuses to start on a
+non-loopback listener while either is active. Set the first-start password in
+the environment of `docker compose`:
 
 ```bash
-curl -H "Authorization: Bearer default" http://localhost:7890/api/v1/status
+ARMADA_INITIAL_ADMIN_PASSWORD=<admin-password> docker compose up -d
 ```
+
+The variable applies only while the admin still has the default password, and
+it deactivates the `default` bearer token. It is at least 8 characters and not
+`password`. Later restarts never overwrite a password changed afterwards, so
+the variable can stay set or be removed. Sign in as `admin@armada` with that
+password. For API access, create a credential in the dashboard and send it as
+`Authorization: Bearer <token>`.
+
+An unattended host that must start with the default credentials can set
+`allowDefaultCredentialsOnNetwork` to `true` in `armada.json`. The Admiral then
+logs a warning at every start instead of refusing. Anyone who can reach the
+port can sign in with the published defaults, so use this only on an isolated
+network.
 
 ---
 

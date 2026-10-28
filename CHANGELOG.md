@@ -17,6 +17,13 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Add `armada_search_context`: one local query over applicable guidance, native memory and existing code indexes. Keep required guidance outside recall limits, retain source versions and enforce mission and owner scope. Use the existing database driver on SQLite, PostgreSQL, MySQL and SQL Server.
 
+### Bootstrap credentials and startup binding
+
+- The Admiral refuses to start on a non-loopback `rest.hostname` while the seeded default admin password or the `default` bearer token is active. `AllowDefaultCredentialsOnNetwork` accepts the risk and logs a warning at every start instead; a loopback listener only warns. `ARMADA_INITIAL_ADMIN_PASSWORD` sets the admin password on the first start.
+- The `default` bearer token stops authenticating once its owner no longer has the default password, and startup deactivates the stored credential. MCP authentication and caller scopes are unchanged.
+- `PUT /api/v1/account/password` changes the caller's own password after verifying the current one. `whoami` and `authenticate` report `PasswordChangeRequired` while the default password is active.
+- The Docker stack passes `ARMADA_INITIAL_ADMIN_PASSWORD` to the server. The [upgrade guide](docs/UPGRADING.md#seeded-default-credentials) describes the effect on running installs.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

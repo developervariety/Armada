@@ -195,6 +195,18 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Whether a credential is the seeded default credential still carrying the well-known token.
+        /// </summary>
+        /// <param name="credential">Credential.</param>
+        /// <returns>True for the seeded default token.</returns>
+        public static bool IsSeededDefaultToken(Credential credential)
+        {
+            if (credential == null) return false;
+            return String.Equals(credential.Id, Constants.DefaultCredentialId, StringComparison.Ordinal)
+                && String.Equals(credential.BearerToken, Constants.DefaultBearerToken, StringComparison.Ordinal);
+        }
+
         #endregion
 
         #region Private-Methods
@@ -208,6 +220,14 @@ namespace Armada.Core.Services
 
                 UserMaster? user = await _Database.Users.ReadByIdAsync(credential.UserId, token).ConfigureAwait(false);
                 if (user == null || !user.Active) return null;
+
+                // The well-known seeded token works only while its owner still has the default password, so it stops
+                // working the moment real credentials replace the default.
+                if (IsSeededDefaultToken(credential) && !user.UsesDefaultPassword())
+                {
+                    _Logging.Debug(_Header + "rejected the seeded default bearer token: the default admin password has been changed");
+                    return null;
+                }
 
                 TenantMetadata? tenant = await _Database.Tenants.ReadAsync(credential.TenantId, token).ConfigureAwait(false);
                 if (tenant == null || !tenant.Active) return null;
