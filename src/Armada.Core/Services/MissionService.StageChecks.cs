@@ -146,7 +146,9 @@ namespace Armada.Core.Services
                         {
                             // A check that fails on the stage's starting commit as well is a pre-existing failure, not
                             // something this stage broke: report it in the log and do not send the captain back over it.
-                            bool? baseFails = String.IsNullOrEmpty(startCommit) ? null
+                            // With no recorded start commit there is no baseline to compare, so the head failure stands;
+                            // only a baseline that was attempted but could not finish is unverified.
+                            bool? baseFails = String.IsNullOrEmpty(startCommit) ? false
                                 : await FailsOnBaseCommitAsync(executor, windows, vessel.Id, dock.WorktreePath!, startCommit!, command, deadline, token).ConfigureAwait(false);
                             if (baseFails == true)
                             {
