@@ -400,7 +400,7 @@ namespace Test.Shared.Suites.Services
                 File.WriteAllText(Path.Combine(repos.Work, "readme.txt"), "one\n");
                 repos.Git(repos.Work, "add", "readme.txt");
                 repos.Git(repos.Work, "commit", "-m", "one");
-                repos.Git(root, "init", "--bare", repos.Origin);
+                repos.Git(root, "init", "--bare", "-b", "main", repos.Origin);
                 repos.Git(repos.Work, "remote", "add", "origin", repos.Origin);
                 repos.Git(repos.Work, "push", "-u", "origin", "main");
                 repos.Git(root, "clone", "--bare", repos.Origin, repos.Bare);
