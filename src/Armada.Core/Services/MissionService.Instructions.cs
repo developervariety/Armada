@@ -115,15 +115,23 @@ namespace Armada.Core.Services
                 // The description's prior-stage placeholder receives the rendered handoff, unless the persona template
                 // already carries it through {PreviousStageOutput} (Judge, Test Engineer, Linter): deliver it once.
                 bool templateCarriesHandoff = personaPrompt.Contains(handoff.Evidence.Trim(), StringComparison.Ordinal);
-                string block = templateCarriesHandoff
-                    ? "The prior stage's handoff artifact is rendered in the role instructions below (prior stage evidence and diff)."
-                    : handoff.Combined();
-                string filled = PipelineHandoffContext.Fill(templateParams["MissionDescription"], block);
+                string carriedNote = "The prior stage's handoff artifact is rendered in the role instructions below (prior stage evidence and diff).";
+                string block = templateCarriesHandoff ? carriedNote : handoff.Combined();
+                // A rework description lists the reviewer's findings, its demands and the output contract (Phase 3 item 2).
+                string filled = ReworkPromptBuilder.IsReworkDescription(templateParams["MissionDescription"])
+                    ? ReworkPromptBuilder.Compose(templateParams["MissionDescription"], handoff, templateCarriesHandoff ? carriedNote : null)
+                    : PipelineHandoffContext.Fill(templateParams["MissionDescription"], block);
                 if (!String.Equals(filled, templateParams["MissionDescription"], StringComparison.Ordinal))
                 {
                     templateParams["MissionDescription"] = filled;
                     personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, promptVariant, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
                 }
+            }
+            else if (ReworkPromptBuilder.IsReworkDescription(templateParams["MissionDescription"]))
+            {
+                // No reviewer stage to render: keep the fallback findings line and drop the placeholder.
+                templateParams["MissionDescription"] = ReworkPromptBuilder.Compose(templateParams["MissionDescription"], null);
+                personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, promptVariant, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
             }
 
             templateParams["PersonaPrompt"] = personaPrompt;
