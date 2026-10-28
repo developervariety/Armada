@@ -97,7 +97,7 @@ how to find out which ones matter.
 | # | Challenge | How it shows up |
 |---|---|---|
 | B1 | **Output contract failures look like work failures.** `[ARMADA:RESULT]`, `[ARMADA:VERDICT]`, required `##` sections, the `armada-plan` block. | Good work is redone because a marker was missing or paraphrased. |
-| B2 | **Commit and repository hygiene.** The model does not commit, leaves scratch files, changes encodings or line endings. | The leftover-work auto-commit picks up `README.md.backup`; the Judge rejects BOM and CRLF changes. |
+| B2 | **Commit and repository hygiene.** The model does not commit, leaves scratch files, changes encodings or line endings. | Historically, the leftover-work auto-commit picked up `README.md.backup`; this is now prevented for untracked scratch files by `GitService.CommitAllAsync`. The Judge rejects BOM and CRLF changes. |
 
 ### C. The prompts and handoffs Armada builds
 
@@ -549,7 +549,15 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
 1. Correct stale claims (this revision does so for this document).
 2. Fix the clear orchestration defects in `DECISIONS.md` (duplicate relaunch, stage-check timeout, exit -1
    misclassification) and skip scratch files in the leftover-work auto-commit. Addresses D2 and D3. The first three
-   landed before this plan (commits 31caab7d6 and 7b4bfa09f); the scratch-file skip remains.
+   landed before this plan (commits 31caab7d6 and 7b4bfa09f). Scratch-file skip: done (B2) in
+   `GitService.CommitAllAsync`, called by `MissionService.CommitLeftoverWorkAsync`, using
+   `ScratchFileMatcher.IsScratchFile`. Untracked files with case-insensitive suffixes `.backup`, `.bak`, `.orig`,
+   `.rej`, `.tmp`, `.swp`, `.swo`, or `~`, names `.DS_Store` or `Thumbs.db`, or paths under `.armada/handoff/`
+   are left untracked in the worktree, not deleted. Other `.armada/` paths are not blanket-excluded by this matcher;
+   normal git ignore rules still apply. Tracked files with scratch-like names remain eligible for commit.
+   Existing `Services.GitService` regressions `commit_all_leaves_untracked_scratch_files_out`,
+   `commit_all_with_only_scratch_files_commits_nothing`, and `commit_all_keeps_tracked_files_with_scratch_names`
+   cover real work beside `README.md.backup` and `.orig`, scratch-only leftovers, and tracked-file preservation.
 3. Change `VerifyStageWorkAsync` to return a result that distinguishes passed, failed, skipped (with the reason) and
    could not run, and record it on the mission. Addresses E1.
 4. Record attempt-level provenance: runtime version, model digest, sampling, context, tool configuration, prompt
@@ -578,7 +586,8 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
 3. Safe contract repair (principle 4) for the remaining personas, starting with the Worker's completion line. A
    missing commit is handled by inspecting the repository. Addresses B1.
    Status: done. A Worker or Test Engineer with a missing or malformed completion line is judged by its dock branch
-   (new commits, or non-scratch changes the leftover-work commit commits); with nothing there it stays unfinished work.
+   (new commits, or changes committed by `GitService.CommitAllAsync`, which skips untracked scratch files as
+   described in Phase 1 item 2); with nothing there it stays unfinished work.
    A single Judge verdict in a nearby form and a single valid plan outside an `armada-plan` fence are appended in
    canonical form below the original output; ambiguous or duplicated verdicts and two plan blocks are refused. Each
    repair is recorded as a `mission.contract_repaired` event (`ContractRepairRecord` payload with the repair kind),
