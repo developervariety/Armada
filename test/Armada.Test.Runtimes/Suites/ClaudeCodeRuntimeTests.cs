@@ -5,6 +5,7 @@ namespace Armada.Test.Runtimes.Suites
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Test.Common;
     using SyslogLogging;
@@ -155,6 +156,29 @@ namespace Armada.Test.Runtimes.Suites
                 ProcessStartInfo startInfo = runtime.StartInfoWithEnvironment(captain);
 
                 AssertEqual("128000", startInfo.Environment["MAX_THINKING_TOKENS"], "high should map to Armada's maximum thinking budget");
+            });
+
+            await RunTest("ApplyEnvironment_Entrypoint_LabelsRequestsOnlyWhenConfigured", () =>
+            {
+                Captain captain = new Captain("claude", AgentRuntimeEnum.ClaudeCode);
+                ArmadaSettings settings = new ArmadaSettings();
+
+                InspectableClaudeCodeRuntime runtime = CreateRuntime();
+                runtime.Entrypoint = () => settings.ClaudeCodeEntrypoint;
+                AssertFalse(runtime.StartInfoWithEnvironment(captain).Environment.ContainsKey("CLAUDE_CODE_ENTRYPOINT"),
+                    "an unset label leaves the variable out, so the CLI keeps its own label");
+
+                settings.ClaudeCodeEntrypoint = " sdk-cli ";
+                AssertFalse(runtime.StartInfoWithEnvironment(captain).Environment.ContainsKey("CLAUDE_CODE_ENTRYPOINT"),
+                    "an sdk- label is ignored, since it has no effect");
+
+                settings.ClaudeCodeEntrypoint = " armada ";
+                AssertEqual("armada", runtime.StartInfoWithEnvironment(captain).Environment["CLAUDE_CODE_ENTRYPOINT"],
+                    "a configured label is sent trimmed");
+
+                captain.RuntimeOptionsJson = CaptainRuntimeOptions.Serialize(new CaptainOptions { DisableExtendedThinking = true });
+                AssertEqual("armada", runtime.StartInfoWithEnvironment(captain).Environment["CLAUDE_CODE_ENTRYPOINT"],
+                    "the label survives a launch that disables extended thinking");
             });
 
             await RunTest("ApplyEnvironment_DisableExtendedThinking_RemovesThinkingBudget", () =>

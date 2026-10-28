@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Claude client label
+
+- The `claudeCodeEntrypoint` setting names the label every Claude Code process sends as `CLAUDE_CODE_ENTRYPOINT`. Unset, the variable stays out and `claude --print` sends `sdk-cli`. See [Claude client label](docs/USAGE_ROUTING.md#claude-client-label).
+
 ### Deploy dump rotation
 
 - Host storage cleanup has an opt-in `deploy-dumps` stage (`prune-deploy-dumps.py`). It keeps the newest `keep` pre-deploy database dumps in one directory and removes the older ones, so dump rotation does not depend on a manual step after each deploy.

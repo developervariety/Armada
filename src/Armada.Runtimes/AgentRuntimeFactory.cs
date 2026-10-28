@@ -19,6 +19,12 @@ namespace Armada.Runtimes
         /// </summary>
         public Func<IReadOnlyCollection<string>>? AdmiralSecretNames { get; set; }
 
+        /// <summary>
+        /// Source of the client label each Claude Code process sends as <c>CLAUDE_CODE_ENTRYPOINT</c>.
+        /// Null, or a source that returns null, leaves the variable unset.
+        /// </summary>
+        public Func<string?>? ClaudeCodeEntrypoint { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -107,6 +113,7 @@ namespace Armada.Runtimes
         {
             IAgentRuntime runtime = CreateBuiltIn(runtimeType);
             if (runtime is BaseAgentRuntime cli) cli.AdmiralSecretNames = AdmiralSecretNames;
+            if (runtime is ClaudeCodeRuntime claude) claude.Entrypoint = ClaudeCodeEntrypoint;
             return runtime;
         }
 

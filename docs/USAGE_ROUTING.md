@@ -654,6 +654,16 @@ memory and end at a restart. An operator override replaces a quota or credit
 hold; it does not replace a login refusal, because a captain cannot run on a
 rejected login.
 
+### Claude client label
+
+Every Claude Code process Armada starts runs `claude --print`, which labels its
+requests `sdk-cli`. On a Claude subscription, requests with an `sdk-*` label
+count more heavily against the five-hour usage window than other labels; the
+weekly limit is unaffected. The top-level setting `claudeCodeEntrypoint` names
+the label Armada sends as `CLAUDE_CODE_ENTRYPOINT` (for example `armada`). It is
+unset by default, which leaves the variable out. A value that starts with `sdk-`
+has no effect and is ignored. Harbor runners receive the same label.
+
 ### Model gateway timeouts
 
 A model request that ends in a recognized HTTP 502 or 504 gateway timeout

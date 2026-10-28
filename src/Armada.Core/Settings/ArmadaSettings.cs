@@ -559,6 +559,21 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Client label every Claude Code process Armada starts sends as <c>CLAUDE_CODE_ENTRYPOINT</c>.
+        /// Null removes the variable, so <c>claude --print</c> labels its requests <c>sdk-cli</c>. On a Claude
+        /// subscription, requests labelled <c>sdk-*</c> count more heavily against the five-hour usage window
+        /// than other labels; the weekly limit is unaffected. The label must not start with <c>sdk-</c>, or it
+        /// has no effect; such a value is ignored.
+        /// </summary>
+        public string? ClaudeCodeEntrypoint
+        {
+            get => _ClaudeCodeEntrypoint;
+            set => _ClaudeCodeEntrypoint = String.IsNullOrWhiteSpace(value) || value.Trim().StartsWith("sdk-", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : value.Trim();
+        }
+
+        /// <summary>
         /// Whether to seed runtime MCP client configuration into every dock, pointing captains at the
         /// Armada MCP server.
         ///
@@ -1150,6 +1165,7 @@ namespace Armada.Core.Settings
         private List<AdditionalPersonaSettings> _AdditionalPersonas = new List<AdditionalPersonaSettings>();
         private List<AdditionalPipelineSettings> _AdditionalPipelines = new List<AdditionalPipelineSettings>();
         private ModelProvidersSettings _ModelProviders = new ModelProvidersSettings();
+        private string? _ClaudeCodeEntrypoint = null;
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private TypedDecisionSettings _TypedDecisions = new TypedDecisionSettings();

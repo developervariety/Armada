@@ -465,6 +465,8 @@ namespace Armada.Server
                 ?? new AgentRuntimeFactory(_Logging, _Settings.CodeIndex.OpenCodeServer, _Settings.ModelProviders);
             if (_RuntimeFactory.AdmiralSecretNames == null)
                 _RuntimeFactory.AdmiralSecretNames = () => CaptainEnvironmentScrub.ConfiguredNames(_Settings);
+            if (_RuntimeFactory.ClaudeCodeEntrypoint == null)
+                _RuntimeFactory.ClaudeCodeEntrypoint = () => _Settings.ClaudeCodeEntrypoint;
             _Workspace = new WorkspaceService();
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);

@@ -124,6 +124,12 @@ namespace Armada.Runtimes
         /// </summary>
         public bool StreamJsonOutput { get; set; } = false;
 
+        /// <summary>
+        /// Source of the client label sent as <c>CLAUDE_CODE_ENTRYPOINT</c>. Null, or a blank result, leaves the
+        /// variable unset, and <c>claude --print</c> then labels its requests <c>sdk-cli</c>.
+        /// </summary>
+        public Func<string?>? Entrypoint { get; set; }
+
         #endregion
 
         #region Private-Members
@@ -657,6 +663,8 @@ namespace Armada.Runtimes
             // even when the Admiral or CLI was started from within a Claude Code session
             startInfo.Environment.Remove("CLAUDECODE");
             startInfo.Environment.Remove("CLAUDE_CODE_ENTRYPOINT");
+            string? entrypoint = Entrypoint?.Invoke();
+            if (!String.IsNullOrWhiteSpace(entrypoint)) startInfo.Environment["CLAUDE_CODE_ENTRYPOINT"] = entrypoint.Trim();
 
             // Autonomous recovery sets DisableExtendedThinking when retrying a mission that failed
             // on an Anthropic thinking-block replay error. In that case suppress MAX_THINKING_TOKENS

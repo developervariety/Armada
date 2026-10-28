@@ -125,6 +125,7 @@ namespace Armada.Helm.Commands
             IAdmiralService admiral = new AdmiralService(logging, database, armadaSettings, captainService, missionService, voyageService, dockService);
             AgentRuntimeFactory runtimeFactory = new AgentRuntimeFactory(logging, armadaSettings.CodeIndex.OpenCodeServer, armadaSettings.ModelProviders);
             runtimeFactory.AdmiralSecretNames = () => CaptainEnvironmentScrub.ConfiguredNames(armadaSettings);
+            runtimeFactory.ClaudeCodeEntrypoint = () => armadaSettings.ClaudeCodeEntrypoint;
             AgentLifecycleHandler agentLifecycle = new AgentLifecycleHandler(
                 logging,
                 database,
