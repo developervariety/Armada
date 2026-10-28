@@ -18,6 +18,7 @@ upstream integrations and excludes changes already present at that baseline.
 - Add paged `POST` routes beside four whole-list routes that return every record: `POST /api/v1/jobs/enumerate`, `POST /api/v1/inbox/enumerate`, `POST /api/v1/model-endpoints/enumerate` and `POST /api/v1/planning-sessions/enumerate`. Each takes an `EnumerationQuery` body or querystring and returns one `EnumerationResult` page. A page size above 1000 is served at 1000 and the response names the size that was asked for.
 - A page counts only the records the caller may see: the caller's scope applies before the page is cut, so `TotalRecords` never counts another tenant's or user's records. The order is fixed and ties break on the record id, so a record never repeats or moves between pages.
 - The jobs page filters by `Status` (a comma-separated list), `VesselId` and a submission-time range, and carries `UnreadableJournalRecords`, so a job journal record the Admiral cannot read is never missing without a count. The jobs and inbox routes keep the global-administrator requirement of their whole-list routes. The whole-list routes are unchanged.
+- The Dashboard reads these routes: the Jobs page shows one page at a time with a pager, and the Needs You, Endpoints, Captain and Planning pages read every page of their list.
 
 ### Harbor host metrics
 

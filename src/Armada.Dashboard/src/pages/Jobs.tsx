@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { listJobs } from '../api/client';
+import { enumerateJobs } from '../api/client';
 import type { LongRunningJob } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import StatusBadge from '../components/shared/StatusBadge';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import Pagination from '../components/shared/Pagination';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 export default function Jobs() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const [jobs, setJobs] = useState<LongRunningJob[]>([]);
   const [unreadable, setUnreadable] = useState(0);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refused, setRefused] = useState(false);
@@ -23,9 +28,16 @@ export default function Jobs() {
     if (refusedRef.current) return;
     setLoading(true);
     try {
-      const result = await listJobs();
+      const result = await enumerateJobs({ pageNumber, pageSize });
+      // Jobs finish and expire while the page is open, so the page the user is on can fall past the end.
+      if ((result.objects || []).length === 0 && pageNumber > 1 && (result.totalPages || 0) > 0) {
+        setPageNumber(result.totalPages);
+        return;
+      }
       setJobs(result.objects || []);
       setUnreadable(result.unreadableJournalRecords || 0);
+      setTotalRecords(result.totalRecords || 0);
+      setTotalPages(Math.max(result.totalPages || 1, 1));
       setError('');
     } catch (err) {
       if ((err as { status?: number } | null)?.status === 403) {
@@ -38,7 +50,7 @@ export default function Jobs() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, pageNumber, pageSize]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -113,6 +125,14 @@ export default function Jobs() {
               ))}
             </tbody>
           </table>
+          <Pagination
+            pageNumber={pageNumber}
+            pageSize={pageSize}
+            totalPages={totalPages}
+            totalRecords={totalRecords}
+            onPageChange={setPageNumber}
+            onPageSizeChange={(size) => { setPageSize(size); setPageNumber(1); }}
+          />
         </div>
       )}
     </div>

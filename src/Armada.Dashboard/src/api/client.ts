@@ -137,7 +137,7 @@ import type {
   PersonaPromptPreview,
   Skill,
   LongRunningJob,
-  LongRunningJobList,
+  LongRunningJobPage,
   HarborJobsQuery,
   StorageSnapshot,
   HarborJobsResponse,
@@ -778,8 +778,11 @@ export const getWorkspaceDiff = (vesselId: string, path?: string) =>
   get<WorkspaceDiffResult>(`/api/v1/workspace/vessels/${encodeURIComponent(vesselId)}/diff${path ? `?path=${encodeWorkspaceQueryPath(path)}` : ''}`);
 
 // ==================== Inbox ====================
+export const enumerateInbox = (query?: PageParams) =>
+  post<EnumerationResult<InboxItem>>('/api/v1/inbox/enumerate', query || {});
+/** Every inbox item, most urgent first, read page by page. */
 export const getInbox = () =>
-  get<InboxItem[]>(`/api/v1/inbox`);
+  listAllPages((pageNumber) => enumerateInbox({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 
 // ==================== Request History ====================
 export const listRequestHistory = (params?: RequestHistoryQuery) =>
@@ -935,7 +938,11 @@ export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);
 export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purge`);
 
 // ==================== Planning Sessions ====================
-export const listPlanningSessions = () => get<PlanningSession[]>('/api/v1/planning-sessions');
+export const enumeratePlanningSessions = (query?: PageParams) =>
+  post<EnumerationResult<PlanningSession>>('/api/v1/planning-sessions/enumerate', query || {});
+/** Every planning session visible to the caller, most recently updated first, read page by page. */
+export const listPlanningSessions = () =>
+  listAllPages((pageNumber) => enumeratePlanningSessions({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getPlanningSession = (id: string) => get<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}`);
 export const createPlanningSession = (data: PlanningSessionCreateRequest) =>
   post<PlanningSessionDetail>('/api/v1/planning-sessions', data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
@@ -1140,7 +1147,11 @@ export const getDock = (id: string) => get<Dock>(`/api/v1/docks/${id}`);
 export const deleteDock = (id: string) => del<void>(`/api/v1/docks/${id}`);
 
 // ==================== Model endpoints ====================
-export const listModelEndpoints = () => get<ModelEndpoint[]>('/api/v1/model-endpoints');
+export const enumerateModelEndpoints = (query?: PageParams) =>
+  post<EnumerationResult<ModelEndpoint>>('/api/v1/model-endpoints/enumerate', query || {});
+/** Every model endpoint visible to the caller, read page by page. */
+export const listModelEndpoints = () =>
+  listAllPages((pageNumber) => enumerateModelEndpoints({ pageNumber, pageSize: ALL_PAGES_SIZE }));
 export const getModelEndpoint = (id: string) => get<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(id)}`);
 export const createModelEndpoint = (data: Partial<ModelEndpoint> & { apiKey?: string | null }) =>
   post<ModelEndpoint>('/api/v1/model-endpoints', data);
@@ -1266,7 +1277,9 @@ export const updateSkill = (id: string, data: Partial<Skill>) => put<Skill>(`/ap
 export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURIComponent(id)}`);
 
 // ==================== Background Jobs ====================
-export const listJobs = () => get<LongRunningJobList>('/api/v1/jobs');
+/** One page of jobs, newest first. `status` is a comma-separated list such as "Accepted,Running". */
+export const enumerateJobs = (query?: PageParams & { status?: string }) =>
+  post<LongRunningJobPage>('/api/v1/jobs/enumerate', query || {});
 export const getJob = (id: string) => get<LongRunningJob>(`/api/v1/jobs/${encodeURIComponent(id)}`);
 
 // ==================== Storage Inventory ====================

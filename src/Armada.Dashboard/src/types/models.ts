@@ -2644,12 +2644,9 @@ export interface LongRunningJob {
   vesselId: string | null;
 }
 
-/** GET /api/v1/jobs: every job newest first. unreadableJournalRecords counts journal records the
- *  Admiral could not read, so a shorter list is never silent. */
-export interface LongRunningJobList {
-  success: boolean;
-  objects: LongRunningJob[];
-  totalRecords: number;
+/** POST /api/v1/jobs/enumerate: one page of jobs, newest first. unreadableJournalRecords counts journal records
+ *  the Admiral could not read, whatever the page, so a shorter list is never silent. */
+export interface LongRunningJobPage extends EnumerationResult<LongRunningJob> {
   unreadableJournalRecords: number;
 }
 

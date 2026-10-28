@@ -1,11 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Jobs from './Jobs';
-import { listJobs } from '../api/client';
-import type { LongRunningJobList } from '../types/models';
+import { enumerateJobs } from '../api/client';
+import type { LongRunningJobPage } from '../types/models';
 
 vi.mock('../api/client', () => ({
-  listJobs: vi.fn(),
+  enumerateJobs: vi.fn(),
 }));
 
 vi.mock('../context/LocaleContext', () => {
@@ -35,12 +35,16 @@ function renderPage() {
 
 describe('Jobs page', () => {
   beforeEach(() => {
-    vi.mocked(listJobs).mockReset();
+    vi.mocked(enumerateJobs).mockReset();
   });
 
   it('lists long-running jobs with status, objective and vessel links, times and the failure message', async () => {
-    const list: LongRunningJobList = {
+    const list: LongRunningJobPage = {
       success: true,
+      pageNumber: 1,
+      pageSize: 50,
+      totalPages: 1,
+      totalMs: 0,
       totalRecords: 2,
       unreadableJournalRecords: 0,
       objects: [
@@ -68,7 +72,7 @@ describe('Jobs page', () => {
         },
       ],
     };
-    vi.mocked(listJobs).mockResolvedValue(list);
+    vi.mocked(enumerateJobs).mockResolvedValue(list);
 
     renderPage();
 
@@ -85,7 +89,7 @@ describe('Jobs page', () => {
   });
 
   it('says how many journal records could not be read', async () => {
-    vi.mocked(listJobs).mockResolvedValue({ success: true, totalRecords: 0, unreadableJournalRecords: 2, objects: [] });
+    vi.mocked(enumerateJobs).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 50, totalPages: 0, totalMs: 0, totalRecords: 0, unreadableJournalRecords: 2, objects: [] });
 
     renderPage();
 
@@ -94,11 +98,47 @@ describe('Jobs page', () => {
   });
 
   it('tells a caller who is not a global administrator why the list is unavailable', async () => {
-    vi.mocked(listJobs).mockRejectedValue(Object.assign(new Error('403: Forbidden'), { status: 403 }));
+    vi.mocked(enumerateJobs).mockRejectedValue(Object.assign(new Error('403: Forbidden'), { status: 403 }));
 
     renderPage();
 
     expect(await screen.findByText('Background jobs are available to global administrators.')).toBeInTheDocument();
     expect(screen.queryByText('Failed to load jobs.')).not.toBeInTheDocument();
+  });
+
+  it('reads one page at a time and asks for the next page from the pager', async () => {
+    const job = (jobId: string) => ({
+      jobId,
+      operation: 'code_index_update',
+      status: 'Succeeded' as const,
+      submittedAtUtc: '2026-01-01T00:00:00Z',
+      startedAtUtc: null,
+      completedAtUtc: null,
+      failureMessage: null,
+      objectiveId: null,
+      vesselId: null,
+    });
+    vi.mocked(enumerateJobs).mockImplementation(async (query) => ({
+      success: true,
+      pageNumber: query?.pageNumber ?? 1,
+      pageSize: query?.pageSize ?? 50,
+      totalPages: 2,
+      totalRecords: 51,
+      totalMs: 0,
+      unreadableJournalRecords: 0,
+      objects: [job(query?.pageNumber === 2 ? 'job_second_page' : 'job_first_page')],
+    }));
+
+    renderPage();
+
+    expect(await screen.findByText('job_first_page')).toBeInTheDocument();
+    expect(enumerateJobs).toHaveBeenLastCalledWith({ pageNumber: 1, pageSize: 50 });
+    expect(screen.getByText('51 records')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    expect(await screen.findByText('job_second_page')).toBeInTheDocument();
+    await waitFor(() => expect(enumerateJobs).toHaveBeenLastCalledWith({ pageNumber: 2, pageSize: 50 }));
+    expect(screen.queryByText('job_first_page')).not.toBeInTheDocument();
   });
 });
