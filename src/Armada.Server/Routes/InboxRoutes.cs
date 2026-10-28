@@ -43,13 +43,13 @@ namespace Armada.Server.Routes
                     return RouteAuthRefusal.Refuse(req, ctx);
                 }
 
-                List<InboxItem> items = await _inbox.GetInboxAsync().ConfigureAwait(false);
+                List<InboxItem> items = await _inbox.GetInboxAsync(ctx).ConfigureAwait(false);
                 return items;
             },
             api => api
                 .WithTag("Inbox")
                 .WithSummary("Get the needs-you inbox")
-                .WithDescription("Returns a consolidated, most-urgent-first list of items awaiting operator attention (reviews, failed landings, failed missions, stalled captains).")
+                .WithDescription("Returns a consolidated, most-urgent-first list of items awaiting operator attention (reviews, failed landings, failed missions, stalled captains), plus the caller's own pending Ask action proposals.")
                 .WithResponse(200, OpenApiJson.For<List<InboxItem>>("Inbox items"))
                 .WithSecurity("ApiKey"));
         }

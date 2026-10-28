@@ -5,6 +5,7 @@ namespace Armada.Server
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Server.Mcp;
 
     public sealed partial class AskActionService
@@ -16,8 +17,20 @@ namespace Armada.Server
             List<AskActionProposal> proposals = await _Database.AskActionProposals.EnumerateAsync(caller.TenantId!, caller.UserId!, threadId, 200, token).ConfigureAwait(false);
             List<AskActionProposal> result = new List<AskActionProposal>();
             foreach (AskActionProposal proposal in proposals)
-                result.Add(await ObserveAsync(proposal, token).ConfigureAwait(false));
+                result.Add(await DescribedAsync(await ObserveAsync(proposal, token).ConfigureAwait(false), token).ConfigureAwait(false));
             return result;
+        }
+
+        private async Task<AskActionProposal> DescribedAsync(AskActionProposal proposal, CancellationToken token)
+        {
+            await AskProposalSummary.ApplyAsync(_Database, proposal, token).ConfigureAwait(false);
+            return proposal;
+        }
+
+        private async Task<AskProposalDecision> DescribedAsync(AskProposalDecision decision, CancellationToken token)
+        {
+            if (decision.Proposal != null) await DescribedAsync(decision.Proposal, token).ConfigureAwait(false);
+            return decision;
         }
 
         private async Task<AuthContext?> HumanForThreadAsync(AuthContext caller, string threadId, CancellationToken token)

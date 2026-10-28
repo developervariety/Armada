@@ -4303,7 +4303,13 @@ Delete a planning session and its transcript. Active sessions are stopped first.
 Return the operator's "needs you" inbox: everything across the fleet awaiting
 a decision or intervention, ordered most-urgent first. It surfaces missions in
 Review, failed landings, failed missions, failed merges, deployments pending
-approval, failed or verification-failed deployments, and stalled captains.
+approval, failed or verification-failed deployments, and stalled captains. It
+also lists the caller's own pending, unexpired saved Ask action proposals as kind
+`ask_proposal` (`EntityType` `ask_proposal`, `EntityId` the proposal id, `Href`
+`/ask?thread=<threadId>`). That item is read-only and points at the conversation;
+approval and rejection happen only there, through the exact approval fence. Only
+the proposal's own user in the proposal's own tenant sees it; a captain, a
+saved-chat credential, and every other user receive none.
 Purely informational state changes are excluded.
 
 Requires a global administrator. The inbox reads every tenant's missions,
@@ -5238,7 +5244,7 @@ A single actionable item in the operator's "needs you" inbox.
 
 | Field | Type | Description |
 |---|---|---|
-| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `failed`, `stalled_captain`) |
+| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `failed`, `stalled_captain`, `ask_proposal`) |
 | `Severity` | [InboxSeverityEnum](#inboxseverityenum) | Severity of the item |
 | `Title` | string | Human-readable title |
 | `Detail` | string | Additional detail |

@@ -27,6 +27,27 @@ namespace Armada.Core.Database
             return SelectAsync(tenantId, userId, threadId, Math.Max(1, Math.Min(500, limit)), token);
         }
 
+        /// <inheritdoc />
+        public async Task<List<AskActionProposal>> EnumeratePendingForOwnerAsync(string tenantId, string userId, DateTime utcNow, int limit = 100, CancellationToken token = default)
+        {
+            ValidateOwner(tenantId, userId);
+            int bounded = Math.Max(1, Math.Min(500, limit));
+            List<AskActionProposal> result = new List<AskActionProposal>();
+            using (DbConnection connection = _ConnectionFactory())
+            using (DbCommand command = connection.CreateCommand())
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                string where = "tenant_id=@tenant_id AND user_id=@user_id AND state=@state AND expires_utc>@now";
+                string order = " ORDER BY created_utc ASC, id ASC";
+                command.CommandText = _Provider == DatabaseTypeEnum.SqlServer
+                    ? "SELECT TOP (@limit) " + _Columns + " FROM ask_action_proposals WHERE " + where + order + ";"
+                    : "SELECT " + _Columns + " FROM ask_action_proposals WHERE " + where + order + " LIMIT @limit;";
+                Add(command, "@tenant_id", tenantId); Add(command, "@user_id", userId); Add(command, "@state", AskProposalStateEnum.Pending.ToString()); AddUtc(command, "@now", utcNow); Add(command, "@limit", bounded);
+                using (DbDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false)) while (await reader.ReadAsync(token).ConfigureAwait(false)) result.Add(Map(reader));
+            }
+            return result;
+        }
+
         private async Task<AskActionProposal?> SelectOneAsync(string where, Action<DbCommand> bind, CancellationToken token)
         {
             using (DbConnection connection = _ConnectionFactory())

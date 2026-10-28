@@ -9,7 +9,7 @@ vi.mock('../../api/client', () => ({
 
 const proposal = {
   id: 'p1', tenantId: 't', userId: 'u', threadId: 'thread-a', requestId: 'r1', toolName: 'create_mission',
-  argumentsJson: '{"title":"Repair item"}', fingerprint: 'a'.repeat(64), state: 'Pending' as const,
+  argumentsJson: '{"title":"Repair item","vesselId":"vsl_1"}', summary: 'Create mission "Repair item" on vessel Harbor Alpha', fingerprint: 'a'.repeat(64), state: 'Pending' as const,
   createdUtc: '2026-10-25T12:00:00Z', expiresUtc: '2099-10-25T12:00:00Z', decidedUtc: null,
   completedUtc: null, outcome: null, workReferences: [],
 };
@@ -27,6 +27,19 @@ describe('AskActionCards', () => {
     await waitFor(() => expect(decideAskProposal).toHaveBeenCalledTimes(1));
     expect(decideAskProposal).toHaveBeenCalledWith('thread-a', 'p1', 'approve', proposal.fingerprint);
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+
+  it('titles the card with the summary that names the vessel and keeps the saved arguments untouched', async () => {
+    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    expect(await screen.findByText('Create mission "Repair item" on vessel Harbor Alpha')).toBeTruthy();
+    expect(screen.getByText('create_mission')).toBeTruthy();
+    expect(screen.getByText(proposal.argumentsJson)).toBeTruthy();
+  });
+
+  it('falls back to the tool name when a proposal has no summary', async () => {
+    vi.mocked(listAskProposals).mockResolvedValue([{ ...proposal, summary: '' }]);
+    render(<AskActionCards threadId="thread-a" busy={false} t={t} />);
+    expect(await screen.findByText('create_mission')).toBeTruthy();
   });
 
   it('keeps a refused decision visible and does not retry it', async () => {

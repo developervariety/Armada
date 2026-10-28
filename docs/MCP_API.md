@@ -301,6 +301,15 @@ campaign objective land there when no `roomKey` is given. Read it with
 wakes reach their target whatever room the note sits in. The routing rules are
 in `MCP_TOOL_CATALOG.md`, "Coordination Board (Chatroom)".
 
+The `inbox` tool (and the REST inbox built from the same service) lists the
+calling operator's own pending, unexpired saved Ask action proposals as kind
+`ask_proposal`, with `href` `/ask?thread=<threadId>`. The item is a read-only
+pointer to the conversation: it carries no approval fingerprint, and a decision
+is possible only through the conversation's exact approval fence. A caller that
+is not an interactive global administrator, a captain's mission credential, and
+a saved-chat credential receive no `ask_proposal` items, and no caller sees
+another user's or another tenant's proposals.
+
 The `inbox` tool (and the REST inbox built from the same service) lists a Judge
 PASS held for operator review as kind `judge_pass_held`. Resolve it with
 `armada_review_hold`:

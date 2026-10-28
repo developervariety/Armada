@@ -2804,6 +2804,8 @@ export interface AskActionWorkReference { kind: 'Mission' | 'Voyage' | 'Job'; id
 export interface AskActionProposal {
   id: string; tenantId: string; userId: string; threadId: string; requestId: string;
   toolName: string; argumentsJson: string; fingerprint: string;
+  /** One-line description of the action, naming each target vessel where known. Display only. */
+  summary: string;
   state: 'Pending' | 'Executing' | 'Executed' | 'Failed' | 'Rejected' | 'Uncertain' | 'Expired';
   createdUtc: string; expiresUtc: string; decidedUtc: string | null; completedUtc: string | null;
   outcome: string | null; workReferences: AskActionWorkReference[];

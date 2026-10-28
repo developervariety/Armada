@@ -8,7 +8,7 @@ catalog page. Service availability and caller scope can change that catalog.
 | Capability and data | REST and Postman | Dashboard | Helm | MCP |
 | --- | --- | --- | --- | --- |
 | Saved conversations: `AskThread`, `AskTurn` | `/api/v1/ask/threads`; Ask requests | Ask Armada | No dedicated saved-thread command | No saved-thread administration tool |
-| Saved approvals: `AskActionProposal`, `AskWorkReport` | Thread proposal and work routes; Ask requests | Approval and work cards | No dedicated command | Scoped turn tools propose actions; human decisions use REST |
+| Saved approvals: `AskActionProposal`, `AskWorkReport` | Thread proposal and work routes; Ask requests | Approval and work cards; read-only pending items in Needs You | No dedicated command | Scoped turn tools propose actions; human decisions use REST |
 | Local checkout import: `VesselCheckoutDiscovery`, `VesselCheckoutCandidate` | Vessel local-checkouts and import-checkout routes; Vessels requests | Vessels import dialog | No dedicated import command | `armada_discover_vessel_checkouts`, `armada_import_vessel_checkout` |
 | Saved mission actions: `FleetAction`, `FleetActionRun` | Fleet-actions and fleet-action-runs routes; Mission Actions requests | Mission Actions | No dedicated command | No dedicated Mission Actions tool |
 | Harbor jobs: `HarborJobRecord` | Harbor job list and detail GET routes; Harbor requests | Server, Harbor jobs | No dedicated job-list command | `armada_harbor_jobs`, `armada_harbor_job` |

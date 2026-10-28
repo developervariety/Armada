@@ -59,7 +59,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function renderPage() { return render(<MemoryRouter><AskArmada /></MemoryRouter>); }
+function renderPage(entry = '/') { return render(<MemoryRouter initialEntries={[entry]}><AskArmada /></MemoryRouter>); }
 async function renderSavedPage() {
   renderPage();
   fireEvent.click(await screen.findByRole('tab', { name: 'Saved conversations' }));
@@ -90,6 +90,15 @@ describe('Ask Armada saved conversations', () => {
     await waitFor(() => expect(updateAskThread).toHaveBeenCalledWith(thread.id, { setPinned: true, pinned: true }));
     fireEvent.click(screen.getByLabelText('Archive conversation'));
     await waitFor(() => expect(updateAskThread).toHaveBeenCalledWith(thread.id, { setArchived: true, archived: true }));
+  });
+
+  it('opens the saved conversation named by an inbox link without choosing the tab first', async () => {
+    vi.mocked(listAskThreads).mockResolvedValue([thread, secondThread] as never);
+    vi.mocked(getAskThread).mockImplementation(async (id: string) => (id === secondThread.id ? secondThread : thread) as never);
+    renderPage('/ask?thread=' + secondThread.id);
+    await waitFor(() => expect(getAskThread).toHaveBeenCalledWith(secondThread.id));
+    expect(getAskThread).not.toHaveBeenCalledWith(thread.id);
+    expect(screen.getByRole('tab', { name: 'Saved conversations' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('creates a saved conversation with the selected captain', async () => {

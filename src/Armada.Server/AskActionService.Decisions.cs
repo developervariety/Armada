@@ -11,6 +11,9 @@ namespace Armada.Server
     {
         /// <summary>Approve the exact reviewed action under the owner's current authorization.</summary>
         public async Task<AskProposalDecision> ApproveAsync(AuthContext caller, string threadId, string proposalId, string fingerprint, CancellationToken token = default)
+            => await DescribedAsync(await DecideApprovalAsync(caller, threadId, proposalId, fingerprint, token).ConfigureAwait(false), token).ConfigureAwait(false);
+
+        private async Task<AskProposalDecision> DecideApprovalAsync(AuthContext caller, string threadId, string proposalId, string fingerprint, CancellationToken token)
         {
             AuthContext? human = await HumanForThreadAsync(caller, threadId, token).ConfigureAwait(false);
             if (human == null) return Decision(404, message: "Conversation not found.");
@@ -39,6 +42,9 @@ namespace Armada.Server
 
         /// <summary>Reject the exact reviewed proposal without invoking any tool.</summary>
         public async Task<AskProposalDecision> RejectAsync(AuthContext caller, string threadId, string proposalId, string fingerprint, CancellationToken token = default)
+            => await DescribedAsync(await DecideRejectionAsync(caller, threadId, proposalId, fingerprint, token).ConfigureAwait(false), token).ConfigureAwait(false);
+
+        private async Task<AskProposalDecision> DecideRejectionAsync(AuthContext caller, string threadId, string proposalId, string fingerprint, CancellationToken token)
         {
             AuthContext? human = await HumanForThreadAsync(caller, threadId, token).ConfigureAwait(false);
             if (human == null) return Decision(404, message: "Conversation not found.");

@@ -12,6 +12,9 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLoadError } from '../lib/useLoadError';
 
+/** A pending Ask action proposal. The item is read-only and links to its conversation, where the exact approval fence decides it. */
+const CONVERSATION_KIND = 'ask_proposal';
+
 function severityColor(severity: InboxSeverity): string {
   if (severity === 'Critical') return 'var(--danger, #ff6b6b)';
   if (severity === 'Warning') return 'var(--warning, #d98a00)';
@@ -105,12 +108,23 @@ export default function Inbox() {
                   <strong>{item.title}</strong>
                   <div className="text-dim" style={{ marginTop: '0.2rem' }}>{item.detail}</div>
                 </div>
-                <span
-                  className="badge"
-                  style={{ color: severityColor(item.severity), borderColor: severityColor(item.severity), whiteSpace: 'nowrap' }}
-                >
-                  {t(item.severity)}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span
+                    className="badge"
+                    style={{ color: severityColor(item.severity), borderColor: severityColor(item.severity), whiteSpace: 'nowrap' }}
+                  >
+                    {t(item.severity)}
+                  </span>
+                  {item.kind === CONVERSATION_KIND && (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={(e) => { e.stopPropagation(); navigate(item.href); }}
+                    >
+                      {t('Open conversation')}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}

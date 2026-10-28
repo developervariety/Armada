@@ -25,7 +25,7 @@ Risk labels:
 
 `inbox` returns everything across the fleet that is waiting on a decision or
 intervention from the operator, ordered most-urgent first. It answers "is there
-anything waiting on me?" in one call instead of polling each entity. Two kinds
+anything waiting on me?" in one call instead of polling each entity. Three kinds
 of item qualify:
 
 - **Human-in-the-loop**: a mission in Review to approve or reject, a Judge PASS
@@ -36,6 +36,10 @@ of item qualify:
 - **Human-out-of-the-loop**: a failed mission, a mission whose work could not
   land, a failed merge, a failed or verification-failed deployment, or a
   stalled captain.
+- **Ask approvals**: the caller's own pending saved Ask action proposals
+  (`ask_proposal`). The item is a read-only pointer; the exact approval fence in
+  the conversation is the only place to approve or reject. A captain's mission
+  credential, a saved-chat credential and every other user receive none.
 
 Purely informational state changes are excluded. Each item carries a `kind`,
 a `severity` (Critical, Warning, or Info), a title, detail, the referenced

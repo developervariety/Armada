@@ -16,6 +16,8 @@ namespace Armada.Core.Database.Interfaces
         Task<AskActionProposal?> ReadAsync(string tenantId, string userId, string threadId, string proposalId, CancellationToken token = default);
         /// <summary>List proposals for one exact owner and thread.</summary>
         Task<List<AskActionProposal>> EnumerateAsync(string tenantId, string userId, string threadId, int limit = 100, CancellationToken token = default);
+        /// <summary>List one exact owner's pending proposals that have not expired at the supplied time, across all of the owner's threads, oldest first.</summary>
+        Task<List<AskActionProposal>> EnumeratePendingForOwnerAsync(string tenantId, string userId, DateTime utcNow, int limit = 100, CancellationToken token = default);
         /// <summary>Claim a pending, unexpired proposal by compare-and-set.</summary>
         Task<bool> TryClaimAsync(string tenantId, string userId, string threadId, string proposalId, string fingerprint, DateTime utcNow, CancellationToken token = default);
         /// <summary>Reject a pending proposal by compare-and-set.</summary>

@@ -86,7 +86,8 @@ export default function AskActionCards({ threadId, busy, t }: Props) {
     {proposalError && <p className="ask-action-error" role="alert">{proposalError}</p>}
     {decisionNotice && <p className="text-dim" role="status">{decisionNotice}</p>}
     {proposals.map((proposal) => <article className="card ask-action-card" key={proposal.id}>
-      <div className="ask-action-card-title"><strong>{proposal.toolName}</strong><span className="badge">{proposal.state}</span></div>
+      <div className="ask-action-card-title"><strong>{proposal.summary || proposal.toolName}</strong><span className="badge">{proposal.state}</span></div>
+      {proposal.summary && <p className="text-dim">{proposal.toolName}</p>}
       <pre className="ask-action-json">{proposal.argumentsJson}</pre>
       {proposal.state === 'Pending' && <div className="ask-action-buttons">
         <button className="btn btn-primary btn-sm" disabled={!!pendingDecision || Date.parse(proposal.expiresUtc) <= Date.now()} onClick={() => void decide(proposal, 'approve')}>{t('Approve')}</button>

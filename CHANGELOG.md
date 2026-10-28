@@ -22,6 +22,11 @@ upstream integrations and excludes changes already present at that baseline.
 - A restarted Judge whose earlier run ended `FAIL` or `NEEDS_REVISION` receives a capped excerpt of that run in its description: the opening of the review and its findings sections, at most 6000 characters, marked historical and not a verdict. The block tells the Judge to re-check each finding against the current commit and names `armada_mission_output` for the complete earlier output, which moves to the mission's preserved runs.
 - Restarting again replaces the excerpt instead of adding a second block, a description supplied with the restart stays ahead of it, and a rescue brief does not repeat it. A Judge that never ran, a Judge whose earlier run passed, and every other persona restart with an unchanged description.
 
+### Ask proposals in the Needs You inbox
+
+- The Needs You inbox (`GET /api/v1/inbox`, the `inbox` MCP tool and the Dashboard Inbox page) lists the caller's own pending, unexpired Ask action proposals as kind `ask_proposal`, with a link to the saved conversation. The list is scoped to the exact owner and tenant: another user's proposals, another tenant's proposals, resolved and expired proposals, and any mission or saved-chat credential see nothing. The item is read-only and carries neither the approval fingerprint nor the saved arguments; approval and rejection happen only through the exact approval fence in the conversation.
+- Proposal summaries name each target vessel. `AskActionProposal.Summary` shows the vessel name from the proposal owner's tenant and falls back to the vessel id when the vessel is unknown or belongs to another tenant. The saved arguments and fingerprint keep the vessel id. The Ask action cards title each proposal with the summary, and `/ask?thread=<id>` opens that saved conversation.
+
 ### Bootstrap credentials and startup binding
 
 - The Admiral refuses to start on a non-loopback `rest.hostname` while the seeded default admin password or the `default` bearer token is active. `AllowDefaultCredentialsOnNetwork` accepts the risk and logs a warning at every start instead; a loopback listener only warns. `ARMADA_INITIAL_ADMIN_PASSWORD` sets the admin password on the first start.

@@ -145,9 +145,13 @@ namespace Armada.Core.Services
         /// <summary>
         /// Build the inbox: actionable items ordered most-urgent first.
         /// </summary>
+        /// <param name="caller">
+        /// The authenticated caller. Only an interactive global administrator also sees their own pending Ask action
+        /// proposals; a captain, a saved-chat credential, a caller without a tenant and user, or no caller sees none.
+        /// </param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The list of inbox items.</returns>
-        public async Task<List<InboxItem>> GetInboxAsync(CancellationToken token = default)
+        public async Task<List<InboxItem>> GetInboxAsync(AuthContext? caller = null, CancellationToken token = default)
         {
             List<InboxItem> items = new List<InboxItem>();
             await ScanSilentClaimHoldersAsync(items, token).ConfigureAwait(false);
@@ -359,6 +363,21 @@ namespace Armada.Core.Services
                         Href = "/deployments/" + deployment.Id
                     });
                 }
+
+                foreach (AskActionProposal proposal in await PendingAskProposalsAsync(caller, token).ConfigureAwait(false))
+                {
+                    items.Add(new InboxItem
+                    {
+                        Kind = "ask_proposal",
+                        Severity = InboxSeverityEnum.Warning,
+                        Title = "Ask approval: " + proposal.Summary,
+                        Detail = "A saved Ask conversation proposed this action and is waiting for your approval. Open the conversation to approve or reject it.",
+                        EntityType = "ask_proposal",
+                        EntityId = proposal.Id,
+                        VesselIds = AskProposalSummary.VesselIdsOf(proposal.ArgumentsJson),
+                        Href = "/ask?thread=" + Uri.EscapeDataString(proposal.ThreadId)
+                    });
+                }
             }
             catch (Exception ex)
             {
@@ -374,6 +393,38 @@ namespace Armada.Core.Services
                 #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// The caller's own pending, unexpired Ask action proposals, described with vessel names from their tenant. The
+        /// inbox item only points at the conversation: the exact approval fence there is the sole way to decide it. A
+        /// caller who could not open the conversation as its human owner sees nothing, so the inbox never widens what a
+        /// caller can read in Ask.
+        /// </summary>
+        private async Task<List<AskActionProposal>> PendingAskProposalsAsync(AuthContext? caller, CancellationToken token)
+        {
+            List<AskActionProposal> visible = new List<AskActionProposal>();
+            if (caller == null || !caller.IsAuthenticated || !caller.IsAdmin
+                || !String.IsNullOrWhiteSpace(caller.MissionId)
+                || !String.IsNullOrWhiteSpace(caller.AskThreadId) || !String.IsNullOrWhiteSpace(caller.AskTurnId)
+                || String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId))
+                return visible;
+
+            UserMaster? user = await _Database.Users.ReadByIdAsync(caller.UserId!, token).ConfigureAwait(false);
+            TenantMetadata? tenant = await _Database.Tenants.ReadAsync(caller.TenantId!, token).ConfigureAwait(false);
+            if (user == null || !user.Active || !user.IsAdmin || user.TenantId != caller.TenantId || tenant == null || !tenant.Active)
+                return visible;
+
+            List<AskActionProposal> pending = await _Database.AskActionProposals
+                .EnumeratePendingForOwnerAsync(caller.TenantId!, caller.UserId!, DateTime.UtcNow, _MaxPerCategory, token).ConfigureAwait(false);
+            foreach (AskActionProposal proposal in pending)
+            {
+                AskThread? thread = await _Database.AskThreads.ReadAsync(caller.TenantId!, caller.UserId!, proposal.ThreadId, token).ConfigureAwait(false);
+                if (thread == null) continue;
+                await AskProposalSummary.ApplyAsync(_Database, proposal, token).ConfigureAwait(false);
+                visible.Add(proposal);
+            }
+            return visible;
+        }
 
         /// <summary>
         /// A failed or landing-failed mission is actionable only while the voyage it belongs to is still

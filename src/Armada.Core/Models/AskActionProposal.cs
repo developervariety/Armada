@@ -21,6 +21,12 @@ namespace Armada.Core.Models
         public string ToolName { get; set; } = string.Empty;
         /// <summary>Canonical JSON arguments.</summary>
         public string ArgumentsJson { get; set; } = "{}";
+        /// <summary>
+        /// One-line human description of the action, with each target vessel shown by name where the proposal owner's
+        /// tenant knows it and by id otherwise. Derived when the proposal is read; never stored, and never part of the
+        /// fingerprint or the saved arguments.
+        /// </summary>
+        public string Summary { get; set; } = string.Empty;
         /// <summary>SHA-256 fingerprint of the canonical action payload.</summary>
         public string Fingerprint { get; set; } = string.Empty;
         /// <summary>Proposal state.</summary>

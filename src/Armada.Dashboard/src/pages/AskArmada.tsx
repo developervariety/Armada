@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { chatWithCaptain, createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAllCaptains, listAskThreads, listAskTurns, sendAskTurn, updateAskThread } from '../api/client';
 import type { AskThread, Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
@@ -36,12 +36,15 @@ function instructionsDocUrl(runtime: string | null | undefined): string {
 export default function AskArmada() {
   const { t } = useLocale();
   const navigate = useNavigate();
+  // A link from the Needs You inbox opens the saved conversation that holds a proposal.
+  const [searchParams] = useSearchParams();
+  const linkedThreadId = searchParams.get('thread') ?? '';
   const { subscribe } = useWebSocket();
   const [captains, setCaptains] = useState<Captain[]>([]);
-  const [mode, setMode] = useState<'temporary' | 'saved'>('temporary');
+  const [mode, setMode] = useState<'temporary' | 'saved'>(linkedThreadId ? 'saved' : 'temporary');
   const [captainId, setCaptainId] = useState('');
   const [threads, setThreads] = useState<AskThread[]>([]);
-  const [selectedThreadId, setSelectedThreadId] = useState('');
+  const [selectedThreadId, setSelectedThreadId] = useState(linkedThreadId);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [hasEarlierTurns, setHasEarlierTurns] = useState(false);
