@@ -71,9 +71,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@title", voyage.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)voyage.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", voyage.Status.ToString());
-                    cmd.Parameters.AddWithValue("@created_utc", voyage.CreatedUtc);
-                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)voyage.CompletedUtc.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", voyage.LastUpdateUtc);
+                    PostgresqlCommandHelper.AddDate(cmd, "@created_utc", voyage.CreatedUtc);
+                    PostgresqlCommandHelper.AddDate(cmd, "@completed_utc", voyage.CompletedUtc);
+                    PostgresqlCommandHelper.AddDate(cmd, "@last_update_utc", voyage.LastUpdateUtc);
                     cmd.Parameters.AddWithValue("@auto_push", voyage.AutoPush.HasValue ? (object)voyage.AutoPush.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)voyage.AutoCreatePullRequests.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)voyage.AutoMergePullRequests.Value : DBNull.Value);
@@ -154,8 +154,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Parameters.AddWithValue("@title", voyage.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)voyage.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", voyage.Status.ToString());
-                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)voyage.CompletedUtc.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", voyage.LastUpdateUtc);
+                    PostgresqlCommandHelper.AddDate(cmd, "@completed_utc", voyage.CompletedUtc);
+                    PostgresqlCommandHelper.AddDate(cmd, "@last_update_utc", voyage.LastUpdateUtc);
                     cmd.Parameters.AddWithValue("@auto_push", voyage.AutoPush.HasValue ? (object)voyage.AutoPush.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)voyage.AutoCreatePullRequests.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)voyage.AutoMergePullRequests.Value : DBNull.Value);
@@ -239,12 +239,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(PostgresqlCommandHelper.DateParameter("@created_after", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(PostgresqlCommandHelper.DateParameter("@created_before", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -417,12 +417,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(PostgresqlCommandHelper.DateParameter("@created_after", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(PostgresqlCommandHelper.DateParameter("@created_before", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -585,12 +585,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new NpgsqlParameter("@created_after", query.CreatedAfter.Value));
+                    parameters.Add(PostgresqlCommandHelper.DateParameter("@created_after", query.CreatedAfter.Value));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new NpgsqlParameter("@created_before", query.CreatedBefore.Value));
+                    parameters.Add(PostgresqlCommandHelper.DateParameter("@created_before", query.CreatedBefore.Value));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {

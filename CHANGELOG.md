@@ -4,6 +4,12 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+### PostgreSQL UTC clocks
+
+- PostgreSQL `TIMESTAMP` parameters bind through `PostgresqlCommandHelper.AddDate` as `timestamp without time zone`. A UTC `DateTime` keeps its clock digits when the session time zone is not UTC, and range filters compare that column. Objective and model-endpoint reads label those clocks `DateTimeKind.Utc`. Text timestamp columns stay text.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
