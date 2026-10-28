@@ -10,6 +10,11 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Safe summary of the latest completed source scan for this vessel.</summary>
+        public string ScanSummary { get; set; } = "";
+        /// <summary>Validated runtime input values.</summary>
+        public System.Collections.Generic.Dictionary<string, string> InputValues { get; set; } = new();
+
         /// <summary>
         /// Value of {{vessel.name}}. Never null.
         /// </summary>

@@ -6,6 +6,11 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Fleet action scan and test runs
+
+- Add Findings outcomes counted separately from successful and failed targets, fourteen audit/test output parsers, redacted secret scan output, persisted scan summaries, and mission templates using a named source action through `{{scan.summary}}`.
+- Add executable preflight with `ToolMissing:<tool>` skips, offline network skips, optional Windows commands, and typed runtime inputs with defaults and validation before dispatch. REST, MCP, SDK models, Postman examples, and the dashboard run dialog carry the new fields. Migration 100 preserves action options and run snapshots across all database providers.
+
 ### Handoff and landing resilience
 
 - Record failed landing callbacks as LandingFailed; periodically flag verified merge-queue missions missing a queue entry after five minutes for manual recovery.

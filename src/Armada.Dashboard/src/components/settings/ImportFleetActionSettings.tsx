@@ -93,6 +93,7 @@ export default function ImportFleetActionSettings({ importSettings, fleetActionS
     try {
       const updated = await updateSettings({
         fleetActions: {
+          ...fleetActionSettings,
           maxConcurrency: Number(fleetDraft.maxConcurrency),
           defaultTimeoutSeconds: Number(fleetDraft.defaultTimeoutSeconds),
           maxOutputBytes: Number(fleetDraft.maxOutputBytes),

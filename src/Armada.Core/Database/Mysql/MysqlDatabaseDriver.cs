@@ -998,7 +998,23 @@ namespace Armada.Core.Database.Mysql
                     @"CREATE INDEX idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
                     @"CREATE INDEX idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);"),
                 new SchemaMigration(98, "Add contract_repair_kind to stage_outcomes so a deterministic contract repair shows on the stage outcome as well as in the mission.contract_repaired event",
-                    @"ALTER TABLE stage_outcomes ADD COLUMN contract_repair_kind VARCHAR(64) NULL;")
+                    @"ALTER TABLE stage_outcomes ADD COLUMN contract_repair_kind VARCHAR(64) NULL;"),
+                new SchemaMigration(100, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"ALTER TABLE fleet_actions ADD COLUMN command_windows LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN output_parser LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN scan_source_action_key LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN required_tools_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN requires_network TINYINT(1) NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN inputs_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN command_windows LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN output_parser LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN scan_source_action_key LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN required_tools_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN requires_network TINYINT(1) NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN inputs_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN input_values_json LONGTEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN findings_count INT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary LONGTEXT NULL;")
 
 
             };

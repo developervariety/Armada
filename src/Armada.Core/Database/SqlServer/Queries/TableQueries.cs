@@ -1974,7 +1974,23 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_mission_created') CREATE INDEX idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_tenant_created') CREATE INDEX idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);"),
                 new SchemaMigration(98, "Add contract_repair_kind to stage_outcomes so a deterministic contract repair shows on the stage outcome as well as in the mission.contract_repaired event",
-                    @"IF COL_LENGTH('stage_outcomes','contract_repair_kind') IS NULL ALTER TABLE stage_outcomes ADD contract_repair_kind NVARCHAR(64) NULL;")
+                    @"IF COL_LENGTH('stage_outcomes','contract_repair_kind') IS NULL ALTER TABLE stage_outcomes ADD contract_repair_kind NVARCHAR(64) NULL;"),
+                new SchemaMigration(100, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"ALTER TABLE fleet_actions ADD command_windows NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_actions ADD output_parser NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_actions ADD scan_source_action_key NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_actions ADD required_tools_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_actions ADD requires_network BIT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_actions ADD inputs_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD command_windows NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD output_parser NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD scan_source_action_key NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD required_tools_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD requires_network BIT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_runs ADD inputs_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD input_values_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD findings_count INT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_run_targets ADD scan_summary NVARCHAR(MAX) NULL;")
 
 
             };

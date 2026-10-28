@@ -2,15 +2,15 @@ import type { Vessel } from '../types/models';
 
 const VARIABLE_PATTERN = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
-const KNOWN = ['vessel.name', 'vessel.id', 'vessel.defaultbranch', 'vessel.workingdirectory', 'vessel.buildcommand', 'health.summary'];
+const KNOWN = ['vessel.name', 'vessel.id', 'vessel.defaultbranch', 'vessel.workingdirectory', 'vessel.buildcommand', 'health.summary', 'scan.summary'];
 
 /** Return every `{{name}}` in the text that the server would reject (case-insensitive, de-duplicated). */
-export function findUnknownTemplateVariables(text: string | null | undefined): string[] {
+export function findUnknownTemplateVariables(text: string | null | undefined, inputNames: string[] = []): string[] {
   if (!text) return [];
   const unknown: string[] = [];
   for (const match of text.matchAll(VARIABLE_PATTERN)) {
     const name = match[1].trim();
-    if (!KNOWN.includes(name.toLowerCase()) && !unknown.includes(name)) unknown.push(name);
+    if (!KNOWN.includes(name.toLowerCase()) && !inputNames.some(n => `input.${n}`.toLowerCase() === name.toLowerCase()) && !unknown.includes(name)) unknown.push(name);
   }
   return unknown;
 }

@@ -6067,7 +6067,13 @@
         "Plan with a captain, preserve the transcript, and dispatch directly from the session": "Planifica con un captain, conserva la transcripción y despacha directamente desde la sesión",
         "Background jobs and their status": "Trabajos en segundo plano y su estado",
         "Inspect managed files, database allocation, host capacity and record counts": "Inspecciona los archivos gestionados, la asignación de la base de datos, la capacidad del host y el número de registros",
-        "Verifying": "Verificando"
+        "Verifying": "Verificando",
+        "The output parser reported findings.": "El analizador de salida ha encontrado incidencias.",
+        "Not configured": "Sin configurar",
+        "No matching ecosystem": "No hay un ecosistema coincidente",
+        "No forge credentials": "No hay credenciales del proveedor Git",
+        "Network unavailable": "Red no disponible",
+        "Tool missing": "Falta una herramienta"
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -11071,7 +11077,13 @@
         "Plan with a captain, preserve the transcript, and dispatch directly from the session": "与 captain 一起规划，保留对话记录，并直接从会话派发",
         "Background jobs and their status": "后台作业及其状态",
         "Inspect managed files, database allocation, host capacity and record counts": "查看托管文件、数据库分配、主机容量和记录数",
-        "Verifying": "验证中"
+        "Verifying": "验证中",
+        "The output parser reported findings.": "输出解析器报告了发现项。",
+        "Not configured": "未配置",
+        "No matching ecosystem": "没有匹配的生态系统",
+        "No forge credentials": "没有代码托管凭据",
+        "Network unavailable": "网络不可用",
+        "Tool missing": "缺少工具"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -16038,7 +16050,13 @@
         "Plan with a captain, preserve the transcript, and dispatch directly from the session": "與 captain 一起規劃，保留對話記錄，並直接從工作階段派發",
         "Background jobs and their status": "背景作業及其狀態",
         "Inspect managed files, database allocation, host capacity and record counts": "檢視受管理的檔案、資料庫配置、主機容量和記錄數",
-        "Verifying": "驗證中"
+        "Verifying": "驗證中",
+        "The output parser reported findings.": "輸出解析器報告了發現項目。",
+        "Not configured": "未設定",
+        "No matching ecosystem": "沒有相符的生態系統",
+        "No forge credentials": "沒有程式碼託管憑證",
+        "Network unavailable": "網路無法使用",
+        "Tool missing": "缺少工具"
       },
       "sections": {}
     },
@@ -20965,7 +20983,13 @@
         "Plan with a captain, preserve the transcript, and dispatch directly from the session": "同 captain 一齊規劃，保留對話記錄，直接由工作階段派發",
         "Background jobs and their status": "背景作業同佢哋嘅狀態",
         "Inspect managed files, database allocation, host capacity and record counts": "檢視受管理嘅檔案、資料庫分配、主機容量同記錄數",
-        "Verifying": "驗證中"
+        "Verifying": "驗證中",
+        "The output parser reported findings.": "輸出解析器報告咗發現項目。",
+        "Not configured": "未設定",
+        "No matching ecosystem": "冇相符嘅生態系統",
+        "No forge credentials": "冇程式碼託管憑證",
+        "Network unavailable": "網絡用唔到",
+        "Tool missing": "缺少工具"
       },
       "sections": {}
     },
@@ -25908,7 +25932,13 @@
         "Plan with a captain, preserve the transcript, and dispatch directly from the session": "captain と計画し、トランスクリプトを保持して、セッションから直接ディスパッチします",
         "Background jobs and their status": "バックグラウンドジョブとその状態",
         "Inspect managed files, database allocation, host capacity and record counts": "管理対象ファイル、データベースの割り当て、ホスト容量、レコード数を確認します",
-        "Verifying": "検証中"
+        "Verifying": "検証中",
+        "The output parser reported findings.": "出力パーサーが検出結果を報告しました。",
+        "Not configured": "未設定",
+        "No matching ecosystem": "一致するエコシステムがありません",
+        "No forge credentials": "コードホスティングの認証情報がありません",
+        "Network unavailable": "ネットワークを利用できません",
+        "Tool missing": "ツールがありません"
       },
       "sections": {}
     },
@@ -30842,7 +30872,13 @@
         "Plan with a captain, preserve the transcript, and dispatch directly from the session": "Mit einem Captain planen, das Transkript behalten und direkt aus der Sitzung dispatchen",
         "Background jobs and their status": "Hintergrundjobs und ihr Status",
         "Inspect managed files, database allocation, host capacity and record counts": "Verwaltete Dateien, Datenbankbelegung, Hostkapazität und Datensatzanzahlen prüfen",
-        "Verifying": "Wird geprueft"
+        "Verifying": "Wird geprueft",
+        "The output parser reported findings.": "Der Ausgabeparser hat Befunde gemeldet.",
+        "Not configured": "Nicht konfiguriert",
+        "No matching ecosystem": "Kein passendes Oekosystem",
+        "No forge credentials": "Keine Zugangsdaten fuer den Git-Anbieter",
+        "Network unavailable": "Netzwerk nicht verfuegbar",
+        "Tool missing": "Werkzeug fehlt"
       },
       "sections": {}
     },
@@ -35776,7 +35812,13 @@
         "Plan with a captain, preserve the transcript, and dispatch directly from the session": "Planifiez avec un captain, conservez la transcription et lancez directement depuis la session",
         "Background jobs and their status": "Tâches d'arrière-plan et leur état",
         "Inspect managed files, database allocation, host capacity and record counts": "Inspectez les fichiers gérés, l'allocation de la base de données, la capacité de l'hôte et le nombre d'enregistrements",
-        "Verifying": "Verification en cours"
+        "Verifying": "Verification en cours",
+        "The output parser reported findings.": "L’analyseur de sortie a signale des resultats.",
+        "Not configured": "Non configure",
+        "No matching ecosystem": "Aucun ecosysteme correspondant",
+        "No forge credentials": "Aucun identifiant de forge",
+        "Network unavailable": "Reseau indisponible",
+        "Tool missing": "Outil manquant"
       },
       "sections": {}
     },
@@ -40710,7 +40752,13 @@
         "Plan with a captain, preserve the transcript, and dispatch directly from the session": "Pianifica con un captain, conserva la trascrizione e invia direttamente dalla sessione",
         "Background jobs and their status": "Job in background e il loro stato",
         "Inspect managed files, database allocation, host capacity and record counts": "Esamina i file gestiti, l'allocazione del database, la capacità dell'host e il numero di record",
-        "Verifying": "Verifica in corso"
+        "Verifying": "Verifica in corso",
+        "The output parser reported findings.": "Il parser di output ha segnalato risultati.",
+        "Not configured": "Non configurato",
+        "No matching ecosystem": "Nessun ecosistema corrispondente",
+        "No forge credentials": "Nessuna credenziale del servizio Git",
+        "Network unavailable": "Rete non disponibile",
+        "Tool missing": "Strumento mancante"
       },
       "sections": {}
     }

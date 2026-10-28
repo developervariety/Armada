@@ -14,7 +14,7 @@ export interface StatusMeta {
 }
 
 export const RUN_STATUSES: FleetActionRunStatus[] = ['Pending', 'Running', 'Completed', 'CompletedWithFailures', 'Cancelled', 'Failed'];
-export const TARGET_STATUSES: FleetActionTargetStatus[] = ['Pending', 'Skipped', 'Running', 'Succeeded', 'Failed', 'Cancelled', 'TimedOut'];
+export const TARGET_STATUSES: FleetActionTargetStatus[] = ['Pending', 'Skipped', 'Running', 'Succeeded', 'Failed', 'Cancelled', 'TimedOut', 'Findings'];
 
 export const RUN_STATUS_META: Record<FleetActionRunStatus, StatusMeta> = {
   Pending: { label: 'Pending', description: 'The run is queued and no target has started yet.', tone: 'pending', icon: 'clock' },
@@ -26,6 +26,7 @@ export const RUN_STATUS_META: Record<FleetActionRunStatus, StatusMeta> = {
 };
 
 export const TARGET_STATUS_META: Record<FleetActionTargetStatus, StatusMeta> = {
+  Findings: { label: 'Findings', description: 'The output parser reported findings.', tone: 'warning', icon: 'alert' },
   Pending: { label: 'Pending', description: 'Waiting for a concurrency slot.', tone: 'pending', icon: 'clock' },
   Skipped: { label: 'Skipped', description: 'Armada declined to act on this vessel; see the reason.', tone: 'skipped', icon: 'skip' },
   Running: { label: 'Running', description: 'The command or voyage for this vessel is in progress.', tone: 'running', icon: 'spinner' },
@@ -37,6 +38,11 @@ export const TARGET_STATUS_META: Record<FleetActionTargetStatus, StatusMeta> = {
 
 /** Skip reason codes (`FleetActionReasonCodes`) mapped to English source labels. */
 export const SKIP_REASON_LABELS: Record<string, string> = {
+  'ToolMissing:': 'Tool missing',
+  NotConfigured: 'Not configured',
+  NoMatchingEcosystem: 'No matching ecosystem',
+  NoForgeCredentials: 'No forge credentials',
+  NetworkUnavailable: 'Network unavailable',
   DirtyTree: 'Working tree has uncommitted changes',
   NoWorkingDirectory: 'Vessel has no working directory',
   NoBuildCommand: 'Vessel has no build command',

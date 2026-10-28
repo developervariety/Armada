@@ -2303,7 +2303,23 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
                     @"CREATE INDEX IF NOT EXISTS idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);"),
                 new SchemaMigration(98, "Add contract_repair_kind to stage_outcomes so a deterministic contract repair shows on the stage outcome as well as in the mission.contract_repaired event",
-                    @"ALTER TABLE stage_outcomes ADD COLUMN contract_repair_kind TEXT;")
+                    @"ALTER TABLE stage_outcomes ADD COLUMN contract_repair_kind TEXT;"),
+                new SchemaMigration(100, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"ALTER TABLE fleet_actions ADD COLUMN command_windows TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN output_parser TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN scan_source_action_key TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN required_tools_json TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN requires_network INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN inputs_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN command_windows TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN output_parser TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN scan_source_action_key TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN required_tools_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN requires_network INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN inputs_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN input_values_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN findings_count INT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary TEXT NULL;")
 
 
 
