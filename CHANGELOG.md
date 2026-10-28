@@ -12,6 +12,10 @@ All notable changes to Armada are documented in this file.
 
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
 
+### Stage outcomes record contract repairs
+
+- `StageOutcome.ContractRepairKind` (nullable; `CompletionLineMissing`, `CompletionLineMalformed`, `CommitMissingRecoveredFromRepo`, `VerdictNonCanonical` or `PlanBlockNonCanonical`) records the contract repair Armada applied to the attempt, read from the latest `mission.contract_repaired` event written since the attempt started. Migration 98 adds the `contract_repair_kind` column to `stage_outcomes` on SQLite, PostgreSQL, SQL Server and MySQL; existing rows read as null. The field is returned by the stage outcome REST routes and the `get_stage_outcome` / `list_stage_outcomes` MCP tools. The `mission.contract_repaired` event is still emitted for every repair.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
@@ -87,6 +91,18 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
   `battery_task_results`).
 - **Settings.** `Evaluation.BatteryDirectory` overrides where packs are read from. `Evaluation.BatteryTaskTimeoutMinutes`
   (default 60) bounds each task's mission.
+
+### Missions and voyages carry an IsEvaluation flag
+
+- **Stored on all four databases.** `Mission.IsEvaluation` and `Voyage.IsEvaluation` (default false) are persisted by
+  migration 96, which adds `is_evaluation` to `missions` and `voyages` on SQLite, PostgreSQL, MySQL and SQL Server.
+- **Set at dispatch.** REST `VoyageRequest.IsEvaluation`, MCP `dispatch` and `create_mission` `isEvaluation`, and the
+  .NET client `VoyageCreateRequest`/`DispatchRequest.IsEvaluation` set the flag. Missions inherit it from their voyage
+  and from the mission they are derived from (rework, judge, architect, rescue). Fixture battery runs dispatch with it
+  set.
+- **Stage outcomes are tagged from it.** A stage outcome's `IsEvaluation` now comes from its mission's flag instead of
+  being inferred from the vessel's `ModelEvaluation` pipeline.
+- **Dashboard.** Missions and voyages that carry the flag show an `Evaluation` badge on list rows and detail headers.
 
 ### Evaluate: probe-only Quick model probes over REST, MCP and the .NET client
 
