@@ -110,8 +110,11 @@ services:
     ports:
       - "7890:7890"
       - "7891:7891"
+    environment:
+      - ARMADA_DATA_DIR=/app/data
+      - ARMADA_INITIAL_ADMIN_PASSWORD=${ARMADA_INITIAL_ADMIN_PASSWORD:-}
     volumes:
-      - ./armada.json:/app/data/armada.json
+      - ./armada.json:/app/data/settings.json
       - ./db:/app/data/db
       - ./logs:/app/data/logs
 
@@ -152,7 +155,7 @@ The proxy refuses to start with the built-in shared password, so the stack requi
 
 | Host Path | Container Path | Purpose |
 |-----------|----------------|---------|
-| `docker/armada/armada.json` | `/app/data/armada.json` | Server configuration |
+| `docker/armada/armada.json` | `/app/data/settings.json` | Server configuration |
 | `docker/armada/db/` | `/app/data/db/` | SQLite database files |
 | `docker/armada/logs/` | `/app/data/logs/` | Server log files |
 | `docker/proxy/proxysettings.json` | `/config/proxysettings.json` | Proxy configuration |
@@ -164,8 +167,10 @@ The proxy refuses to start with the built-in shared password, so the stack requi
 `ARMADA_DATA_DIRECTORY` relocates the whole default data directory: settings,
 database, logs, docks and repositories. `ARMADA_DATA_DIR` is an alias. When
 both are set to non-empty values, `ARMADA_DATA_DIRECTORY` wins. With neither
-set, the default is `~/.armada`. Values in `armada.json` still override the
-paths derived from it.
+set, the default is `~/.armada`. The Admiral reads `settings.json` from that
+directory, so the default stack sets `ARMADA_DATA_DIR=/app/data` and mounts
+`docker/armada/armada.json` at `/app/data/settings.json`. Values in that file
+still override the paths derived from the data directory.
 
 ### Server Configuration
 

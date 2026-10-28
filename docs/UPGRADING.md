@@ -45,6 +45,14 @@ number or run an old migration script because its filename looks similar.
 
 ## Compatibility and policy
 
+- The default Docker stack mounts `docker/armada/armada.json` at
+  `/app/data/settings.json` and sets `ARMADA_DATA_DIR=/app/data`. A container
+  started from an earlier copy of `docker/armada/compose.yaml` did not read that
+  file: it kept its settings and SQLite database under `/root/.armada` inside the
+  container. Copy that database out (`docker cp <container>:/root/.armada/armada.db
+  docker/armada/db/`) before recreating the container if its records matter. The
+  mounted file's `0.0.0.0` hostname applies, so the default-credential startup
+  check below also applies.
 - HTTP 501, 503 and 504 REST bodies keep their existing `Error` value and add `Code`
   (`NotImplemented`, `ServiceUnavailable` or `GatewayTimeout`). A WebSocket
   `command.error` frame for an unhandled command failure adds `code`. Invalid

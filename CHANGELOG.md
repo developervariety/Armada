@@ -11,6 +11,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Host storage cleanup has an opt-in `deploy-dumps` stage (`prune-deploy-dumps.py`). It keeps the newest `keep` pre-deploy database dumps in one directory and removes the older ones, so dump rotation does not depend on a manual step after each deploy.
 
+### Docker stack settings
+
+- The default Docker stack (`docker/armada/compose.yaml`) sets `ARMADA_DATA_DIR=/app/data` and mounts `docker/armada/armada.json` at `/app/data/settings.json`, the file the Admiral reads. The settings, the SQLite database and the logs are in the mounted host directories, and the `rest.hostname` of `0.0.0.0` in that file applies.
+
 ### Machine-readable failure codes
 
 - A WebSocket `command.error` frame for an unhandled command failure carries `code`. Invalid command JSON uses `invalid_argument`. Other failures use `not_found`, `forbidden`, `unavailable`, `conflict` or `internal_error`.

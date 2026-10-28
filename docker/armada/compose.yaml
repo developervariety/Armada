@@ -7,12 +7,15 @@ services:
       - "7890:7890"
       - "7891:7891"
     environment:
+      # The Admiral reads settings.json from its data directory; this moves that directory to /app/data,
+      # where the mounted settings file and the db and logs volumes live.
+      - ARMADA_DATA_DIR=/app/data
       # The container listens on every interface, so the Admiral refuses to start while the seeded
       # default admin password is active. Set this on the first start; it applies once and never
       # overwrites a password changed later.
       - ARMADA_INITIAL_ADMIN_PASSWORD=${ARMADA_INITIAL_ADMIN_PASSWORD:-}
     volumes:
-      - ./armada.json:/app/data/armada.json
+      - ./armada.json:/app/data/settings.json
       - ./db:/app/data/db
       - ./logs:/app/data/logs
 
