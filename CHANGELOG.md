@@ -4,6 +4,10 @@ All notable changes to Armada are documented in this file.
 
 ---
 
+## Unreleased
+
+- Parse check test and coverage summaries from artifacts written for the current run. A write time up to one minute before the stored start still counts. Older files stay in the run history and do not supply the summary.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a
