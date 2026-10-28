@@ -320,9 +320,9 @@ files named in findings, other diff sections and the output; then a pointer chos
 and an explicit did-not-fit list. The existing templates receive the rendered block through `{PreviousStageOutput}` and
 `{Diff}` and the prior-stage section of the description; their wording is unchanged. REST
 `GET /api/v1/missions/{id}/handoff-artifacts` and `GET /api/v1/handoff-artifacts/{id}`, MCP `get_handoff_artifact` and
-`list_handoff_artifacts`, and the .NET client expose the artifacts, tenant-scoped like stage outcomes. Building the rework
-prompt from the artifact one demand per line (item 2) is not done yet, and the effect has not been measured on the
-battery.
+`list_handoff_artifacts`, and the .NET client expose the artifacts, tenant-scoped like stage outcomes. The rework prompt
+is built from the artifact with one demand per line (item 2, see its Status under Phase 3). The effect of neither item has
+been measured on the battery.
 
 ### 3.2 Render prompts for the reader (Armada, at launch)
 
@@ -575,6 +575,16 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
 1. Durable, versioned handoff artifacts with budgeted delivery suited to the reader (3.1), replacing the
    3000-character output and 4000-character diff excerpts.
 2. Rework prompts built from the artifact, one demand per line. Addresses C2 and C5.
+   Status: done. `ReworkPromptBuilder` replaces the one-paragraph rework instruction. When the rework is scheduled, the
+   description gets a rework section: a findings placeholder, the demands as a numbered list with one demand per line
+   (every demand of the old paragraph is kept), and the output contract. At launch the placeholder becomes the numbered
+   findings (severity, file, line and required fix) that `HandoffRenderer` delivered within the reader's budget. Findings
+   that did not fit stay in the did-not-fit list next to the pointer to the complete artifact. The rest of the rendered
+   handoff follows without its findings section, so the findings are delivered once. The output contract is repeated as
+   the last line. A review without structured findings, or a launch without an artifact, keeps the rendered handoff block
+   or the fallback line. The section is part of the mission description, so it applies to the Current, Lean and Compact
+   variants alike; no template placeholder or migration was added, and non-rework prompts are unchanged. A later rework
+   round replaces the earlier round's section instead of stacking it. The effect on the battery has not been measured.
 3. Safe contract repair (principle 4) for the remaining personas, starting with the Worker's completion line. A
    missing commit is handled by inspecting the repository. Addresses B1.
    Status: done. A Worker or Test Engineer with a missing or malformed completion line is judged by its dock branch

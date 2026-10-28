@@ -16,6 +16,10 @@ All notable changes to Armada are documented in this file.
 
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
 
+### Rework prompts built from the handoff artifact
+
+- The rework Worker's prompt replaces the former one-paragraph instruction (about 150 words, eight demands) with a structured section: the reviewer's numbered findings (severity, file, line and required fix) taken from its handoff artifact as rendered within the reader's handoff budget, findings that did not fit named in the did-not-fit list, the rework demands as a numbered list with one demand per line, and the output contract (`[ARMADA:RESULT] COMPLETE`) repeated at the end. A review without structured findings, or a launch without an artifact, falls back to the rendered handoff block. The findings are delivered once (not again in the evidence block); every former demand is kept. It applies to all prompt variants; non-rework prompts are unchanged. No migration. The effect on the battery has not been measured.
+
 ### Persona prompt variants for battery comparison
 
 - Persona prompts render as one of three variants through the existing template path: Current (today's default, unchanged), Lean (one demand per line, the output contract stated first and repeated as the last line) and Compact (a shorter tier for small-context readers). Built-in `persona.<name>.lean` and `persona.<name>.compact` templates ship for the Worker, Test Engineer, Judge and Architect and appear in `list_prompt_templates`; completion and signal lines are identical in every variant, and acceptance criteria and project rules are untouched. The variant is chosen by a voyage captain override's `PromptVariant`, then the captain's `promptVariant` runtime option, then Current. A fixture battery run takes `promptVariant` (REST body and `run_battery`) and records a non-Current variant in its configuration.
