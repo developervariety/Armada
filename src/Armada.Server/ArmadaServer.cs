@@ -730,6 +730,7 @@ namespace Armada.Server
             _AskTracker = new Armada.Server.Ask.AskWorkTracker(_Database, _AskThreads, _Settings, _Logging);
             _AskThreads.OnUserEvent = (tenantId, userId, eventType, payload) => _WebSocketHub.SendToUser(tenantId, userId, eventType, payload);
             _AskThreads.ActiveTurnResolver = _AskTurns.ActiveTurnId;
+            _AskThreads.ActiveTurnProgressResolver = _AskTurns.ActiveTurnProgress;
             _AskActions.OnWorkLinked = _AskTracker.OnWorkLinkedAsync;
             _AskActions.OnProposalApproved = _AskTurns.StartFollowUpAsync;
             _AskTracker.Narrate = _AskTurns.NarrateAsync;

@@ -6501,10 +6501,10 @@
                                 "fleet-actions"
                             ]
                         },
-                        "description": "Creates a Command action. Unknown template variables are rejected with 400 naming the variable. Captures actionId.",
+                        "description": "Creates a Command action. Unknown template variables are rejected with 400 naming the variable. Captures actionId. Optional fields: CommandWindows, OutputParser (registered parser ID), RequiredTools, RequiresNetwork, ScanSourceActionKey, Inputs [{Name, Type: string/semver/enum, Required, Default, AllowedValues, Description}]. Templates use {{input.name}} and {{scan.summary}}. Unknown input variables are rejected on save. Network actions skip when FleetActions.Offline is true or the vessel Harbor is listed in FleetActions.OfflineHarborIds.",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Name\": \"Git status\",\n  \"Kind\": \"Command\",\n  \"CommandText\": \"git status -sb\",\n  \"TimeoutSeconds\": 60,\n  \"DefaultConcurrency\": 4,\n  \"RequiresCleanWorkingTree\": false\n}"
+                            "raw": "{\n  \"Name\": \"Git status\",\n  \"Kind\": \"Command\",\n  \"CommandText\": \"git status -sb\",\n  \"TimeoutSeconds\": 60,\n  \"DefaultConcurrency\": 4,\n  \"RequiresCleanWorkingTree\": false,\n  \"CommandWindows\": \"git status -sb\",\n  \"RequiredTools\": [\n    \"git\"\n  ],\n  \"RequiresNetwork\": false,\n  \"Inputs\": [\n    {\n      \"Name\": \"note\",\n      \"Type\": \"string\",\n      \"Required\": false,\n      \"Default\": \"\",\n      \"Description\": \"Optional run annotation\"\n    }\n  ]\n}"
                         }
                     },
                     "event": [
@@ -6642,10 +6642,10 @@
                                 "run"
                             ]
                         },
-                        "description": "Starts a run over the given vessels. Returns 202 with RunId. A vessel from another tenant rejects the whole request. Captures runId.",
+                        "description": "Starts a run over the given vessels. Returns 202 with RunId. A vessel from another tenant rejects the whole request. Captures runId. InputValues supplies declared runtime inputs by name; defaults apply when omitted. Missing required inputs, invalid semver or enum values, and unknown input names return 400 before dispatch. Targets with parsed findings use Findings, counted separately. Skipped ToolMissing:<tool> identifies a missing executable.",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"VesselIds\": [\n    \"{{vesselId}}\"\n  ],\n  \"Concurrency\": 2\n}"
+                            "raw": "{\n  \"VesselIds\": [\n    \"{{vesselId}}\"\n  ],\n  \"Concurrency\": 2,\n  \"InputValues\": {}\n}"
                         }
                     },
                     "event": [
@@ -6654,6 +6654,7 @@
                             "script": {
                                 "type": "text/javascript",
                                 "exec": [
+                                    "pm.test('Fleet action run is accepted', () => pm.response.to.have.status(202));",
                                     "if (pm.response.code >= 200 && pm.response.code < 300) {",
                                     "    const body = pm.response.json();",
                                     "    if (body && body.RunId) pm.collectionVariables.set('runId', body.RunId);",
