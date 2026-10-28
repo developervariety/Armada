@@ -1,7 +1,9 @@
 # Plan: pi as an Armada agent runtime
 
-Status: scoping plan only. No code has been changed. Paths marked (NEW) do not exist yet; every
-other Armada path exists in the repository at commit dbef448c9. Paths that belong to the pi
+Status: Phases 1-4 are implemented (mission msn_mvsftf4t_Lz5EG4dfqbP, 2026-10-28; every task below is
+marked [DONE]). Phase 5 (the optional ApproveInArmada extension) is not implemented. Deviations from the
+plan are listed in "Implementation notes and deviations" below. When this plan was written, paths marked
+(NEW) did not exist; every other Armada path existed in the repository at commit dbef448c9. Paths that belong to the pi
 repository (`docs/json.md`, `src/modes/print-mode.ts`, `examples/extensions/...`) are relative to
 `packages/coding-agent/` in github.com/earendil-works/pi, and names such as `mcp.json`,
 `models.json`, `auth.json`, `settings.json`, `SYSTEM.md` and `.pi/mcp.json` are pi configuration
@@ -54,6 +56,58 @@ are folded into the sections below and marked VERIFIED. In summary:
 | `pi auth check` | VERIFIED: requires `--provider` or `--model` (exit 2 without one); exit 0 `ready`, 1 `not_ready`; `--json` prints `{"status","provider","authType"}`; `--no-refresh` avoids touching OAuth tokens. |
 | Name collision / identity | `pi --version` prints a bare `1.4.0`, which does not identify the tool; the first line of `pi --help` is `pi - AI coding assistant ...` and does. |
 | Windows | Still UNVERIFIED (no Windows host was used). |
+
+## Implementation notes and deviations (Phases 1-4)
+
+Implemented on macOS against a real pi 1.4.0. Where the implementation differs from the plan, or the plan left
+a choice open, this is what was done and why:
+
+- Detection (1.7): `HarborRuntimeDetector` gained an injectable `Verifier` that confirms a resolved `pi` with the
+  first line of `pi --help` (`RuntimeDetectionService.IsPiCommand`, `PiCommandBuilder.IsPiHelpOutput`); a `pi`
+  that is some other tool is advertised as unavailable. `DetectDefaultRuntime`/`DetectAllRuntimes` append pi last.
+- Fixtures (2.1): captured on macOS only; no Windows host was available, so stdin delivery on Windows remains
+  UNVERIFIED (noted on `PiRuntime.UsePromptStdin`). Captured verbatim (system prompt, thinking signatures and temp
+  paths trimmed): plain reply, bash/write/edit tool calls, bad API key (exit 0), SIGTERM during a bash call (exit
+  143). The MCP tool call, `length` stop, 429/529 errors and auto-retry fixtures are derived from those captures
+  using the record shapes of pi's `docs/json.md`, because they could not be provoked on demand; this is documented
+  in `PiStreamFixtures.cs`.
+- Provider errors (2.4): `TryParsePiJsonLine` classifies only terminal records: `agent_end` whose `willRetry` is not
+  true and whose last assistant message stopped with `error`, and `auto_retry_end{success:false}`. It does not
+  classify `message_end{stopReason:error}` or `assistantMessageEvent.type=error` on their own, because pi emits the
+  failed `message_end` before `agent_end{willRetry:true}` when it is about to retry, and a recovered retry must not
+  be reported. pi reports a final failure in both `agent_end` and `auto_retry_end`, so `PiRuntime` and
+  `RemoteAgentRuntime` raise only the first provider error of a launch.
+- Log formatting (2.6): the formatter is stateless per line, so it shows the joined text that pi already puts in
+  `text_end`/`thinking_end` (`content`) and drops the individual deltas.
+- Server consumers (2.7): Ask/chat streaming is verified through `CaptainChatService` with a stub pi
+  (`HarborInteractiveLaunchSuite.pi_chat_streams_text_tools_and_usage`); the planning-session case runs on an
+  in-process Harbor because a local planning turn needs a real dock. Tool chips use pi's `durationMs`.
+- MCP binding (3.1): pi's default MCP tool exposure (`codemode`) does not declare tools to the model, so the
+  generated entries set `"exposure": "deferred"` (tools are loaded with `tool_search`, then called as
+  `mcp__armada__<tool>`) and a `description` that also marks the file as Armada-generated. Verified end to end with
+  pi 1.4.0 and a live Admiral: `tool_search` then `mcp__armada__status` succeeded with the token from
+  `${ARMADA_MCP_TOKEN}`.
+- MCP binding (3.1/3.2): pi writes its project file even for mission launches with
+  `McpAllowWorkingDirectoryFiles=false` (the other runtimes avoid dock files there), because pi has no other way to
+  carry the token. `IsolationConfigFile` gained `ExcludeFromGit`, `RemoveAfterExit` and `OriginalContents`;
+  `BaseAgentRuntime` adds the file to the worktree's `info/exclude` before writing it and removes it (or restores a
+  repository's own `.pi/mcp.json`, whose servers are merged into the generated file) before `OnProcessExited`, and
+  on a failed start. Crash leftovers: orphan recovery (`AdmiralService.RecoverOrphanedMissionAsync`) calls
+  `PiProjectMcpConfig.RemoveGenerated`, which deletes only an Armada-generated file. That helper is unit tested;
+  the full orphan-recovery path with a pi mission is not exercised by a test.
+- Permissions (3.3): no code change in `CliPermissionPolicyResolver` beyond its doc comment; pi has no prompt hook,
+  so the existing fallback records `RuntimeUnsupported` and the note. On Windows, pi's optional `powershell` tool is
+  not excluded under Refuse (the plan specifies `--exclude-tools bash` only); UNVERIFIED.
+- Dashboard (4.4): the approval picker's existing tooltip already says runtimes other than Claude Code, Mux 1.5+
+  and API endpoints fall back to Refuse, so it was not changed. The runtime label is "pi". The runtime tooltip
+  i18n key was replaced in all eight locales.
+- Docs (4.5): `AGENTS.md` has no runtime list and was not changed; the `CLAUDE.md` architecture line was.
+- Tests: the Phase 1 "created over REST and MCP" criterion is covered by `E2E.Captain`
+  (`create_captain_all_runtimes_each_creates_successfully`) and `E2E.PersonaSurfaceParity` (`mcp_captain_pi_runtime`);
+  the 2.9 instructions-file criterion by `Services.MissionPrompt` (`pi_mission_writes_agents_override_carrying_agents_md`).
+  `Runtimes.PiSmoke` takes the provider from `ARMADA_TEST_PI_PROVIDER` (default `anthropic`) and the model from
+  `ARMADA_TEST_PI_MODEL` (default `anthropic/claude-haiku-4-5` for anthropic) and passes `--provider` to
+  `pi auth check --no-refresh`.
 
 ## 1. Summary of pi and why it fits
 
@@ -363,31 +417,31 @@ Each phase is sized to be one Armada mission. Tasks inside a phase are in order.
 lands its own tests (listed under "Tests" in the phase and detailed in section 5); a phase is not
 done until its acceptance criteria and the listed test suites pass.
 
-### Phase 1 - Runtime enum, adapter and command line (headless missions work)
+### Phase 1 [DONE] - Runtime enum, adapter and command line (headless missions work)
 
-1.1 Add `Pi` to `src/Armada.Core/Enums/AgentRuntimeEnum.cs` with `[EnumMember(Value = "Pi")]`,
+1.1 [DONE] Add `Pi` to `src/Armada.Core/Enums/AgentRuntimeEnum.cs` with `[EnumMember(Value = "Pi")]`,
     appended after `Custom`. Captain, persona-priority, stage-outcome and CLI-permission rows
     store the runtime as its name (`Runtime.ToString()` / `Enum.Parse`, for example
     `src/Armada.Core/Database/Postgresql/Implementations/CaptainMethods.cs`), so no migration is
     needed; appending last also keeps any ordinal use (for example a stable sort) unchanged.
     Acceptance: a Pi captain round-trips through the database suites on SQLite.
-1.2 `src/Armada.Core/Services/AgentRuntimeParser.cs`: accept `pi`, `Pi`, `pi-coding-agent`;
+1.2 [DONE] `src/Armada.Core/Services/AgentRuntimeParser.cs`: accept `pi`, `Pi`, `pi-coding-agent`;
     update the help string. Acceptance: parser unit cases for each alias; unknown values still
     rejected.
-1.3 `src/Armada.Core/Services/ReasoningEffortTranslator.cs`: add `ToPiThinkingLevel`.
+1.3 [DONE] `src/Armada.Core/Services/ReasoningEffortTranslator.cs`: add `ToPiThinkingLevel`.
     Acceptance: all five levels plus null.
-1.4 Create `src/Armada.Core/Services/PiCommandBuilder.cs` (NEW) per section 3.1. Acceptance:
+1.4 [DONE] Create `src/Armada.Core/Services/PiCommandBuilder.cs` (NEW) per section 3.1. Acceptance:
     exact argument lists for default, model+effort, Refuse (`--exclude-tools bash`), empty
     working directory or prompt throws.
-1.5 Create `src/Armada.Runtimes/PiRuntime.cs` (NEW) deriving `BaseAgentRuntime`: `Name => "Pi"`,
+1.5 [DONE] Create `src/Armada.Runtimes/PiRuntime.cs` (NEW) deriving `BaseAgentRuntime`: `Name => "Pi"`,
     `SupportsResume => false`, `RuntimeType => Pi`, `GetCommand` via `ResolveExecutable`,
     `BuildArguments`, prompt delivery per the 3.1 decision, `AutoApprove`/`ExecutablePath` like
     `OpenCodeRuntime.cs`. Register in `src/Armada.Runtimes/AgentRuntimeFactory.cs`.
-1.6 `src/Armada.Core/Services/AgentRuntimeCapabilities.cs`: add Pi to `PlanningSessionRuntimes`.
-1.7 `src/Armada.Core/Harbor/HarborRuntimeDetector.cs` and
+1.6 [DONE] `src/Armada.Core/Services/AgentRuntimeCapabilities.cs`: add Pi to `PlanningSessionRuntimes`.
+1.7 [DONE] `src/Armada.Core/Harbor/HarborRuntimeDetector.cs` and
     `src/Armada.Core/Services/RuntimeDetectionService.cs` per 3.5;
     `src/Armada.Core/Models/HarborCapability.cs` doc comment.
-1.8 Runtime switches that must include Pi: `src/Armada.Runtimes/RemoteAgentRuntime.cs` (provider
+1.8 [DONE] Runtime switches that must include Pi: `src/Armada.Runtimes/RemoteAgentRuntime.cs` (provider
     error routing, temporary stderr-only like OpenCode),
     `src/Armada.Core/Services/CaptainTierSelector.cs` (Pi defaults like OpenCode),
     `src/Armada.Core/Services/HandoffReaderResolver.cs` (Pi reads files and has MCP),
@@ -402,41 +456,41 @@ Tests: new `Services.PiRuntime` suite (builder, effort mapping, parser aliases);
 `CaptainModelSuite`, `HarborDatabaseSuite`; the stub `pi` in `StubAgentProcesses.cs` (argv,
 stdin and environment recording only).
 
-### Phase 2 - JSON stream parsing, final message, errors, telemetry
+### Phase 2 [DONE] - JSON stream parsing, final message, errors, telemetry
 
-2.1 Run a real `pi -p --mode json` on macOS and Windows; capture fixtures for: plain reply, a
+2.1 [DONE on macOS; Windows NOT verified, no Windows host] Run a real `pi -p --mode json` on macOS and Windows; capture fixtures for: plain reply, a
     turn with `bash` + `edit` tool calls, an MCP tool call, a provider auth error (bad key), an
     abort (SIGTERM), a `length` stop, and an auto-retry. stdin prompt delivery is VERIFIED on
     macOS (3.1); confirm it on Windows and switch to `@file` there only if it fails.
     Acceptance: fixtures committed with the pi version recorded; Windows stdin result noted in
     `PiRuntime`.
-2.2 Create the protocol models in `src/Armada.Core/Protocol/` (NEW `PiStreamEvent.cs`,
+2.2 [DONE] Create the protocol models in `src/Armada.Core/Protocol/` (NEW `PiStreamEvent.cs`,
     `PiAssistantMessageEvent.cs`, `PiMessage.cs`, `PiContentBlock.cs`, `PiUsage.cs`,
     `PiCost.cs`); update the doc comment in `src/Armada.Core/Protocol/RuntimeStreamJson.cs`.
     Acceptance: every fixture line parses or is ignored; malformed JSON and non-object values
     return false.
-2.3 Create `src/Armada.Runtimes/PiFinalMessage.cs` (NEW) and wire `BeginLaunch`,
+2.3 [DONE] Create `src/Armada.Runtimes/PiFinalMessage.cs` (NEW) and wire `BeginLaunch`,
     `ResolveExitCode`, `TryParseProviderError` in `PiRuntime`. Acceptance: final-message file
     holds the last assistant text; `stopReason` error/aborted/length and missing `agent_end`
     produce a nonzero code even though pi exited 0.
-2.4 `src/Armada.Core/Services/RuntimeProviderErrorParser.cs`: `TryParsePiJsonLine`; route stdout
+2.4 [DONE] `src/Armada.Core/Services/RuntimeProviderErrorParser.cs`: `TryParsePiJsonLine`; route stdout
     lines for Pi through it in `PiRuntime` and `src/Armada.Runtimes/RemoteAgentRuntime.cs`.
     Acceptance: 401/429/5xx fixtures classify correctly; a recovered auto-retry does not.
-2.5 `src/Armada.Core/Services/ChatTurnTelemetryRecorder.cs` (`ObservePi`) and
+2.5 [DONE] `src/Armada.Core/Services/ChatTurnTelemetryRecorder.cs` (`ObservePi`) and
     `src/Armada.Core/Models/CaptainChatMetrics.cs` doc comment;
     `src/Armada.Core/Services/MissionService.Completion.cs` uses the runtime usage report for Pi.
     Acceptance: multi-response fixture sums input/output/cache and cost exactly; reasoning not
     double counted.
-2.6 `src/Armada.Core/Services/RuntimeLogFormatter.cs` (`TryFormatPiEvent`).
-2.7 Server consumers: `src/Armada.Server/CaptainChatService.cs` (Ask streaming: text deltas,
+2.6 [DONE] `src/Armada.Core/Services/RuntimeLogFormatter.cs` (`TryFormatPiEvent`).
+2.7 [DONE] Server consumers: `src/Armada.Server/CaptainChatService.cs` (Ask streaming: text deltas,
     thinking, tool use, telemetry), `src/Armada.Server/PlanningSessionCoordinator.cs` (strip
     protocol lines, keep assistant text; add `PiRuntime.IsProtocolEventLine` /
     `TryExtractAssistantText` helpers like OpenCode's), `src/Armada.Server/Ask/ToolCallCollector.cs`
     (`durationMs`).
-2.8 `src/Armada.Core/Services/MissionStreamDecoder.cs` plus
+2.8 [DONE] `src/Armada.Core/Services/MissionStreamDecoder.cs` plus
     `src/Armada.Core/Services/PiMissionStreamDecoder.cs` (NEW);
     `src/Armada.Core/Services/RuntimeToolWaitTracker.cs` pi branch.
-2.9 Mission instructions per 3.7: `MissionPromptBuilder.GetInstructionsFileName` maps `Pi` to
+2.9 [DONE] Mission instructions per 3.7: `MissionPromptBuilder.GetInstructionsFileName` maps `Pi` to
     `AGENTS.override.md`; `MissionService.cs` adds it to `_IgnoredMissionArtifactFiles`.
     Acceptance: in a dock with `AGENTS.md`, the generated `AGENTS.override.md` holds the mission
     instructions followed by the repository's `AGENTS.md`; a stub-pi launch shows the file in the
@@ -450,16 +504,16 @@ Tests: `PiStreamFixtures.cs` plus the stream, final-message and exit-code cases 
 `RuntimeProviderErrorParserSuite`, `ChatTurnTelemetryRecorderSuite`, `MissionStreamingSuite`;
 the stub `pi` gains fixture replay.
 
-### Phase 3 - MCP binding and permission policy
+### Phase 3 [DONE] - MCP binding and permission policy
 
-3.1 `src/Armada.Core/Services/CaptainThreadMcpPlanner.cs`: Pi strategy per 3.3 (project
+3.1 [DONE] `src/Armada.Core/Services/CaptainThreadMcpPlanner.cs`: Pi strategy per 3.3 (project
     `.pi/mcp.json`, alias disabling, `--approve`); `src/Armada.Core/Services/CaptainThreadMcpPlanRequest.cs`:
     `HostPiMcpConfigDocuments`. `src/Armada.Core/Models/HostMcpConfigDocument.cs` doc comment.
-3.2 `PiRuntime.PopulateHostMcpConfiguration` reads `~/.pi/agent/mcp.json` /
+3.2 [DONE] `PiRuntime.PopulateHostMcpConfiguration` reads `~/.pi/agent/mcp.json` /
     `$PI_CODING_AGENT_DIR/mcp.json`; mission launches add `.pi/mcp.json` to the worktree exclude
     file and remove it after exit (hook location in `src/Armada.Runtimes/BaseAgentRuntime.cs`).
     `src/Armada.Core/Settings/McpSettings.cs` doc comment.
-3.3 `PiCommandBuilder` Refuse mapping and `src/Armada.Core/Services/CliPermissionPolicyResolver.cs`
+3.3 [DONE] `PiCommandBuilder` Refuse mapping and `src/Armada.Core/Services/CliPermissionPolicyResolver.cs`
     (no prompt hook, so ApproveInArmada falls back to Refuse with RuntimeUnsupported).
     `src/Armada.Runtimes/CliPermissionPromptSetup.cs` unchanged until Phase 5.
 Acceptance: a thread-scoped Ask turn on a pi captain can call `mcp__armada__status` with the
@@ -471,37 +525,37 @@ Tests: `PiMcpConfigFile.cs` helper; Pi cases in `CaptainThreadMcpPlannerSuite`,
 `CliPermissionPolicySuite`, `ThreadScopedLaunchSuite`, `SecurityHardeningSuite` (token never in
 argv), `McpClientHostSuite`; a crashed-launch case proving orphan recovery deletes `.pi/mcp.json`.
 
-### Phase 4 - Clients, CLI, TUI, dashboard, docs
+### Phase 4 [DONE] - Clients, CLI, TUI, dashboard, docs
 
-4.1 Helm: `src/Armada.Helm/Commands/McpClientKindEnum.cs` (`Pi`),
+4.1 [DONE] Helm: `src/Armada.Helm/Commands/McpClientKindEnum.cs` (`Pi`),
     `src/Armada.Helm/Commands/McpConfigHelper.cs` (`GetPiConfigPath` = `~/.pi/agent/mcp.json`
     honoring `PI_CODING_AGENT_DIR`, `IsPiAvailable`, local and remote targets writing
     `mcpServers.armada`), `src/Armada.Helm/Commands/McpInstallCommand.cs` (target list and plain-
     text-token note), `src/Armada.Helm/Commands/CaptainAddSettings.cs` and
     `src/Armada.Helm/Commands/CaptainUpdateSettings.cs` (runtime help text).
-4.2 TUI: `src/Armada.Tui/Screens/Build/CaptainForm.cs` (`Runtimes`, `SupportsAutoApprove`,
+4.2 [DONE] TUI: `src/Armada.Tui/Screens/Build/CaptainForm.cs` (`Runtimes`, `SupportsAutoApprove`,
     label), `src/Armada.Tui/Ask/AskController.cs` (`INSTRUCTIONS_FOR_PI.md`).
-4.3 Server MCP schemas: `src/Armada.Server/Mcp/Tools/McpCaptainTools.cs` and
+4.3 [DONE] Server MCP schemas: `src/Armada.Server/Mcp/Tools/McpCaptainTools.cs` and
     `src/Armada.Server/Mcp/Tools/McpStageOutcomeTools.cs` runtime descriptions.
-4.4 Dashboard: `src/Armada.Dashboard/src/lib/captainForm.ts` (option and tooltip),
+4.4 [DONE] Dashboard: `src/Armada.Dashboard/src/lib/captainForm.ts` (option and tooltip),
     `src/Armada.Dashboard/src/lib/captainApproval.ts`, `src/Armada.Dashboard/src/lib/askCaptain.ts`,
     `src/Armada.Dashboard/src/pages/Captains.tsx`, `src/Armada.Dashboard/src/pages/CaptainDetail.tsx`,
     `src/Armada.Dashboard/src/types/models.ts` (cost comment). The tooltip string is an i18n key:
     update it in all eight locales of `src/Armada.Server/wwwroot/i18n/armada.json` in the same
     commit, or the catalog tests fail.
-4.5 Docs: `docs/INSTRUCTIONS_FOR_PI.md` (NEW) and `docs/PI_AS_ORCHESTRATOR.md` (NEW) modeled on
+4.5 [DONE] Docs: `docs/INSTRUCTIONS_FOR_PI.md` (NEW) and `docs/PI_AS_ORCHESTRATOR.md` (NEW) modeled on
     the OpenCode pair; runtime lists in `docs/CAPTAINS.md`, `docs/CAPTAIN_ROUTING.md`,
     `docs/MCP_API.md`, `docs/REST_API.md`, `docs/MODEL_GUIDANCE.md`, `docs/MODEL_HETEROGENEITY.md`,
     `docs/HARBOR_AWARE_TOOL_PROBE.md`, `docs/REMOTE_SERVER.md`, `docs/SECURITY_REVIEW.md`,
     `docs/TESTING.md`, `docs/UPGRADING.md`, `docs/WEBSOCKET_API.md`, `docs/ASK_ARMADA_HOME_BASE.md`;
     `README.md`, `GETTING_STARTED.md`, `FAST_TRACK_SETUP.md`, `DOCKERHUB_README.md`,
     `CLAUDE.md` / `AGENTS.md` architecture line, and `CHANGELOG.md` (`## Unreleased`).
-4.6 `Armada.postman_collection.json`: the captain create description lists runtimes (and already
+4.6 [DONE] `Armada.postman_collection.json`: the captain create description lists runtimes (and already
     omits Mux and OpenCode); add them and Pi. Edit as bytes (the file is CRLF with LF blocks).
-4.7 API surface: MCP schema description changes may alter `docs/api-surface-1.0.json` /
+4.7 [DONE] API surface: MCP schema description changes may alter `docs/api-surface-1.0.json` /
     `docs/API_SURFACE_1.0.md`; regenerate with `scripts/common/generate-api-surface.sh -f net10.0`
     if E2E.ApiContract reports a change.
-4.8 Installers / Harbor app: no runtime is bundled by the installers today (grep of `scripts`,
+4.8 [DONE] Installers / Harbor app: no runtime is bundled by the installers today (grep of `scripts`,
     `docker`, `factory`, `publisher.json` finds no runtime CLI installation), so nothing to add;
     confirm the Harbor tray's runtime list comes from `HarborRuntimeDetector`.
 Acceptance for the phase:
@@ -523,7 +577,7 @@ vitest cases in `captainForm.test.ts`, `captainApproval.test.ts` and an `askCapt
 gates `Tui`, `Client`, `E2E.ApiContract`, dashboard `npm run build` and `npm run test:run`
 (including the `*Catalog.test.ts` i18n suites).
 
-### Phase 5 (optional) - ApproveInArmada through a pi extension
+### Phase 5 (optional) - ApproveInArmada through a pi extension (NOT STARTED)
 
 5.1 `src/Armada.Runtimes/Pi/armada-permission-gate.ts` (NEW) per 3.4, copied to the bin
     (csproj item; edit the `.csproj` as bytes, CRLF).
