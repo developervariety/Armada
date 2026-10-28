@@ -14,6 +14,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server.WebSocket;
 
     /// <summary>
     /// Registers MCP tools for voyage operations (dispatch, status, cancel, purge).
@@ -33,7 +34,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="database">Database driver for voyage data access.</param>
         /// <param name="admiral">Admiral service for voyage orchestration.</param>
         /// <param name="settings">Optional settings for log/diff cleanup during purge.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings = null)
+        /// <param name="webSocketHub">Optional WebSocket hub. When set, cancellation broadcasts the updated voyage and each cancelled mission.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, IAdmiralService admiral, ArmadaSettings? settings = null, ArmadaWebSocketHub? webSocketHub = null)
         {
             register(
                 "dispatch",
@@ -267,7 +269,8 @@ namespace Armada.Server.Mcp.Tools
                         {
                             try
                             {
-                                await admiral.CancelMissionAsync(m).ConfigureAwait(false);
+                                Mission cancelledMission = await admiral.CancelMissionAsync(m).ConfigureAwait(false);
+                                m.Status = cancelledMission.Status;
                                 cancelledCount++;
                             }
                             catch (InvalidOperationException ex)
@@ -281,6 +284,15 @@ namespace Armada.Server.Mcp.Tools
                     voyage.CompletedUtc = DateTime.UtcNow;
                     voyage.LastUpdateUtc = DateTime.UtcNow;
                     voyage = await database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+                    if (webSocketHub != null)
+                    {
+                        webSocketHub.BroadcastVoyageChange(voyage, VoyageStatusEnum.Cancelled.ToString());
+                        foreach (Mission cancelledMission in missions)
+                        {
+                            if (cancelledMission.Status == MissionStatusEnum.Cancelled)
+                                webSocketHub.BroadcastMissionChange(cancelledMission, MissionStatusEnum.Cancelled.ToString());
+                        }
+                    }
                     return (object)new { Voyage = voyage, CancelledMissions = cancelledCount, NotCancelled = notCancelled };
                 });
 
