@@ -35,6 +35,26 @@ pi.dev/docs/latest is reachable but was not compared line by line with the repos
 the repository copies were treated as authoritative. Anything not confirmed from those files is
 marked UNVERIFIED.
 
+### Live verification (2026-10-28, pi 1.4.0, macOS)
+
+The open questions were then checked against a real `pi` 1.4.0 (managed install, Anthropic OAuth
+login, default model `anthropic/claude-opus-4-8`) and the docs bundled with that release. Results
+are folded into the sections below and marked VERIFIED. In summary:
+
+| Question | Result |
+|---|---|
+| `pi -p` reads the prompt from stdin | VERIFIED yes: with no positional message, `pi -p --mode json` reads redirected stdin to EOF; a multi-line prompt arrives intact as one user message. No `@file` fallback needed on macOS. |
+| `session` header with `--no-session` | VERIFIED: still emitted as the first line (`{type:"session",version:3,id,timestamp,cwd}`); no session file is written. |
+| Turn limit | VERIFIED none: no `--max-turns` flag or setting (only `retry.*` settings, default `retry.maxRetries` 3). Armada's timeout is the only bound. |
+| Exit code on provider error | VERIFIED: a bad key gives exit 0 in `--mode json` (exit 1 in text mode). The assistant `message_end` has `stopReason:"error"` and `errorMessage` starting with the HTTP status, for example `401 {"type":"error",...}`. No auto-retry for 401. |
+| SIGTERM | VERIFIED: exit 143, no `agent_end`/`agent_settled` line, and the running `bash` tool child is killed (no orphan). SIGINT exits by signal but leaves the `bash` child orphaned, so Armada must stop pi with SIGTERM or a tree kill. |
+| Context-file precedence | VERIFIED: loaded agent dir, then outermost parent first, then the cwd. Per directory only one file wins: `AGENTS.override.md`, else `AGENTS.md`, else `CLAUDE.md`. A `CLAUDE.md` next to an `AGENTS.md` is NOT loaded. This changes mission-instruction delivery (see 3.7). |
+| Extension `tool_call` can wait for a human | VERIFIED: a handler awaited 150 s twice with no pi-side timeout; `ctx.hasUI` is false in print mode; parallel tool calls from one response are gated one at a time; `{block:true, reason}` yields `tool_execution_end` with `isError:true` and the reason as the tool result. A handler that throws blocks the tool (docs/extensions.md). |
+| `--exclude-tools bash` | VERIFIED: system prompt tools become `read`, `edit`, `write`. Per `pi --help` it also applies to MCP tools. |
+| `pi auth check` | VERIFIED: requires `--provider` or `--model` (exit 2 without one); exit 0 `ready`, 1 `not_ready`; `--json` prints `{"status","provider","authType"}`; `--no-refresh` avoids touching OAuth tokens. |
+| Name collision / identity | `pi --version` prints a bare `1.4.0`, which does not identify the tool; the first line of `pi --help` is `pi - AI coding assistant ...` and does. |
+| Windows | Still UNVERIFIED (no Windows host was used). |
+
 ## 1. Summary of pi and why it fits
 
 pi is an open-source, provider-neutral terminal coding agent from Earendil Inc. Facts relevant to
@@ -57,9 +77,11 @@ Armada:
   `models.json`, `auth.json`, `mcp.json`, `SYSTEM.md`, `APPEND_SYSTEM.md`, `extensions/`,
   `skills/`, `prompts/`. Projects have the same files under `.pi/`, loaded only after project
   trust.
-- Context files: `AGENTS.md` / `AGENTS.override.md` / `CLAUDE.md` are loaded from the agent dir,
-  parent directories and the cwd, without needing project trust (`-nc` disables them). Armada
-  docks already carry `AGENTS.md` / `CLAUDE.md`, so mission context reaches pi with no work.
+- Context files: loaded from the agent dir, every parent directory and the cwd, without needing
+  project trust (`-nc` disables them). Per directory only one file is used: `AGENTS.override.md`,
+  else `AGENTS.md`, else `CLAUDE.md` (VERIFIED). Armada's default mission file is `CLAUDE.md`, which
+  pi skips in any repository that also has `AGENTS.md` (Armada itself does), so pi needs its own
+  instructions file name (see 3.7).
 - MCP: built in, as the bundled extension `builtin:mcp`. Configured only through `mcp.json`
   (`{"mcpServers": {...}}`, stdio or `http`/`streamable-http` with `url` and `headers`, `${ENV}`
   expansion) or `pi mcp add`. Tools are named `mcp__<server>__<tool>`. `--no-mcp` disables it.
@@ -98,7 +120,8 @@ Values for existing runtimes come from the current adapters (`src/Armada.Runtime
 | Reasoning effort | thinking-token env | `ToCodexReasoningEffort` | none | none | `ToMuxEffort` | `--variant` minimal/high | `--thinking off..high` (1:1) |
 | Model selection | `--model` | `--model` | `--model` | `--model` | endpoint | `--model provider/id` | `--model provider/id` (+`--provider`) |
 | Resume (`SupportsResume`) | true | false | false | false | false | false | false at first; `--session-id` makes true possible |
-| Prompt via stdin | yes | yes | yes | yes | n/a | yes | UNVERIFIED (see 3.1) |
+| Prompt via stdin | yes | yes | yes | yes | n/a | yes | yes (VERIFIED on macOS; see 3.1) |
+| Mission instructions file | CLAUDE.md | CODEX.md | GEMINI.md | CURSOR.md | MUX.md | CLAUDE.md | AGENTS.override.md (see 3.7) |
 | Windows | yes | yes | yes | yes | yes | yes (npm .cmd) | yes, install.ps1; bash tool needs Git Bash |
 
 ## 3. Design
@@ -128,22 +151,28 @@ pi -p --mode json --no-session [--approve]
   pi's extra `xhigh`/`max` are not reachable from Armada and need no mapping.
 - Sessions: `--no-session` for missions, Ask turns and planning. Planning sessions relaunch
   against Armada's preserved transcript (see `AgentRuntimeCapabilities`), so pi session files are
-  not needed and would otherwise accumulate in `~/.pi/agent/sessions`. UNVERIFIED: whether the
-  JSON-mode session header line is still emitted with `--no-session`; the parser must not depend
-  on it.
+  not needed and would otherwise accumulate in `~/.pi/agent/sessions`. VERIFIED: with
+  `--no-session` the JSON `session` header is still the first line and no session file is
+  written. The parser still must not depend on the header.
 - Prompt delivery: every CLI adapter except Mux sets `UsePromptStdin => true` to avoid Windows
-  cmd.exe truncating multi-line arguments to npm `.cmd` wrappers. UNVERIFIED: whether `pi -p`
-  reads the prompt from redirected stdin when no positional message is given. If it does not,
-  write the prompt to a temp file and pass `@<file>` (pi resolves `@path` arguments), deleting the
-  file after exit. Task 2.1 must settle this with a real run before the builder is final.
-- Turn limit: pi has no `--max-turns` (grep of `src` found none; UNVERIFIED that no other limit
-  exists). Armada's existing mission timeout and `StopAsync` remain the only bound.
+  cmd.exe truncating multi-line arguments to npm `.cmd` wrappers. VERIFIED (macOS): with no
+  positional message, `pi -p` reads redirected stdin to EOF and a multi-line prompt arrives
+  intact as one user message. `PiRuntime` sets `UsePromptStdin => true` and passes no message
+  argument. The `@<file>` fallback is needed only if the Windows check in task 2.1 fails.
+- Turn limit: VERIFIED none. pi 1.4.0 has no `--max-turns` flag or setting; the only related
+  settings are `retry.*` (default `retry.maxRetries` 3, provider errors only). Armada's existing
+  mission timeout and `StopAsync` remain the only bound.
+- Stopping: VERIFIED that SIGTERM ends pi with exit 143 and kills the running `bash` tool child.
+  SIGINT leaves that child orphaned. `BaseAgentRuntime` already sends SIGTERM and falls back to
+  `Process.Kill(entireProcessTree: true)`, so no change is needed; never stop pi with SIGINT. A
+  stopped run has no `agent_end`/`agent_settled`, which 3.2 already treats as a failure.
 
 ### 3.2 Stream parsing
 
 `--mode json` record types (from `docs/json.md`):
 
-- `session` header `{type, version, id, timestamp, cwd}` (first line when sessions are on).
+- `session` header `{type, version, id, timestamp, cwd}` (first line; VERIFIED still emitted
+  with `--no-session`, `version` 3 in pi 1.4.0).
 - `agent_start`, `agent_end{messages, willRetry}`, `agent_settled{aborted}` (true end of run).
 - `turn_start`, `turn_end{message, toolResults}`.
 - `message_start{message}`, `message_update{usage, assistantMessageEvent}`,
@@ -182,7 +211,8 @@ Typed models, following the repository rule of no `JsonElement` access and one c
 Consumers:
 
 - Final message: pi in JSON mode exits 0 even on provider errors (`print-mode.ts` sets exit 1 for
-  error/aborted/length only in text mode). `PiRuntime` therefore keeps the last assistant
+  error/aborted/length only in text mode; VERIFIED with a bad key: exit 0, last assistant
+  `message_end` has `stopReason:"error"` and `errorMessage` starting `401 {...}`). `PiRuntime` therefore keeps the last assistant
   `message_end` and, in `ResolveExitCode`, writes its text to the final-message file and returns a
   nonzero code when the last `stopReason` is `error`, `aborted` or `length`, or when the stream
   ended without `agent_end`/`agent_settled` (EOF). A new helper
@@ -260,8 +290,13 @@ pi never prompts; there is no flag to turn prompts on. Mapping of `CliPermission
   `cli_permission_prompt` over the same scoped MCP connection (or the REST equivalent with
   `ARMADA_MCP_TOKEN`), awaits the decision, and returns `{ block: true, reason }` on deny. Then
   `SupportsPromptHook`/`PromptsOverMcp` return true for pi and `CliPermissionPromptSetup` gets a pi
-  branch. UNVERIFIED: that an async `tool_call` handler can block for minutes while a human
-  decides, and how pi times that out. The extension must fail closed (block) on any error, as
+  branch. VERIFIED: an async `tool_call` handler awaited 150 s twice with no pi-side timeout, so
+  the wait is bounded only by the extension's own timeout (use the Armada approval timeout) and
+  Armada's mission timeout. In print mode `ctx.hasUI` is false. Parallel tool calls from one
+  model response reach the handler one at a time, so one pending approval holds the others.
+  Returning `{ block: true, reason }` produces `tool_execution_end` with `isError: true` and the
+  reason as the tool result, which the model sees. A handler that throws also blocks the tool. The
+  extension must still fail closed (block) on any error, as
   `examples/extensions/permission-gate.ts` does when `ctx.hasUI` is false.
 
 Armada's own MCP tools stay governed by Ask proposals and per-tool authorization regardless of
@@ -275,10 +310,38 @@ the CLI policy.
   OpenCode is missing from this service today; adding pi should not silently change the default
   order of `DetectDefaultRuntime` (append pi last).
 - `src/Armada.Core/Models/HarborCapability.cs`: doc comment examples list "pi".
-- Optional readiness: `pi auth check` exits 0 ready, 1 not ready, 2 invalid. Not required for
-  detection; candidate for a later doctor/health check.
-- Name collision risk: `pi` is a short command name. UNVERIFIED whether other tools install a
-  `pi` binary on common systems; detection could confirm with `pi --version` output.
+- Optional readiness: VERIFIED `pi auth check --provider <p>` (or `--model <provider/id>`) exits
+  0 `ready`, 1 `not_ready`, 2 when neither option is given. `--json` prints
+  `{"status","provider","authType"}`; `--no-refresh` avoids refreshing OAuth tokens and should
+  always be passed by Armada. Not required for detection; candidate for a later doctor/health
+  check and for the smoke-suite skip check.
+- Name collision risk: `pi` is a short command name. `pi --version` prints a bare version (`1.4.0`)
+  that does not identify the tool, so detection confirms with the first line of `pi --help`,
+  which starts `pi - AI coding assistant`. Treat any other output as "not pi".
+
+### 3.7 Mission instructions file
+
+VERIFIED: pi loads context files from the agent dir, then every parent directory from the
+outermost in, then the cwd. In each directory only one file is used: `AGENTS.override.md`, else
+`AGENTS.md`, else `CLAUDE.md`. A `CLAUDE.md` next to an `AGENTS.md` is not loaded.
+
+Armada writes mission instructions to the file named by
+`MissionPromptBuilder.GetInstructionsFileName` (`src/Armada.Core/Services/MissionPromptBuilder.cs`),
+which today falls back to `CLAUDE.md` for unknown runtimes. For pi that file would be silently
+ignored in any repository that has `AGENTS.md`, including Armada itself. Changes:
+
+- `GetInstructionsFileName("Pi")` returns `AGENTS.override.md`. pi always prefers it, so mission
+  instructions are loaded in every dock.
+- Because the override hides the repository's own `AGENTS.md` in the dock root, pi must take the
+  existing non-Codex fallback in `src/Armada.Core/Services/MissionService.Instructions.cs`
+  (around line 247), which carries the repository's `AGENTS.md`, else `CLAUDE.md`, into the
+  generated file. Do not add Pi to `runtimeReadsAgentsMd`.
+- If a repository already commits an `AGENTS.override.md`, the existing "preserve and prepend"
+  path keeps it.
+- Add `AGENTS.override.md` to `_IgnoredMissionArtifactFiles` in
+  `src/Armada.Core/Services/MissionService.cs` so the generated file is not treated as mission
+  output.
+- The `--append-system-prompt` line in 3.1 stays unused.
 
 ### 3.6 Print + JSON mode versus RPC mode
 
@@ -337,8 +400,10 @@ arguments (see Phase 5 tests that land with this phase).
 
 2.1 Run a real `pi -p --mode json` on macOS and Windows; capture fixtures for: plain reply, a
     turn with `bash` + `edit` tool calls, an MCP tool call, a provider auth error (bad key), an
-    abort (SIGTERM), a `length` stop, and an auto-retry. Decide stdin versus `@file` prompt
-    delivery (3.1) and update `PiRuntime` accordingly.
+    abort (SIGTERM), a `length` stop, and an auto-retry. stdin prompt delivery is VERIFIED on
+    macOS (3.1); confirm it on Windows and switch to `@file` there only if it fails.
+    Acceptance: fixtures committed with the pi version recorded; Windows stdin result noted in
+    `PiRuntime`.
 2.2 Create the protocol models in `src/Armada.Core/Protocol/` (NEW `PiStreamEvent.cs`,
     `PiAssistantMessageEvent.cs`, `PiMessage.cs`, `PiContentBlock.cs`, `PiUsage.cs`,
     `PiCost.cs`); update the doc comment in `src/Armada.Core/Protocol/RuntimeStreamJson.cs`.
@@ -365,6 +430,11 @@ arguments (see Phase 5 tests that land with this phase).
 2.8 `src/Armada.Core/Services/MissionStreamDecoder.cs` plus
     `src/Armada.Core/Services/PiMissionStreamDecoder.cs` (NEW);
     `src/Armada.Core/Services/RuntimeToolWaitTracker.cs` pi branch.
+2.9 Mission instructions per 3.7: `MissionPromptBuilder.GetInstructionsFileName` maps `Pi` to
+    `AGENTS.override.md`; `MissionService.cs` adds it to `_IgnoredMissionArtifactFiles`.
+    Acceptance: in a dock with `AGENTS.md`, the generated `AGENTS.override.md` holds the mission
+    instructions followed by the repository's `AGENTS.md`; a stub-pi launch shows the file in the
+    dock; `git status` is clean after the mission.
 
 ### Phase 3 - MCP binding and permission policy
 
@@ -479,14 +549,16 @@ Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Servi
 
 ## 6. Open questions and risks
 
-- UNVERIFIED: `pi -p` reading the prompt from stdin (affects Windows; fallback is `@file`).
-- UNVERIFIED: JSON-mode session header with `--no-session`; parser must not depend on it.
-- UNVERIFIED: context-file precedence across agent dir, parents and cwd (pi docs do not spell it
-  out). Armada relies only on the dock's `AGENTS.md`/`CLAUDE.md` being loaded.
-- UNVERIFIED: no turn limit besides Armada's timeout.
-- UNVERIFIED: an extension `tool_call` handler can await a long human decision (Phase 6).
-- UNVERIFIED: behavior on Windows beyond `docs/windows.md` (bash tool requires Git Bash; an
-  optional `powershell` tool exists).
+- Resolved by the live check (see Sources): stdin prompt delivery (macOS), session header with
+  `--no-session`, context-file precedence (now 3.7), no turn limit, SIGTERM behavior, long
+  extension waits (Phase 6), `pi auth check` options, and identifying pi on PATH.
+- UNVERIFIED: behavior on Windows beyond `docs/windows.md` (stdin prompt delivery through the npm
+  `.cmd` wrapper, the bash tool requiring Git Bash, the optional `powershell` tool). Task 2.1
+  settles it on a Windows host.
+- Risk: a repository with `AGENTS.md` silently drops mission instructions written to `CLAUDE.md`.
+  Task 2.9 must land with Phase 2, before any real pi mission runs.
+- Risk: pi gates parallel tool calls one at a time in Phase 6, so a slow human approval stalls
+  every other tool call in that response.
 - Risk: JSON mode exits 0 on provider errors; if the exit-code override in 2.3 is missed, failed
   missions look successful.
 - Risk: `--approve` loads repository-supplied `.pi/extensions` (repository code running in the
@@ -513,4 +585,4 @@ Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Servi
 | 3 | MCP binding, worktree exclude/cleanup, permission mapping + tests | M: ~6 files, 1-2 days |
 | 4 | Helm, TUI, MCP schema text, dashboard, i18n (8 locales), docs, Postman, API surface | M: ~35 files mostly text, 1-2 days |
 | 5 | Smoke suite and stubs (spread across phases 1-3) | S: 0.5-1 day |
-| 6 | Optional permission-gate extension | M: 1-2 days, plus UNVERIFIED pi behavior |
+| 6 | Optional permission-gate extension | M: 1-2 days |
