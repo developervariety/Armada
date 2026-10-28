@@ -86,6 +86,18 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
 - **Settings.** `Evaluation.BatteryDirectory` overrides where packs are read from. `Evaluation.BatteryTaskTimeoutMinutes`
   (default 60) bounds each task's mission.
 
+### Missions and voyages carry an IsEvaluation flag
+
+- **Stored on all four databases.** `Mission.IsEvaluation` and `Voyage.IsEvaluation` (default false) are persisted by
+  migration 96, which adds `is_evaluation` to `missions` and `voyages` on SQLite, PostgreSQL, MySQL and SQL Server.
+- **Set at dispatch.** REST `VoyageRequest.IsEvaluation`, MCP `dispatch` and `create_mission` `isEvaluation`, and the
+  .NET client `VoyageCreateRequest`/`DispatchRequest.IsEvaluation` set the flag. Missions inherit it from their voyage
+  and from the mission they are derived from (rework, judge, architect, rescue). Fixture battery runs dispatch with it
+  set.
+- **Stage outcomes are tagged from it.** A stage outcome's `IsEvaluation` now comes from its mission's flag instead of
+  being inferred from the vessel's `ModelEvaluation` pipeline.
+- **Dashboard.** Missions and voyages that carry the flag show an `Evaluation` badge on list rows and detail headers.
+
 ### Evaluate: probe-only Quick model probes over REST, MCP and the .NET client
 
 - **Evaluate a captain or a model endpoint.** `POST /api/v1/captains/{id}/evaluate` (global admin or tenant admin of the captain's tenant) and `POST /api/v1/model-endpoints/{id}/evaluate` (anyone who can read the endpoint) start a Quick Evaluate and answer `201` with the queued `ModelProbeRun` (`mpr_` ids); depth `Full` is `400` ("not implemented until Phase 5"). The probes run in the background through the captain's own runtime as Harbor jobs of kind `ModelProbe` (an endpoint runs through the API endpoint runtime as a transient captain that is never saved), each in a fresh temporary directory; a runtime that cannot launch gives `CouldNotRun` results with the reason, never `Failed`.
