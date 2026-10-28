@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.E2E
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
     using System.Net.Http;
     using System.Net.WebSockets;
@@ -9,8 +10,11 @@ namespace Test.Shared.Suites.E2E
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
+    using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -835,11 +839,24 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-pr-open-mission").ConfigureAwait(false);
-                foreach (string step in new[] { "Assigned", "InProgress", "WorkProduced" })
+                foreach (string step in new[] { "Assigned", "InProgress" })
                 {
                     HttpResponseMessage stepResp = await authClient.PutAsync("/api/v1/missions/" + missionId + "/status",
                         JsonHelper.ToJsonContent(new { Status = step })).ConfigureAwait(false);
                     AssertEqual(System.Net.HttpStatusCode.OK, stepResp.StatusCode, "REST transition to " + step);
+                }
+
+                // REST refuses a manual InProgress -> WorkProduced handoff (only the agent exit and its stage check hand
+                // work off), so WorkProduced is seeded in the fixture database, as the agent exit would write it.
+                LoggingModule quiet = new LoggingModule();
+                quiet.Settings.EnableConsole = false;
+                using (DatabaseDriver db = DatabaseDriverFactory.Create(new DatabaseSettings { Type = DatabaseTypeEnum.Sqlite, Filename = Path.Combine(fx.TempDir, "armada.db") }, quiet))
+                {
+                    await db.InitializeAsync().ConfigureAwait(false);
+                    Mission produced = (await db.Missions.ReadAsync(missionId).ConfigureAwait(false))!;
+                    produced.Status = MissionStatusEnum.WorkProduced;
+                    produced.LastUpdateUtc = DateTime.UtcNow;
+                    await db.Missions.UpdateAsync(produced).ConfigureAwait(false);
                 }
 
                 // WorkProduced -> PullRequestOpen -> Complete are legal in MissionStateMachine and over REST.

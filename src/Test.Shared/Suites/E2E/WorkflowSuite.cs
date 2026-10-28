@@ -51,8 +51,9 @@ namespace Test.Shared.Suites.E2E
                 string captainId = captain.Id!;
                 AssertStartsWith("cpt_", captainId);
 
-                // Step 4: Create a mission (without vesselId to avoid git operations)
-                Mission mission = await CreateMissionAsync(authClient, "Fix login bug").ConfigureAwait(false);
+                // Step 4: Create a mission (without vesselId to avoid git operations). It is read-only (Audit): a manual
+                // Complete of implementation work is a handoff that needs an active dock and the landing pipeline.
+                Mission mission = await CreateMissionAsync(authClient, "Fix login bug", mode: MissionModeEnum.Audit).ConfigureAwait(false);
                 string missionId = mission.Id!;
                 AssertStartsWith("msn_", missionId);
                 AssertEqual("Pending", mission.Status.ToString());
@@ -349,11 +350,11 @@ namespace Test.Shared.Suites.E2E
             return await JsonHelper.DeserializeAsync<Captain>(resp).ConfigureAwait(false);
         }
 
-        private static async Task<Mission> CreateMissionAsync(HttpClient authClient, string title, string? vesselId = null)
+        private static async Task<Mission> CreateMissionAsync(HttpClient authClient, string title, string? vesselId = null, MissionModeEnum mode = MissionModeEnum.Implementation)
         {
             object payload = vesselId != null
-                ? (object)new { Title = title, VesselId = vesselId }
-                : new { Title = title };
+                ? (object)new { Title = title, VesselId = vesselId, Mode = mode }
+                : new { Title = title, Mode = mode };
             HttpResponseMessage resp = await authClient.PostAsync("/api/v1/missions", JsonHelper.ToJsonContent(payload)).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
