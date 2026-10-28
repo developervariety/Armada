@@ -763,7 +763,9 @@ namespace Armada.Core.Services
                 }
             }
 
-            // Reclaim the dock after the handoff completes (or if no handler was set)
+            // The handler may persist a new instance rather than mutate the supplied mission.
+            mission = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false) ?? mission;
+            // Retain worktrees needed by retry_landing and manual review.
             string? completionDockId = dock?.Id;
             bool cleanupArchitectBranch =
                 preparedDownstreamStages &&
@@ -773,7 +775,10 @@ namespace Armada.Core.Services
                 !hasDependentPipelineStages &&
                 !String.IsNullOrEmpty(completionDockId);
 
-            if (!String.IsNullOrEmpty(completionDockId) && !retainDockForReview)
+            if (!String.IsNullOrEmpty(completionDockId) && !retainDockForReview
+                && mission.Status != MissionStatusEnum.LandingFailed
+                && mission.Status != MissionStatusEnum.WorkProduced
+                && mission.Status != MissionStatusEnum.Review)
             {
                 try
                 {

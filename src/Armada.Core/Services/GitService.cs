@@ -437,9 +437,25 @@ namespace Armada.Core.Services
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                if (await ChangelogLandingConflict.TryResolveAsync(new LocalHostCommandExecutor(), targetWorkDir, OperatingSystem.IsWindows(), token).ConfigureAwait(false)) return;
-                await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, token).ConfigureAwait(false);
-                throw;
+                string failure = "Merge conflict or merge failure: " + ex.Message;
+                try
+                {
+                    IReadOnlyList<string> conflicts = await GetConflictedFilesAsync(targetWorkDir, CancellationToken.None).ConfigureAwait(false);
+                    if (conflicts.Count > 0) failure += " Conflicted files: " + String.Join(", ", conflicts) + ".";
+                    if (await ChangelogLandingConflict.TryResolveAsync(_Commands ?? new LocalHostCommandExecutor(), targetWorkDir, OperatingSystem.IsWindows(), token).ConfigureAwait(false)) return;
+                }
+                catch (Exception secondary)
+                {
+                    failure += " Conflict resolution failed: " + secondary.Message;
+                }
+                finally
+                {
+                    try { await RestoreAfterFailedMergeAsync(targetWorkDir, sourceRepoPath, targetBranch, CancellationToken.None).ConfigureAwait(false); }
+                    catch (Exception secondary) { failure += " Merge cleanup failed: " + secondary.Message; }
+                }
+                if (ex is GitCommandException gitFailure)
+                    throw new GitCommandException(gitFailure.Executable, gitFailure.Arguments, gitFailure.ExitCode, gitFailure.StandardOutput, failure);
+                throw new InvalidOperationException(failure, ex);
             }
         }
 
@@ -699,13 +715,27 @@ namespace Armada.Core.Services
                 failure = (merge.StandardError + "\n" + merge.StandardOutput).Trim();
             }
             if (merge.Succeeded) return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Merged);
-            if (await ChangelogLandingConflict.TryResolveAsync(new LocalHostCommandExecutor(), worktreePath, OperatingSystem.IsWindows(), token).ConfigureAwait(false))
-                return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Merged);
-
-            IReadOnlyList<string> conflicted = await GetConflictedFilesAsync(worktreePath, token).ConfigureAwait(false);
-            // Never leave the worktree mid-merge. Not cancellable, so a shutdown cannot strand conflict markers.
-            if (await MergeInProgressAsync(worktreePath, CancellationToken.None).ConfigureAwait(false))
-                await ExecuteProcessAsync(worktreePath, "git", CancellationToken.None, "merge", "--abort").ConfigureAwait(false);
+            IReadOnlyList<string> conflicted = Array.Empty<string>();
+            bool resolved = false;
+            try
+            {
+                conflicted = await GetConflictedFilesAsync(worktreePath, CancellationToken.None).ConfigureAwait(false);
+                resolved = await ChangelogLandingConflict.TryResolveAsync(_Commands ?? new LocalHostCommandExecutor(), worktreePath, OperatingSystem.IsWindows(), token).ConfigureAwait(false);
+            }
+            catch (Exception secondary)
+            {
+                failure += " Merge conflict resolution failed: " + secondary.Message;
+            }
+            finally
+            {
+                // Cleanup must run even if the resolver or conflict listing throws.
+                if (!resolved)
+                {
+                    try { await RunGitAsync(worktreePath, CancellationToken.None, "merge", "--abort").ConfigureAwait(false); }
+                    catch (Exception secondary) { failure += " Merge abort failed: " + secondary.Message; }
+                }
+            }
+            if (resolved) return new GitCommitMergeResult(Armada.Core.Enums.GitCommitMergeOutcomeEnum.Merged);
 
             if (conflicted.Count > 0)
             {
@@ -1662,14 +1692,17 @@ namespace Armada.Core.Services
 
         private async Task RestoreAfterFailedMergeAsync(string targetWorkDir, string sourceRepoPath, string? targetBranch, CancellationToken token)
         {
+            List<string> cleanupErrors = new List<string>();
             bool mergeInProgress = false;
             try
             {
                 GitProcessResult mergeHead = await ExecuteProcessAsync(targetWorkDir, "git", _NoMatch, token, "rev-parse", "-q", "--verify", "MERGE_HEAD").ConfigureAwait(false);
                 mergeInProgress = mergeHead.Succeeded;
             }
-            catch (TimeoutException ex)
+            catch (Exception ex)
             {
+                mergeInProgress = true; // Still attempt abort when the state probe fails.
+                cleanupErrors.Add(ex.Message);
                 _Logging.Warn(_Header + "unable to check merge state in " + targetWorkDir + ": " + ex.Message);
             }
 
@@ -1686,6 +1719,7 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
+                    cleanupErrors.Add(ex.Message);
                     _Logging.Warn(_Header + "unable to abort failed merge in " + targetWorkDir + ": " + ex.ToString());
                 }
             }
@@ -1697,6 +1731,7 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
+                cleanupErrors.Add(ex.Message);
                 _Logging.Warn(_Header + "unable to reset merge state in " + targetWorkDir + ": " + ex.ToString());
             }
 
@@ -1708,9 +1743,11 @@ namespace Armada.Core.Services
                 }
                 catch (Exception ex)
                 {
+                    cleanupErrors.Add(ex.Message);
                     _Logging.Warn(_Header + "unable to return to target branch " + targetBranch + " after failed merge in " + targetWorkDir + ": " + ex.ToString());
                 }
             }
+            if (cleanupErrors.Count > 0) throw new InvalidOperationException(String.Join("; ", cleanupErrors));
         }
 
         private async Task EnsureTargetBranchCheckedOutAsync(string targetWorkDir, string sourceRepoPath, string targetBranch, CancellationToken token)

@@ -42,6 +42,21 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            foreach (bool throwingResolver in new[] { false, true })
+            {
+                cases.Add(CaseAsync("remote_conflict_routes_and_aborts_" + throwingResolver, "Remote conflict routes resolver and abort through dock host", TestTags.Negative, async () =>
+                {
+                    RecordingConflictExecutor executor = new RecordingConflictExecutor(throwingResolver);
+                    GitService git = new GitService(CreateLogging(), executor);
+                    GitCommitMergeResult result = await git.MergeCommitAsync("/nonlocal/dock", "abc123", null, "landing");
+                    AssertEqual(GitCommitMergeOutcomeEnum.Conflicted, result.Outcome);
+                    AssertContains("conflict.txt", String.Join(",", result.ConflictedFiles));
+                    AssertTrue(executor.ConflictReads >= 2, "Both listing and resolver must use the host executor");
+                    AssertTrue(executor.Aborted, "Conflict must attempt merge --abort even when resolver throws");
+                    if (throwingResolver) AssertContains("resolver transport failure", result.Message ?? "");
+                }));
+            }
+
             cases.Add(CaseAsync("git_detects_conflicted_files", "Git DetectsConflictedFiles", TestTags.Positive, async () =>
             {
                 string dir = CreateTempDir();
@@ -211,6 +226,36 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private sealed class RecordingConflictExecutor : IHostCommandExecutor
+        {
+            private readonly bool _Throw;
+            public int ConflictReads { get; private set; }
+            public bool Aborted { get; private set; }
+
+            public RecordingConflictExecutor(bool throwingResolver) { _Throw = throwingResolver; }
+
+            public Task<HostCommandResult> RunAsync(HostCommandRequest request, CancellationToken token = default)
+            {
+                AssertEqual("/nonlocal/dock", request.WorkingDirectory);
+                string args = String.Join(" ", request.Arguments);
+                HostCommandResult result = new HostCommandResult();
+                if (args.StartsWith("merge-base")) result.ExitCode = 1;
+                else if (args.StartsWith("merge --no-ff"))
+                {
+                    result.ExitCode = 1;
+                    result.StandardError = "Merge conflict in conflict.txt";
+                }
+                else if (args.StartsWith("diff --name-only"))
+                {
+                    ConflictReads++;
+                    if (_Throw && ConflictReads == 2) throw new InvalidOperationException("resolver transport failure");
+                    result.StandardOutput = args.Contains("-z") ? "conflict.txt\0" : "conflict.txt\n";
+                }
+                else if (args == "merge --abort") Aborted = true;
+                return Task.FromResult(result);
+            }
+        }
 
         private static void Git(string dir, params string[] args)
         {

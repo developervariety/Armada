@@ -20,6 +20,8 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Route landing conflict resolution through the dock git executor, retain retryable docks during completion, and include a reason in unsuccessful retry_landing responses. Preserve merge failures when conflict resolution or cleanup also fails.
+
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
 
 ### Handoff and landing resilience
