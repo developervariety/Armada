@@ -1244,7 +1244,7 @@ namespace Armada.Server.Routes
                 if (!String.IsNullOrEmpty(offsetParam) && Int32.TryParse(offsetParam, out int parsedOffset)) offset = parsedOffset;
                 string? linesParam = QueryValueReader.Read(req, "lines");
                 if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines)) lineCount = parsedLines;
-                return await SessionLogReader.ReadMissionLogAsync(_settings.LogDirectory, mission.Id, offset, lineCount, 200, formatted).ConfigureAwait(false);
+                return await SessionLogReader.ReadMissionLogAsync(_settings.LogDirectory, mission.Id, offset, lineCount, 200, formatted, replayId: mission.ResearchReplayId).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Missions")

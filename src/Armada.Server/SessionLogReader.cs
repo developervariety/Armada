@@ -27,20 +27,23 @@ namespace Armada.Server
         /// </summary>
         /// <param name="logDirectory">Server log directory.</param>
         /// <param name="missionId">Mission identifier.</param>
+        /// <param name="replayId">Current durable replay generation; historical logs are never a fallback.</param>
         /// <returns>The file path, or null when the mission has no log.</returns>
-        public static string? ResolveMissionLogPath(string logDirectory, string missionId)
+        public static string? ResolveMissionLogPath(string logDirectory, string missionId, string? replayId = null)
         {
             if (String.IsNullOrWhiteSpace(logDirectory)) throw new ArgumentNullException(nameof(logDirectory));
             if (String.IsNullOrWhiteSpace(missionId)) return null;
 
+            string stem = MissionAttemptArtifacts.Stem(missionId, replayId);
             string missionLogDir = Path.Combine(logDirectory, "missions");
-            string canonicalPath = Path.Combine(missionLogDir, missionId + ".log");
+            string canonicalPath = Path.Combine(missionLogDir, stem + ".log");
             if (File.Exists(canonicalPath) && new FileInfo(canonicalPath).Length > 0) return canonicalPath;
             if (!Directory.Exists(missionLogDir)) return File.Exists(canonicalPath) ? canonicalPath : null;
 
-            FileInfo? sidecar = Directory.GetFiles(missionLogDir, missionId + ".*.log")
+            FileInfo? sidecar = Directory.GetFiles(missionLogDir, stem + ".*.log")
                 .Select(path => new FileInfo(path))
-                .Where(file => !Regex.IsMatch(file.Name, Regex.Escape(missionId) + @"\.dod-[a-fA-F0-9]{32}\.log$", RegexOptions.CultureInvariant))
+                .Where(file => !Regex.IsMatch(file.Name, Regex.Escape(stem) + @"\.dod-[a-fA-F0-9]{32}\.log$", RegexOptions.CultureInvariant))
+                .Where(file => !String.IsNullOrEmpty(replayId) || !file.Name.Contains(".rpl_", StringComparison.Ordinal))
                 .Where(file => file.Exists && file.Length > 0)
                 .OrderByDescending(file => file.LastWriteTimeUtc)
                 .FirstOrDefault();
@@ -86,6 +89,7 @@ namespace Armada.Server
         /// <param name="defaultLines">The surface's documented default page size.</param>
         /// <param name="formatted">Return typed readable entries instead of raw text.</param>
         /// <param name="token">Cancellation token.</param>
+        /// <param name="replayId">Current durable replay generation.</param>
         /// <returns>The redacted page.</returns>
         public static async Task<MissionLogResponse> ReadMissionLogAsync(
             string logDirectory,
@@ -94,9 +98,10 @@ namespace Armada.Server
             int? lines,
             int defaultLines,
             bool formatted = false,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            string? replayId = null)
         {
-            string? path = ResolveMissionLogPath(logDirectory, missionId);
+            string? path = ResolveMissionLogPath(logDirectory, missionId, replayId);
             LogPage page = await ReadPageAsync(path, true, offset, lines, defaultLines, formatted, AgentRuntimeEnum.Custom, token).ConfigureAwait(false);
             return new MissionLogResponse
             {

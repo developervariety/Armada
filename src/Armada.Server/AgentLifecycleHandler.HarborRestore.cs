@@ -32,7 +32,7 @@ namespace Armada.Server
 
             BaseAgentRuntime runtime = CreateHarborAdapter(captain!);
             runtime.HarborExitCompletionWaiter = WaitForProcessExitCompletionAsync;
-            string logFilePath = Path.Combine(_Settings.LogDirectory, "missions", mission!.Id + ".log");
+            string logFilePath = MissionAttemptArtifacts.LogPath(_Settings.LogDirectory, mission!);
             IHarborProcessEvents events = runtime.CreateHarborReattachmentEvents(job.AdmiralProcessId!.Value, logFilePath);
             if (!ProcessSupervisor.TryRestoreSyntheticProcess(job.AdmiralProcessId.Value,
                 stopToken => executor.StopRestoredAsync(job, stopToken)))
@@ -40,14 +40,24 @@ namespace Armada.Server
                 (events as IDisposable)?.Dispose();
                 return new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Uncertain);
             }
-            long stateOwner = RestoreMissionStateOwnership(mission.Id);
+            long stateOwner;
+            try
+            {
+                stateOwner = await RestoreMissionStateOwnershipAsync(mission.Id, mission.ResearchReplayId, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                ProcessSupervisor.UnregisterSyntheticProcess(job.AdmiralProcessId.Value);
+                (events as IDisposable)?.Dispose();
+                throw;
+            }
             IAgentRuntime runtimeEvents = runtime;
-            runtimeEvents.OnOutputReceived += HandleAgentOutput;
-            runtimeEvents.OnOutputReceived += HandleAgentHeartbeat;
-            runtimeEvents.OnTokenUsageReceived += HandleTokenUsage;
-            runtimeEvents.OnProviderProgressReceived += HandleProviderProgress;
+            runtimeEvents.OnOutputReceived += (processId, line) => HandleAgentOutputForLaunch(processId, line, stateOwner);
+            runtimeEvents.OnOutputReceived += (processId, line) => HandleAgentHeartbeatForLaunch(processId, line, stateOwner);
+            runtimeEvents.OnTokenUsageReceived += (processId, sample) => HandleTokenUsageForLaunch(processId, sample, stateOwner);
+            runtimeEvents.OnProviderProgressReceived += (processId, sample) => HandleProviderProgressForLaunch(processId, sample, stateOwner);
             if (runtimeEvents is ApiAgentRuntime compactingRuntime)
-                compactingRuntime.OnContextCompacted += HandleContextCompacted;
+                compactingRuntime.OnContextCompacted += (processId, sample) => HandleContextCompactedForLaunch(processId, sample, stateOwner);
 
             IRuntimeProviderErrorSource? providerErrorSource = runtimeEvents as IRuntimeProviderErrorSource;
             if (providerErrorSource != null)
@@ -60,20 +70,25 @@ namespace Armada.Server
 
             ProcessSupervisor.RecordLaunchedProcess(job.AdmiralProcessId.Value, job.AdmiralProcessStartedUtc!.Value);
 
+            bool registered;
             lock (_ProcessToCaptain)
             {
-                if (_ProcessToCaptain.ContainsKey(job.AdmiralProcessId.Value)
-                    || _ProcessToMission.ContainsKey(job.AdmiralProcessId.Value)
-                    || !_ProcessStateOwners.TryAdd(job.AdmiralProcessId.Value, stateOwner))
+                registered = !_ProcessToCaptain.ContainsKey(job.AdmiralProcessId.Value)
+                    && !_ProcessToMission.ContainsKey(job.AdmiralProcessId.Value)
+                    && _ProcessStateOwners.TryAdd(job.AdmiralProcessId.Value, stateOwner);
+                if (registered)
                 {
-                    ProcessSupervisor.UnregisterSyntheticProcess(job.AdmiralProcessId.Value);
-                    CloseProviderErrorSource(stateOwner);
-                    ReleaseMissionState(stateOwner, mission.Id);
-                    (events as IDisposable)?.Dispose();
-                    return new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Uncertain);
+                    _ProcessToCaptain[job.AdmiralProcessId.Value] = captain.Id;
+                    _ProcessToMission[job.AdmiralProcessId.Value] = mission.Id;
                 }
-                _ProcessToCaptain[job.AdmiralProcessId.Value] = captain.Id;
-                _ProcessToMission[job.AdmiralProcessId.Value] = mission.Id;
+            }
+            if (!registered)
+            {
+                ProcessSupervisor.UnregisterSyntheticProcess(job.AdmiralProcessId.Value);
+                CloseProviderErrorSource(stateOwner);
+                ReleaseMissionState(stateOwner, mission.Id);
+                (events as IDisposable)?.Dispose();
+                return new HarborJobRecoveryResult(HarborJobRecoveryDispositionEnum.Uncertain);
             }
 
             _HarborProcessIds[job.AdmiralProcessId.Value] = job.JobId;

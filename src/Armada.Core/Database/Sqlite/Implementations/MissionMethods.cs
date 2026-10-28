@@ -130,6 +130,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
             if (await UpdateCoreAsync(mission, null, token).ConfigureAwait(false) == 0)
             {
                 Mission? stored = await ReadAsync(mission.Id, token).ConfigureAwait(false);
+                if (stored != null && !String.Equals(stored.ResearchReplayId, mission.ResearchReplayId, StringComparison.Ordinal))
+                    throw new InvalidOperationException("The mission attempt was replaced by a Research replay; the stale write was refused.");
                 if (stored != null) mission.Status = stored.Status;
             }
             return mission;
@@ -209,8 +211,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             started_utc = @started_utc,
                             completed_utc = @completed_utc,
                             last_update_utc = @last_update_utc
-                            WHERE id = @id" + (expectedStatus.HasValue ? " AND status = @expected_status" : " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending'))") + ";";
+                            WHERE id = @id AND ((research_replay_id IS NULL AND @expected_replay_id IS NULL) OR research_replay_id = @expected_replay_id)" + (expectedStatus.HasValue ? " AND status = @expected_status" : " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending'))") + ";";
                     MissionColumns.Write(SqliteDatabaseDriver.StoredBinder.For(cmd, "missions"), mission);
+                    StoredValueBinder.Value(cmd, "@expected_replay_id", mission.ResearchReplayId);
                     if (expectedStatus.HasValue) StoredValueBinder.Value(cmd, "@expected_status", expectedStatus.Value.ToString());
                     affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }

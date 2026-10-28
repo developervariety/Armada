@@ -3,9 +3,8 @@
   "receiptDirectory": "/var/log/armada-storage-cleanup",
 
   "orchestrator": {
-    "_about": "daily-storage-cleanup.py: runs the stages in order under one lock and writes daily-<stamp>.json plus each stage's stdout and stderr to receiptDirectory.",
+    "_about": "daily-storage-cleanup.py: runs the stages in order under one lock and writes daily-<stamp>.json plus each stage's stdout and stderr to receiptDirectory. Receipts remain with the verified history archive owner; the former receiptRetentionDays key is ignored.",
     "lockPath": "/run/lock/armada-daily-storage-cleanup.lock",
-    "receiptRetentionDays": 90,
     "stageTimeoutSeconds": 1800,
     "diskUsagePath": "/",
     "python": "/usr/bin/python3",
@@ -26,7 +25,6 @@
     "buildRetentionHours": 24,
     "cacheRetentionHours": 48,
     "lockPath": "/run/lock/armada-storage-cleanup.lock",
-    "receiptRetentionDays": 90,
     "diskUsagePath": "/",
     "scratchRoots": [
       "/path/to/scratch",
@@ -36,7 +34,7 @@
   },
 
   "agentCaches": {
-    "_about": "prune-agent-caches.py: removes expired agent CLI session logs and outputs, orphan OpenCode snapshots, expired OpenCode sessions (native delete after a gzip backup, then VACUUM when worthwhile) and the old NuGet HTTP cache under home. home is required.",
+    "_about": "Disposable CLI cache cleanup only. Raw sessions, transcripts, chat databases, outputs and backups remain with the verified history archive owner.",
     "home": "/path/to/agent-home",
     "lockPath": "/path/to/agent-home/.armada/storage-agent-cleanup.lock",
     "opencodeCli": "/usr/local/bin/opencode",

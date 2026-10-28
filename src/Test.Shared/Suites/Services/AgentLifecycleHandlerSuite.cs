@@ -333,7 +333,18 @@ namespace Test.Shared.Suites.Services
                         await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
 
                         UsageScriptRuntimeFactory factory = new UsageScriptRuntimeFactory(CreateLogging());
-                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, factory);
+                        StubAdmiralService admiral = new StubAdmiralService
+                        {
+                            OnHandleProcessExitWithError = async (_, _, _, completedMissionId, _, _) =>
+                            {
+                                // Model the real admiral: completion decides durable state before releasing launch ownership.
+                                Mission completed = (await testDb.Driver.Missions.ReadAsync(completedMissionId).ConfigureAwait(false))!;
+                                completed.Status = MissionStatusEnum.WorkProduced;
+                                completed.CompletedUtc = DateTime.UtcNow;
+                                await testDb.Driver.Missions.UpdateAsync(completed).ConfigureAwait(false);
+                            }
+                        };
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, factory, admiral);
                         Captain captain = new Captain("api-usage-captain", AgentRuntimeEnum.ApiEndpoint)
                         {
                             TenantId = endpoint.TenantId,
@@ -356,8 +367,15 @@ namespace Test.Shared.Suites.Services
                         await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
                         Dock dock = new Dock { BranchName = "feature/api-usage", WorktreePath = worktreePath };
 
-                        int processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
-                        AssertTrue(processId > 0, "The API captain launch must return its synthetic process id.");
+                        int processId;
+                        // Hold only deferred persistence so the record must survive the completed launch, not win a scheduling race.
+                        using (IDisposable persistenceBoundary = await MissionExecutionBoundary.Locks.AcquireAsync(mission.Id).ConfigureAwait(false))
+                        {
+                            processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+                            AssertTrue(processId > 0, "The API captain launch must return its synthetic process id.");
+                            await WaitForConditionAsync(() => Task.FromResult(handler.IsProcessExitHandled(processId)),
+                                TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        }
                         AssertEqual(1, factory.EndpointCreations, "The launch must create exactly one runtime from the admitted endpoint.");
 
                         ArmadaEvent? usageEvent = null;
@@ -412,7 +430,16 @@ namespace Test.Shared.Suites.Services
                         await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
 
                         CompactionScriptRuntimeFactory factory = new CompactionScriptRuntimeFactory(CreateLogging());
-                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, factory);
+                        TaskCompletionSource<bool> exitObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        StubAdmiralService admiral = new StubAdmiralService
+                        {
+                            OnHandleProcessExitWithError = (_, _, _, _, _, _) =>
+                            {
+                                exitObserved.TrySetResult(true);
+                                return Task.CompletedTask;
+                            }
+                        };
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, factory, admiral);
                         Captain captain = new Captain("api-compaction-captain", AgentRuntimeEnum.ApiEndpoint)
                         {
                             TenantId = endpoint.TenantId,
@@ -438,22 +465,33 @@ namespace Test.Shared.Suites.Services
                         int processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
                         AssertTrue(processId > 0, "The API captain launch must return its synthetic process id.");
 
-                        ArmadaEvent? compactionEvent = null;
-                        await WaitForConditionAsync(async () =>
+                        try
                         {
-                            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 50).ConfigureAwait(false);
-                            compactionEvent = events.Find(item => item.EventType == "mission.context_compacted");
-                            return compactionEvent != null;
-                        }, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                            ArmadaEvent? compactionEvent = null;
+                            await WaitForConditionAsync(async () =>
+                            {
+                                List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 50).ConfigureAwait(false);
+                                compactionEvent = events.Find(item => item.EventType == "mission.context_compacted");
+                                return compactionEvent != null;
+                            }, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
 
-                        AssertNotNull(compactionEvent, "A compaction during a mission run must be stored on the mission.");
-                        AssertEqual(captain.Id, compactionEvent!.CaptainId);
-                        RuntimeContextCompaction? record = System.Text.Json.JsonSerializer.Deserialize<RuntimeContextCompaction>(compactionEvent.Payload ?? "null");
-                        AssertNotNull(record, "The event payload must be the compaction record.");
-                        AssertTrue(record!.CompactedResults > 0, "The record must count the replaced results.");
-                        AssertTrue(record.DroppedBytes > 100 * 1024, "The record must carry the removed bytes.");
-                        AssertTrue(record.DroppedBytesByTool.ContainsKey("read_file"), "The record must name the tool whose results were removed.");
-                        AssertTrue(record.BytesAfter < record.BytesBefore, "The record must carry the sizes around the pass.");
+                            AssertNotNull(compactionEvent, "A compaction during a mission run must be stored on the mission.");
+                            AssertEqual(captain.Id, compactionEvent!.CaptainId);
+                            RuntimeContextCompaction? record = System.Text.Json.JsonSerializer.Deserialize<RuntimeContextCompaction>(compactionEvent.Payload ?? "null");
+                            AssertNotNull(record, "The event payload must be the compaction record.");
+                            AssertTrue(record!.CompactedResults > 0, "The record must count the replaced results.");
+                            AssertTrue(record.DroppedBytes > 100 * 1024, "The record must carry the removed bytes.");
+                            AssertTrue(record.DroppedBytesByTool.ContainsKey("read_file"), "The record must name the tool whose results were removed.");
+                            AssertTrue(record.BytesAfter < record.BytesBefore, "The record must carry the sizes around the pass.");
+                        }
+                        finally
+                        {
+                            factory.AllowCompletion.TrySetResult(true);
+                            ApiAgentRuntime.CancelTracked(processId);
+                            await exitObserved.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                            await WaitForConditionAsync(() => Task.FromResult(!ApiAgentRuntime.IsTracked(processId)),
+                                TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        }
                     }
                     finally
                     {
@@ -1117,21 +1155,7 @@ namespace Test.Shared.Suites.Services
 
         private static void RegisterTrackedProcess(AgentLifecycleHandler handler, int processId, string captainId, string missionId)
         {
-            FieldInfo captainField = typeof(AgentLifecycleHandler).GetField("_ProcessToCaptain", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new InvalidOperationException("Could not find _ProcessToCaptain field");
-            FieldInfo missionField = typeof(AgentLifecycleHandler).GetField("_ProcessToMission", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?? throw new InvalidOperationException("Could not find _ProcessToMission field");
-
-            Dictionary<int, string> captainMap = (Dictionary<int, string>)(captainField.GetValue(handler)
-                ?? throw new InvalidOperationException("Captain process map was null"));
-            Dictionary<int, string> missionMap = (Dictionary<int, string>)(missionField.GetValue(handler)
-                ?? throw new InvalidOperationException("Mission process map was null"));
-
-            lock (captainMap)
-            {
-                captainMap[processId] = captainId;
-                missionMap[processId] = missionId;
-            }
+            handler.RegisterMissionProcess(processId, captainId, missionId, handler.TakeMissionStateOwnership(missionId));
         }
 
         private static void SeedMissionOutput(AgentLifecycleHandler handler, string missionId, string output)
@@ -1303,13 +1327,15 @@ namespace Test.Shared.Suites.Services
         /// </summary>
         private sealed class CompactionScriptRuntimeFactory : AgentRuntimeFactory
         {
+            internal TaskCompletionSource<bool> AllowCompletion { get; } = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
             public CompactionScriptRuntimeFactory(LoggingModule logging) : base(logging)
             {
             }
 
             public override Armada.Runtimes.Interfaces.IAgentRuntime Create(ModelEndpoint endpoint)
             {
-                return new ApiAgentRuntime(endpoint, CreateLogging(), 12, (ep, log) => new CompactionScriptClient(log));
+                return new ApiAgentRuntime(endpoint, CreateLogging(), 12, (ep, log) => new CompactionScriptClient(log, AllowCompletion.Task));
             }
         }
 
@@ -1317,9 +1343,14 @@ namespace Test.Shared.Suites.Services
         {
             private int _Calls = 0;
 
-            public CompactionScriptClient(LoggingModule logging) : base("http://127.0.0.1:9", null, logging) { }
+            private readonly Task _AllowCompletion;
 
-            public override Task<PolyPrompt.Models.ToolChatStreamingResponse> ToolChatStreamingAsync(PolyPrompt.Models.ToolChatRequest request, CancellationToken token = default)
+            public CompactionScriptClient(LoggingModule logging, Task allowCompletion) : base("http://127.0.0.1:9", null, logging)
+            {
+                _AllowCompletion = allowCompletion;
+            }
+
+            public override async Task<PolyPrompt.Models.ToolChatStreamingResponse> ToolChatStreamingAsync(PolyPrompt.Models.ToolChatRequest request, CancellationToken token = default)
             {
                 int call = Interlocked.Increment(ref _Calls);
                 List<PolyPrompt.Models.ToolCall> toolCalls = new List<PolyPrompt.Models.ToolCall>();
@@ -1333,13 +1364,14 @@ namespace Test.Shared.Suites.Services
                     });
                 }
 
-                return Task.FromResult(new PolyPrompt.Models.ToolChatStreamingResponse
+                if (call > 8) await _AllowCompletion.WaitAsync(TimeSpan.FromSeconds(20), token).ConfigureAwait(false);
+                return new PolyPrompt.Models.ToolChatStreamingResponse
                 {
                     Success = true,
                     Text = call <= 8 ? "Reading the file again." : "Done.",
                     ToolCalls = toolCalls,
                     Usage = new PolyPrompt.Models.ChatStreamingUsage { PromptTokens = 12, CompletionTokens = 7, TotalTokens = 19 }
-                });
+                };
             }
 
             public override Task<PolyPrompt.Models.ToolChatResponse> ToolChatAsync(PolyPrompt.Models.ToolChatRequest request, CancellationToken token = default) => throw new NotSupportedException();
@@ -1467,7 +1499,7 @@ namespace Test.Shared.Suites.Services
                     return OnHandleProcessExitWithError(processId, exitCode, captainId, missionId, providerError, token);
                 return HandleProcessExitAsync(processId, exitCode, captainId, missionId, token);
             }
-        
+
             // ----- Fork-only IAdmiralService surface (inert test defaults) -----
             public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
             public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default) => Task.FromResult<Pipeline?>(null);

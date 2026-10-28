@@ -83,6 +83,7 @@ namespace Armada.Core.Database
             mission.StartFromRef = row.TextOrNull("start_from_ref");
             mission.RetrySkipCaptainIds = row.NullableText("retry_skip_captain_ids");
             mission.PreservedRunOutput = row.NullableText("preserved_run_output");
+            mission.ResearchReplayId = row.NullableText("research_replay_id");
             mission.LastRecoveryActionUtc = row.NullableUtc("last_recovery_action_utc");
             MissionIntegrationBarrierPersistence.Read(record, mission);
             return mission;

@@ -1204,7 +1204,7 @@ namespace Armada.Core.Services
             bool restoreCapturedUpstreamBase = preserveInheritedBranch && dependencyHasSameOwner
                 && !String.IsNullOrWhiteSpace(upstreamCommitHash)
                 && String.Equals(mission.StartFromRef?.Trim(), upstreamCommitHash, StringComparison.OrdinalIgnoreCase);
-            if (!harborOwnedCheckout && (!preserveSavedBranch || restoreCapturedUpstreamBase)
+            if (!harborOwnedCheckout && (!preserveSavedBranch || restoreCapturedUpstreamBase || !String.IsNullOrEmpty(mission.ResearchReplayId))
                 && !String.IsNullOrWhiteSpace(mission.StartFromRef))
             {
                 resolvedStartCommit = await _Docks.PrepareBranchFromRefAsync(vessel, branchName, mission.StartFromRef!.Trim(), token).ConfigureAwait(false);
@@ -1523,59 +1523,63 @@ namespace Armada.Core.Services
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (String.IsNullOrEmpty(missionId)) return;
 
-            // De-duplication: only one completion handler runs per launch of a mission. The process
-            // exit callback and the health check can both report the same exit, concurrently or a few
-            // seconds apart. A completion for a LATER launch is a new event whichever path requeued
-            // the mission, so MissionCompletionAttempt decides that once for every requeue path.
-            Mission? launched = await ReadMissionForCompletionAsync(captain, missionId, token).ConfigureAwait(false);
-            MissionCompletionAttempt? attempt = MissionCompletionAttempt.Of(launched);
-            TaskCompletionSource<bool> gate = new TaskCompletionSource<bool>();
-            CompletionGuardEntry entry = new CompletionGuardEntry(gate.Task, attempt);
-            if (!TryEnterCompletionGuard(missionId, entry))
+            using (IDisposable executionBoundary = await MissionExecutionBoundary.Locks.AcquireAsync(missionId, token).ConfigureAwait(false))
             {
-                return;
-            }
-
-            bool handledSuccessfully = false;
-            try
-            {
-                _HandlingCompletionOf.Value = missionId;
-                await HandleCompletionCoreAsync(captain, missionId, token).ConfigureAwait(false);
-                handledSuccessfully = true;
-            }
-            finally
-            {
-                gate.TrySetResult(true);
-                if (!handledSuccessfully)
+                // De-duplication: only one completion handler runs per launch of a mission. The process
+                // exit callback and the health check can both report the same exit, concurrently or a few
+                // seconds apart. A completion for a LATER launch is a new event whichever path requeued
+                // the mission, so MissionCompletionAttempt decides that once for every requeue path.
+                Mission? launched = await ReadMissionForCompletionAsync(captain, missionId, token).ConfigureAwait(false);
+                if (!MissionExecutionBoundary.OwnsReplayLaunch(launched, captain)) return;
+                MissionCompletionAttempt? attempt = MissionCompletionAttempt.Of(launched);
+                TaskCompletionSource<bool> gate = new TaskCompletionSource<bool>();
+                CompletionGuardEntry entry = new CompletionGuardEntry(gate.Task, attempt);
+                if (!TryEnterCompletionGuard(missionId, entry))
                 {
-                    _InFlightCompletions.TryRemove(new KeyValuePair<string, CompletionGuardEntry>(missionId, entry));
+                    return;
                 }
-                else
-                {
-                    // Keep the entry for the window so late duplicates of this launch still see it. A
-                    // later launch may have replaced it meanwhile; remove only this handler's own entry.
-                    _ = Task.Run(async () =>
-                    {
-                        await Task.Delay(CompletionDuplicateWindow).ConfigureAwait(false);
-                        _InFlightCompletions.TryRemove(new KeyValuePair<string, CompletionGuardEntry>(missionId, entry));
-                    });
-                }
-            }
 
-            // Landing can complete the mission after the core handler's earlier state checks.
-            // Recheck only after this attempt's guard is settled, so the last concurrent handler
-            // can decide the voyage without waiting for the periodic health sweep.
-            if (handledSuccessfully && !String.IsNullOrWhiteSpace(launched?.VoyageId))
-            {
+                bool handledSuccessfully = false;
                 try
                 {
-                    await UpdateVoyageTerminalStatusAsync(launched.VoyageId, token).ConfigureAwait(false);
+                    _HandlingCompletionOf.Value = missionId;
+                    await HandleCompletionCoreAsync(captain, missionId, token).ConfigureAwait(false);
+                    handledSuccessfully = true;
                 }
-                catch (Exception ex)
+                finally
                 {
-                    // Completion and landing already succeeded. Keep the periodic safety net and
-                    // report reconciliation failure without reclassifying the captain's result.
-                    _Logging.Warn(_Header + "could not reconcile voyage after mission completion " + missionId + ": " + ex.Message);
+                    gate.TrySetResult(true);
+                    if (!handledSuccessfully)
+                    {
+                        _InFlightCompletions.TryRemove(new KeyValuePair<string, CompletionGuardEntry>(missionId, entry));
+                    }
+                    else
+                    {
+                        // Keep the entry for the window so late duplicates of this launch still see it. A
+                        // later launch may have replaced it meanwhile; remove only this handler's own entry.
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(CompletionDuplicateWindow).ConfigureAwait(false);
+                            _InFlightCompletions.TryRemove(new KeyValuePair<string, CompletionGuardEntry>(missionId, entry));
+                        });
+                    }
+                }
+
+                // Landing can complete the mission after the core handler's earlier state checks.
+                // Recheck only after this attempt's guard is settled, so the last concurrent handler
+                // can decide the voyage without waiting for the periodic health sweep.
+                if (handledSuccessfully && !String.IsNullOrWhiteSpace(launched?.VoyageId))
+                {
+                    try
+                    {
+                        await UpdateVoyageTerminalStatusAsync(launched.VoyageId, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Completion and landing already succeeded. Keep the periodic safety net and
+                        // report reconciliation failure without reclassifying the captain's result.
+                        _Logging.Warn(_Header + "could not reconcile voyage after mission completion " + missionId + ": " + ex.Message);
+                    }
                 }
             }
         }
@@ -2603,15 +2607,19 @@ namespace Armada.Core.Services
             string? resolvedStartCommit,
             CancellationToken token)
         {
-            if (String.IsNullOrWhiteSpace(resolvedStartCommit)) return true;
+            bool exactReplay = !String.IsNullOrEmpty(mission.ResearchReplayId);
+            if (String.IsNullOrWhiteSpace(resolvedStartCommit) && !exactReplay) return true;
 
             bool? containsStartCommit = null;
             if (_Git != null && !String.IsNullOrWhiteSpace(dock.WorktreePath))
             {
                 try
                 {
-                    containsStartCommit = await _Git.TryIsAncestorAsync(
-                        dock.WorktreePath!, resolvedStartCommit, "HEAD", token).ConfigureAwait(false);
+                    containsStartCommit = exactReplay
+                        ? !String.IsNullOrWhiteSpace(resolvedStartCommit) && String.Equals(
+                            await _Git.GetHeadCommitHashAsync(dock.WorktreePath!, token).ConfigureAwait(false),
+                            resolvedStartCommit, StringComparison.OrdinalIgnoreCase)
+                        : await _Git.TryIsAncestorAsync(dock.WorktreePath!, resolvedStartCommit!, "HEAD", token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -2620,9 +2628,11 @@ namespace Armada.Core.Services
             }
 
             bool isRescue = RescueMissionMarker.IsAutoRescue(mission);
-            if (containsStartCommit == true || (containsStartCommit == null && !isRescue)) return true;
+            if (containsStartCommit == true || (containsStartCommit == null && !isRescue && !exactReplay)) return true;
 
-            string reason = containsStartCommit == false
+            string reason = exactReplay
+                ? "research_replay_source_mismatch: the replay checkout must equal its exact immutable source commit."
+                : containsStartCommit == false
                 ? "start_from_ref_base_missing: the provisioned checkout does not contain resolved start commit " + resolvedStartCommit + "."
                 : "start_from_ref_unverified: Armada could not prove that the rescue checkout contains resolved start commit " + resolvedStartCommit + ".";
             mission.AssignmentState = MissionAssignmentStateEnum.Failed;
@@ -4003,6 +4013,17 @@ namespace Armada.Core.Services
             string? authorizationPolicy = await ResolveAuthorizationPolicyAsync(vessel, token).ConfigureAwait(false);
             content += ledger.Track(MissionBriefPolicyRenderer.ModuleName, MissionBriefPolicyRenderer.Render(authorizationPolicy));
             content += "\n";
+            if (!String.IsNullOrEmpty(mission.ResearchReplayId))
+            {
+                content += ledger.Track("mission.research_replay", "## Prior Research attempt\n"
+                    + "This is a new full six-duty attempt on the same voyage. Current mission IDs now identify this attempt. "
+                    + "Original reports and the failed verdict are immutable history under replay " + mission.ResearchReplayId + ". "
+                    + "Read prior reports with armada_research_replay_output(replayId='" + mission.ResearchReplayId
+                    + "', missionId='<original stage ID>'), paging through HasMore=false and verifying Sha256. "
+                    + "Follow PriorResearchAttempt.PreviousReplayId to read earlier failed attempts in this same voyage. "
+                    + "Use armada_mission_output for current-attempt evidence. Historical reports do not complete or waive any current duty. "
+                    + "The source remains exactly " + mission.StartFromRef + "; all original criteria and independent duties still apply.\n\n");
+            }
 
             // Vessel context sections
             if (!String.IsNullOrEmpty(vessel.ProjectContext))
@@ -4273,6 +4294,9 @@ namespace Armada.Core.Services
                 content += ledger.Track("mission.objective_scope", objectiveScope);
                 content += "\n";
             }
+
+            content += ledger.Track("mission.required_checks", await BuildRequiredChecksBriefAsync(mission, vessel, token).ConfigureAwait(false));
+            content += "\n";
 
             // An Architect writes each mission's file list, so it is told which files the required checks read;
             // a gated file left out of every mission fails the gate of a mission that was not allowed to edit it.
@@ -6978,7 +7002,8 @@ namespace Armada.Core.Services
 
         private static string BuildMissionBranchName(Captain captain, Mission mission)
         {
-            return Constants.BranchPrefix + SanitizeBranchPathSegment(captain.Name) + "/" + mission.Id;
+            return Constants.BranchPrefix + SanitizeBranchPathSegment(captain.Name) + "/" + mission.Id
+                + (String.IsNullOrEmpty(mission.ResearchReplayId) ? String.Empty : "/" + mission.ResearchReplayId);
         }
 
         private static string SanitizeBranchPathSegment(string? value)
@@ -14536,7 +14561,9 @@ namespace Armada.Core.Services
             {
                 string directory = System.IO.Path.Combine(_Settings.LogDirectory, "missions");
                 System.IO.Directory.CreateDirectory(directory);
-                string path = System.IO.Path.Combine(directory, missionId + ".log");
+                Mission? logMission = await _Database.Missions.ReadSummaryAsync(missionId, token).ConfigureAwait(false);
+                if (logMission == null) return;
+                string path = MissionAttemptArtifacts.LogPath(_Settings.LogDirectory, logMission);
                 const int maximumMessageLength = 24000;
                 string boundedMessage = message.Length <= maximumMessageLength
                     ? message

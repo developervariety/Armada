@@ -386,7 +386,8 @@ namespace Armada.Test.Unit.Suites.Services
                         voyageId = voyage.Id,
                         summary = false,
                         includeMissions = true,
-                        includeFields = new[] { "statuses" }
+                        includeDescription = true,
+                        includeFields = new[] { "statuses", "output" }
                     });
                     object result = await statusHandler!(args).ConfigureAwait(false);
 

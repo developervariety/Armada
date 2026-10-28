@@ -95,7 +95,7 @@ namespace Armada.Server
                 return false;
 
             int processId = job.AdmiralProcessId!.Value;
-            long stateOwner = RestoreMissionStateOwnership(mission!.Id);
+            long stateOwner = await RestoreMissionStateOwnershipAsync(mission!.Id, mission.ResearchReplayId, token).ConfigureAwait(false);
             ProcessSupervisor.UnregisterSyntheticProcess(processId);
             _HarborProcessIds.TryRemove(processId, out _);
             int exitCode = job.State == HarborJobStateEnum.Exited && job.ExitCode.HasValue ? job.ExitCode.Value : -1;

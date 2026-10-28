@@ -190,6 +190,9 @@ namespace Armada.Core.Models
         /// </summary>
         public string? PreservedRunOutput { get; set; } = null;
 
+        /// <summary>Committed full-chain Research replay that owns the current launch generation.</summary>
+        public string? ResearchReplayId { get; set; } = null;
+
         /// <summary>
         /// Persona assigned to this mission (e.g. "Worker", "Architect", "Judge").
         /// Null defaults to "Worker" for backward compatibility.

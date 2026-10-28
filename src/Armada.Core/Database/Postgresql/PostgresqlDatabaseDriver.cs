@@ -56,6 +56,7 @@ namespace Armada.Core.Database.Postgresql
             StoredTimestampEnum.Timestamp,
             new Dictionary<string, StoredTimestampEnum>
             {
+                { "research_replays.created_utc", StoredTimestampEnum.Timestamp },
                 { "check_runs.completed_utc", StoredTimestampEnum.TimestampWithZone },
                 { "schema_repairs.applied_utc", StoredTimestampEnum.TimestampWithZone },
                 { "check_runs.created_utc", StoredTimestampEnum.TimestampWithZone },
@@ -422,6 +423,7 @@ namespace Armada.Core.Database.Postgresql
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_DataSource);
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
+            ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MemoryProposals = new MemoryProposalMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);

@@ -93,6 +93,7 @@ namespace Armada.Server.Mcp
             "armada_get_mission_log",
             "armada_voyage_status",
             "armada_mission_output",
+            "armada_research_replay_output",
             "get_objective"
         };
 

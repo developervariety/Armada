@@ -22,7 +22,7 @@ namespace Armada.Server.Routes
     /// <summary>
     /// REST API routes for voyage management.
     /// </summary>
-    public class VoyageRoutes
+    public partial class VoyageRoutes
     {
         private readonly DatabaseDriver _database;
         private readonly IAdmiralService _admiral;
@@ -161,6 +161,8 @@ namespace Armada.Server.Routes
             IAuthorizationService authz)
         {
             string _Header = "[ArmadaServer] ";
+
+            RegisterResearchReplay(app, authenticate, authz);
 
             // Voyages
             app.Get("/api/v1/voyages", async (ApiRequest req) =>

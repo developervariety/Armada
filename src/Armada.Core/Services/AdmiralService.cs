@@ -1677,7 +1677,10 @@ namespace Armada.Core.Services
             // A captain with no recorded process is inside a launch whose process id is not written yet, so
             // that exit is still the mission's.
             string? ignoredReason = null;
-            if (superseded)
+            if (!String.IsNullOrEmpty(mission.ResearchReplayId)
+                && (mission.ProcessId != processId || captain.ProcessId != processId))
+                ignoredReason = "the exit does not identify the current replay launch";
+            else if (superseded)
                 ignoredReason = "the admiral stopped and superseded it";
             else if (stopRequested && exitCode != 0)
                 ignoredReason = "Armada stopped it on request (" + (stopReason ?? "captain stop")
@@ -3363,7 +3366,9 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<bool> AgentDeclaredExplicitSuccessAsync(string missionId, CancellationToken token)
         {
-            string logPath = Path.Combine(_Settings.LogDirectory, "missions", missionId + ".log");
+            Mission? logMission = await _Database.Missions.ReadSummaryAsync(missionId, token).ConfigureAwait(false);
+            if (logMission == null) return false;
+            string logPath = MissionAttemptArtifacts.LogPath(_Settings.LogDirectory, logMission);
             if (!File.Exists(logPath)) return false;
             try
             {
@@ -3487,7 +3492,9 @@ namespace Armada.Core.Services
             // in every pass below.
             string? ownRuntimeLabel = ActivityRuntimeLabel(captainRuntime);
 
-            string logPath = Path.Combine(_Settings.LogDirectory, "missions", missionId + ".log");
+            Mission? logMission = await _Database.Missions.ReadSummaryAsync(missionId, token).ConfigureAwait(false);
+            if (logMission == null) return null;
+            string logPath = MissionAttemptArtifacts.LogPath(_Settings.LogDirectory, logMission);
             if (File.Exists(logPath))
             {
                 try

@@ -7,6 +7,17 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Added
+
+- Operators can explicitly replay a failed six-stage Research voyage with atomic prior-attempt archives, pinned source, scoped historical output and stale-attempt write guards. Ordinary restart eligibility and recovery budgets stay unchanged.
+
+### Fixed
+
+- Host agent-cache cleanup preserves raw sessions, chat databases, transcripts, tool output and database backups for the history archive owner. Disposable cache cleanup remains available. Daily cleanup also retains operator receipts and stage output; a dry run no longer deletes expired receipts.
+- Dock repair metadata states that existing worktrees lose unstaged tracked changes and untracked files; missing worktrees are recreated from their retained branch after ownership checks.
+- Compact voyage status reads omit unrequested mission descriptions and report previews. Explicit description and output requests retain bounded previews.
+- Captain briefs name configured validation commands and input environment names without copying their values, and distinguish manual validation from native Check proof.
+
 ### Judge blocking rule
 
 - The Judge persona carries a `## When To Block` section: NEEDS_REVISION is for a defect the Judge can show (a criterion whose behaviour is missing or wrong, a failing test, build or command, a regression, data-loss or security fault, or an out-of-scope behaviour change). Requests for more tests or evidence, report or commit hygiene, pending Checks and style are Suggested Follow-ups, not blocks. An existing built-in Judge row receives the section on the next start.
@@ -169,6 +180,7 @@ outside this release.
 
 - Gate-input previews accept explicit input-to-source mappings in objective preparation, name supplied paths and their declared affected inputs, and retain uncertain planning reminders. Existing scope exclusions remain authoritative.
 - Archive HTTP failures retain bounded provider support request IDs without copying response messages or unrelated headers.
+
 
 - Report section checks recognize an explicit Markdown heading joined to a known progress-status line outside code examples. Stored report text and artifact digests stay unchanged.
 - Architect handoff accepts opt-in version 2 and 3 JSON plan contracts through

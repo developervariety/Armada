@@ -264,11 +264,11 @@ namespace Armada.Server.Mcp.Tools
                     {
                         voyageId = new { type = "string", description = "Voyage ID (vyg_ prefix)" },
                         summary = new { type = "boolean", description = "Return summary only with mission counts by status (default true). Set false to include mission objects." },
-                        includeMissions = new { type = "boolean", description = "Include full mission objects (default false). Only used when summary=false." },
+                        includeMissions = new { type = "boolean", description = "Include bounded mission details (default false). Only used when summary=false." },
                         includeDescription = new { type = "boolean", description = "Include Description on embedded missions (default false)" },
                         includeDiffs = new { type = "boolean", description = "Include saved diff for each mission (default false)" },
                         includeLogs = new { type = "boolean", description = "Include log excerpt for each mission (default false). Currently reserved for future use." },
-                        includeFields = new { type = "array", items = new { type = "string" }, description = "Optional mission fields: titles, statuses, commitHashes, dependsOn, prestaged, persona, model" }
+                        includeFields = new { type = "array", items = new { type = "string" }, description = "Optional mission fields: titles, statuses, commitHashes, dependsOn, prestaged, persona, model, output. A nonempty list omits unrequested output; omitted or empty keeps the default bounded output preview." }
                     },
                     required = new[] { "voyageId" }
                 },
@@ -320,7 +320,7 @@ namespace Armada.Server.Mcp.Tools
                     return (object)new
                     {
                         Voyage = new { voyage.Id, voyage.Title, voyage.Status, voyage.CreatedUtc, voyage.CompletedUtc, voyage.LastUpdateUtc, DescriptionLength = voyage.Description?.Length ?? 0 },
-                        Missions = missions.Select(m => BuildSlimMissionStatus(m, request.IncludeFields)).ToList()
+                        Missions = missions.Select(m => BuildSlimMissionStatus(m, request.IncludeFields, request.IncludeDescription == true)).ToList()
                     };
                 });
 
@@ -555,7 +555,7 @@ namespace Armada.Server.Mcp.Tools
             public AuthContext? MissionCaller { get; }
         }
 
-        private static object BuildSlimMissionStatus(Mission mission, List<string>? includeFields)
+        private static object BuildSlimMissionStatus(Mission mission, List<string>? includeFields, bool includeDescription)
         {
             HashSet<string> fields = new HashSet<string>(includeFields ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
             bool defaultSlim = fields.Count == 0;
@@ -581,8 +581,8 @@ namespace Armada.Server.Mcp.Tools
                 mission.LastUpdateUtc,
                 mission.StartedUtc,
                 mission.CompletedUtc,
-                Description = TruncateForStatus(mission.Description, 4096),
-                AgentOutput = TruncateForStatus(mission.AgentOutput, 4096)
+                Description = includeDescription ? TruncateForStatus(mission.Description, 4096) : null,
+                AgentOutput = defaultSlim || fields.Contains("output") ? TruncateForStatus(mission.AgentOutput, 4096) : null
             };
         }
 

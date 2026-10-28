@@ -335,6 +335,16 @@
 		{
 			"key": "fleetActionRequestId",
 			"value": "reviewed-request-1"
+		},
+		{
+			"key": "replayId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "sourceCommit",
+			"value": "",
+			"type": "string"
 		}
 	],
 	"item": [
@@ -3529,6 +3539,59 @@
 							]
 						},
 						"description": "Counts all visible missions by status and pages distinct vessel IDs without mission payloads. Scope follows authenticated voyage and mission visibility."
+					}
+				},
+				{
+					"name": "Preview or Apply Full Research Replay",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/voyages/{{voyageId}}/research-replay",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"voyages",
+								"{{voyageId}}",
+								"research-replay"
+							]
+						},
+						"description": "Global operator only. Preview exact six-stage Research chain; apply with dryRun=false, unique requestId and returned expectedFingerprint. Prior reports stay immutable.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"dryRun\": true,\n  \"sourceCommit\": \"{{sourceCommit}}\"\n}"
+						}
+					}
+				},
+				{
+					"name": "Read Prior Research Attempt Output",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/research-replays/{{replayId}}/missions/{{missionId}}/output",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"research-replays",
+								"{{replayId}}",
+								"missions",
+								"{{missionId}}",
+								"output"
+							]
+						},
+						"description": "Read redacted digest-backed history as the exact owner operator or a mission in this same replayed voyage. History is separate from current output."
 					}
 				}
 			]

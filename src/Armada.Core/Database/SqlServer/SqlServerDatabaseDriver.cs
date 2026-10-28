@@ -48,6 +48,7 @@ namespace Armada.Core.Database.SqlServer
             StoredTimestampEnum.Iso8601Text,
             new Dictionary<string, StoredTimestampEnum>
             {
+                { "research_replays.created_utc", StoredTimestampEnum.Timestamp },
                 { "coordination_leases.acquired_utc", StoredTimestampEnum.Timestamp },
                 { "coordination_leases.expires_utc", StoredTimestampEnum.Timestamp },
                 { "ask_threads.created_utc", StoredTimestampEnum.Timestamp },
@@ -154,6 +155,7 @@ namespace Armada.Core.Database.SqlServer
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             AskThreads = new Armada.Core.Database.AskThreadMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);

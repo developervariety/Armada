@@ -85,6 +85,9 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>Registered MCP tool handlers by name.</summary>
         public Dictionary<string, Func<JsonElement?, Task<object>>> Mcp { get; } = new Dictionary<string, Func<JsonElement?, Task<object>>>(StringComparer.Ordinal);
 
+        /// <summary>Raw MCP handlers for explicit authenticated-caller scope tests.</summary>
+        public Dictionary<string, Func<JsonElement?, Task<object>>> RawMcp { get; } = new Dictionary<string, Func<JsonElement?, Task<object>>>(StringComparer.Ordinal);
+
         /// <summary>REST client sending the administrator key.</summary>
         public HttpClient Rest { get; }
 
@@ -197,7 +200,7 @@ namespace Armada.Test.Unit.TestHelpers
 
             ObjectiveService objectives = new ObjectiveService(Driver);
             McpToolRegistrar.RegisterAll(
-                (name, _, _, handler) => { Mcp[name] = McpTestCaller.Wrap(handler); },
+                (name, _, _, handler) => { RawMcp[name] = handler; Mcp[name] = McpTestCaller.Wrap(handler); },
                 Driver,
                 Admiral.Service,
                 Settings,

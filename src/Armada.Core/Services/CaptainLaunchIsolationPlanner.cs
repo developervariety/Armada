@@ -8,16 +8,16 @@ namespace Armada.Core.Services
     /// <summary>
     /// Pure planner that, for a given runtime, produces the steps to launch a captain in an isolated agent
     /// configuration: what extra CLI arguments to append, what environment overrides to apply, and what
-    /// scoped configuration files to write so the agent still reaches the Armada MCP server while being
-    /// blocked from the host user's global settings.
+    /// scoped configuration files to write so the agent reaches its launch-scoped Armada MCP server.
+    /// This selects client configuration; filesystem access still depends on OS users and container mounts.
     ///
     /// Strategy per runtime:
     /// - Claude Code: --strict-mcp-config + an injected --mcp-config file (strict ignores host servers, so
     ///   the Armada server must be supplied explicitly) plus --setting-sources project,local.
     /// - Codex: a per-process config override registers the Armada server without hiding the
     ///   captain's existing authentication and provider profiles behind a replacement CODEX_HOME.
-    /// - Gemini / Cursor: a scoped HOME/USERPROFILE containing the client's settings file, so they
-    ///   physically cannot read the host user's configuration.
+    /// - Gemini / Cursor: a scoped HOME/USERPROFILE selects the client's launch settings instead of the
+    ///   host's normal configuration path. It does not deny access to an explicit absolute host path.
     /// - Mux: --mcp-config naming a scoped servers file (whose auth object presents the launch credential as a
     ///   bearer token referenced by variable name) plus --strict-mcp-config. `mux print` loads MCP servers only
     ///   from --mcp-config, so the scoped file is the only MCP source, and the captain's own config directory

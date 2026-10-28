@@ -5,6 +5,9 @@ namespace Armada.Core.Models
     /// </summary>
     public sealed class MissionOutputArtifactPage
     {
+        /// <summary>Historical attempt metadata, present only on an explicitly addressed Research archive page.</summary>
+        [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+        public ResearchReplayStage? PriorResearchAttempt { get; set; }
         /// <summary>Mission that owns the persisted output.</summary>
         public string MissionId { get; set; } = String.Empty;
         /// <summary>Stable reference used in pipeline handoffs.</summary>

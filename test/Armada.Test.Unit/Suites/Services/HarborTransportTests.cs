@@ -1074,6 +1074,8 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             TaskCompletionSource<bool> releaseLifecycle = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                             recoveryScope.Admiral.ExitHandler = _ => releaseLifecycle.Task;
+                            AssertTrue(harness.Coordinator.TryGetJob(jobId, out HarborJobSnapshot? pendingRestore), "the prior job is retained before restart");
+                            await VerifyCancelledOwnershipRestoreAsync(recoveryScope.Handler, pendingRestore!).ConfigureAwait(false);
                             AdmiralInstance restarted = await harness.RestartAdmiralAsync(recoveryScope.Handler, recoveryScope.UseCoordinator).ConfigureAwait(false);
                             HarborJobRecord? uncertain = await harness.Driver.HarborJobs.ReadAsync(jobId).ConfigureAwait(false);
                             AssertEqual(HarborJobStateEnum.Uncertain, uncertain!.State, "the unfinished mission job stays fenced during restart");
@@ -3005,6 +3007,32 @@ namespace Armada.Test.Unit.Suites.Services
             List<string> data = new List<string>();
             foreach (HarborOutput output in snapshot.Output) data.Add(output.Data);
             return data;
+        }
+
+        private async Task VerifyCancelledOwnershipRestoreAsync(AgentLifecycleHandler handler, HarborJobSnapshot job)
+        {
+            int processId = job.AdmiralProcessId!.Value;
+            using (CancellationTokenSource cancellation = new CancellationTokenSource())
+            using (IDisposable launchBoundary = await MissionExecutionBoundary.LaunchWrites.AcquireAsync(job.MissionId!).ConfigureAwait(false))
+            {
+                Task<HarborJobRecoveryResult> restoration = handler.RestoreAsync(job, cancellation.Token);
+                bool cancelled = false;
+                try
+                {
+                    AssertTrue(await WaitUntilAsync(() => ProcessSupervisor.IsSyntheticProcessAlive(processId)).ConfigureAwait(false),
+                        "restore reserves the synthetic process before waiting for launch ownership");
+                    cancellation.Cancel();
+                    try { await restoration.WaitAsync(Wait).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { cancelled = true; }
+                    AssertTrue(cancelled, "cancellation interrupts the blocked ownership wait");
+                    AssertFalse(ProcessSupervisor.IsSyntheticProcessAlive(processId), "cancelled restoration releases its process reservation for the retry");
+                }
+                finally
+                {
+                    cancellation.Cancel();
+                    ProcessSupervisor.UnregisterSyntheticProcess(processId);
+                }
+            }
         }
 
         private static async Task<bool> WaitUntilAsync(Func<bool> condition)

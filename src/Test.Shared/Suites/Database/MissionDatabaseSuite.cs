@@ -19,7 +19,7 @@ namespace Test.Shared.Suites.Database
     /// propagation on create, update, and heartbeat. Each case builds a fresh SQLite store seeded
     /// with a fleet, vessel, and voyage.
     /// </summary>
-    public sealed class MissionDatabaseSuite : IArmadaTestSuite
+    public sealed partial class MissionDatabaseSuite : IArmadaTestSuite
     {
         #region Private-Members
 
@@ -695,6 +695,7 @@ namespace Test.Shared.Suites.Database
                 }
             }));
 
+            cases.AddRange(ResearchReplayCases());
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Mission Database",

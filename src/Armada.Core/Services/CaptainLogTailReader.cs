@@ -60,6 +60,11 @@ namespace Armada.Core.Services
 
         private string? ResolveLogPath(Mission mission)
         {
+            if (!String.IsNullOrEmpty(mission.ResearchReplayId))
+            {
+                string currentReplayPath = MissionAttemptArtifacts.LogPath(_Settings.LogDirectory, mission);
+                return File.Exists(currentReplayPath) ? currentReplayPath : null;
+            }
             if (!String.IsNullOrEmpty(mission.CaptainId))
             {
                 string pointerPath = Path.Combine(_Settings.LogDirectory, "captains", mission.CaptainId + ".current");
@@ -78,7 +83,7 @@ namespace Armada.Core.Services
                 }
             }
 
-            string missionPath = Path.Combine(_Settings.LogDirectory, "missions", mission.Id + ".log");
+            string missionPath = MissionAttemptArtifacts.LogPath(_Settings.LogDirectory, mission);
             return File.Exists(missionPath) ? missionPath : null;
         }
 

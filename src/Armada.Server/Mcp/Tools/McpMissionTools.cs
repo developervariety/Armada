@@ -70,6 +70,9 @@ namespace Armada.Server.Mcp.Tools
                 (captainId, token) => admiral.RecallCaptainAsync(captainId, token),
                 OperationNotifier.None);
 
+            if (settings != null && git != null)
+                McpResearchReplayTools.Register(register, database, admiral, settings, git, missionOperations.Notifier);
+
             register(
                 "armada_mission_status",
                 "Get status of a specific mission",
@@ -638,7 +641,7 @@ namespace Armada.Server.Mcp.Tools
                         }
 
                         MissionLogResponse page = await SessionLogReader.ReadMissionLogAsync(
-                            settings.LogDirectory, mission.Id, request.Offset, request.Lines, 100).ConfigureAwait(false);
+                            settings.LogDirectory, mission.Id, request.Offset, request.Lines, 100, replayId: mission.ResearchReplayId).ConfigureAwait(false);
                         return (object)new { MissionId = page.MissionId, Log = page.Log, Lines = page.Lines, TotalLines = page.TotalLines };
                     });
             }

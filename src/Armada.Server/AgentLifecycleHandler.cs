@@ -116,6 +116,14 @@ namespace Armada.Server
         /// </summary>
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, long> _ProcessStateOwners = new System.Collections.Concurrent.ConcurrentDictionary<int, long>();
 
+        // Completed ownership survives only while that launch has deferred records; a new launch invalidates it.
+        private readonly Dictionary<string, long> _CompletedOutputOwners = new Dictionary<string, long>();
+        private readonly Dictionary<long, int> _DeferredOutputWriteCounts = new Dictionary<long, int>();
+
+        // Captured at launch, so deferred final records retain the generation after process cleanup.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<long, string> _ReplayGenerationByOwner =
+            new System.Collections.Concurrent.ConcurrentDictionary<long, string>();
+
         /// <summary>Typed provider errors captured for a process and the launch state that owns its PID.</summary>
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, ProcessProviderErrorCapture> _ProviderErrors =
             new System.Collections.Concurrent.ConcurrentDictionary<int, ProcessProviderErrorCapture>();
@@ -814,16 +822,16 @@ namespace Armada.Server
 
             // The new process owns the mission's per-process state from here, and starts it empty. An earlier
             // process's exit, even one handled after this point, can no longer release it.
-            long stateOwner = TakeMissionStateOwnership(mission.Id);
+            long stateOwner = await TakeMissionStateOwnershipAsync(mission.Id, mission.ResearchReplayId).ConfigureAwait(false);
             _PendingLaunchOwners[launchKey] = stateOwner;
             _PendingLaunches[launchKey] = (captain.Id, mission.Id);
-            runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
-            runtime.OnOutputReceived += HandleAgentOutput;
-            runtime.OnOutputReceived += HandleAgentHeartbeat;
-            runtime.OnTokenUsageReceived += HandleTokenUsage;
-            runtime.OnProviderProgressReceived += HandleProviderProgress;
+            runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey, stateOwner);
+            runtime.OnOutputReceived += (processId, line) => HandleAgentOutputForLaunch(processId, line, stateOwner);
+            runtime.OnOutputReceived += (processId, line) => HandleAgentHeartbeatForLaunch(processId, line, stateOwner);
+            runtime.OnTokenUsageReceived += (processId, sample) => HandleTokenUsageForLaunch(processId, sample, stateOwner);
+            runtime.OnProviderProgressReceived += (processId, sample) => HandleProviderProgressForLaunch(processId, sample, stateOwner);
             if (runtime is ApiAgentRuntime compactingRuntime)
-                compactingRuntime.OnContextCompacted += HandleContextCompacted;
+                compactingRuntime.OnContextCompacted += (processId, sample) => HandleContextCompactedForLaunch(processId, sample, stateOwner);
 
             Vessel? vessel = null;
             if (!String.IsNullOrEmpty(mission.VesselId))
@@ -858,10 +866,10 @@ namespace Armada.Server
             await RecordLaunchPromptBytesAsync(mission, captain, prompt).ConfigureAwait(false);
 
             string missionLogDir = Path.Combine(_Settings.LogDirectory, "missions");
-            string logFilePath = Path.Combine(missionLogDir, mission.Id + ".log");
+            string logFilePath = MissionAttemptArtifacts.LogPath(_Settings.LogDirectory, mission);
             string finalMessageDir = Path.Combine(_Settings.LogDirectory, "final-messages");
             Directory.CreateDirectory(finalMessageDir);
-            string finalMessageFilePath = Path.Combine(finalMessageDir, mission.Id + ".txt");
+            string finalMessageFilePath = Path.Combine(finalMessageDir, MissionAttemptArtifacts.Stem(mission.Id, mission.ResearchReplayId) + ".txt");
             try
             {
                 if (File.Exists(finalMessageFilePath))
@@ -929,7 +937,7 @@ namespace Armada.Server
                 throw;
             }
 
-            await PersistStartedProcessIdAsync(processId, launchKey).ConfigureAwait(false);
+            await PersistStartedProcessIdAsync(processId, launchKey, stateOwner).ConfigureAwait(false);
 
             RegisterMissionProcess(processId, captain.Id, mission.Id, stateOwner);
             _PendingLaunches.TryRemove(launchKey, out _);
@@ -1398,80 +1406,91 @@ namespace Armada.Server
         /// <summary>
         /// Register PID-to-captain/mission mapping as soon as a launched process exposes a PID.
         /// </summary>
-        private void HandleProcessStarted(int processId, string launchKey)
+        private void HandleProcessStarted(int processId, string launchKey, long expectedOwner)
         {
             if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) launch))
                 return;
-            if (!_PendingLaunchOwners.TryGetValue(launchKey, out long stateOwner))
+            if (!_PendingLaunchOwners.TryGetValue(launchKey, out long stateOwner) || stateOwner != expectedOwner)
                 return;
 
             RegisterMissionProcess(processId, launch.CaptainId, launch.MissionId, stateOwner);
 
-            _ = PersistStartedProcessIdAsync(processId, launchKey);
+            _ = PersistStartedProcessIdAsync(processId, launchKey, stateOwner);
         }
 
         /// <summary>
         /// Persist a launch PID while the launch key still matches the active assignment.
         /// </summary>
-        private async Task PersistStartedProcessIdAsync(int processId, string launchKey)
+        private async Task PersistStartedProcessIdAsync(int processId, string launchKey, long expectedOwner)
         {
-            if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) launch))
+            if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) launch)
+                || !_PendingLaunchOwners.TryGetValue(launchKey, out long pendingOwner) || pendingOwner != expectedOwner)
                 return;
 
-            try
+            using (IDisposable launchBoundary = await MissionExecutionBoundary.LaunchWrites.AcquireAsync(launch.MissionId).ConfigureAwait(false))
             {
-                Captain? captain = await _Database.Captains.ReadAsync(launch.CaptainId).ConfigureAwait(false);
-                Mission? mission = await _Database.Missions.ReadAsync(launch.MissionId).ConfigureAwait(false);
-
-                if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) currentLaunch) ||
-                    !String.Equals(currentLaunch.CaptainId, launch.CaptainId, StringComparison.Ordinal) ||
-                    !String.Equals(currentLaunch.MissionId, launch.MissionId, StringComparison.Ordinal))
+                try
                 {
-                    return;
+                    Captain? captain = await _Database.Captains.ReadAsync(launch.CaptainId).ConfigureAwait(false);
+                    Mission? mission = await _Database.Missions.ReadAsync(launch.MissionId).ConfigureAwait(false);
+
+                    if (!_PendingLaunches.TryGetValue(launchKey, out (string CaptainId, string MissionId) currentLaunch) ||
+                        !String.Equals(currentLaunch.CaptainId, launch.CaptainId, StringComparison.Ordinal) ||
+                        !String.Equals(currentLaunch.MissionId, launch.MissionId, StringComparison.Ordinal)
+                        || !_PendingLaunchOwners.TryGetValue(launchKey, out long currentOwner) || currentOwner != expectedOwner
+                        || !_ReplayGenerationByOwner.TryGetValue(expectedOwner, out string? expectedGeneration)
+                        || !String.Equals(mission?.ResearchReplayId ?? String.Empty, expectedGeneration, StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+
+                    bool captainMatches = captain != null &&
+                        captain.State == CaptainStateEnum.Working &&
+                        String.Equals(captain.CurrentMissionId, launch.MissionId, StringComparison.Ordinal) &&
+                        (!captain.ProcessId.HasValue || captain.ProcessId.Value == processId);
+
+                    bool missionMatches = mission != null &&
+                        String.Equals(mission.CaptainId, launch.CaptainId, StringComparison.Ordinal) &&
+                        (mission.Status == MissionStatusEnum.Assigned ||
+                         mission.Status == MissionStatusEnum.InProgress ||
+                         mission.Status == MissionStatusEnum.Review ||
+                         mission.Status == MissionStatusEnum.Testing) &&
+                        (!mission.ProcessId.HasValue || mission.ProcessId.Value == processId);
+
+                    if (!captainMatches || !missionMatches)
+                        return;
+
+                    DateTime? processStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
+                    if (!processStartedUtc.HasValue && _HarborProcessIds.ContainsKey(processId))
+                        processStartedUtc = captain!.ProcessStartedUtc;
+                    captain!.ProcessId = processId;
+
+                    captain.ProcessStartedUtc = processStartedUtc;
+                    await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    mission!.ProcessId = processId;
+
+                    mission.ProcessStartedUtc = processStartedUtc ?? mission.ProcessStartedUtc;
+                    if (!mission.StartedUtc.HasValue)
+                        mission.StartedUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                 }
-
-                bool captainMatches = captain != null &&
-                    captain.State == CaptainStateEnum.Working &&
-                    String.Equals(captain.CurrentMissionId, launch.MissionId, StringComparison.Ordinal) &&
-                    (!captain.ProcessId.HasValue || captain.ProcessId.Value == processId);
-
-                bool missionMatches = mission != null &&
-                    String.Equals(mission.CaptainId, launch.CaptainId, StringComparison.Ordinal) &&
-                    (mission.Status == MissionStatusEnum.Assigned ||
-                     mission.Status == MissionStatusEnum.InProgress ||
-                     mission.Status == MissionStatusEnum.Review ||
-                     mission.Status == MissionStatusEnum.Testing) &&
-                    (!mission.ProcessId.HasValue || mission.ProcessId.Value == processId);
-
-                if (!captainMatches || !missionMatches)
-                    return;
-
-                DateTime? processStartedUtc = ProcessSupervisor.GetRecordedLaunchStartUtc(processId);
-                if (!processStartedUtc.HasValue && _HarborProcessIds.ContainsKey(processId))
-                    processStartedUtc = captain!.ProcessStartedUtc;
-                captain!.ProcessId = processId;
-
-                captain.ProcessStartedUtc = processStartedUtc;
-                await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-
-                mission!.ProcessId = processId;
-
-                mission.ProcessStartedUtc = processStartedUtc ?? mission.ProcessStartedUtc;
-                if (!mission.StartedUtc.HasValue)
-                    mission.StartedUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "failed to persist launch process " + processId + " for launch " + launchKey + ": " + ex.Message);
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "failed to persist launch process " + processId + " for launch " + launchKey + ": " + ex.Message);
+                }
             }
         }
 
         /// <summary>
         /// Handle heartbeat from an agent process output line.
         /// </summary>
-        public void HandleAgentHeartbeat(int processId, string line)
+        public void HandleAgentHeartbeat(int processId, string line) => HandleAgentHeartbeatForLaunch(processId, line, null);
+
+        private void HandleAgentHeartbeatForLaunch(int processId, string line, long? expectedOwner)
         {
+            lock (_MissionStateOwners)
+            {
             string? captainId = null;
             string? missionId = null;
             lock (_ProcessToCaptain)
@@ -1480,6 +1499,11 @@ namespace Armada.Server
                 _ProcessToMission.TryGetValue(processId, out missionId);
             }
             if (String.IsNullOrEmpty(captainId)) return;
+            long? heartbeatOwner = _ProcessStateOwners.TryGetValue(processId, out long mappedHeartbeatOwner) ? mappedHeartbeatOwner : null;
+            if (expectedOwner.HasValue && heartbeatOwner != expectedOwner) return;
+            string heartbeatGeneration = heartbeatOwner.HasValue && _ReplayGenerationByOwner.TryGetValue(heartbeatOwner.Value, out string? savedHeartbeatGeneration)
+                ? savedHeartbeatGeneration : String.Empty;
+            if (!IsCurrentOutputOwner(processId, missionId, heartbeatOwner)) return;
 
             bool persistMissionHeartbeat = false;
             DateTime nowUtc = DateTime.UtcNow;
@@ -1506,74 +1530,104 @@ namespace Armada.Server
             }
 
             string capturedCaptainId = captainId;
-            _ = Task.Run(async () =>
+            QueueDeferredOutput(missionId, heartbeatOwner, async () =>
             {
-                try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
-                catch (Exception captainEx)
+                using (IDisposable? outputBoundary = String.IsNullOrEmpty(missionId) ? null
+                    : await MissionExecutionBoundary.AcquireOutputAsync(missionId).ConfigureAwait(false))
                 {
-                    _Logging.Warn(_Header + "could not record the output heartbeat for captain " + captainId
-                        + "; stall detection reads a stale time: " + captainEx.Message);
-                }
+                    try
+                    {
+                        if (!await CanRouteOutputAsync(missionId, heartbeatOwner, heartbeatGeneration).ConfigureAwait(false)) return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "could not validate output heartbeat ownership: " + ex.GetType().Name);
+                        return;
+                    }
+                    try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
+                    catch (Exception captainEx)
+                    {
+                        _Logging.Warn(_Header + "could not record the output heartbeat for captain " + captainId
+                            + "; stall detection reads a stale time: " + captainEx.Message);
+                    }
 
-                if (!persistMissionHeartbeat || String.IsNullOrEmpty(missionId)) return;
+                    if (!persistMissionHeartbeat || String.IsNullOrEmpty(missionId)) return;
 
-                try
-                {
-                    await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false);
-                }
-                catch (Exception missionEx)
-                {
-                    // Forget the throttle stamp so the next output line retries the write.
-                    _MissionHeartbeatWrites.TryRemove(missionId, out _);
-                    _Logging.Warn(_Header + "could not record the output heartbeat for mission " + missionId + "; the next output retries: " + missionEx.Message);
+                    try
+                    {
+                        await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false);
+                    }
+                    catch (Exception missionEx)
+                    {
+                        // Forget the throttle stamp so the next output line retries the write.
+                        _MissionHeartbeatWrites.TryRemove(missionId, out _);
+                        _Logging.Warn(_Header + "could not record the output heartbeat for mission " + missionId + "; the next output retries: " + missionEx.Message);
+                    }
                 }
             });
+                    }
         }
 
         /// <summary>
         /// Handle output from an agent process, parsing progress signals.
         /// </summary>
-        public void HandleAgentOutput(int processId, string line)
+        public void HandleAgentOutput(int processId, string line) => HandleAgentOutputCore(processId, line, null);
+
+        /// <summary>Accept a runtime record only from the launch that subscribed its callback.</summary>
+        /// <param name="processId">Observed process identity.</param>
+        /// <param name="line">Runtime record.</param>
+        /// <param name="owner">Immutable launch owner captured by the subscriber.</param>
+        internal void HandleAgentOutputForLaunch(int processId, string line, long owner) => HandleAgentOutputCore(processId, line, owner);
+
+        private void HandleAgentOutputCore(int processId, string line, long? expectedOwner)
         {
-            // Accumulate stdout for pipeline handoff
-            string? outputMissionId = null;
-            lock (_ProcessToCaptain)
+            lock (_MissionStateOwners)
             {
-                _ProcessToMission.TryGetValue(processId, out outputMissionId);
-            }
-            if (!String.IsNullOrEmpty(outputMissionId) && !IsMissionActivityRecord(line))
-            {
-                System.Text.StringBuilder sb = _MissionOutput.GetOrAdd(outputMissionId, _ => new System.Text.StringBuilder());
-                AppendBounded(sb, line);
-            }
+                // Accumulate stdout for pipeline handoff
+                string? outputMissionId = null;
+                lock (_ProcessToCaptain)
+                {
+                    _ProcessToMission.TryGetValue(processId, out outputMissionId);
+                }
+                long? stateOwner = _ProcessStateOwners.TryGetValue(processId, out long mappedOwner) ? mappedOwner : null;
+                if (expectedOwner.HasValue && stateOwner != expectedOwner) return;
+                if (!IsCurrentOutputOwner(processId, outputMissionId, stateOwner)) return;
+                string replayGeneration = stateOwner.HasValue && _ReplayGenerationByOwner.TryGetValue(stateOwner.Value, out string? savedGeneration)
+                    ? savedGeneration : String.Empty;
+                if (!String.IsNullOrEmpty(outputMissionId) && !IsMissionActivityRecord(line))
+                {
+                    System.Text.StringBuilder sb = _MissionOutput.GetOrAdd(outputMissionId, _ => new System.Text.StringBuilder());
+                    AppendBounded(sb, line);
+                }
 
-            List<ProgressParser.ProgressSignal> signals = ProgressParser.ParseAll(line);
-            if (signals.Count == 0) return;
+                List<ProgressParser.ProgressSignal> signals = ProgressParser.ParseAll(line);
+                if (signals.Count == 0) return;
 
-            string? captainId = null;
-            string? missionId = null;
-            lock (_ProcessToCaptain)
-            {
-                _ProcessToCaptain.TryGetValue(processId, out captainId);
-                _ProcessToMission.TryGetValue(processId, out missionId);
-            }
+                string? captainId = null;
+                string? missionId = null;
+                lock (_ProcessToCaptain)
+                {
+                    _ProcessToCaptain.TryGetValue(processId, out captainId);
+                    _ProcessToMission.TryGetValue(processId, out missionId);
+                }
 
-            if (String.IsNullOrEmpty(captainId)) return;
+                if (String.IsNullOrEmpty(captainId)) return;
 
-            // A parsed progress or [ARMADA:ACTIVITY] tool signal is the provider making progress: it
-            // chose to narrate a step or call a tool. Record it as provider progress so a captain
-            // that is actively working through a long tool run (a foreground test suite, a large
-            // source read) while quiet on token-usage narration is not misclassified as a
-            // provider_silent_stall and nudged mid-work. Runtime token-usage updates
-            // (OnProviderProgressReceived) go silent during a tool call, so they alone cannot
-            // show that a captain is still working.
-            _ProviderProgress?.Record(captainId, DateTime.UtcNow);
+                // A parsed progress or [ARMADA:ACTIVITY] tool signal is the provider making progress: it
+                // chose to narrate a step or call a tool. Record it as provider progress so a captain
+                // that is actively working through a long tool run (a foreground test suite, a large
+                // source read) while quiet on token-usage narration is not misclassified as a
+                // provider_silent_stall and nudged mid-work. Runtime token-usage updates
+                // (OnProviderProgressReceived) go silent during a tool call, so they alone cannot
+                // show that a captain is still working.
+                _ProviderProgress?.Record(captainId, DateTime.UtcNow);
 
-            // One record can carry several markers (a message or papercut followed by the result).
-            // Each is routed on its own so none hides another, in the order the captain wrote them.
-            foreach (ProgressParser.ProgressSignal signal in signals)
-            {
-                RouteAgentSignal(captainId, missionId, signal);
+                // One record can carry several markers (a message or papercut followed by the result).
+                // Each is routed on its own so none hides another, in the order the captain wrote them.
+                foreach (ProgressParser.ProgressSignal signal in signals)
+                {
+                    RouteAgentSignal(captainId, missionId, signal, stateOwner, replayGeneration);
+                }
             }
         }
 
@@ -1584,7 +1638,9 @@ namespace Armada.Server
         /// <param name="captainId">Emitting captain identifier.</param>
         /// <param name="missionId">Mission identifier, when the process is mapped to one.</param>
         /// <param name="signal">Parsed signal.</param>
-        private void RouteAgentSignal(string captainId, string? missionId, ProgressParser.ProgressSignal signal)
+        /// <param name="stateOwner">In-memory owner of that launch.</param>
+        /// <param name="replayGeneration">Replay identity captured before launch.</param>
+        private void RouteAgentSignal(string captainId, string? missionId, ProgressParser.ProgressSignal signal, long? stateOwner, string replayGeneration)
         {
             // The first stage-ending marker (a terminal marker or BLOCKED) ends the stage even if the
             // process keeps running; later markers (a re-review) never replace it.
@@ -1598,7 +1654,7 @@ namespace Armada.Server
             // it never transitions a mission and never lands in the progress signal stream.
             if (String.Equals(signal.Type, PapercutParser.SignalType, StringComparison.OrdinalIgnoreCase))
             {
-                HandlePapercutSignal(captainId, missionId, signal.Value);
+                HandlePapercutSignal(captainId, missionId, signal.Value, stateOwner, replayGeneration);
                 return;
             }
 
@@ -1607,27 +1663,32 @@ namespace Armada.Server
                 _Logging.Info(_Header + "board note from captain " + captainId + " for mission " + (missionId ?? "(unassigned)"));
                 string noteCaptainId = captainId;
                 string? noteMissionId = missionId;
-                _ = Task.Run(async () =>
+                QueueDeferredOutput(noteMissionId, stateOwner, async () =>
                 {
                     try
                     {
-                        string? targetMissionId = noteMissionId;
-                        if (String.IsNullOrEmpty(targetMissionId))
+                        using (IDisposable? outputBoundary = String.IsNullOrEmpty(noteMissionId) ? null
+                            : await MissionExecutionBoundary.AcquireOutputAsync(noteMissionId).ConfigureAwait(false))
                         {
-                            Captain? owner = await _Database.Captains.ReadAsync(noteCaptainId).ConfigureAwait(false);
-                            targetMissionId = owner?.CurrentMissionId;
+                            if (!await CanRouteOutputAsync(noteMissionId, stateOwner, replayGeneration).ConfigureAwait(false)) return;
+                            string? targetMissionId = noteMissionId;
+                            if (String.IsNullOrEmpty(targetMissionId))
+                            {
+                                Captain? owner = await _Database.Captains.ReadAsync(noteCaptainId).ConfigureAwait(false);
+                                targetMissionId = owner?.CurrentMissionId;
+                            }
+
+                            if (String.IsNullOrEmpty(targetMissionId)) return;
+                            CoordinationService? coordinationService = _CoordinationService;
+                            if (coordinationService == null) return;
+                            Captain? captain = await _Database.Captains.ReadAsync(noteCaptainId).ConfigureAwait(false);
+                            Mission? mission = await _Database.Missions.ReadAsync(targetMissionId).ConfigureAwait(false);
+                            if (captain == null || mission == null) return;
+
+                            CoordinationMessage? note = await coordinationService.PostCaptainNoteAsync(captain, mission, signal.Value).ConfigureAwait(false);
+                            if (note == null)
+                                _Logging.Warn(_Header + "rejected board note from captain " + noteCaptainId + " for mission " + targetMissionId);
                         }
-
-                        if (String.IsNullOrEmpty(targetMissionId)) return;
-                        CoordinationService? coordinationService = _CoordinationService;
-                        if (coordinationService == null) return;
-                        Captain? captain = await _Database.Captains.ReadAsync(noteCaptainId).ConfigureAwait(false);
-                        Mission? mission = await _Database.Missions.ReadAsync(targetMissionId).ConfigureAwait(false);
-                        if (captain == null || mission == null) return;
-
-                        CoordinationMessage? note = await coordinationService.PostCaptainNoteAsync(captain, mission, signal.Value).ConfigureAwait(false);
-                        if (note == null)
-                            _Logging.Warn(_Header + "rejected board note from captain " + noteCaptainId + " for mission " + targetMissionId);
                     }
                     catch (Exception ex)
                     {
@@ -1641,50 +1702,110 @@ namespace Armada.Server
 
             string capturedCaptainId = captainId;
             string? capturedMissionId = missionId;
-            _ = Task.Run(async () =>
+            QueueDeferredOutput(capturedMissionId, stateOwner, async () =>
             {
                 try
                 {
-                    string? targetMissionId = capturedMissionId;
-                    if (String.IsNullOrEmpty(targetMissionId))
+                    using (IDisposable? outputBoundary = String.IsNullOrEmpty(capturedMissionId) ? null
+                        : await MissionExecutionBoundary.AcquireOutputAsync(capturedMissionId).ConfigureAwait(false))
                     {
-                        Captain? captain = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
-                        targetMissionId = captain?.CurrentMissionId;
-                    }
-
-                    if (String.IsNullOrEmpty(targetMissionId)) return;
-
-                    if (signal.Type == "status" && signal.MissionStatus.HasValue)
-                    {
-                        Mission? mission = await _Database.Missions.ReadAsync(targetMissionId).ConfigureAwait(false);
-                        if (mission != null)
+                        if (!await CanRouteOutputAsync(capturedMissionId, stateOwner, replayGeneration).ConfigureAwait(false)) return;
+                        string? targetMissionId = capturedMissionId;
+                        if (String.IsNullOrEmpty(targetMissionId))
                         {
-                            // Agent output reports progress only. A post-work or terminal status is
-                            // reached through the completion and landing paths, which run their checks.
-                            if (MissionStateMachine.IsAgentReportableTransition(mission.Status, signal.MissionStatus.Value))
+                            Captain? captain = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
+                            targetMissionId = captain?.CurrentMissionId;
+                        }
+
+                        if (String.IsNullOrEmpty(targetMissionId)) return;
+
+                        if (signal.Type == "status" && signal.MissionStatus.HasValue)
+                        {
+                            Mission? mission = await _Database.Missions.ReadAsync(targetMissionId).ConfigureAwait(false);
+                            if (mission != null)
                             {
-                                mission.Status = signal.MissionStatus.Value;
-                                mission.LastUpdateUtc = DateTime.UtcNow;
-                                await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                                _Logging.Info(_Header + "mission " + mission.Id + " transitioned to " + signal.MissionStatus.Value + " via agent signal");
-                            }
-                            else
-                            {
-                                _Logging.Info(_Header + "mission " + mission.Id + " ignored agent status " + signal.MissionStatus.Value
-                                    + " from " + mission.Status + ": agent output may report only InProgress, Testing, or Review");
+                                // Agent output reports progress only. A post-work or terminal status is
+                                // reached through the completion and landing paths, which run their checks.
+                                if (MissionStateMachine.IsAgentReportableTransition(mission.Status, signal.MissionStatus.Value))
+                                {
+                                    mission.Status = signal.MissionStatus.Value;
+                                    mission.LastUpdateUtc = DateTime.UtcNow;
+                                    await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                                    _Logging.Info(_Header + "mission " + mission.Id + " transitioned to " + signal.MissionStatus.Value + " via agent signal");
+                                }
+                                else
+                                {
+                                    _Logging.Info(_Header + "mission " + mission.Id + " ignored agent status " + signal.MissionStatus.Value
+                                        + " from " + mission.Status + ": agent output may report only InProgress, Testing, or Review");
+                                }
                             }
                         }
-                    }
 
-                    Signal dbSignal = new Signal(SignalTypeEnum.Progress, "[" + signal.Type + "] " + signal.Value);
-                    dbSignal.FromCaptainId = capturedCaptainId;
-                    await _Database.Signals.CreateAsync(dbSignal).ConfigureAwait(false);
+                        Signal dbSignal = new Signal(SignalTypeEnum.Progress, "[" + signal.Type + "] " + signal.Value);
+                        dbSignal.FromCaptainId = capturedCaptainId;
+                        await _Database.Signals.CreateAsync(dbSignal).ConfigureAwait(false);
+                    }
                 }
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error processing progress signal: " + ex.Message);
                 }
             });
+        }
+
+        private void QueueDeferredOutput(string? missionId, long? owner, Func<Task> work)
+        {
+            if (owner.HasValue && !String.IsNullOrEmpty(missionId))
+            {
+                lock (_MissionStateOwners)
+                    _DeferredOutputWriteCounts[owner.Value] = _DeferredOutputWriteCounts.TryGetValue(owner.Value, out int count) ? count + 1 : 1;
+            }
+            _ = Task.Run(async () =>
+            {
+                try { await work().ConfigureAwait(false); }
+                catch (Exception ex) { _Logging.Warn(_Header + "deferred output delivery failed: " + ex.GetType().Name); }
+                finally { CompleteDeferredOutput(missionId, owner); }
+            });
+        }
+
+        private void CompleteDeferredOutput(string? missionId, long? owner)
+        {
+            if (!owner.HasValue || String.IsNullOrEmpty(missionId)) return;
+            lock (_MissionStateOwners)
+            {
+                if (_DeferredOutputWriteCounts.TryGetValue(owner.Value, out int count) && count > 1)
+                {
+                    _DeferredOutputWriteCounts[owner.Value] = count - 1;
+                    return;
+                }
+                _DeferredOutputWriteCounts.Remove(owner.Value);
+                if (_CompletedOutputOwners.TryGetValue(missionId, out long completed) && completed == owner.Value)
+                    _CompletedOutputOwners.Remove(missionId);
+            }
+        }
+
+        private bool IsCurrentOutputOwner(int processId, string? missionId, long? owner)
+        {
+            if (String.IsNullOrEmpty(missionId)) return true;
+            if (!owner.HasValue) return false;
+            lock (_MissionStateOwners)
+                return _ProcessStateOwners.TryGetValue(processId, out long processOwner) && processOwner == owner.Value
+                    && _MissionStateOwners.TryGetValue(missionId, out long currentOwner) && currentOwner == owner.Value;
+        }
+
+        private async Task<bool> CanRouteOutputAsync(string? missionId, long? owner, string replayGeneration)
+        {
+            if (String.IsNullOrEmpty(missionId)) return true;
+            if (!owner.HasValue) return false;
+            Mission? mission = await _Database.Missions.ReadSummaryAsync(missionId).ConfigureAwait(false);
+            if (mission == null || !String.Equals(mission.ResearchReplayId ?? String.Empty, replayGeneration, StringComparison.Ordinal)) return false;
+            lock (_MissionStateOwners)
+            {
+                if (_MissionStateOwners.TryGetValue(missionId, out long currentOwner)) return currentOwner == owner.Value;
+                // A valid final note can wait behind completion. It remains historical evidence of that generation.
+                return MissionStateMachine.IsTerminalOrPostWork(mission.Status)
+                    && _CompletedOutputOwners.TryGetValue(missionId, out long completedOwner) && completedOwner == owner.Value;
+            }
         }
 
         /// <summary>
@@ -1694,7 +1815,9 @@ namespace Armada.Server
         /// <param name="captainId">Reporting captain identifier.</param>
         /// <param name="missionId">Mission identifier, when the process is mapped to one.</param>
         /// <param name="value">Marker value that followed [ARMADA:PAPERCUT].</param>
-        private void HandlePapercutSignal(string captainId, string? missionId, string value)
+        /// <param name="stateOwner">Owner of the launch that parsed the report.</param>
+        /// <param name="replayGeneration">Durable attempt captured by that launch.</param>
+        private void HandlePapercutSignal(string captainId, string? missionId, string value, long? stateOwner, string replayGeneration)
         {
             Papercut? parsed = PapercutParser.TryParseValue(value);
             if (parsed == null)
@@ -1702,77 +1825,16 @@ namespace Armada.Server
                 _Logging.Debug(_Header + "unparseable papercut from captain " + captainId);
                 return;
             }
-
-            string capturedCaptainId = captainId;
-            string? capturedMissionId = missionId;
-
-            _ = Task.Run(async () =>
+            QueueDeferredOutput(missionId, stateOwner, async () =>
             {
                 try
                 {
-                    string? targetMissionId = capturedMissionId;
-                    if (String.IsNullOrEmpty(targetMissionId))
+                    using (IDisposable? outputBoundary = String.IsNullOrEmpty(missionId) ? null
+                        : await MissionExecutionBoundary.AcquireOutputAsync(missionId).ConfigureAwait(false))
                     {
-                        Captain? owner = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
-                        targetMissionId = owner?.CurrentMissionId;
+                        if (!await CanRouteOutputAsync(missionId, stateOwner, replayGeneration).ConfigureAwait(false)) return;
+                        await StorePapercutAsync(captainId, missionId, parsed).ConfigureAwait(false);
                     }
-
-                    Mission? mission = null;
-                    if (!String.IsNullOrEmpty(targetMissionId))
-                    {
-                        mission = await _Database.Missions.ReadAsync(targetMissionId!).ConfigureAwait(false);
-                    }
-
-                    // A judge reviews the work under review and already has a verdict channel for what
-                    // it finds there. Letting it file papercuts as well splits review feedback across two
-                    // surfaces, and the operator reads only one of them.
-                    if (mission != null && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
-                    {
-                        _Logging.Debug(_Header + "ignoring papercut from judge mission " + mission.Id);
-                        return;
-                    }
-
-                    if (!String.IsNullOrEmpty(targetMissionId))
-                    {
-                        int stored = _MissionPapercutCounts.AddOrUpdate(targetMissionId!, 1, (_, existing) => existing + 1);
-                        if (stored > _MaxPapercutsPerMission)
-                        {
-                            if (stored == _MaxPapercutsPerMission + 1)
-                            {
-                                _Logging.Info(_Header + "mission " + targetMissionId +
-                                    " reached the papercut cap of " + _MaxPapercutsPerMission + "; later reports are dropped");
-                            }
-
-                            return;
-                        }
-                    }
-
-                    Captain? captain = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
-
-                    parsed.CaptainId = capturedCaptainId;
-                    parsed.MissionId = targetMissionId;
-                    parsed.VesselId = mission?.VesselId;
-                    parsed.VoyageId = mission?.VoyageId;
-                    parsed.Persona = mission?.Persona;
-                    parsed.Runtime = captain?.Runtime.ToString();
-                    parsed.ReportedUtc = DateTime.UtcNow;
-
-                    ArmadaEvent papercutEvent = PapercutService.ToEvent(parsed);
-                    if (mission != null)
-                    {
-                        EventOwnerScope.ApplyFromMission(papercutEvent, mission);
-                    }
-                    else
-                    {
-                        EventOwnerScopeResult scope = await EventOwnerScope.ApplyAsync(_Database, papercutEvent).ConfigureAwait(false);
-                        if (scope.Outcome == Armada.Core.Enums.EventOwnerScopeOutcomeEnum.LookupFailed)
-                            _Logging.Warn(_Header + "papercut from captain " + capturedCaptainId + " written without owner scope: " + scope.Detail);
-                    }
-
-                    await _Database.Events.CreateAsync(papercutEvent).ConfigureAwait(false);
-
-                    _Logging.Info(_Header + "papercut from captain " + capturedCaptainId + " [" +
-                        parsed.Category + "/" + parsed.Severity + "] " + parsed.Title);
                 }
                 catch (Exception ex)
                 {
@@ -1781,13 +1843,85 @@ namespace Armada.Server
             });
         }
 
+        private async Task StorePapercutAsync(string capturedCaptainId, string? capturedMissionId, Papercut parsed)
+        {
+            string? targetMissionId = capturedMissionId;
+            if (String.IsNullOrEmpty(targetMissionId))
+            {
+                Captain? owner = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
+                targetMissionId = owner?.CurrentMissionId;
+            }
+
+            Mission? mission = null;
+            if (!String.IsNullOrEmpty(targetMissionId))
+            {
+                mission = await _Database.Missions.ReadAsync(targetMissionId!).ConfigureAwait(false);
+            }
+
+            // A judge reviews the work under review and already has a verdict channel for what
+            // it finds there. Letting it file papercuts as well splits review feedback across two
+            // surfaces, and the operator reads only one of them.
+            if (mission != null && PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge))
+            {
+                _Logging.Debug(_Header + "ignoring papercut from judge mission " + mission.Id);
+                return;
+            }
+
+            if (!String.IsNullOrEmpty(targetMissionId))
+            {
+                int stored = _MissionPapercutCounts.AddOrUpdate(targetMissionId!, 1, (_, existing) => existing + 1);
+                if (stored > _MaxPapercutsPerMission)
+                {
+                    if (stored == _MaxPapercutsPerMission + 1)
+                    {
+                        _Logging.Info(_Header + "mission " + targetMissionId +
+                            " reached the papercut cap of " + _MaxPapercutsPerMission + "; later reports are dropped");
+                    }
+
+                    return;
+                }
+            }
+
+            Captain? captain = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
+
+            parsed.CaptainId = capturedCaptainId;
+            parsed.MissionId = targetMissionId;
+            parsed.VesselId = mission?.VesselId;
+            parsed.VoyageId = mission?.VoyageId;
+            parsed.Persona = mission?.Persona;
+            parsed.Runtime = captain?.Runtime.ToString();
+            parsed.ReportedUtc = DateTime.UtcNow;
+
+            ArmadaEvent papercutEvent = PapercutService.ToEvent(parsed);
+            if (mission != null)
+            {
+                EventOwnerScope.ApplyFromMission(papercutEvent, mission);
+            }
+            else
+            {
+                EventOwnerScopeResult scope = await EventOwnerScope.ApplyAsync(_Database, papercutEvent).ConfigureAwait(false);
+                if (scope.Outcome == Armada.Core.Enums.EventOwnerScopeOutcomeEnum.LookupFailed)
+                    _Logging.Warn(_Header + "papercut from captain " + capturedCaptainId + " written without owner scope: " + scope.Detail);
+            }
+
+            await _Database.Events.CreateAsync(papercutEvent).ConfigureAwait(false);
+
+            _Logging.Info(_Header + "papercut from captain " + capturedCaptainId + " [" +
+                parsed.Category + "/" + parsed.Severity + "] " + parsed.Title);
+        }
+
         /// <summary>
         /// Persist an authoritative runtime token-usage sample for dashboard aggregation.
         /// </summary>
         /// <param name="processId">Agent process identifier.</param>
         /// <param name="usage">Usage reported directly by the runtime/provider.</param>
-        public void HandleTokenUsage(int processId, RuntimeTokenUsage usage)
+        public void HandleTokenUsage(int processId, RuntimeTokenUsage usage) => HandleTokenUsageForLaunch(processId, usage, null);
+
+        private void HandleTokenUsageForLaunch(int processId, RuntimeTokenUsage usage, long? expectedOwner)
         {
+            lock (_MissionStateOwners)
+            {
+            if (expectedOwner.HasValue && (!_ProcessStateOwners.TryGetValue(processId, out long mappedOwner) || mappedOwner != expectedOwner)) return;
             string? captainId = null;
             string? missionId = null;
             lock (_ProcessToCaptain)
@@ -1804,63 +1938,79 @@ namespace Armada.Server
 
             string capturedCaptainId = captainId;
             string capturedMissionId = missionId;
-            _ = Task.Run(async () =>
+            long? outputOwner = _ProcessStateOwners.TryGetValue(processId, out long owner) ? owner : null;
+            string generation = outputOwner.HasValue && _ReplayGenerationByOwner.TryGetValue(outputOwner.Value, out string? savedGeneration)
+                ? savedGeneration : String.Empty;
+            QueueDeferredOutput(missionId, outputOwner, async () =>
             {
-                try
+                using (IDisposable outputBoundary = await MissionExecutionBoundary.AcquireOutputAsync(capturedMissionId).ConfigureAwait(false))
                 {
-                    Captain? captain = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
-                    Mission? mission = await _Database.Missions.ReadAsync(capturedMissionId).ConfigureAwait(false);
-                    if (captain == null || mission == null)
+                    try
+                    {
+                        if (!await CanRouteOutputAsync(capturedMissionId, outputOwner, generation).ConfigureAwait(false)) return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "could not validate runtime telemetry ownership: " + ex.GetType().Name);
                         return;
-
-                    usage.Runtime = captain.Runtime.ToString();
-                    if (String.IsNullOrWhiteSpace(usage.Model))
-                        usage.Model = String.IsNullOrWhiteSpace(captain.Model) ? "(runtime default)" : captain.Model.Trim();
-
-                    // A sample without input buckets cannot be stored as a bucketed row. Its event below still
-                    // records it, and the summaries count it under the legacy rule.
-                    if (usage.UsageRule == TokenUsageRuleEnum.SeparateInputBuckets)
-                    {
-                        await TokenUsageCapture.CaptureAsync(
-                            _Database, _Logging, "mission",
-                            model: usage.Model,
-                            runtime: usage.Runtime,
-                            tenantId: mission.TenantId,
-                            userId: mission.UserId,
-                            vesselId: mission.VesselId,
-                            captainId: captain.Id,
-                            sourceId: mission.Id,
-                            uncachedInputTokens: usage.UncachedInputTokens,
-                            outputTokens: usage.OutputTokens,
-                            cacheReadInputTokens: usage.CacheReadTokens,
-                            cacheWriteInputTokens: usage.CacheWriteTokens,
-                            inputText: null,
-                            outputText: null).ConfigureAwait(false);
                     }
-                    else
+                    try
                     {
-                        _Logging.Warn(_Header + "token usage from " + usage.Runtime + " for mission " + mission.Id +
-                            " carries no input buckets; recorded as a legacy-rule event only");
-                    }
+                        Captain? captain = await _Database.Captains.ReadAsync(capturedCaptainId).ConfigureAwait(false);
+                        Mission? mission = await _Database.Missions.ReadAsync(capturedMissionId).ConfigureAwait(false);
+                        if (captain == null || mission == null)
+                            return;
 
-                    ArmadaEvent evt = new ArmadaEvent(
-                        "mission.token_usage",
-                        "Authoritative token usage reported by " + usage.Runtime + " for " + usage.Model);
-                    EventOwnerScope.ApplyFromMission(evt, mission);
-                    evt.EntityType = "mission";
-                    evt.EntityId = mission.Id;
-                    evt.CaptainId = captain.Id;
-                    evt.MissionId = mission.Id;
-                    evt.VesselId = mission.VesselId;
-                    evt.VoyageId = mission.VoyageId;
-                    evt.Payload = JsonSerializer.Serialize(usage);
-                    await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "error persisting token usage: " + ex.Message);
+                        usage.Runtime = captain.Runtime.ToString();
+                        if (String.IsNullOrWhiteSpace(usage.Model))
+                            usage.Model = String.IsNullOrWhiteSpace(captain.Model) ? "(runtime default)" : captain.Model.Trim();
+
+                        // A sample without input buckets cannot be stored as a bucketed row. Its event below still
+                        // records it, and the summaries count it under the legacy rule.
+                        if (usage.UsageRule == TokenUsageRuleEnum.SeparateInputBuckets)
+                        {
+                            await TokenUsageCapture.CaptureAsync(
+                                _Database, _Logging, "mission",
+                                model: usage.Model,
+                                runtime: usage.Runtime,
+                                tenantId: mission.TenantId,
+                                userId: mission.UserId,
+                                vesselId: mission.VesselId,
+                                captainId: captain.Id,
+                                sourceId: mission.Id,
+                                uncachedInputTokens: usage.UncachedInputTokens,
+                                outputTokens: usage.OutputTokens,
+                                cacheReadInputTokens: usage.CacheReadTokens,
+                                cacheWriteInputTokens: usage.CacheWriteTokens,
+                                inputText: null,
+                                outputText: null).ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            _Logging.Warn(_Header + "token usage from " + usage.Runtime + " for mission " + mission.Id +
+                                " carries no input buckets; recorded as a legacy-rule event only");
+                        }
+
+                        ArmadaEvent evt = new ArmadaEvent(
+                            "mission.token_usage",
+                            "Authoritative token usage reported by " + usage.Runtime + " for " + usage.Model);
+                        EventOwnerScope.ApplyFromMission(evt, mission);
+                        evt.EntityType = "mission";
+                        evt.EntityId = mission.Id;
+                        evt.CaptainId = captain.Id;
+                        evt.MissionId = mission.Id;
+                        evt.VesselId = mission.VesselId;
+                        evt.VoyageId = mission.VoyageId;
+                        evt.Payload = JsonSerializer.Serialize(usage);
+                        await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error persisting token usage: " + ex.Message);
+                    }
                 }
             });
+                    }
         }
 
         /// <summary>
@@ -1869,8 +2019,13 @@ namespace Armada.Server
         /// </summary>
         /// <param name="processId">Agent process identifier.</param>
         /// <param name="compaction">What the pass replaced and removed.</param>
-        public void HandleContextCompacted(int processId, RuntimeContextCompaction compaction)
+        public void HandleContextCompacted(int processId, RuntimeContextCompaction compaction) => HandleContextCompactedForLaunch(processId, compaction, null);
+
+        private void HandleContextCompactedForLaunch(int processId, RuntimeContextCompaction compaction, long? expectedOwner)
         {
+            lock (_MissionStateOwners)
+            {
+            if (expectedOwner.HasValue && (!_ProcessStateOwners.TryGetValue(processId, out long mappedOwner) || mappedOwner != expectedOwner)) return;
             if (compaction == null) return;
 
             string? captainId = null;
@@ -1889,36 +2044,52 @@ namespace Armada.Server
 
             string capturedCaptainId = captainId;
             string capturedMissionId = missionId;
-            _ = Task.Run(async () =>
+            long? outputOwner = _ProcessStateOwners.TryGetValue(processId, out long owner) ? owner : null;
+            string generation = outputOwner.HasValue && _ReplayGenerationByOwner.TryGetValue(outputOwner.Value, out string? savedGeneration)
+                ? savedGeneration : String.Empty;
+            QueueDeferredOutput(missionId, outputOwner, async () =>
             {
-                try
+                using (IDisposable outputBoundary = await MissionExecutionBoundary.AcquireOutputAsync(capturedMissionId).ConfigureAwait(false))
                 {
-                    Mission? mission = await _Database.Missions.ReadAsync(capturedMissionId).ConfigureAwait(false);
-                    if (mission == null)
+                    try
                     {
-                        _Logging.Warn(_Header + "discarding context compaction record for missing mission " + capturedMissionId);
+                        if (!await CanRouteOutputAsync(capturedMissionId, outputOwner, generation).ConfigureAwait(false)) return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "could not validate runtime telemetry ownership: " + ex.GetType().Name);
                         return;
                     }
+                    try
+                    {
+                        Mission? mission = await _Database.Missions.ReadAsync(capturedMissionId).ConfigureAwait(false);
+                        if (mission == null)
+                        {
+                            _Logging.Warn(_Header + "discarding context compaction record for missing mission " + capturedMissionId);
+                            return;
+                        }
 
-                    ArmadaEvent evt = new ArmadaEvent(
-                        "mission.context_compacted",
-                        (compaction.Forced ? "Hard-ceiling compaction" : "Context compaction") + " replaced "
-                        + compaction.CompactedResults + " tool result(s) and removed " + compaction.DroppedBytes + " bytes");
-                    EventOwnerScope.ApplyFromMission(evt, mission);
-                    evt.EntityType = "mission";
-                    evt.EntityId = mission.Id;
-                    evt.CaptainId = capturedCaptainId;
-                    evt.MissionId = mission.Id;
-                    evt.VesselId = mission.VesselId;
-                    evt.VoyageId = mission.VoyageId;
-                    evt.Payload = JsonSerializer.Serialize(compaction);
-                    await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "error persisting context compaction record: " + ex.Message);
+                        ArmadaEvent evt = new ArmadaEvent(
+                            "mission.context_compacted",
+                            (compaction.Forced ? "Hard-ceiling compaction" : "Context compaction") + " replaced "
+                            + compaction.CompactedResults + " tool result(s) and removed " + compaction.DroppedBytes + " bytes");
+                        EventOwnerScope.ApplyFromMission(evt, mission);
+                        evt.EntityType = "mission";
+                        evt.EntityId = mission.Id;
+                        evt.CaptainId = capturedCaptainId;
+                        evt.MissionId = mission.Id;
+                        evt.VesselId = mission.VesselId;
+                        evt.VoyageId = mission.VoyageId;
+                        evt.Payload = JsonSerializer.Serialize(compaction);
+                        await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "error persisting context compaction record: " + ex.Message);
+                    }
                 }
             });
+                    }
         }
 
         /// <summary>
@@ -1930,8 +2101,13 @@ namespace Armada.Server
         /// </summary>
         /// <param name="processId">Agent process identifier.</param>
         /// <param name="usage">Usage reported directly by the runtime/provider.</param>
-        public void HandleProviderProgress(int processId, RuntimeTokenUsage usage)
+        public void HandleProviderProgress(int processId, RuntimeTokenUsage usage) => HandleProviderProgressForLaunch(processId, usage, null);
+
+        private void HandleProviderProgressForLaunch(int processId, RuntimeTokenUsage usage, long? expectedOwner)
         {
+            lock (_MissionStateOwners)
+            {
+            if (expectedOwner.HasValue && (!_ProcessStateOwners.TryGetValue(processId, out long mappedOwner) || mappedOwner != expectedOwner)) return;
             if (_ProviderProgress == null) return;
             if (usage == null) return;
 
@@ -1948,6 +2124,7 @@ namespace Armada.Server
             }
 
             _ProviderProgress.Record(captainId, DateTime.UtcNow);
+                    }
         }
 
         /// <summary>
@@ -2134,6 +2311,8 @@ namespace Armada.Server
             bool handled = false;
             try
             {
+                if (expectedStateOwner.HasValue)
+                    await PersistStartedProcessIdAsync(processId, captainId + ":" + missionId, expectedStateOwner.Value).ConfigureAwait(false);
                 await _Admiral.HandleProcessExitAsync(
                     processId,
                     exitCode,
@@ -2244,16 +2423,27 @@ namespace Armada.Server
             }
         }
 
+        private async Task<long> TakeMissionStateOwnershipAsync(string missionId, string? replayId)
+        {
+            // Completion can launch its retry while holding the completion boundary. Take only the launch boundary here.
+            using (IDisposable launchBoundary = await MissionExecutionBoundary.LaunchWrites.AcquireAsync(missionId).ConfigureAwait(false))
+                return TakeMissionStateOwnership(missionId, replayId);
+        }
+
         /// <summary>
         /// Make a new launch the owner of a mission's per-process state and start that state empty.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>
+        /// <param name="replayId">Durable replay generation captured before launch.</param>
         /// <returns>The owner token the launch's process releases with.</returns>
-        internal long TakeMissionStateOwnership(string missionId)
+        internal long TakeMissionStateOwnership(string missionId, string? replayId = null)
         {
             long owner = Interlocked.Increment(ref _LastMissionStateOwner);
+            _ReplayGenerationByOwner[owner] = replayId ?? String.Empty;
             lock (_MissionStateOwners)
             {
+                if (_MissionStateOwners.TryGetValue(missionId, out long previousOwner)) _ReplayGenerationByOwner.TryRemove(previousOwner, out _);
+                _CompletedOutputOwners.Remove(missionId);
                 _MissionStateOwners[missionId] = owner;
                 _TerminalMarkers?.Clear(missionId);
                 _MissionHeartbeatWrites.TryRemove(missionId, out _);
@@ -2263,11 +2453,22 @@ namespace Armada.Server
         }
 
         /// <summary>Restore in-memory ownership without deleting artifacts or changing durable mission state.</summary>
-        private long RestoreMissionStateOwnership(string missionId)
+        private async Task<long> RestoreMissionStateOwnershipAsync(string missionId, string? replayId, CancellationToken token)
+        {
+            using (IDisposable launchBoundary = await MissionExecutionBoundary.LaunchWrites.AcquireAsync(missionId, token).ConfigureAwait(false))
+                return RestoreMissionStateOwnership(missionId, replayId);
+        }
+
+        private long RestoreMissionStateOwnership(string missionId, string? replayId)
         {
             long owner = Interlocked.Increment(ref _LastMissionStateOwner);
+            _ReplayGenerationByOwner[owner] = replayId ?? String.Empty;
             lock (_MissionStateOwners)
+            {
+                if (_MissionStateOwners.TryGetValue(missionId, out long previousOwner)) _ReplayGenerationByOwner.TryRemove(previousOwner, out _);
+                _CompletedOutputOwners.Remove(missionId);
                 _MissionStateOwners[missionId] = owner;
+            }
             return owner;
         }
 
@@ -2280,11 +2481,15 @@ namespace Armada.Server
         /// <param name="owner">Owner token returned by <see cref="TakeMissionStateOwnership"/>.</param>
         internal void RegisterMissionProcess(int processId, string captainId, string missionId, long owner)
         {
-            _ProcessStateOwners[processId] = owner;
-            lock (_ProcessToCaptain)
+            lock (_MissionStateOwners)
             {
-                _ProcessToCaptain[processId] = captainId;
-                _ProcessToMission[processId] = missionId;
+                if (!_MissionStateOwners.TryGetValue(missionId, out long currentOwner) || currentOwner != owner) return;
+                _ProcessStateOwners[processId] = owner;
+                lock (_ProcessToCaptain)
+                {
+                    _ProcessToCaptain[processId] = captainId;
+                    _ProcessToMission[processId] = missionId;
+                }
             }
         }
 
@@ -2306,12 +2511,15 @@ namespace Armada.Server
         /// </summary>
         private void ReleaseMissionState(long owner, string missionId)
         {
+            _ReplayGenerationByOwner.TryRemove(owner, out _);
             CloseProviderErrorSource(owner);
             RemoveProviderErrorsForOwner(owner);
             lock (_MissionStateOwners)
             {
                 if (!_MissionStateOwners.TryGetValue(missionId, out long current) || current != owner) return;
                 _MissionStateOwners.Remove(missionId);
+                if (_DeferredOutputWriteCounts.TryGetValue(owner, out int pending) && pending > 0)
+                    _CompletedOutputOwners[missionId] = owner;
                 _TerminalMarkers?.Clear(missionId);
                 _MissionHeartbeatWrites.TryRemove(missionId, out _);
                 DiscardUnclaimedMissionOutput(missionId);

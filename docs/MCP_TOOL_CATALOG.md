@@ -224,6 +224,16 @@ voyage returns to `InProgress`; its Checks are armed again; and a
 a stage an operator cancelled, a stage the terminal-voyage rule failed, and a
 skipped stage that moved the branch stay refused with `voyage_ended`.
 
+`armada_replay_research_voyage` is a separate global-operator operation for an
+attempt-preserving full six-role Research replay. Preview with exact
+`sourceCommit` and `dryRun=true`; apply the returned fingerprint with a unique
+request ID. It archives the prior attempts, resets the same six IDs atomically,
+and preserves criteria, source and autonomous recovery budgets. It grants no
+stage waiver. `armada_research_replay_output` reads explicitly addressed prior
+reports as the owner operator or a mission in that same replayed voyage.
+See [Full Research attempt replay](PIPELINES.md#full-research-attempt-replay)
+for refusals, history limits, REST routes and durable storage.
+
 `armada_mission_output` pages the authoritative safe report artifact. Follow
 `NextOffset` until `HasMore` is false. Then verify `Sha256`, `Finalized`, and
 `Complete`. MCP results keep the model's PascalCase property names. A missing page, incomplete artifact, or digest mismatch is an
@@ -1425,3 +1435,7 @@ Both tools require a global administrator.
 | --- | --- |
 | Read | `armada_trace` (writes a trace record only for a record missing from the table) |
 | Write | `armada_trace_backfill` |
+
+### Compact voyage status fields
+
+`armada_voyage_status` with `summary:false` and `includeMissions:true` returns bounded mission details. Set `includeDescription:true` to include mission description previews. A nonempty `includeFields` list includes report previews only when it contains `output`; omitted or empty fields retain the default bounded report preview. Each preview remains limited to 4096 characters with `Truncated` and `FullLength` metadata. Use `armada_mission_output` for paged full reports.

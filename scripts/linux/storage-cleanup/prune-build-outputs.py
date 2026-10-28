@@ -20,7 +20,6 @@ DEFAULTS = {
     'buildRetentionHours': 24,
     'cacheRetentionHours': 48,
     'lockPath': '/run/lock/armada-storage-cleanup.lock',
-    'receiptRetentionDays': 90,
     'diskUsagePath': '/',
     'scratchRoots': [],
     'wholeFolderRetentionDays': 3,
@@ -374,11 +373,7 @@ def main():
         receipt = receipt_dir / ('build-cleanup-' + stamp + '-' + str(os.getpid()) + '.json')
         try:
             receipt.write_text(json.dumps(report, indent=2) + '\n')
-            for old in receipt_dir.glob('build-cleanup-*.json'):
-                if old.is_symlink():
-                    continue
-                if old.is_file() and old.stat().st_mtime < time.time() - float(settings['receiptRetentionDays']) * 86400:
-                    old.unlink()
+            # Operator receipts remain with the verified history archive owner.
         except Exception as error:
             report['failures'].append({'path': str(receipt_dir), 'error': str(error)})
         print(json.dumps({k: v for k, v in report.items() if k not in ('candidates', 'removed')}, indent=2))

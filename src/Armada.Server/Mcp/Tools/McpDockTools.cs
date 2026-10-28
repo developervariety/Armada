@@ -101,7 +101,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_repair_dock",
-                "Repair a dock's git worktree to fix a corrupted or relocated registration. Non-destructive: no work is removed.",
+                "Repair a dock worktree. A missing worktree is recreated from its retained branch after ownership checks. For an existing worktree, repair discards unstaged tracked changes and removes untracked files and directories.",
                 new
                 {
                     type = "object",

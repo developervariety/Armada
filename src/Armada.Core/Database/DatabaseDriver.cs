@@ -159,6 +159,9 @@ namespace Armada.Core.Database
         /// </summary>
         public IMissionAttemptFactMethods MissionAttemptFacts { get; protected set; } = null!;
 
+        /// <summary>Atomic full Research replay and immutable prior-attempt history.</summary>
+        public IResearchReplayMethods ResearchReplays { get; protected set; } = null!;
+
         /// <summary>
         /// Append-only preparation claim observations used by production metrics.
         /// </summary>

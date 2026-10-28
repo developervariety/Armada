@@ -235,6 +235,57 @@ final `[ARMADA:VERDICT]` is `NEEDS_REVISION` or `FAIL` and no finding can be
 read, the list is the incomplete-findings marker, so a stage is sent to the
 complete output instead of being told there is nothing to fix.
 
+
+### Full Research attempt replay
+
+A global operator can preview `POST /api/v1/voyages/{id}/research-replay`
+with `dryRun: true` and an exact lowercase `sourceCommit`. The supported
+inventory is one finalized Failed Research voyage with exactly six original
+roles in order: Worker, PortingReferenceAnalyst, TestEngineer, Linter, Worker,
+Judge. The Judge must be Failed; all six captures must be retained, terminal,
+unheld, native and pinned to that source. Any Harbor job, landing lineage,
+Architect integration barrier, active captain, unresolved Check or retained
+process binding refuses replay. A foreign tenant, owner or vessel is refused.
+This operation does not broaden ordinary restart or reset recovery budgets.
+
+Apply with `dryRun: false`, a unique `requestId`, and the preview's
+`expectedFingerprint`. One provider transaction archives every prior report,
+status and chronology, playbook snapshot and current stored criteria before
+resetting the same six mission IDs and reopening the same voyage. There is no
+new voyage or substitute role. Changed state refuses the apply. Retrying an
+identical committed request returns its receipt and never erases new work.
+The current output starts empty; prior output cannot satisfy a current duty.
+Each replay uses new branch names, verifies the exact source before launch,
+and fences delayed prior-attempt writes and completion callbacks. Raw logs
+and final-message paths use the replay generation, so launching a new replay
+does not replace the prior attempt's files or read its success markers.
+
+`armada_replay_research_voyage` exposes the same preview/apply operation.
+`armada_research_replay_output` and
+`GET /api/v1/research-replays/{replayId}/missions/{missionId}/output` page the
+immutable historical output with normal redaction and digests. Read through
+`HasMore: false`; `PriorResearchAttempt` labels its historical status and
+chronology. Only the exact owner operator or a mission in the same current
+replayed voyage can read this history. New briefs name the archive identity.
+Follow `PriorResearchAttempt.PreviousReplayId` for earlier archives of this
+same owned voyage. The existing mission-output tool reads the current attempt.
+
+Capture is bounded to 16 MiB and refuses oversized history without resetting
+anything. Available top-level delivered instruction files are retained, up
+to 2 MiB each and 8 MiB total. `ArchiveLimitations` states missing historical
+configuration: original runtime settings/template versions, external
+supplements and sibling contents are not reconstructed or claimed as archived.
+A preview-time opaque `ConfigurationDigest` covers the resolved workflow and
+current gate/recovery/capacity policy; raw settings and environment values do
+not enter the archive. Settings and external source inputs are not modified by replay. The operator
+must retain and recheck required source inputs in the normal fresh preflight.
+
+The append-only `research_replays` table stores the owner, voyage, unique
+request key, versioned snapshot digest, private snapshot, durable receipt and
+creation time. `missions.research_replay_id` is a generation fence; ordinary
+mission writes cannot change it. Migration heads are SQLite 132, MySQL 125,
+PostgreSQL 136 and SQL Server 128.
+
 A handoff block carries the stage the dependent names. In an Audit or Research
 pipeline every stage reviews the same root report, so a report-only dependent
 also gets one `## Earlier Stage Reports` section, placed before its handoff

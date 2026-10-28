@@ -147,6 +147,13 @@ out again is not rescued again (the auto-rescue block). When a suite needs more
 time than the limit gives it on this host, set `gateCommandTimeoutSeconds` on
 its workflow profile instead of relying on the rescue.
 
+A full six-role Research chain can be replayed by an exact-owner global
+operator with an explicit preview and fingerprinted apply. All prior reports
+and statuses remain in immutable attempt history; the same stage IDs run again.
+This is separate from ordinary restart and does not waive independent duties
+or reset autonomous recovery budgets. See
+[Full Research attempt replay](PIPELINES.md#full-research-attempt-replay).
+
 A failed stage whose voyage ended `Failed` can also be restarted by an operator
 (`restart_mission`): the restart reopens the voyage and runs the later stages
 that were cancelled behind it again, whatever the failure class.

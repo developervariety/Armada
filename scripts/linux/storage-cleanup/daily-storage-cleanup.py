@@ -8,7 +8,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import time
 
 from cleanup_config import add_config_argument, load_config
 
@@ -23,7 +22,6 @@ STAGES = [
 DEFAULT_STAGES = ['build', 'agents', 'docker', 'test-databases']
 DEFAULTS = {
     'lockPath': '/run/lock/armada-daily-storage-cleanup.lock',
-    'receiptRetentionDays': 90,
     'stageTimeoutSeconds': 1800,
     'diskUsagePath': '/',
     'python': sys.executable or '/usr/bin/python3',
@@ -73,12 +71,7 @@ def main():
         path = directory / ('daily-' + stamp + '.json')
         path.write_text(json.dumps(report, indent=2) + '\n')
         print('Receipt: ' + str(path), flush=True)
-        # Only this directory's generated receipts are subject to the retention limit.
-        for old in directory.iterdir():
-            if old.is_symlink() or not old.is_file():
-                continue
-            if old.stat().st_mtime < time.time() - settings['receiptRetentionDays'] * 86400:
-                old.unlink()
+        # Receipts and stage output are history. Only the verified archive owner may retire them.
         return 1 if any(s['exit_code'] != 0 for s in report['stages']) else 0
 
 

@@ -24,6 +24,13 @@ the runtime ignores project configuration. Mission scope remains authoritative:
 captains must not dispatch, administer the fleet, deploy, restore, purge, or
 control the server unless the mission explicitly assigns that operator action.
 
+Launch-scoped client settings select the MCP connection and configuration files.
+They are not filesystem permissions. Access to an absolute host path still depends
+on the process user, container mounts, and host permissions. Do not treat a scoped
+HOME or an isolated worktree as proof that operator files cannot be read.
+Captains must not read operator settings, credentials, or broad operator logs to
+discover validation commands or input values.
+
 An operator uses MCP to:
 
 - inspect and manage operational assets;
@@ -140,6 +147,15 @@ The server-owned recovery runbook is part of autonomous recovery. Do not use
 it as a general operator checklist.
 
 ## 5. Workflow Profiles
+
+Generated captain briefs include a bounded native-check reference: configured
+validation commands and environment names, with profile environment values
+withheld. Credential-shaped commands are withheld rather than made executable;
+truncated or redacted commands must not be copied into a shell. This reference
+does not add stage duties or change which native Checks are armed. A manual run
+with missing profile inputs must name the missing inputs and resulting skips;
+it is not full-profile Check proof. Native Checks apply the complete profile
+environment. Deployment and rollback commands are not included in this reference.
 
 A workflow profile owns repeatable commands. The resolution order is:
 

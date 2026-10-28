@@ -908,7 +908,7 @@ namespace Armada.Server.WebSocket
             if (_Settings == null)
                 return new { type = "command.error", action = "get_mission_log", error = "Logs not available — settings not configured" };
             MissionLogResponse mlPage = await SessionLogReader.ReadMissionLogAsync(
-                _Settings.LogDirectory, mlMission.Id, command.Offset, command.Lines, 100).ConfigureAwait(false);
+                _Settings.LogDirectory, mlMission.Id, command.Offset, command.Lines, 100, replayId: mlMission.ResearchReplayId).ConfigureAwait(false);
             return new { type = "command.result", action = "get_mission_log", data = (object)new { MissionId = mlPage.MissionId, Log = mlPage.Log, Lines = mlPage.Lines, TotalLines = mlPage.TotalLines } };
         }
 

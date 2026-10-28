@@ -221,7 +221,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Docks")
                 .WithSummary("Repair a dock worktree")
-                .WithDescription("Runs git worktree repair on the dock's worktree to fix a corrupted or relocated registration. Non-destructive: no work is removed.")
+                .WithDescription("A missing worktree is recreated from its retained branch after ownership checks. For an existing worktree, repair discards unstaged tracked changes and removes untracked files and directories.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Dock ID (dck_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<object>("Repaired dock"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())

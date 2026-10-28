@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Routes
     using System.Linq;
     using System.IO;
     using System.Diagnostics;
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Test.Unit.Suites.Services;
     using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
@@ -26,7 +27,7 @@ namespace Armada.Test.Unit.Suites.Routes
     /// an ended voyage is never assigned, except the failed stage of a Failed voyage or a stage cancelled behind it: it
     /// reopens the voyage, runs on the last stage that produced verified work, and the later cancelled stages run again.
     /// </summary>
-    public class MissionRestartParityTests : TestSuite
+    public partial class MissionRestartParityTests : TestSuite
     {
         /// <summary>Suite name.</summary>
         public override string Name => "Mission Restart Parity";
@@ -36,6 +37,60 @@ namespace Armada.Test.Unit.Suites.Routes
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunResearchReplayTestsAsync().ConfigureAwait(false);
+            await RunTest("ResearchReplay_PreviewsFullChainWithoutChangingCompletedDutiesOrFailedVerdict", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await harness.Driver.Vessels.CreateAsync(new Vessel("research-replay-preview", "https://github.com/test/research.git")
+                    {
+                        TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    Voyage voyage = await harness.Driver.Voyages.CreateAsync(new Voyage("Research review replay", "Unchanged acceptance criteria")
+                    {
+                        TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                        Status = VoyageStatusEnum.Failed, CompletedUtc = DateTime.UtcNow
+                    }).ConfigureAwait(false);
+                    string[] roles = { PersonaCatalog.Worker, "PortingReferenceAnalyst", PersonaCatalog.TestEngineer,
+                        PersonaCatalog.Linter, PersonaCatalog.Worker, PersonaCatalog.Judge };
+                    List<Mission> stages = new List<Mission>();
+                    foreach (string role in roles)
+                    {
+                        bool judge = stages.Count == roles.Length - 1;
+                        Mission stage = await harness.Driver.Missions.CreateAsync(new Mission(role + " independent duty")
+                        {
+                            TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId,
+                            VoyageId = voyage.Id, VesselId = vessel.Id, Persona = role, StageOrder = stages.Count + 1,
+                            DependsOnMissionId = stages.LastOrDefault()?.Id, Mode = MissionModeEnum.Research,
+                            Status = judge ? MissionStatusEnum.Failed : MissionStatusEnum.Complete,
+                            StartFromRef = _ProducedCommit, CommitHash = _ProducedCommit,
+                            Description = "Read-only independent study; unchanged scope and criteria.",
+                            AgentOutput = judge ? "NEEDS_REVISION: prior independent duties remain incomplete." : "Prior report for " + role,
+                            FailureReason = judge ? "Judge verdict: NEEDS_REVISION" : null,
+                            StartedUtc = DateTime.UtcNow.AddMinutes(-10), CompletedUtc = DateTime.UtcNow.AddMinutes(-1)
+                        }).ConfigureAwait(false);
+                        stages.Add(stage);
+                    }
+                    SurfaceReply reply = await harness.RestAsync(HttpMethod.Post, "/api/v1/voyages/" + voyage.Id + "/research-replay",
+                        new { dryRun = true, sourceCommit = _ProducedCommit }).ConfigureAwait(false);
+                    AssertEqual(200, reply.Status, "An operator can preview a full-chain continuation: " + reply);
+                    using (JsonDocument body = JsonDocument.Parse(reply.Body))
+                    {
+                        AssertEqual(6, body.RootElement.EnumerateObject().Single(property => property.Name.Equals("MissionIds", StringComparison.OrdinalIgnoreCase)).Value.GetArrayLength(), "Every original duty is included");
+                        AssertEqual(_ProducedCommit, body.RootElement.EnumerateObject().Single(property => property.Name.Equals("SourceCommit", StringComparison.OrdinalIgnoreCase)).Value.GetString(), "Preview pins the source");
+                    }
+                    foreach (Mission original in stages)
+                    {
+                        Mission? current = await harness.Driver.Missions.ReadAsync(original.Id).ConfigureAwait(false);
+                        AssertEqual(original.Status, current!.Status, "Preview does not replace prior status");
+                        AssertEqual(original.AgentOutput, current.AgentOutput, "Preview retains the full prior report");
+                        AssertEqual(original.FailureReason, current.FailureReason, "Preview retains the failed verdict");
+                    }
+                    AssertEqual(VoyageStatusEnum.Failed, (await harness.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!.Status,
+                        "Preview does not reopen the voyage");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RestartMission_LandingFailedMission_IsRefusedAndNamesRetryLandingOnEverySurface", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))

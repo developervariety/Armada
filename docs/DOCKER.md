@@ -521,15 +521,19 @@ JSON file, `/etc/armada/storage-cleanup.json`. Each script takes
 order under one lock, and writes a `daily-<stamp>.json` receipt plus each
 stage's output to `receiptDirectory`. Without `stages` it runs the first four;
 `deploy-dumps` runs only when the list names it, because it needs its own
-`deployDumps` section:
+`deployDumps` section. Receipts and stage output are retained for verified history
+archival, including on a dry run. The former `receiptRetentionDays` setting is
+ignored:
 
 | Stage | Removes |
 | --- | --- |
 | `prune-build-outputs.py` | `bin`, `obj` and `node_modules` folders that git ignores and does not track, and isolated `dotnet-cli-home` NuGet caches, under `roots`. With `scratchRoots` set, also a whole top-level scratch folder whose newest file is older than `wholeFolderRetentionDays`. |
-| `prune-agent-caches.py` | Expired agent CLI session logs and outputs, orphan OpenCode snapshots, expired OpenCode sessions (native delete after a verified gzip backup, then `VACUUM` when worthwhile), and the old NuGet HTTP cache under `home`. |
+| `prune-agent-caches.py` | Orphan OpenCode Git snapshot caches and expired NuGet HTTP-cache files under `home`. Raw sessions, chat databases, transcripts, tool output, backups and maintenance copies remain with the history archive owner. |
 | `prune-docker-storage.py` | `rollback-before-*` tags once three dated retention sets exist, tags matching `unusedImageTagPatterns` that no container uses and that are older than `unusedImageMinAgeDays`, the reviewed `disposableVolumes`, and dangling layers. |
 | `prune-test-databases.py` | Generated test databases older than `minimumAgeHours` in each target Postgres container, only when no test runner is running. |
 | `prune-deploy-dumps.py` | Pre-deploy database dumps in `directory` whose name matches `pattern`, except the newest `keep` (default 2) by modification time. A dump that a process holds open is kept. |
+
+The agent-cache stage does not retire raw history. The history archive owns verified upload and local retirement. Archive retirement requires verified remote copies and the supported retention rules; an ordinary local backup is not archive proof. Provider-specific active-writer protection and whole-chat archival must be established before adding mutable chat databases to an archive root.
 
 Every stage fails closed. It skips a path that a running process references, a
 path behind a symlink, and a candidate that changed between plan and delete.

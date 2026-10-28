@@ -4,6 +4,7 @@
 Run: python3 scripts/linux/storage-cleanup/test-storage-cleanup.py
 """
 import datetime
+import contextlib
 import glob
 import importlib.util
 import json
@@ -14,6 +15,9 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
+import io
+import sqlite3
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -30,6 +34,8 @@ def load_script(name):
 
 build = load_script('prune-build-outputs.py')
 docker = load_script('prune-docker-storage.py')
+agents = load_script('prune-agent-caches.py')
+daily = load_script('daily-storage-cleanup.py')
 dumps = load_script('prune-deploy-dumps.py')
 
 DAY = 86400
@@ -137,6 +143,97 @@ class ConfigLoadingTests(unittest.TestCase):
         for section, keys in required.items():
             with self.subTest(section=section):
                 cleanup_config.load_config(example, section, keys)
+
+
+class AgentHistoryTests(unittest.TestCase):
+    @unittest.skipIf(os.path.isdir('/proc/self') and os.geteuid() != 0,
+                     'the build-stage CLI process scan reads every /proc entry and needs root on Linux')
+    def test_daily_dry_run_and_apply_retain_old_receipts_for_archive(self):
+        for mode in ([], ['--apply']):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                receipts = root / 'receipts'
+                receipts.mkdir()
+                originals = {}
+                for name in ('daily-old.json', 'old-agents.stdout', 'old-agents.stderr', 'build-cleanup-old.json'):
+                    path = receipts / name
+                    payload = ('Retained operator evidence: ' + name).encode()
+                    path.write_bytes(payload)
+                    os.utime(path, (time.time() - 120 * DAY,) * 2)
+                    originals[path] = payload
+                config = root / 'config.json'
+                config.write_text(json.dumps({'orchestrator': {
+                    'receiptDirectory': str(receipts), 'lockPath': str(root / 'daily.lock'),
+                    'receiptRetentionDays': 1, 'stages': ['build'], 'diskUsagePath': str(root)
+                }, 'buildOutputs': {
+                    'roots': [], 'receiptDirectory': str(receipts), 'lockPath': str(root / 'build.lock'),
+                    'receiptRetentionDays': 1, 'diskUsagePath': str(root)
+                }}))
+                with mock.patch.object(sys, 'argv', ['daily-storage-cleanup.py', '--config', str(config), *mode]), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(daily.main(), 0)
+                for path, payload in originals.items():
+                    self.assertTrue(path.is_file(), 'Operator receipt requires verified archival: ' + path.name)
+                    self.assertEqual(path.read_bytes(), payload)
+
+    def test_apply_keeps_raw_history_in_every_mode_but_can_remove_cache(self):
+        for mode in ([], ['--sessions-only'], ['--opencode-db-only']):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                home = root / 'home'
+                home.mkdir()
+                history = [
+                    '.codex/sessions/old.jsonl', '.claude/projects/old.jsonl',
+                    '.armada/accounts/codex-one/sessions/old.jsonl',
+                    '.armada/accounts/claude-one/projects/old.jsonl',
+                    '.local/share/opencode/log/old.log',
+                    '.local/share/opencode/tool-output/old.txt',
+                    '.armada/accounts/opencode-one/opencode/log/old.log',
+                    '.cursor/chats/old-chat/store.db', '.cursor/chats/old-chat/meta.json',
+                    '.cursor/projects/old-project/worker.log',
+                    '.cursor/projects/old-project/agent-tools/old.txt',
+                    '.cursor/projects/old-project/agent-transcripts/old.txt',
+                    '.cursor/projects/old-project/terminals/old.txt',
+                    '.armada/backups/opencode/opencode-old.sqlite.gz',
+                    '.armada/backups/opencode/opencode-old.sqlite.gz.part',
+                ]
+                for relative in history:
+                    write_file(home / relative, 90, size=64)
+                for directory in sorted(home.rglob('*'), reverse=True):
+                    if directory.is_dir():
+                        set_dir_age(directory, 90)
+                database = home / '.local/share/opencode/opencode.db'
+                with sqlite3.connect(database) as connection:
+                    connection.executescript('CREATE TABLE session(id TEXT,parent_id TEXT,time_updated INTEGER);'
+                                             'CREATE TABLE message(session_id TEXT,time_created INTEGER,time_updated INTEGER);'
+                                             'CREATE TABLE part(session_id TEXT,time_created INTEGER,time_updated INTEGER);'
+                                             'CREATE TABLE event(aggregate_id TEXT,data TEXT);'
+                                             'CREATE TABLE event_sequence(aggregate_id TEXT);')
+                    connection.execute('INSERT INTO session VALUES (?,?,?)', ('saved-session', None, 1))
+                before_database = database.read_bytes()
+                cache = home / '.local/share/NuGet/http-cache/old.dat'
+                write_file(cache, 90, size=64)
+                invoked = root / 'native-called'
+                native = root / 'native-cli'
+                native.write_text('#!/bin/sh\nprintf called > "' + str(invoked) + '"\nexit 1\n')
+                native.chmod(0o700)
+                config = root / 'config.json'
+                config.write_text(json.dumps({'agentCaches': {'home': str(home), 'opencodeCli': str(native)}}))
+                output = io.StringIO()
+                arguments = ['prune-agent-caches.py', '--apply', '--config', str(config), '--lock', str(root / 'lock')] + mode
+                with mock.patch.object(sys, 'argv', arguments), mock.patch.object(agents, 'scan_processes', return_value=(set(), [], False, [])), contextlib.redirect_stdout(output):
+                    result = agents.main()
+                for relative in history:
+                    self.assertTrue((home / relative).is_file(), 'Raw history must remain: ' + relative)
+                    self.assertEqual((home / relative).read_bytes(), b'x' * 64)
+                self.assertEqual(database.read_bytes(), before_database)
+                with sqlite3.connect(database) as connection:
+                    self.assertEqual(connection.execute('SELECT id FROM session').fetchall(), [('saved-session',)])
+                self.assertFalse(invoked.exists(), 'History cleanup must not invoke native session deletion')
+                self.assertEqual(result, 0, output.getvalue())
+                receipt = json.loads(output.getvalue())
+                self.assertIn('history_archive_owned', [entry['reason'] for entry in receipt['skipped']])
+                self.assertTrue(all(entry['kind'] == 'nuget_http_cache' for entry in receipt['removed']))
+                self.assertEqual(cache.exists(), bool(mode))
 
 
 class ScratchExpiryTests(unittest.TestCase):
