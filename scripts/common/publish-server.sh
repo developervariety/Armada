@@ -12,7 +12,11 @@ SERVER_EXE="${PUBLISH_DIR}/Armada.Server"
 
 echo
 echo "[publish-server] Publishing Armada.Server (${ARMADA_TARGET_FRAMEWORK}) to ${PUBLISH_DIR}..."
-dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release -f "${ARMADA_TARGET_FRAMEWORK}" -o "${PUBLISH_DIR}"
+# The resolver exports one space-separated argument list. Read it into an array and expand each word
+# quoted, so the project path and the output path stay single arguments. Options the resolver did not
+# consume stay on the dashboard deploy below.
+read -r -a armada_dotnet_framework_args <<< "${ARMADA_DOTNET_FRAMEWORK_ARGS}"
+dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release "${armada_dotnet_framework_args[@]}" -o "${PUBLISH_DIR}"
 
 echo
 echo "[publish-server] Deploying dashboard assets..."

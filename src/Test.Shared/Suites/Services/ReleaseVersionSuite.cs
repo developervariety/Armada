@@ -372,6 +372,22 @@ namespace Test.Shared.Suites.Services
                 AssertContains("Published server executable not found", result.Output, "the failure should identify the missing server executable");
             }, skip: OperatingSystem.IsWindows(), skipReason: "POSIX shell behavior is covered on Linux and macOS."));
 
+            cases.Add(Case("posix_publish_server_passes_resolved_framework_arguments", "POSIX Publish Server Passes Resolved Framework Arguments", TestTags.Positive, () =>
+            {
+                PosixPublishResult explicitFramework = RunPosixPublishScenario(
+                    createServer: true,
+                    dashboardDeploySucceeds: true,
+                    existingDashboard: false,
+                    publishArguments: new[] { "-f", "net8.0", "--insecure" });
+                AssertEqual(0, explicitFramework.ExitCode, "publish should complete when the dashboard deploy succeeds. Output: " + explicitFramework.Output);
+                AssertResolvedFrameworkArgs(explicitFramework.DotnetArguments, "net8.0");
+                AssertFalse(explicitFramework.DotnetArguments.Contains("--insecure", StringComparison.Ordinal), "A forwarded option stays on the dashboard deploy, not on dotnet. Args: " + explicitFramework.DotnetArguments);
+
+                PosixPublishResult defaultFramework = RunPosixPublishScenario(createServer: true, dashboardDeploySucceeds: true, existingDashboard: false);
+                AssertEqual(0, defaultFramework.ExitCode, "the default framework publish should complete. Output: " + defaultFramework.Output);
+                AssertResolvedFrameworkArgs(defaultFramework.DotnetArguments, "net10.0");
+            }, skip: OperatingSystem.IsWindows(), skipReason: "POSIX shell behavior is covered on Linux and macOS."));
+
             cases.Add(Case("posix_publish_server_keeps_complete_dashboard_when_copy_fails_partway", "POSIX Publish Server Keeps Complete Dashboard When Copy Fails Partway", TestTags.Positive, () =>
             {
                 PosixPublishResult result = RunPosixPublishScenario(createServer: true, dashboardDeploySucceeds: false, existingDashboard: true, useRealDashboardDeploy: true, failDashboardCopy: true);
@@ -542,13 +558,43 @@ namespace Test.Shared.Suites.Services
             File.Copy(sourcePath, destinationPath, overwrite: true);
         }
 
+        private static void AssertResolvedFrameworkArgs(string argvText, string framework)
+        {
+            string[] args = argvText.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            int project = -1;
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i].EndsWith("/src/Armada.Server", StringComparison.Ordinal) || args[i].EndsWith("\\src\\Armada.Server", StringComparison.Ordinal))
+                {
+                    project = i;
+                    break;
+                }
+            }
+            AssertTrue(project >= 0, "The project path is one argument. Args: " + argvText);
+            AssertEqual("publish", args[project - 1], "dotnet publish receives the project path as the next argument");
+            AssertTrue(HasArg(args, "--framework"), "The resolved framework flag is its own argument. Args: " + argvText);
+            AssertTrue(HasArg(args, framework), "The selected framework value is unchanged. Args: " + argvText);
+            AssertTrue(HasArg(args, "-p:TargetFramework=" + framework), "Publish sets TargetFramework to the resolved framework. Args: " + argvText);
+            AssertTrue(HasArg(args, "-p:TargetFrameworks=" + framework), "Publish sets TargetFrameworks to the resolved framework. Args: " + argvText);
+        }
+
+        private static bool HasArg(string[] args, string expected)
+        {
+            foreach (string arg in args)
+            {
+                if (String.Equals(arg, expected, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
         private static PosixPublishResult RunPosixPublishScenario(
             bool createServer,
             bool dashboardDeploySucceeds,
             bool existingDashboard,
             bool useRealDashboardDeploy = false,
             bool failDashboardCopy = false,
-            bool nodeAvailable = true)
+            bool nodeAvailable = true,
+            IReadOnlyList<string>? publishArguments = null)
         {
             string repoRoot = FindRepositoryRoot();
             string tempRoot = TestTemp.NewDirectory("publish-server-posix");
@@ -613,9 +659,11 @@ namespace Test.Shared.Suites.Services
                 string deployPath = Path.Combine(scripts, "deploy-dashboard.sh");
                 string dashboardDirectory = Path.Combine(home, ".armada", "dashboard");
 
+                string argvFile = Path.Combine(tempRoot, "dotnet-argv");
                 File.WriteAllText(dotnetPath,
                     "#!/bin/bash\n" +
                     "set -eu\n" +
+                    "if [ -n \"${ARMADA_DOTNET_ARGV_FILE:-}\" ]; then printf '%s\\n' \"$@\" >> \"$ARMADA_DOTNET_ARGV_FILE\"; printf '\\n' >> \"$ARMADA_DOTNET_ARGV_FILE\"; fi\n" +
                     "[ \"${DOTNET_CREATE_SERVER:-1}\" = 1 ] || exit 0\n" +
                     "output=''\n" +
                     "while [ \"$#\" -gt 0 ]; do\n" +
@@ -667,7 +715,13 @@ namespace Test.Shared.Suites.Services
                     UseShellExecute = false
                 };
                 startInfo.ArgumentList.Add(publishPath);
+                if (publishArguments != null)
+                {
+                    foreach (string publishArgument in publishArguments) startInfo.ArgumentList.Add(publishArgument);
+                }
                 startInfo.Environment["HOME"] = home;
+                startInfo.Environment["ARMADA_TARGET_FRAMEWORK"] = "";
+                startInfo.Environment["ARMADA_DOTNET_ARGV_FILE"] = argvFile;
                 string inheritedPath = Environment.GetEnvironmentVariable("PATH") ?? String.Empty;
                 startInfo.Environment["PATH"] = useRealDashboardDeploy && !nodeAvailable
                     ? tools
@@ -697,7 +751,8 @@ namespace Test.Shared.Suites.Services
                 string armadaRoot = Path.Combine(home, ".armada");
                 int stagingCount = Directory.Exists(armadaRoot) ? Directory.GetDirectories(armadaRoot, ".dashboard-stage.*").Length : 0;
                 bool deployLockExists = Directory.Exists(Path.Combine(armadaRoot, ".dashboard-deploy.lock"));
-                return new PosixPublishResult(exitCode, String.Join(Environment.NewLine, output), dashboardContent, output.Count, stagingCount, deployLockExists);
+                string dotnetArguments = File.Exists(argvFile) ? File.ReadAllText(argvFile) : String.Empty;
+                return new PosixPublishResult(exitCode, String.Join(Environment.NewLine, output), dashboardContent, output.Count, stagingCount, deployLockExists, dotnetArguments);
             }
             finally
             {
@@ -707,7 +762,7 @@ namespace Test.Shared.Suites.Services
 
         private sealed class PosixPublishResult
         {
-            public PosixPublishResult(int exitCode, string output, string dashboardContent, int publishRuns, int stagingDirectoryCount, bool deployLockExists)
+            public PosixPublishResult(int exitCode, string output, string dashboardContent, int publishRuns, int stagingDirectoryCount, bool deployLockExists, string dotnetArguments)
             {
                 ExitCode = exitCode;
                 Output = output;
@@ -715,6 +770,7 @@ namespace Test.Shared.Suites.Services
                 PublishRuns = publishRuns;
                 StagingDirectoryCount = stagingDirectoryCount;
                 DeployLockExists = deployLockExists;
+                DotnetArguments = dotnetArguments;
             }
 
             public int ExitCode { get; }
@@ -723,6 +779,7 @@ namespace Test.Shared.Suites.Services
             public int PublishRuns { get; }
             public int StagingDirectoryCount { get; }
             public bool DeployLockExists { get; }
+            public string DotnetArguments { get; }
         }
 
         private static string ReadDashboardSnapshot(string directory)
