@@ -457,10 +457,6 @@ export default function VesselDetail() {
                 { label: 'Duplicate', onClick: () => navigate(`/missions?duplicate=${encodeURIComponent(m.id)}`) },
               ]} /> },
               {
-                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
-                render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,
-              },
-              {
                 key: 'id', label: t('ID'), headerTitle: t('Mission ID (msn_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
                 render: (m) => (
                   <span className="id-display">
@@ -468,6 +464,10 @@ export default function VesselDetail() {
                     <CopyButton text={m.id} />
                   </span>
                 ),
+              },
+              {
+                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
+                render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,
               },
               { key: 'status', label: t('Status'), headerTitle: t('Where the mission is in its lifecycle, from Pending through InProgress and WorkProduced to Complete, Failed or Cancelled.'), cellClassName: 'cell-nowrap', render: (m) => <StatusBadge status={m.status} /> },
               {
