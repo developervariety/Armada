@@ -580,7 +580,8 @@ Unit tests (no pi needed):
 Integration smoke test:
 
 - `src/Test.Shared/Suites/Runtimes/PiRuntimeSmokeSuite.cs` (NEW, suite id `Runtimes.PiSmoke`):
-  skipped when `pi` is not on PATH or `pi auth check` is not 0. Runs a real `PiRuntime` in a temp
+  skipped when `pi` is not on PATH or `pi auth check --provider <provider>` (provider from the
+  test settings) is not 0. Runs a real `PiRuntime` in a temp
   git repo with prompt "create hello.txt containing hi and reply DONE", asserts exit 0, the file,
   the final message, and nonzero token counts. A second case runs with a deliberately bad API key
   (`--api-key` or env) and asserts the provider error is classified and the exit code is nonzero.
