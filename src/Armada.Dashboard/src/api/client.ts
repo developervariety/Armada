@@ -4,6 +4,8 @@ import type {
   WhoAmIResult,
   TenantLookupResult,
   TenantMetadata,
+  TenantCreateRequest,
+  TenantCreateResult,
   UserMaster,
   UserUpsertRequest,
   Credential,
@@ -639,7 +641,7 @@ export const listTenants = (params?: PageParams) => get<EnumerationResult<Tenant
 /** Every tenant visible to the caller, read page by page. */
 export const listAllTenants = () =>
   listAllPages((pageNumber) => listTenants({ pageNumber, pageSize: ALL_PAGES_SIZE }));
-export const createTenant = (data: Partial<TenantMetadata>) => post<TenantMetadata>('/api/v1/tenants', data);
+export const createTenant = (data: TenantCreateRequest) => post<TenantCreateResult>('/api/v1/tenants', data);
 export const updateTenant = (id: string, data: Partial<TenantMetadata>) => put<TenantMetadata>(`/api/v1/tenants/${id}`, data);
 export const deleteTenant = (id: string) => del<void>(`/api/v1/tenants/${id}`);
 

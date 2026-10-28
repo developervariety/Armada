@@ -29,6 +29,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 - `POST /api/v1/tenants` seeds the tenant admin `admin@armada` with the `AdminPassword` from the request, or with a random password returned once in the response. A new tenant admin never has the default password.
 - A user who changes their own password through `PUT /api/v1/users/{id}` supplies `CurrentPassword`; a missing value returns `400` and a wrong value `403`. An administrator's reset of another user, and requests that use the configured `ApiKey`, are unchanged.
+- The Dashboard Users modal asks for the current password when a user edits their own record and shows the server's refusal message. The tenant form takes an optional admin password and shows a generated one once, with a copy button, in a dialog that discards it on close. A banner links to the password change while `PasswordChangeRequired` is true and never blocks the session.
 
 ## v1.0.0 (2026-10-26)
 

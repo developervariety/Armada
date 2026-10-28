@@ -13,6 +13,8 @@ interface AuthState {
   loading: boolean;
   login: (token: string) => Promise<void>;
   logout: () => void;
+  /** Re-reads the signed-in identity, for example after the user changes their own password. */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -75,12 +77,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      setUser(await whoami());
+    } catch {
+      // A refused session signs out through the unauthorized handler; any other failure keeps the last identity.
+    }
+  }, []);
+
   const isAuthenticated = !!sessionToken && !!user;
   const isAdmin = user?.user?.isAdmin ?? false;
   const isTenantAdmin = isAdmin || (user?.user?.isTenantAdmin ?? false);
 
   return (
-    <AuthContext.Provider value={{ sessionToken, user, isAuthenticated, isAdmin, isTenantAdmin, loading, login, logout }}>
+    <AuthContext.Provider value={{ sessionToken, user, isAuthenticated, isAdmin, isTenantAdmin, loading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

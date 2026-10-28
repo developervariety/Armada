@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications } from '../context/NotificationContext';
 import { clearProxySessionInstance, getHealth, getProxySessionContext, listCaptains, listFleets, listVessels, logoutProxy, type ProxySessionContext } from '../api/client';
+import PasswordChangeBanner from './PasswordChangeBanner';
 import SetupWizard, { isSetupComplete, clearSetupComplete } from './SetupWizard';
 import LanguageSelector from './shared/LanguageSelector';
 import NotificationBell from './shared/NotificationBell';
@@ -409,6 +410,7 @@ export default function Layout() {
 
           <main className="main">
             <div className="view">
+              {!showProxyContext && <PasswordChangeBanner passwordChangeRequired={user?.passwordChangeRequired} />}
               <Outlet />
             </div>
           </main>

@@ -109,11 +109,15 @@ listener binds.
 - **Self-service password change.** `PUT /api/v1/users/{id}` for the caller's own
   record requires `CurrentPassword` when the request changes the password.
   Administrative resets of another user and requests that use the configured
-  `ApiKey` are unchanged. The Dashboard Users modal does not send
-  `CurrentPassword` yet, so its self password change returns an error; use
-  `PUT /api/v1/account/password` or reset the password as another administrator.
-  The Dashboard tenant form does not show the generated admin password either:
-  pass `AdminPassword` through the API, or reset the tenant admin password.
+  `ApiKey` are unchanged. The Dashboard Users modal asks for the current password
+  when a user edits their own record and sends it with the new one; it shows the
+  server's `400` or `403` message when the change is refused. While the signed-in
+  account still has the default password, the Dashboard shows a banner that links
+  to this change. The banner does not block the session.
+- **Tenant creation in the Dashboard.** The tenant form accepts an optional admin
+  password. When it is blank, the server generates one and the Dashboard shows it
+  once in a dialog, with a copy button, after the tenant is created. Closing the
+  dialog discards it.
 
 Run the upgrade rehearsal on the restored copy with the production
 `rest.hostname` so this check runs before the cutover.

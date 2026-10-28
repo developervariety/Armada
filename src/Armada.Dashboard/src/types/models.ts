@@ -7,6 +7,19 @@ export interface TenantMetadata {
   lastUpdateUtc: string;
 }
 
+/** Create-tenant body: the tenant fields plus the optional initial password of the seeded tenant admin. */
+export interface TenantCreateRequest {
+  name: string;
+  active?: boolean;
+  adminPassword?: string;
+}
+
+/** Create-tenant response. `adminPassword` is the generated password, present only in this response. */
+export interface TenantCreateResult extends TenantMetadata {
+  adminEmail: string | null;
+  adminPassword: string | null;
+}
+
 export interface UserMaster {
   id: string;
   tenantId: string;
@@ -25,6 +38,8 @@ export interface UserUpsertRequest {
   tenantId?: string;
   email: string;
   password?: string;
+  /** Required when a user changes their own password; omitted when an administrator resets another user's. */
+  currentPassword?: string;
   passwordSha256?: string;
   firstName?: string | null;
   lastName?: string | null;
@@ -55,11 +70,14 @@ export interface AuthenticateResult {
   success: boolean;
   token: string | null;
   expiresUtc: string | null;
+  passwordChangeRequired?: boolean;
 }
 
 export interface WhoAmIResult {
   tenant: TenantMetadata | null;
   user: UserMaster | null;
+  /** True while the caller is a seeded admin account that still has the default password. */
+  passwordChangeRequired?: boolean;
 }
 
 export interface TenantLookupResult {

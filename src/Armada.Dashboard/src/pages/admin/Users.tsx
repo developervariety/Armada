@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { createUser, updateUser, deleteUser, listAllTenants, listAllUsers } from '../../api/client';
 import type { UserMaster, TenantMetadata, UserUpsertRequest } from '../../types/models';
 import Pagination from '../../components/shared/Pagination';
@@ -27,7 +28,7 @@ const USER_COLUMNS: Record<string, (u: UserMaster) => string | number> = {
 };
 
 export default function Users() {
-  const { user, isAdmin, isTenantAdmin } = useAuth();
+  const { user, isAdmin, isTenantAdmin, refreshUser } = useAuth();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
   const proxyContext = useProxySessionContext();
@@ -43,6 +44,7 @@ export default function Users() {
     lastName: '',
     password: '',
     confirmPassword: '',
+    currentPassword: '',
     isAdmin: false,
     isTenantAdmin: false,
     tenantId: '',
@@ -95,6 +97,7 @@ export default function Users() {
       lastName: '',
       password: '',
       confirmPassword: '',
+      currentPassword: '',
       isAdmin: false,
       isTenantAdmin: false,
       tenantId: tenants[0]?.id ?? user?.tenant?.id ?? '',
@@ -114,6 +117,7 @@ export default function Users() {
       lastName: u.lastName ?? '',
       password: '',
       confirmPassword: '',
+      currentPassword: '',
       isAdmin: u.isAdmin,
       isTenantAdmin: u.isTenantAdmin,
       tenantId: u.tenantId,
@@ -122,6 +126,22 @@ export default function Users() {
     setEditing(u);
     setShowForm(true);
   }
+
+  // The server asks for the current password when users change their own; an administrator's reset of another user needs none.
+  const editingSelf = Boolean(editing && user?.user && editing.id === user.user.id);
+
+  // The password-change link opens the signed-in user's own record, then clears its query flag.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const ownRecord = user?.user ?? null;
+  useEffect(() => {
+    if (searchParams.get('changePassword') !== '1' || !ownRecord || remoteProxyMode) return;
+    openEdit(ownRecord);
+    setSearchParams(current => {
+      const next = new URLSearchParams(current);
+      next.delete('changePassword');
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams, ownRecord, remoteProxyMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -135,6 +155,11 @@ export default function Users() {
         return;
       }
 
+      if (editingSelf && form.password.trim() && !form.currentPassword) {
+        setError(t('Current password is required to change your own password.'));
+        return;
+      }
+
       const payload: UserUpsertRequest = {
         email: form.email,
         firstName: form.firstName || null,
@@ -144,12 +169,14 @@ export default function Users() {
         isTenantAdmin: form.isTenantAdmin,
         active: form.active,
         ...(form.password.trim() ? { password: form.password } : {}),
+        ...(editingSelf && form.password.trim() ? { currentPassword: form.currentPassword } : {}),
       };
 
       if (editing) await updateUser(editing.id, payload);
       else await createUser(payload);
       setShowForm(false);
       setError('');
+      if (editingSelf) await refreshUser();
       pushToast('success', editing
         ? t('User "{{email}}" saved.', { email: form.email })
         : t('User "{{email}}" created.', { email: form.email }));
@@ -235,6 +262,19 @@ export default function Users() {
             <label>{t('Email')}<input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required /></label>
             <label>{t('First Name')}<input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} /></label>
             <label>{t('Last Name')}<input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} /></label>
+            {editingSelf && (
+              <label>
+                {t('Current Password')}
+                <input
+                  type="password"
+                  value={form.currentPassword}
+                  onChange={e => setForm({ ...form, currentPassword: e.target.value })}
+                  required={!!form.password}
+                  autoComplete="current-password"
+                  placeholder={t('Required to set a new password')}
+                />
+              </label>
+            )}
             <label>
               {editing ? t('New Password') : t('Password')}
               <input

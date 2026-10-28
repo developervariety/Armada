@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createTenant, updateTenant, deleteTenant, listAllTenants } from '../../api/client';
-import type { TenantMetadata } from '../../types/models';
+import type { TenantCreateRequest, TenantMetadata } from '../../types/models';
 import Pagination from '../../components/shared/Pagination';
 import ActionMenu from '../../components/shared/ActionMenu';
 import ConfirmDialog from '../../components/shared/ConfirmDialog';
@@ -34,7 +34,9 @@ export default function Tenants() {
   const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<TenantMetadata | null>(null);
-  const [form, setForm] = useState({ name: '', active: true });
+  const [form, setForm] = useState({ name: '', active: true, adminPassword: '' });
+  // The generated admin password lives only in this state, only while its dialog is open.
+  const [createdAdmin, setCreatedAdmin] = useState<{ tenantName: string; email: string; password: string } | null>(null);
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; resourceName?: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
   const remoteProxyMode = Boolean(proxyContext?.selectedInstanceId);
@@ -63,7 +65,7 @@ export default function Tenants() {
 
   function openCreate() {
     if (remoteProxyMode) return;
-    setForm({ name: '', active: true });
+    setForm({ name: '', active: true, adminPassword: '' });
     setEditing(null);
     setShowForm(true);
   }
@@ -72,7 +74,7 @@ export default function Tenants() {
       setJsonData({ open: true, title: `Tenant: ${tenant.name}`, data: tenant });
       return;
     }
-    setForm({ name: tenant.name, active: tenant.active });
+    setForm({ name: tenant.name, active: tenant.active, adminPassword: '' });
     setEditing(tenant);
     setShowForm(true);
   }
@@ -80,9 +82,23 @@ export default function Tenants() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
-      if (editing) await updateTenant(editing.id, form);
-      else await createTenant(form);
+      let generated: typeof createdAdmin = null;
+      if (editing) {
+        await updateTenant(editing.id, { name: form.name, active: form.active });
+      } else {
+        const request: TenantCreateRequest = {
+          name: form.name,
+          active: form.active,
+          ...(form.adminPassword ? { adminPassword: form.adminPassword } : {}),
+        };
+        const result = await createTenant(request);
+        if (result?.adminPassword) {
+          generated = { tenantName: form.name, email: result.adminEmail ?? 'admin@armada', password: result.adminPassword };
+        }
+      }
       setShowForm(false);
+      setForm({ name: '', active: true, adminPassword: '' });
+      setCreatedAdmin(generated);
       pushToast('success', editing
         ? t('Tenant "{{name}}" saved.', { name: form.name })
         : t('Tenant "{{name}}" created.', { name: form.name }));
@@ -162,6 +178,19 @@ export default function Tenants() {
           <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Tenant') : t('Create Tenant')}</h3>
             <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
+            {!editing && (
+              <label>
+                {t('Admin Password (optional)')}
+                <input
+                  type="password"
+                  value={form.adminPassword}
+                  onChange={e => setForm({ ...form, adminPassword: e.target.value })}
+                  minLength={8}
+                  autoComplete="new-password"
+                  placeholder={t('At least 8 characters. Leave blank to generate one.')}
+                />
+              </label>
+            )}
             {editing && (
               <label className="checkbox-label"><input type="checkbox" checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> {t('Active')}</label>
             )}
@@ -170,6 +199,30 @@ export default function Tenants() {
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {createdAdmin && (
+        <div className="modal-overlay" style={{ zIndex: 1500 }}>
+          <div className="modal" role="dialog" aria-labelledby="tenant-admin-password-title">
+            <h3 id="tenant-admin-password-title">{t('Tenant Admin Password')}</h3>
+            <p>{t('Tenant "{{name}}" was created. Its administrator signs in with this email and password.', { name: createdAdmin.tenantName })}</p>
+            <div className="alert alert-warning" role="alert" style={{ marginTop: 0 }}>
+              {t('This password is shown only once. Copy it now; Armada cannot show it again.')}
+            </div>
+            <p>
+              <span className="text-dim">{t('Email')}: </span>
+              <span className="mono">{createdAdmin.email}</span>
+            </p>
+            <p className="id-display">
+              <span className="text-dim">{t('Password')}: </span>
+              <span className="mono">{createdAdmin.password}</span>
+              <CopyButton text={createdAdmin.password} title="Copy password" />
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-primary" onClick={() => setCreatedAdmin(null)}>{t('I have copied it')}</button>
+            </div>
+          </div>
         </div>
       )}
 
