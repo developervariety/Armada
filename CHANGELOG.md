@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
+
 ### Handoff and landing resilience
 
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.

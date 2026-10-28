@@ -404,7 +404,8 @@ namespace Armada.Core.Services
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             }
 
-            if (!String.IsNullOrEmpty(captain.CurrentDockId))
+            // Failed stall recovery must retain edits, including when the replacement launch throws.
+            if (failureKind != MissionFailureKindEnum.StallRecoveryExhausted && !String.IsNullOrEmpty(captain.CurrentDockId))
             {
                 try
                 {
