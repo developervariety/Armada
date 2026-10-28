@@ -648,8 +648,8 @@ namespace Test.Shared.Suites.E2E
                 process.StartInfo = info;
                 process.EnableRaisingEvents = true;
                 RunningAdmiral child = new RunningAdmiral(process);
-                process.OutputDataReceived += (object? sender, DataReceivedEventArgs args) => child.OnOutput(args.Data);
-                process.ErrorDataReceived += (object? sender, DataReceivedEventArgs args) => child.OnError(args.Data);
+                process.OutputDataReceived += (sender, args) => child.OnOutput(args.Data);
+                process.ErrorDataReceived += (sender, args) => child.OnError(args.Data);
                 if (!process.Start())
                 {
                     process.Dispose();
