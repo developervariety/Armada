@@ -353,11 +353,6 @@ export default function Captains() {
 
   const columns: DataTableColumn<Captain>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Captain name, shown in lists, logs and mission assignments. Click to sort.'), cellClassName: 'cell-nowrap',
-      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only captains whose name contains this text (not case sensitive).')} value={colFilters.name} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
-      render: (c) => <><strong>{c.name}</strong>{c.tier ? <> <CaptainTierBadge tier={c.tier} /></> : null}</>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique captain ID (cpt_ prefix), used by the API, CLI, MCP tools and logs. Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (c) => (
         <span className="id-display">
@@ -365,6 +360,11 @@ export default function Captains() {
           <CopyButton text={c.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Captain name, shown in lists, logs and mission assignments. Click to sort.'), cellClassName: 'cell-nowrap',
+      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only captains whose name contains this text (not case sensitive).')} value={colFilters.name} onChange={e => setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
+      render: (c) => <><strong>{c.name}</strong>{c.tier ? <> <CaptainTierBadge tier={c.tier} /></> : null}</>,
     },
     {
       key: 'runtime', label: t('Runtime'), sortKey: 'runtime', headerTitle: t('Agent program the captain runs, such as ClaudeCode, Codex, Mux or ApiEndpoint. Click to sort.'), cellClassName: 'text-dim',

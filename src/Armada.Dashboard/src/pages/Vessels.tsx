@@ -218,11 +218,6 @@ export default function Vessels() {
 
   const columns: DataTableColumn<Vessel>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Vessel name. Click to sort; type in the box below to filter.'), cellClassName: 'cell-nowrap',
-      filter: <input type="text" className="col-filter" aria-label={t('Filter vessels by name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} />,
-      render: (v) => <strong>{v.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), headerTitle: t('Vessel ID (vsl_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (v) => (
         <span className="id-display">
@@ -230,6 +225,11 @@ export default function Vessels() {
           <CopyButton text={v.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Vessel name. Click to sort; type in the box below to filter.'), cellClassName: 'cell-nowrap',
+      filter: <input type="text" className="col-filter" aria-label={t('Filter vessels by name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} />,
+      render: (v) => <strong>{v.name}</strong>,
     },
     {
       key: 'fleet', label: t('Fleet'), sortKey: 'fleetId', headerTitle: t('Fleet the vessel belongs to. Click a fleet name to open it; use the box below to show one fleet.'), cellClassName: 'cell-nowrap',
