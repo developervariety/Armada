@@ -371,11 +371,20 @@ namespace Armada.Test.Unit.Suites.Services
                 string tempDir = Path.Combine(Path.GetTempPath(), "armada_inbox_pages_" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(tempDir);
                 ArmadaSettings settings = LongRunningJobServiceTests.NewServerSettings(tempDir);
+                // The incident sweep opens and closes incidents in the background after startup; with it on, the
+                // inbox changes between the whole-list read and the page reads.
+                settings.IncidentLifecycle.Enabled = false;
                 using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(settings.Database).ConfigureAwait(false))
                 {
                     for (int i = 1; i <= 3; i++)
                         await driver.Missions.CreateAsync(new Mission("Review me " + i) { Status = MissionStatusEnum.Review }).ConfigureAwait(false);
-                    await driver.Missions.CreateAsync(new Mission("Landing failed") { Status = MissionStatusEnum.LandingFailed }).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "UnitTest");
+                    await new IncidentService(driver).CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Landing stopped",
+                        Status = IncidentStatusEnum.Open,
+                        Severity = IncidentSeverityEnum.Critical
+                    }).ConfigureAwait(false);
                 }
 
                 LoggingModule logging = new LoggingModule();
