@@ -442,7 +442,7 @@ namespace Armada.Core.Services
                 {
                     IReadOnlyList<string> conflicts = await GetConflictedFilesAsync(targetWorkDir, CancellationToken.None).ConfigureAwait(false);
                     if (conflicts.Count > 0) failure += " Conflicted files: " + String.Join(", ", conflicts) + ".";
-                    if (await ChangelogLandingConflict.TryResolveAsync(_Commands ?? new LocalHostCommandExecutor(), targetWorkDir, OperatingSystem.IsWindows(), token).ConfigureAwait(false)) return;
+                    if (await ChangelogLandingConflict.TryResolveAsync(_Commands ?? new LocalHostCommandExecutor(), targetWorkDir, IsWindowsHost(targetWorkDir), token).ConfigureAwait(false)) return;
                 }
                 catch (Exception secondary)
                 {
@@ -720,7 +720,7 @@ namespace Armada.Core.Services
             try
             {
                 conflicted = await GetConflictedFilesAsync(worktreePath, CancellationToken.None).ConfigureAwait(false);
-                resolved = await ChangelogLandingConflict.TryResolveAsync(_Commands ?? new LocalHostCommandExecutor(), worktreePath, OperatingSystem.IsWindows(), token).ConfigureAwait(false);
+                resolved = await ChangelogLandingConflict.TryResolveAsync(_Commands ?? new LocalHostCommandExecutor(), worktreePath, IsWindowsHost(worktreePath), token).ConfigureAwait(false);
             }
             catch (Exception secondary)
             {
@@ -731,7 +731,11 @@ namespace Armada.Core.Services
                 // Cleanup must run even if the resolver or conflict listing throws.
                 if (!resolved)
                 {
-                    try { await RunGitAsync(worktreePath, CancellationToken.None, "merge", "--abort").ConfigureAwait(false); }
+                    // Abort whenever a merge may be in progress; a failed probe is not proof that none is.
+                    bool mergeInProgress = true;
+                    try { mergeInProgress = await MergeInProgressAsync(worktreePath, CancellationToken.None).ConfigureAwait(false); }
+                    catch (Exception) { }
+                    try { if (mergeInProgress) await RunGitAsync(worktreePath, CancellationToken.None, "merge", "--abort").ConfigureAwait(false); }
                     catch (Exception secondary) { failure += " Merge abort failed: " + secondary.Message; }
                 }
             }
@@ -1688,6 +1692,13 @@ namespace Armada.Core.Services
             }
 
             return false;
+        }
+
+        private bool IsWindowsHost(string workDir)
+        {
+            // A remote (Harbor) dock runs on its own OS; infer it from the dock path rather than this process.
+            if (_Commands == null) return OperatingSystem.IsWindows();
+            return workDir.Contains('\\') || (workDir.Length >= 2 && workDir[1] == ':' && Char.IsLetter(workDir[0]));
         }
 
         private async Task RestoreAfterFailedMergeAsync(string targetWorkDir, string sourceRepoPath, string? targetBranch, CancellationToken token)

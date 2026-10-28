@@ -20,9 +20,7 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
-- Preserve the existing dock cleanup for intermediate pipeline stages and review gates while retaining terminal worktrees for landing retries.
-
-- Route landing conflict resolution through the dock git executor, retain retryable docks during completion, and include a reason in unsuccessful retry_landing responses. Preserve merge failures when conflict resolution or cleanup also fails.
+- Landing conflicts on Harbor docks: CHANGELOG conflict resolution and `git merge --abort` now run through the dock's own host executor (with the dock host's shell), conflicts report their file list and always abort, and merge failures are preserved when resolution or cleanup also fails. LandingFailed and terminal WorkProduced missions keep their dock (completion and orphan reclamation no longer remove it; intermediate pipeline stages still clean up), and retry_landing on a missing dock folder fails with a "Dock missing" reason. Unsuccessful retry_landing responses always carry a reason.
 
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
 

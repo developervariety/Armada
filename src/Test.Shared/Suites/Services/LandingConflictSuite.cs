@@ -57,6 +57,101 @@ namespace Test.Shared.Suites.Services
                 }));
             }
 
+            foreach (string dockPath in new[] { "/nonlocal/dock", "C:\\docks\\dock" })
+            {
+                bool windowsDock = dockPath.StartsWith("C:");
+                cases.Add(CaseAsync("remote_changelog_conflict_uses_dock_shell_" + (windowsDock ? "windows" : "posix"), "Remote CHANGELOG conflict resolves with the dock host shell", TestTags.Positive, async () =>
+                {
+                    RecordingChangelogExecutor executor = new RecordingChangelogExecutor(dockPath);
+                    GitService git = new GitService(CreateLogging(), executor);
+                    GitCommitMergeResult result = await git.MergeCommitAsync(dockPath, "abc123", null, "landing");
+                    AssertEqual(GitCommitMergeOutcomeEnum.Merged, result.Outcome);
+                    AssertTrue(executor.Shells.Count > 0, "Resolver shell must run through the dock host executor");
+                    foreach (string shell in executor.Shells) AssertEqual(windowsDock ? "cmd.exe" : "/bin/sh", shell);
+                    AssertFalse(executor.Aborted, "A resolved CHANGELOG conflict must not be aborted");
+                }));
+            }
+
+            cases.Add(CaseAsync("retry_landing_missing_dock_reports_reason", "RetryLanding on a missing dock folder reports dock missing", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    git.ExistingBranches.Add("feature/gone");
+                    Vessel vessel = new Vessel("Missing Dock Vessel", "https://github.com/test/missingdock");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_landing_" + Guid.NewGuid().ToString("N"));
+                    await db.Vessels.CreateAsync(vessel);
+                    Dock dock = new Dock(vessel.Id)
+                    {
+                        BranchName = "feature/gone",
+                        WorktreePath = Path.Combine(Path.GetTempPath(), "armada_missing_dock_" + Guid.NewGuid().ToString("N"))
+                    };
+                    await db.Docks.CreateAsync(dock);
+                    Mission mission = new Mission("Dock vanished")
+                    {
+                        Status = MissionStatusEnum.LandingFailed,
+                        VesselId = vessel.Id,
+                        DockId = dock.Id,
+                        BranchName = "feature/gone"
+                    };
+                    await db.Missions.CreateAsync(mission);
+
+                    LandingService landing = new LandingService(CreateLogging(), db, CreateSettings(), git);
+                    bool landingRan = false;
+                    landing.OnPerformLanding = (m, d) => { landingRan = true; return Task.CompletedTask; };
+
+                    AssertFalse(await landing.RetryLandingAsync(mission.Id), "Retry must fail when the dock folder is gone");
+                    AssertFalse(landingRan, "Landing must not run against a missing worktree");
+                    Mission reread = (await db.Missions.ReadAsync(mission.Id))!;
+                    AssertEqual(MissionStatusEnum.LandingFailed, reread.Status);
+                    AssertContains("Dock missing", reread.FailureReason ?? "");
+                    AssertContains(dock.WorktreePath!, reread.FailureReason ?? "");
+                    AssertContains("feature/gone", reread.FailureReason ?? "");
+                }
+            }));
+
+            cases.Add(CaseAsync("retry_landing_harbor_dock_not_checked_locally", "RetryLanding does not treat a Harbor dock path as missing on the Admiral host", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    git.ExistingBranches.Add("feature/harbor");
+                    Vessel vessel = new Vessel("Harbor Dock Vessel", "https://github.com/test/harbordock");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_landing_" + Guid.NewGuid().ToString("N"));
+                    await db.Vessels.CreateAsync(vessel);
+                    Dock dock = new Dock(vessel.Id)
+                    {
+                        BranchName = "feature/harbor",
+                        HarborId = "hbr_remote",
+                        RepositoryPath = "C:\\harbor\\repo.git",
+                        WorktreePath = "C:\\harbor\\docks\\dock"
+                    };
+                    await db.Docks.CreateAsync(dock);
+                    Mission mission = new Mission("Harbor landing")
+                    {
+                        Status = MissionStatusEnum.LandingFailed,
+                        VesselId = vessel.Id,
+                        DockId = dock.Id,
+                        BranchName = "feature/harbor"
+                    };
+                    await db.Missions.CreateAsync(mission);
+
+                    LandingService landing = new LandingService(CreateLogging(), db, CreateSettings(), git);
+                    Dock? landedDock = null;
+                    landing.OnPerformLanding = async (m, d) =>
+                    {
+                        landedDock = d;
+                        m.Status = MissionStatusEnum.Complete;
+                        await db.Missions.UpdateAsync(m);
+                    };
+
+                    AssertTrue(await landing.RetryLandingAsync(mission.Id), "Harbor dock retry should reach the landing handler");
+                    AssertEqual(dock.Id, landedDock?.Id);
+                }
+            }));
+
             cases.Add(CaseAsync("git_detects_conflicted_files", "Git DetectsConflictedFiles", TestTags.Positive, async () =>
             {
                 string dir = CreateTempDir();
@@ -226,6 +321,36 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private sealed class RecordingChangelogExecutor : IHostCommandExecutor
+        {
+            private readonly string _Dock;
+            public List<string> Shells { get; } = new List<string>();
+            public bool Aborted { get; private set; }
+
+            public RecordingChangelogExecutor(string dock) { _Dock = dock; }
+
+            public Task<HostCommandResult> RunAsync(HostCommandRequest request, CancellationToken token = default)
+            {
+                AssertEqual(_Dock, request.WorkingDirectory);
+                HostCommandResult result = new HostCommandResult();
+                if (request.Executable != "git")
+                {
+                    Shells.Add(request.Executable);
+                    return Task.FromResult(result);
+                }
+                string args = String.Join(" ", request.Arguments);
+                if (args.StartsWith("merge-base")) result.ExitCode = 1;
+                else if (args.StartsWith("merge --no-ff"))
+                {
+                    result.ExitCode = 1;
+                    result.StandardError = "Merge conflict in CHANGELOG.md";
+                }
+                else if (args.StartsWith("diff --name-only")) result.StandardOutput = args.Contains("-z") ? "CHANGELOG.md\0" : "CHANGELOG.md\n";
+                else if (args == "merge --abort") Aborted = true;
+                return Task.FromResult(result);
+            }
+        }
 
         private sealed class RecordingConflictExecutor : IHostCommandExecutor
         {

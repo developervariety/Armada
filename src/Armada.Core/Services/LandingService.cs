@@ -20,6 +20,12 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<Mission, Dock, Task>? OnPerformLanding { get; set; }
 
+        /// <summary>
+        /// Resolves the host a dock lives on, so retries can confirm that a Harbor-hosted worktree still exists.
+        /// When null, only docks on the Admiral's host are checked.
+        /// </summary>
+        public DockHostResolver? DockHosts { get; set; } = null;
+
         #endregion
 
         #region Private-Members
@@ -150,11 +156,6 @@ namespace Armada.Core.Services
 
                 _Logging.Debug(_Header + "retrying landing for mission " + missionId + " branch " + missionBranch);
 
-                // Transition back to WorkProduced for landing attempt
-                mission.Status = MissionStatusEnum.WorkProduced;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-
                 // Try to find the dock or create a temporary context for landing
                 Dock? dock = null;
                 if (!String.IsNullOrEmpty(mission.DockId))
@@ -163,6 +164,27 @@ namespace Armada.Core.Services
                         ? await _Database.Docks.ReadAsync(tenantId, mission.DockId, token).ConfigureAwait(false)
                         : await _Database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
                 }
+
+                // A dock whose worktree folder is gone cannot be landed from; say so instead of failing deep in git.
+                if (dock != null && !String.IsNullOrEmpty(dock.WorktreePath)
+                    && !await DockWorktreeExistsAsync(dock, token).ConfigureAwait(false))
+                {
+                    string where = DockHostResolver.IsHarborDock(dock) ? " on Harbor " + dock.HarborId : "";
+                    _Logging.Warn(_Header + "dock " + dock.Id + " worktree " + dock.WorktreePath + where + " is missing -- cannot retry landing for mission " + missionId);
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    mission.FailureKind = MissionFailureKindEnum.Infra;
+                    mission.FailureReason = "Dock missing: the worktree " + dock.WorktreePath + where + " for dock " + dock.Id
+                        + " no longer exists, so landing cannot be retried from it. Branch '" + missionBranch
+                        + "' is still in the repository; merge it manually or restart the mission.";
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                    return false;
+                }
+
+                // Transition back to WorkProduced for landing attempt
+                mission.Status = MissionStatusEnum.WorkProduced;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
                 // If no dock, create a minimal one for the landing handler
                 if (dock == null)
@@ -228,6 +250,29 @@ namespace Armada.Core.Services
 
                 return false;
             }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task<bool> DockWorktreeExistsAsync(Dock dock, CancellationToken token)
+        {
+            if (DockHostResolver.IsHarborDock(dock))
+            {
+                if (DockHosts == null) return true;
+                try
+                {
+                    return await DockHosts.ForDock(dock).Files.DirectoryExistsAsync(dock.WorktreePath!, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // An unreachable Harbor is not proof the dock is gone; let the landing attempt report it.
+                    _Logging.Warn(_Header + "unable to check dock " + dock.Id + " on Harbor " + dock.HarborId + ": " + ex.Message);
+                    return true;
+                }
+            }
+            return Directory.Exists(dock.WorktreePath);
         }
 
         #endregion
