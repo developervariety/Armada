@@ -1028,6 +1028,10 @@ namespace Armada.Server.Routes
                                 + "To land it automatically, set a landing mode (Local Merge, Merge and Push, Pull Request, or Merge Queue) on the vessel or voyage and retry; "
                                 + "or merge the branch yourself from the vessel's Manage Branches view.";
                         }
+                        else if (mission.Status == MissionStatusEnum.LandingFailed && !String.IsNullOrWhiteSpace(mission.FailureReason))
+                        {
+                            reason = mission.FailureReason;
+                        }
                         else if (mission.Status == MissionStatusEnum.LandingFailed)
                         {
                             reason = "Landing for mode " + effectiveMode + " failed to rebase or merge branch '" + branch

@@ -497,6 +497,7 @@ namespace Armada.Server
             missionService.DockHosts = dockHosts;
             missionService.ResolveDockPlacementAsync = _AgentLifecycle.ResolveDockPlacementAsync;
             _MissionLanding.DockHosts = dockHosts;
+            _LandingService.DockHosts = dockHosts;
 
             // Evaluate (probe-only model probes): each probe runs through the captain's own runtime as a Harbor job,
             // under the evaluation budget and concurrency limits. Nothing it records changes routing or captain settings.
