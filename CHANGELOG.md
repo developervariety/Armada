@@ -7,6 +7,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+- Keep a text-only copy of the most recently searched code indexes in memory for the lexical code part of `armada_search_context`, and reload it when the index file changes, so a query no longer parses every stored embedding.
+
 - Archive an expired history folder of at least `diskLifecycle.archiveBundleMinFiles` files (default 50) as one verified `.tar.gz` object instead of one object per file, so a folder of thousands of small files archives in one round trip. A deny-listed file inside an expired history folder keeps only itself: the rest of the folder is archived and freed around it. Keep a disk-lifecycle background job past the stale limit while its pass is still advancing, and remove idle evidence build outputs that hold read-only folders.
 
 ### Harbor host metrics

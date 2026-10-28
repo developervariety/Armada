@@ -174,8 +174,10 @@ freshness. Guidance versions are hashes of the loaded snapshot text.
 Optional guidance and facts use local BM25 ranking over one shared candidate
 list, so the strongest match leads whether it is a rule, a document or a fact.
 Code uses the existing local lexical index, and its ranks join that list by
-reciprocal rank. Search never
-creates a code index. `Sources` distinguishes an available source with no
+reciprocal rank. The admiral keeps a text-only copy of the most recently
+searched indexes in memory and reloads one when its index file changes, so a
+query does not re-read the stored embeddings. Search never creates a code
+index. `Sources` distinguishes an available source with no
 matches from a missing or failed source. Set `includeCode` to false to omit code
 search.
 

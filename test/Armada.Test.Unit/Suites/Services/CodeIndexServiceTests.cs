@@ -67,6 +67,14 @@ namespace Armada.Test.Unit.Suites.Services
                         ContextSearchResponse empty = await search.SearchAsync(caller, new ContextSearchRequest { VesselId = vessel.Id, Query = "absentxyz" }).ConfigureAwait(false);
                         AssertEqual(0, empty.Results.Count, "An absent code term stays empty");
                         AssertEqual("Fresh", empty.Sources.Single(source => source.Source == "code").Freshness, "Index freshness remains visible without hits");
+
+                        await AppendCommitAsync(repository.Path, "src/Packet.cs", "public class Packet { public bool ValidateFrameLength() => true; }", "Rename the packet check").ConfigureAwait(false);
+                        await code.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        ContextSearchResponse renamed = await search.SearchAsync(caller, new ContextSearchRequest { VesselId = vessel.Id, Query = "ValidateFrameLength" }).ConfigureAwait(false);
+                        ContextSearchItem renamedHit = renamed.Results.Single(item => item.Source == Armada.Core.Enums.ContextSearchSourceEnum.Code);
+                        AssertContains("ValidateFrameLength", renamedHit.Text, "A repeated query on the same service reads the updated index");
+                        ContextSearchResponse retired = await search.SearchAsync(caller, request).ConfigureAwait(false);
+                        AssertFalse(retired.Results.Any(item => item.Source == Armada.Core.Enums.ContextSearchSourceEnum.Code), "Code removed by the update is no longer returned");
                     }
                 }
                 finally

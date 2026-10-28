@@ -41,6 +41,11 @@ namespace Armada.Core.Services
         private readonly TimeProvider _TimeProvider;
         private PolyglotSymbolExtractor _SymbolExtractor = new PolyglotSymbolExtractor();
         private static readonly ConcurrentDictionary<string, CodeIndexActiveUpdate> _ActiveUpdates = new ConcurrentDictionary<string, CodeIndexActiveUpdate>(StringComparer.OrdinalIgnoreCase);
+        // Vector-free projections of recently searched indexes, keyed by vessel. A lexical search
+        // scores text alone, and parsing every stored embedding on each call dominates its cost.
+        private readonly ConcurrentDictionary<string, LexicalRecordCacheEntry> _LexicalRecordCache = new ConcurrentDictionary<string, LexicalRecordCacheEntry>(StringComparer.OrdinalIgnoreCase);
+        private readonly object _LexicalRecordCacheTrimLock = new object();
+        private const int _LexicalRecordCacheVesselLimit = 4;
         private const string _EmbeddingStateDisabled = "Disabled";
         private const string _EmbeddingStateUnavailable = "Unavailable";
         private const string _EmbeddingStateComplete = "Complete";
@@ -506,9 +511,10 @@ namespace Armada.Core.Services
         /// <summary>
         /// Search the vessel index. Search never creates or refreshes an index: a vessel with no index
         /// returns a <see cref="CodeSearchResponse.NotIndexedReason"/> response and nothing reaches the
-        /// embedding provider. A lexical-only search reads the existing local index and scores it
-        /// lexically: it starts no query embedding or graph boost, so its cost is bounded by one local
-        /// read even when the caller has no time budget left for the optional stages.
+        /// embedding provider. A lexical-only search scores the existing local index lexically: it
+        /// starts no query embedding or graph boost, and it reads a cached text-only projection of the
+        /// index that is rebuilt when the index file changes, so its cost stays bounded even when the
+        /// caller has no time budget left for the optional stages.
         /// </summary>
         private async Task<CodeSearchResponse> SearchCoreAsync(CodeSearchRequest request, bool lexicalOnly, CancellationToken token)
         {
@@ -532,7 +538,9 @@ namespace Armada.Core.Services
 
             CodeIndexStatus status = await GetStatusAsync(request.VesselId, token).ConfigureAwait(false);
 
-            List<CodeIndexRecord> records = await ReadRecordsAsync(request.VesselId, status.Freshness, token).ConfigureAwait(false);
+            List<CodeIndexRecord> records = lexicalOnly && !request.IncludeEmbeddings
+                ? await ReadLexicalRecordsAsync(request.VesselId, token).ConfigureAwait(false)
+                : await ReadRecordsAsync(request.VesselId, status.Freshness, token).ConfigureAwait(false);
             string[] terms = SplitQueryTerms(request.Query);
             int limit = ClampLimit(request.Limit, _Settings.CodeIndex.MaxSearchResults);
 
@@ -619,6 +627,7 @@ namespace Armada.Core.Services
                 .Select(r =>
                 {
                     CodeIndexRecord outputRecord = CopyRecord(r.Record, request.IncludeEmbeddings);
+                    outputRecord.Freshness = status.Freshness;
                     if (!request.IncludeContent) outputRecord.Content = "";
                     return new CodeSearchResult
                     {
@@ -2112,6 +2121,81 @@ namespace Armada.Core.Services
             }
 
             return records;
+        }
+
+        /// <summary>
+        /// Read the vessel index without its embedding vectors. The parsed projection is kept per
+        /// vessel and reused while the chunk file keeps the same length and write time; an index
+        /// update replaces the file, so the next search reads the new content. Only the most
+        /// recently searched vessels are kept. The returned list is shared and must not be changed.
+        /// </summary>
+        private async Task<List<CodeIndexRecord>> ReadLexicalRecordsAsync(string vesselId, CancellationToken token)
+        {
+            FileInfo file = new FileInfo(GetChunksPath(vesselId));
+            if (!file.Exists)
+            {
+                _LexicalRecordCache.TryRemove(vesselId, out _);
+                return new List<CodeIndexRecord>();
+            }
+
+            long length = file.Length;
+            DateTime writtenUtc = file.LastWriteTimeUtc;
+            DateTime nowUtc = _TimeProvider.GetUtcNow().UtcDateTime;
+            if (_LexicalRecordCache.TryGetValue(vesselId, out LexicalRecordCacheEntry? cached)
+                && cached.Length == length
+                && cached.LastWriteUtc == writtenUtc)
+            {
+                cached.LastUsedUtc = nowUtc;
+                return cached.Records;
+            }
+
+            List<CodeIndexRecord> records = new List<CodeIndexRecord>();
+            using (FileStream stream = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                string? line;
+                while ((line = await reader.ReadLineAsync(token).ConfigureAwait(false)) != null)
+                {
+                    if (String.IsNullOrWhiteSpace(line)) continue;
+                    LexicalCodeIndexRecord? record = JsonSerializer.Deserialize<LexicalCodeIndexRecord>(line, _JsonOptions);
+                    if (record == null) continue;
+                    records.Add(new CodeIndexRecord
+                    {
+                        VesselId = record.VesselId,
+                        Path = record.Path,
+                        CommitSha = record.CommitSha,
+                        ContentHash = record.ContentHash,
+                        Language = record.Language,
+                        StartLine = record.StartLine,
+                        EndLine = record.EndLine,
+                        IndexedAtUtc = record.IndexedAtUtc,
+                        IsReferenceOnly = record.IsReferenceOnly,
+                        Content = record.Content
+                    });
+                }
+            }
+
+            _LexicalRecordCache[vesselId] = new LexicalRecordCacheEntry
+            {
+                Length = length,
+                LastWriteUtc = writtenUtc,
+                LastUsedUtc = nowUtc,
+                Records = records
+            };
+            TrimLexicalRecordCache();
+            return records;
+        }
+
+        private void TrimLexicalRecordCache()
+        {
+            lock (_LexicalRecordCacheTrimLock)
+            {
+                while (_LexicalRecordCache.Count > _LexicalRecordCacheVesselLimit)
+                {
+                    KeyValuePair<string, LexicalRecordCacheEntry> oldest = _LexicalRecordCache.OrderBy(entry => entry.Value.LastUsedUtc).First();
+                    _LexicalRecordCache.TryRemove(oldest.Key, out _);
+                }
+            }
         }
 
         private async Task WriteSignaturesAsync(string vesselId, List<FileSignatureRecord> signatures, CancellationToken token)
@@ -4594,6 +4678,41 @@ namespace Armada.Core.Services
             {
                 Path = path ?? "";
             }
+        }
+
+        private sealed class LexicalRecordCacheEntry
+        {
+            public long Length { get; set; }
+
+            public DateTime LastWriteUtc { get; set; }
+
+            public DateTime LastUsedUtc { get; set; }
+
+            public List<CodeIndexRecord> Records { get; set; } = new List<CodeIndexRecord>();
+        }
+
+        // The stored chunk shape without its embedding vector, so a text-only read skips the vector.
+        private sealed class LexicalCodeIndexRecord
+        {
+            public string VesselId { get; set; } = "";
+
+            public string Path { get; set; } = "";
+
+            public string CommitSha { get; set; } = "";
+
+            public string ContentHash { get; set; } = "";
+
+            public string Language { get; set; } = "";
+
+            public int StartLine { get; set; } = 1;
+
+            public int EndLine { get; set; } = 1;
+
+            public DateTime IndexedAtUtc { get; set; } = DateTime.UtcNow;
+
+            public bool IsReferenceOnly { get; set; } = false;
+
+            public string Content { get; set; } = "";
         }
 
         private sealed class CodeIndexActiveUpdate
