@@ -156,7 +156,9 @@ needs no other database or vector service.
 
 Supply `query` and, for an operator call, `vesselId`. A mission credential fixes
 the vessel to its active, owned mission and uses ordinary owner visibility even
-when the mission owner is an administrator. Access checks run before ranking.
+when the mission owner is an administrator. A mission or vessel stored without
+an owner belongs to the default user, as in every other ownership check.
+Access checks run before ranking.
 Vessel recall includes native records about or originating from that vessel and
 visible records with no vessel association. The database applies the tenant and
 vessel filter, so a query reads only that vessel's candidates. Records from

@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using Armada.Core.Authorization;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>Authorized identity, mission and vessel shared by recall entry points.</summary>
@@ -45,17 +46,39 @@ namespace Armada.Core.Services
             ContextRecallScope scope = new ContextRecallScope { Caller = effective };
             if (!String.IsNullOrWhiteSpace(missionId))
             {
-                scope.Mission = await CallerScopedRead.ReadMissionAsync(database, effective, missionId, token).ConfigureAwait(false);
+                scope.Mission = await ReadMissionAsync(database, effective, missionId!, token).ConfigureAwait(false);
                 if (scope.Mission == null) throw new KeyNotFoundException("Mission not found in the caller's scope.");
                 if (MissionStateMachine.IsTerminal(scope.Mission.Status)) throw new UnauthorizedAccessException("An active owned mission is required.");
                 vesselId = scope.Mission.VesselId;
                 requireVessel = true;
             }
             if (!String.IsNullOrWhiteSpace(vesselId))
-                scope.Vessel = await CallerScopedRead.ReadVesselAsync(database, effective, vesselId, token).ConfigureAwait(false);
+                scope.Vessel = await ReadVesselAsync(database, effective, vesselId!, token).ConfigureAwait(false);
             if (scope.Vessel == null && (requireVessel || !String.IsNullOrWhiteSpace(vesselId)))
                 throw new KeyNotFoundException("Vessel not found in the caller's scope.");
             return scope;
+        }
+
+        private static async Task<Mission?> ReadMissionAsync(DatabaseDriver database, AuthContext caller, string id, CancellationToken token)
+        {
+            CallerRecordScope scope = CallerScopedRead.ResolveScope(caller);
+            if (scope.Kind != CallerRecordScopeKindEnum.User) return await CallerScopedRead.ReadMissionAsync(database, caller, id, token).ConfigureAwait(false);
+            Mission? mission = await database.Missions.ReadAsync(scope.TenantId!, id, token).ConfigureAwait(false);
+            return mission != null && OwnedByCaller(mission.UserId, scope) ? mission : null;
+        }
+
+        private static async Task<Vessel?> ReadVesselAsync(DatabaseDriver database, AuthContext caller, string id, CancellationToken token)
+        {
+            CallerRecordScope scope = CallerScopedRead.ResolveScope(caller);
+            if (scope.Kind != CallerRecordScopeKindEnum.User) return await CallerScopedRead.ReadVesselAsync(database, caller, id, token).ConfigureAwait(false);
+            Vessel? vessel = await database.Vessels.ReadAsync(scope.TenantId!, id, token).ConfigureAwait(false);
+            return vessel != null && OwnedByCaller(vessel.UserId, scope) ? vessel : null;
+        }
+
+        // A record stored without a user belongs to the default user, the same user an ownerless caller acts as.
+        private static bool OwnedByCaller(string? recordUserId, CallerRecordScope scope)
+        {
+            return String.Equals(OwnershipPolicy.UserOfRecord(recordUserId), scope.UserId, StringComparison.Ordinal);
         }
     }
 }

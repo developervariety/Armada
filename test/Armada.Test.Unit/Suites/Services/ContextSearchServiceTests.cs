@@ -129,6 +129,33 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A mission and vessel stored without an owner belong to the default user", async () =>
+            {
+                using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel ownerless = await db.Driver.Vessels.CreateAsync(new Vessel
+                    {
+                        Name = "ExampleVessel" + Guid.NewGuid().ToString("N"), RepoUrl = "https://github.com/example/sample.git",
+                        TenantId = Constants.DefaultTenantId, UserId = null
+                    }).ConfigureAwait(false);
+                    Mission mission = await db.Driver.Missions.CreateAsync(new Mission("Ownerless", "Inspect")
+                    {
+                        TenantId = Constants.DefaultTenantId, UserId = null, VesselId = ownerless.Id, Status = MissionStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+                    AuthContext captain = Caller(); captain.MissionId = mission.Id;
+                    ContextSearchService search = new ContextSearchService(db.Driver);
+                    ContextSearchResponse result = await search.SearchAsync(captain, new ContextSearchRequest { Query = "packet", IncludeCode = false }).ConfigureAwait(false);
+                    AssertEqual(ownerless.Id, result.VesselId, "The mission credential resolves its ownerless mission and vessel");
+                    ContextSearchResponse operatorRead = await search.SearchAsync(Caller(), new ContextSearchRequest { Query = "packet", VesselId = ownerless.Id, IncludeCode = false }).ConfigureAwait(false);
+                    AssertEqual(ownerless.Id, operatorRead.VesselId, "The default user reads an ownerless vessel");
+                    AuthContext another = AuthContext.Authenticated(Constants.DefaultTenantId, "other-owner", false, false, "test");
+                    await AssertThrowsAsync<KeyNotFoundException>(() => search.SearchAsync(another, new ContextSearchRequest { Query = "packet", VesselId = ownerless.Id })).ConfigureAwait(false);
+                    AuthContext otherMission = AuthContext.Authenticated(Constants.DefaultTenantId, "other-owner", false, false, "Mission");
+                    otherMission.MissionId = mission.Id;
+                    await AssertThrowsAsync<KeyNotFoundException>(() => search.SearchAsync(otherMission, new ContextSearchRequest { Query = "packet" })).ConfigureAwait(false);
+                }
+            });
+
             await RunTest("Unrelated queries return no optional facts and UTF8 budgets skip large matches", async () =>
             {
                 using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
