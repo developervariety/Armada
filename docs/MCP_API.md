@@ -6310,7 +6310,7 @@ Returned by `health_check_model_endpoints`.
 | Value | Description |
 |---|---|
 | `LocalMerge` | Merge the branch into the default branch in the vessel's working directory; nothing is pushed |
-| `MergeAndPush` | Merge the branch into the default branch in the vessel's working directory, then push it to the remote (the default) |
+| `MergeAndPush` | Integrate and verify in the mission dock, then push the exact verified commit to the remote target branch (the default); a dirty developer checkout is left untouched |
 | `PullRequest` | Create a pull request and poll for merge confirmation |
 | `MergeQueue` | Enqueue the branch into Armada's merge queue |
 | `None` | No automated landing: the mission stops at `WorkProduced` with its work on the branch, to be merged by hand (the dashboard and TUI offer Merge in Manage Branches). The Admiral moves it to `Complete` once its commit is contained in the target branch, checked right after a Manage Branches merge and on every health check |

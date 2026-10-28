@@ -428,7 +428,7 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "upstream.txt").ConfigureAwait(false), "the upstream work is kept");
             }));
 
-            cases.Add(CaseAsync("merge_and_push_refuses_unpushed_main", "MergeAndPush into a checkout whose main has commits not on origin is refused before merging", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("merge_and_push_preserves_unpushed_main", "MergeAndPush publishes isolated work without leaking or changing unpublished checkout commits", TestTags.Positive, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
                 using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
@@ -437,14 +437,13 @@ namespace Test.Shared.Suites.Services
 
                 LandingRun run = await s.RunLandingAsync("hbr_land_ahead", LandingModeEnum.MergeAndPush).ConfigureAwait(false);
 
-                AssertEqual(MissionStatusEnum.LandingFailed, run.Mission.Status);
-                AssertContains("not on origin/main", run.Mission.FailureReason ?? "");
+                AssertEqual(MissionStatusEnum.Complete, run.Mission.Status, run.Mission.FailureReason);
+                AssertFalse(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "local-only.txt").ConfigureAwait(false), "Unpublished user work is never published");
                 AssertEqual(localTip, await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/main").ConfigureAwait(false), "main was not merged into");
-                AssertFalse(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "nothing was pushed");
-                AssertNotNull(await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/" + run.Dock.BranchName).ConfigureAwait(false), "the mission branch is kept for a retry");
+                AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Origin, "refs/heads/main", "landed.txt").ConfigureAwait(false), "Only isolated mission work is pushed");
             }));
 
-            cases.Add(CaseAsync("local_merge_uses_merge_commit_template", "LocalMerge with a merge commit template makes a merge commit with that message even when a fast-forward was possible", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("local_merge_uses_merge_commit_template", "LocalMerge fast-forwards the verified commit without creating an untested merge commit", TestTags.Positive, async () =>
             {
                 using HarborDockGitFixture git = await HarborDockGitFixture.CreateAsync().ConfigureAwait(false);
                 using Scenario s = await Scenario.CreateAsync(git).ConfigureAwait(false);
@@ -456,9 +455,10 @@ namespace Test.Shared.Suites.Services
 
                 AssertEqual(MissionStatusEnum.Complete, run.Mission.Status, run.Mission.FailureReason);
                 string parents = await HarborDockGitFixture.GitAsync(git.Checkout, "rev-list", "--parents", "-n", "1", "refs/heads/main").ConfigureAwait(false);
-                AssertEqual(3, parents.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length, "a merge commit, not a fast-forward");
+                AssertEqual(2, parents.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length, "No extra merge commit after verification");
+                AssertEqual(run.WorkCommit, await HarborDockGitFixture.ResolveAsync(git.Checkout, "refs/heads/main").ConfigureAwait(false), "The target is the verified SHA");
                 string subject = await HarborDockGitFixture.GitAsync(git.Checkout, "log", "-1", "--format=%s", "refs/heads/main").ConfigureAwait(false);
-                AssertEqual("Land " + run.Mission.Id, subject, "the template's message");
+                AssertEqual("Mission work", subject, "The verified commit is not rewritten to apply a template");
             }));
 
             cases.Add(CaseAsync("local_merge_refuses_dirty_checkout", "LocalMerge into a Harbor checkout with uncommitted changes is refused and the changes are kept", TestTags.Negative, async () =>

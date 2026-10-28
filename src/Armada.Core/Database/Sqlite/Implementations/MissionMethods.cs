@@ -217,6 +217,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
         /// <inheritdoc />
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(_Driver.Events, _Driver.StageOutcomes,
+                await ReadAsync(id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
             using (SqliteWriteLease writeLease = await _Driver.WriteGate.EnterAsync(token).ConfigureAwait(false))
@@ -480,6 +482,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
         /// <inheritdoc />
         public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(_Driver.Events, _Driver.StageOutcomes,
+                await ReadAsync(tenantId, id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
             using (SqliteWriteLease writeLease = await _Driver.WriteGate.EnterAsync(token).ConfigureAwait(false))
@@ -724,6 +728,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
         /// <inheritdoc />
         public async Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(_Driver.Events, _Driver.StageOutcomes,
+                await ReadAsync(tenantId, userId, id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));

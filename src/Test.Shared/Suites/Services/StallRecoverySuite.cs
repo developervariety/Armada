@@ -198,6 +198,35 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            foreach (MissionStatusEnum status in new[] { MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed })
+            {
+                cases.Add(CaseAsync("unlanded_dock_survives_orphans_" + status, "Orphan sweeps retain an idle captain's unlanded dock in " + status, TestTags.Reliability, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                    ArmadaSettings settings = CreateSettings();
+                    StallTestFixture fixture = await StallTestFixture.CreateAsync(testDb.Driver, settings, DateTime.UtcNow.AddMinutes(-20));
+                    Mission mission = (await testDb.Driver.Missions.ReadAsync(fixture.Mission.Id))!;
+                    mission.Status = status;
+                    mission.FailureKind = MissionFailureKindEnum.Infra;
+                    await testDb.Driver.Missions.UpdateAsync(mission);
+                    Captain captain = (await testDb.Driver.Captains.ReadAsync(mission.CaptainId!))!;
+                    captain.State = CaptainStateEnum.Idle;
+                    captain.CurrentMissionId = null;
+                    captain.CurrentDockId = null;
+                    captain.ProcessId = null;
+                    await testDb.Driver.Captains.UpdateAsync(captain);
+                    Dock dock = (await testDb.Driver.Docks.ReadAsync(mission.DockId!))!;
+                    Directory.CreateDirectory(dock.WorktreePath!);
+                    string sentinel = Path.Combine(dock.WorktreePath!, "unlanded.txt");
+                    await File.WriteAllTextAsync(sentinel, "preserve this work");
+                    await fixture.Admiral.HealthCheckAsync();
+                    await fixture.Admiral.HealthCheckAsync();
+                    AssertTrue(File.Exists(sentinel));
+                    AssertTrue((await testDb.Driver.Docks.ReadAsync(dock.Id))!.Active);
+                    AssertEqual(status, (await testDb.Driver.Missions.ReadAsync(mission.Id))!.Status);
+                }));
+            }
+
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Stalled Captain Recovery", cases: cases);
         }
 
