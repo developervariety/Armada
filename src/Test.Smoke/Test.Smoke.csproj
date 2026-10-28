@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Fast smoke subset of Test.Shared. Constrained to net10.0 and Debug only; see SmokeSuites.cs for the suite list. -->
+  <!-- Fast smoke subset of Test.Shared. Constrained to net10.0; builds in Debug and Release; see SmokeSuites.cs for the suite list. -->
   <PropertyGroup>
     <TargetFrameworks>net10.0</TargetFrameworks>
-    <Configurations>Debug</Configurations>
+    <Configurations>Debug;Release</Configurations>
     <IsPackable>false</IsPackable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1998;CS8604;CS8632</NoWarn>
