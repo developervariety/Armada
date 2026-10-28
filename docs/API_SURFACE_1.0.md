@@ -24,7 +24,7 @@ administrator).
 
 | Surface | Total | Experimental |
 |---|---|---|
-| REST routes | 408 | 15 |
+| REST routes | 409 | 15 |
 | MCP tools | 195 | 8 |
 | WebSocket endpoints | 2 | 1 |
 | WebSocket commands | 61 | 0 |
@@ -193,6 +193,7 @@ Base path `/api/v1`. Request and response bodies are PascalCase JSON; errors are
 | POST | `/api/v1/jobs/{id}/cancel` | Authenticated |  | 200, 404, 409 `ApiErrorResponse` |  |
 | GET | `/api/v1/memories` | Authenticated |  | 200 `EnumerationResult<Memory>` |  |
 | POST | `/api/v1/memories` | Authenticated | `Memory` | 201 `Memory`, 400 |  |
+| POST | `/api/v1/memories/enumerate` | Authenticated | `MemoryEnumerateRequest` (optional) | 200 `EnumerationResult<Memory>` |  |
 | DELETE | `/api/v1/memories/{id}` | Authenticated |  | 204, 404 |  |
 | GET | `/api/v1/memories/{id}` | Authenticated |  | 200 `Memory`, 404 |  |
 | PUT | `/api/v1/memories/{id}` | Authenticated | `Memory` | 200 `Memory`, 400, 404 |  |

@@ -80,6 +80,7 @@ import type {
   HarborJobStopResult,
   ModelEndpoint,
   Memory,
+  MemoryEnumerateQuery,
   ModelEndpointProbeResult,
   ModelEndpointHealthSweepResponse,
   PasswordChangeRequest,
@@ -1221,6 +1222,8 @@ export const healthCheckModelEndpoints = () =>
 // ==================== Memories ====================
 export const listMemories = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Memory>>(`/api/v1/memories${buildQuery(params)}`);
+export const enumerateMemories = (query?: MemoryEnumerateQuery) =>
+  post<EnumerationResult<Memory>>('/api/v1/memories/enumerate', query || {});
 export const getMemory = (id: string) => get<Memory>(`/api/v1/memories/${encodeURIComponent(id)}`);
 export const createMemory = (data: Partial<Memory>) => post<Memory>('/api/v1/memories', data);
 export const updateMemory = (id: string, data: Partial<Memory>) =>

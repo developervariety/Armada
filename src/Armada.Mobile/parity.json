@@ -2033,6 +2033,14 @@
     },
     {
       "kind": "api",
+      "key": "enumerateMemories",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.2",
+      "notes": "the Memories tab already pages, filters and searches on the server through listMemories (GET /api/v1/memories takes the same query fields); it has no sortable column headers, the dashboard table uses this enumerate twin"
+    },
+    {
+      "kind": "api",
       "key": "enumerateObjectives",
       "status": "not-applicable",
       "mobile": "",

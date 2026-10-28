@@ -430,8 +430,11 @@ namespace Armada.Server.Mcp.Tools
                             return (object)personas;
                         case "memories":
                         case "memory":
+                            MemoryEnumerateRequest memoryQuery = MemoryEnumerateRequest.FromQuery(query);
+                            if (!String.IsNullOrWhiteSpace(request.Search)) memoryQuery.Search = request.Search.Trim();
+                            memoryQuery.ApplyDefaultSort(!String.IsNullOrEmpty(request.Order));
                             EnumerationResult<Memory> memoryResult = await new MemoryService(database, new SyslogLogging.LoggingModule())
-                                .EnumerateAsync(callerCtx, query, request.Search).ConfigureAwait(false);
+                                .EnumerateAsync(callerCtx, memoryQuery).ConfigureAwait(false);
                             return (object)memoryResult;
                         case "prompt_templates":
                         case "prompt_template":

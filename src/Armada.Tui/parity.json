@@ -1985,6 +1985,14 @@
     },
     {
       "kind": "api",
+      "key": "enumerateMemories",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateMemoriesAsync",
+      "workstream": "W0.2",
+      "notes": "Memories"
+    },
+    {
+      "kind": "api",
       "key": "enumerateObjectives",
       "status": "implemented",
       "tui": "ArmadaClient.EnumerateObjectivesAsync",
