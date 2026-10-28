@@ -78,6 +78,9 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<int, bool>? OnIsProcessTracked { get; set; }
 
+        /// <summary>Oldest outstanding runtime tool call for a process, or null. Does not refresh output heartbeats.</summary>
+        public Func<int, DateTime?>? OnGetToolWaitStartedUtc { get; set; }
+
         /// <summary>Whether a process is owned by a Harbor and can outlive this Admiral.</summary>
         public Func<int, bool>? OnIsRemoteProcessTracked { get; set; }
 
@@ -1650,10 +1653,14 @@ namespace Armada.Core.Services
                 }
 
                 // Check for stall (no output for too long)
-                if (captain.LastHeartbeatUtc.HasValue)
+                DateTime? outputHeartbeat = captain.LastHeartbeatUtc ?? mission?.StartedUtc;
+                if (outputHeartbeat.HasValue)
                 {
-                    TimeSpan elapsed = DateTime.UtcNow - captain.LastHeartbeatUtc.Value;
-                    if (elapsed.TotalMinutes > _Settings.StallThresholdMinutes)
+                    DateTime nowUtc = DateTime.UtcNow;
+                    TimeSpan elapsed = nowUtc - outputHeartbeat.Value;
+                    DateTime? toolStarted = processId.HasValue ? OnGetToolWaitStartedUtc?.Invoke(processId.Value) : null;
+                    if (RuntimeToolWaitTracker.IsStalled(nowUtc, outputHeartbeat, toolStarted,
+                        _Settings.StallThresholdMinutes, _Settings.ToolWaitHardLimitMinutes))
                     {
                         _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
                         ArmadaMetrics.CaptainStalls.Add(1);
@@ -1829,8 +1836,10 @@ namespace Armada.Core.Services
                         // captain may have been released by the review-timeout watchdog).
                         List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
                         List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+                        List<Mission> failedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false);
                         bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id) ||
-                                                   reviewMissions.Any(m => m.DockId == dock.Id);
+                                                   reviewMissions.Any(m => m.DockId == dock.Id) ||
+                                                   failedMissions.Any(m => m.DockId == dock.Id && m.FailureKind == MissionFailureKindEnum.StallRecoveryExhausted);
                         if (preservedForMission)
                         {
                             _Logging.Debug(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending re-dispatch or an in-review mission");
@@ -2288,6 +2297,13 @@ namespace Armada.Core.Services
             }
 
             if (String.IsNullOrEmpty(dockId)) return;
+            // A stalled captain may have valuable edits even after an earlier commit. Retain the entire dock,
+            // including untracked files, rather than relying on the best-effort leftover-work commit path.
+            if (mission?.FailureKind == MissionFailureKindEnum.StallRecoveryExhausted)
+            {
+                _Logging.Warn(_Header + "retaining dock " + dockId + " for stalled mission " + mission.Id + "; recover work before deleting the dock");
+                return;
+            }
 
             try
             {

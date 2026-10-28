@@ -6,6 +6,10 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
+
 ### Handoff and landing resilience
 
 - Record failed landing callbacks as LandingFailed; periodically flag verified merge-queue missions missing a queue entry after five minutes for manual recovery.

@@ -192,6 +192,20 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Hard limit in minutes for suppressing an output stall while a runtime tool is outstanding. Must be >= 1.
+        /// Configure larger than StallThresholdMinutes to allow long quiet commands. Default: 60.
+        /// </summary>
+        public int ToolWaitHardLimitMinutes
+        {
+            get => _ToolWaitHardLimitMinutes;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(ToolWaitHardLimitMinutes), "Must be >= 1");
+                _ToolWaitHardLimitMinutes = value;
+            }
+        }
+
+        /// <summary>
         /// Token budget for the prior stage's handoff delivered to a captain whose served context is not known (CLI
         /// runtimes, endpoints without a context length). A reader with a known served context gets one eighth of it
         /// instead. Findings and required actions are delivered first, then relevant diff sections, then a pointer to
@@ -943,6 +957,7 @@ namespace Armada.Core.Settings
         private int _CaptainCrashLoopWindowMinutes = 15;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
+        private int _ToolWaitHardLimitMinutes = 60;
         private int _StageCheckTimeoutMinutes = Constants.DefaultStageCheckTimeoutMinutes;
         private int _HandoffBudgetTokens = Constants.DefaultHandoffBudgetTokens;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
