@@ -4435,7 +4435,7 @@ Start a structured check run for a vessel using the resolved workflow profile or
     "workflowProfileId": { "type": "string", "description": "Optional workflow profile override (wfp_ prefix)" },
     "missionId": { "type": "string", "description": "Optional linked mission ID (msn_ prefix)" },
     "voyageId": { "type": "string", "description": "Optional linked voyage ID (vyg_ prefix)" },
-    "type": { "type": "string", "description": "Check type such as Build, UnitTest, IntegrationTest, Deploy, SmokeTest, HealthCheck, or ReleaseVersioning" },
+    "type": { "type": "string", "description": "Check type such as Build, UnitTest, AbbreviatedUnitTest, IntegrationTest, Deploy, SmokeTest, HealthCheck, or ReleaseVersioning" },
     "environmentName": { "type": "string", "description": "Optional environment name for deploy/rollback/verification checks" },
     "label": { "type": "string", "description": "Optional display label" },
     "branchName": { "type": "string", "description": "Optional branch association" },

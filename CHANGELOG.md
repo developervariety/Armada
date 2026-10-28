@@ -6,6 +6,12 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Workflow profiles carry two unit-test commands: `UnitTestCommand` (full suite) and the new `AbbreviatedUnitTestCommand` (a fast subset). The abbreviated one runs for the new `AbbreviatedUnitTest` check type (the operator choosing directly) and in post-stage checks when `[ARMADA:UNIT-TESTS] abbreviated` appears in the mission description or, failing that, the stage persona's prompt (for example a customized Test Engineer prompt template); `[ARMADA:UNIT-TESTS] full` forces the full suite, and with no directive the full command runs. An unset abbreviated command falls back to the full one. Migration 100 adds `abbreviated_unit_test_command` on every database. The dashboard, TUI and mobile workflow-profile forms show both fields with tooltips explaining how each is chosen, and `StageCheckResult` records the `UnitTestScope` used.
+- `POST /api/v1/memories/enumerate` enumerates memories with a `MemoryEnumerateRequest` (every `EnumerationQuery` field plus `Search`, `Type`, `Topic`, `TopicContains`, `VesselName`, `SummaryContains`, `Scope`, `MinSalience`, and `SortBy`), returning `EnumerationResult<Memory>` like the other enumerate routes. `GET /api/v1/memories` accepts the same fields as query parameters (it previously dropped `order`, `createdAfter`, `createdBefore`, `voyageId`, and `missionId`). Visibility, filtering, sorting (including by vessel name) and paging now run in the database on SQLite, PostgreSQL, SQL Server and MySQL instead of loading every visible memory. Without `SortBy` or `Order` the historical order (salience, then newest) is kept. New `EnumerateMemoriesAsync` on `Armada.Client` and the Core `ArmadaApiClient`, and `enumerateMemories` in the dashboard client; the MCP `enumerate` tool honors `order` for memories.
+- The dashboard Memories page sorts, filters (vessel name, type, topic, summary, salience, visibility, search) and pages on the server through the enumerate route; its strings are translated in every locale.
+
 ### Fixed
 
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.

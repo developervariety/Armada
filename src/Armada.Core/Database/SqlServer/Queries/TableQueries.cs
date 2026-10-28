@@ -1979,7 +1979,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(99, "Add test_command, lint_command and audit_command to vessels so a vessel can override the ecosystem default command for the test, lint and audit intents",
                     @"IF COL_LENGTH('vessels', 'test_command') IS NULL ALTER TABLE vessels ADD test_command NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('vessels', 'lint_command') IS NULL ALTER TABLE vessels ADD lint_command NVARCHAR(MAX) NULL;",
-                    @"IF COL_LENGTH('vessels', 'audit_command') IS NULL ALTER TABLE vessels ADD audit_command NVARCHAR(MAX) NULL;")
+                    @"IF COL_LENGTH('vessels', 'audit_command') IS NULL ALTER TABLE vessels ADD audit_command NVARCHAR(MAX) NULL;"),
+                new SchemaMigration(100, "Add abbreviated_unit_test_command to workflow_profiles so a profile can carry a quick unit-test command next to the full one",
+                    @"IF COL_LENGTH('workflow_profiles', 'abbreviated_unit_test_command') IS NULL ALTER TABLE workflow_profiles ADD abbreviated_unit_test_command NVARCHAR(MAX) NULL;")
 
 
             };

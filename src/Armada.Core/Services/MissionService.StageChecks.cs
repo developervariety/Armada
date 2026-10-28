@@ -90,7 +90,13 @@ namespace Armada.Core.Services
                 if (profile == null) return StageCheckResult.Skip(StageCheckReasonEnum.NoWorkflowProfile);
                 List<string> commands = new List<string>();
                 if (!String.IsNullOrWhiteSpace(profile.BuildCommand)) commands.Add(profile.BuildCommand!.Trim());
-                if (!String.IsNullOrWhiteSpace(profile.UnitTestCommand)) commands.Add(profile.UnitTestCommand!.Trim());
+                UnitTestScopeEnum unitTestScope = await ResolveStageUnitTestScopeAsync(mission, token).ConfigureAwait(false);
+                string? unitTestCommand = UnitTestScopeDirective.SelectCommand(profile, unitTestScope);
+                if (unitTestCommand != null)
+                {
+                    commands.Add(unitTestCommand);
+                    result.UnitTestScope = unitTestScope;
+                }
                 if (commands.Count == 0) return StageCheckResult.Skip(StageCheckReasonEnum.NoCommands);
                 result.Commands = commands;
 
@@ -186,6 +192,26 @@ namespace Armada.Core.Services
                 result.Reason = StageCheckReasonEnum.Error;
                 result.FailureMessage = "The stage verification could not run: " + ex.Message + ". Restore dependencies and rerun the configured checks.";
                 return result;
+            }
+        }
+
+        private async Task<UnitTestScopeEnum> ResolveStageUnitTestScopeAsync(Mission mission, CancellationToken token)
+        {
+            // The operator's choice in the mission description wins; otherwise the stage persona's prompt decides.
+            UnitTestScopeEnum? fromDescription = UnitTestScopeDirective.Parse(mission.Description);
+            if (fromDescription != null) return fromDescription.Value;
+            if (String.IsNullOrWhiteSpace(mission.Persona)) return UnitTestScopeEnum.Full;
+            try
+            {
+                Persona? persona = await _Database.Personas.ReadByNameAsync(mission.Persona!, token).ConfigureAwait(false);
+                string prompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
+                    mission.Persona, persona?.PromptTemplateName, new Dictionary<string, string>(), _PromptTemplates, null, token).ConfigureAwait(false);
+                return UnitTestScopeDirective.Resolve(null, prompt);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                _Logging.Warn(_Header + "could not read the persona prompt for mission " + mission.Id + " to choose its unit-test command; running the full one: " + ex.Message);
+                return UnitTestScopeEnum.Full;
             }
         }
 

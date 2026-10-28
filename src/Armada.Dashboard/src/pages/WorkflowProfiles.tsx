@@ -34,7 +34,9 @@ const DEFAULT_TIP = 'When several active profiles match the same vessel at the s
 const ACTIVE_TIP = 'On: Armada can use this profile. Off: it is never chosen, even when a vessel names it.';
 const LINTCOMMAND_TIP = 'Shell command Armada runs for a Lint check in the vessel\'s working directory, for example npm run lint. Leave blank if the project has no lint step.';
 const BUILDCOMMAND_TIP = 'Shell command Armada runs for a Build check in the vessel\'s working directory, for example dotnet build. Leave blank if the project has no build step.';
-const UNITTESTCOMMAND_TIP = 'Shell command Armada runs for a Unit Test check in the vessel\'s working directory, for example dotnet test. Leave blank if the project has no unit test step.';
+const UNITTESTCOMMAND_TIP = 'Full unit-test command: the complete unit-test suite, run in the vessel\'s working directory, for example dotnet test. Used by Unit Test checks and by stage checks unless the abbreviated suite is requested. Leave blank if the project has no unit test step.';
+const ABBREVIATEDUNITTESTCOMMAND_TIP = 'Abbreviated unit-test command: a fast subset of the unit tests, for example dotnet test --filter Category=Smoke. Used by Abbreviated Unit Test checks, and by stage checks when the mission description or the stage persona\'s prompt contains [ARMADA:UNIT-TESTS] abbreviated. When blank, those run the full command instead.';
+const UNIT_TEST_SELECTION_HINT = 'Which unit-test command runs: you can choose directly by running an Abbreviated Unit Test check, or by putting [ARMADA:UNIT-TESTS] abbreviated (or full) in a mission description. Otherwise the stage persona\'s prompt decides, for example a Test Engineer prompt template containing that line. With neither, the full command runs.';
 const INTEGRATIONTESTCOMMAND_TIP = 'Shell command Armada runs for an Integration Test check in the vessel\'s working directory, for example npm run test:integration. Leave blank if the project has no integration test step.';
 const E2ETESTCOMMAND_TIP = 'Shell command Armada runs for an E2E Test check in the vessel\'s working directory, for example npx playwright test. Leave blank if the project has no end-to-end test step.';
 const PACKAGECOMMAND_TIP = 'Shell command Armada runs for a Package check in the vessel\'s working directory, for example dotnet publish -c Release. Leave blank if the project has no package step.';
@@ -79,6 +81,7 @@ export default function WorkflowProfiles() {
     lintCommand: '',
     buildCommand: '',
     unitTestCommand: '',
+    abbreviatedUnitTestCommand: '',
     integrationTestCommand: '',
     e2eTestCommand: '',
     packageCommand: '',
@@ -159,6 +162,7 @@ export default function WorkflowProfiles() {
       lintCommand: profile.lintCommand || '',
       buildCommand: profile.buildCommand || '',
       unitTestCommand: profile.unitTestCommand || '',
+      abbreviatedUnitTestCommand: profile.abbreviatedUnitTestCommand || '',
       integrationTestCommand: profile.integrationTestCommand || '',
       e2eTestCommand: profile.e2eTestCommand || '',
       packageCommand: profile.packageCommand || '',
@@ -171,7 +175,9 @@ export default function WorkflowProfiles() {
     if (saving) return;
     try {
       setSaving(true);
+      // The server replaces every field on update, so an edit keeps the commands this modal does not show.
       const payload: Partial<WorkflowProfile> = {
+        ...(editing ?? {}),
         name: createForm.name.trim(),
         description: createForm.description.trim() || null,
         scope: createForm.scope,
@@ -185,6 +191,7 @@ export default function WorkflowProfiles() {
         lintCommand: createForm.lintCommand.trim() || null,
         buildCommand: createForm.buildCommand.trim() || null,
         unitTestCommand: createForm.unitTestCommand.trim() || null,
+        abbreviatedUnitTestCommand: createForm.abbreviatedUnitTestCommand.trim() || null,
         integrationTestCommand: createForm.integrationTestCommand.trim() || null,
         e2eTestCommand: createForm.e2eTestCommand.trim() || null,
         packageCommand: createForm.packageCommand.trim() || null,
@@ -402,9 +409,13 @@ export default function WorkflowProfiles() {
             <label title={t(BUILDCOMMAND_TIP)}>{t('Build Command')}
               <textarea rows={2} title={t(BUILDCOMMAND_TIP)} value={createForm.buildCommand} onChange={(event) => setCreateForm((current) => ({ ...current, buildCommand: event.target.value }))} />
             </label>
-            <label title={t(UNITTESTCOMMAND_TIP)}>{t('Unit Test Command')}
-              <textarea rows={2} title={t(UNITTESTCOMMAND_TIP)} value={createForm.unitTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, unitTestCommand: event.target.value }))} />
+            <label title={t(UNITTESTCOMMAND_TIP)}>{t('Unit Test Command (Full)')}
+              <textarea rows={2} title={t(UNITTESTCOMMAND_TIP)} value={createForm.unitTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, unitTestCommand: event.target.value }))} placeholder={t('dotnet test')} />
             </label>
+            <label title={t(ABBREVIATEDUNITTESTCOMMAND_TIP)}>{t('Unit Test Command (Abbreviated)')}
+              <textarea rows={2} title={t(ABBREVIATEDUNITTESTCOMMAND_TIP)} value={createForm.abbreviatedUnitTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, abbreviatedUnitTestCommand: event.target.value }))} placeholder={t('dotnet test --filter Category=Smoke')} />
+            </label>
+            <p className="text-dim" style={{ marginTop: 0 }} title={t(UNIT_TEST_SELECTION_HINT)}>{t(UNIT_TEST_SELECTION_HINT)}</p>
             <label title={t(INTEGRATIONTESTCOMMAND_TIP)}>{t('Integration Test Command')}
               <textarea rows={2} title={t(INTEGRATIONTESTCOMMAND_TIP)} value={createForm.integrationTestCommand} onChange={(event) => setCreateForm((current) => ({ ...current, integrationTestCommand: event.target.value }))} />
             </label>
@@ -424,7 +435,7 @@ export default function WorkflowProfiles() {
             </label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary" disabled={saving} title={editing ? t('Save changes. Check runs started after saving use the new commands.') : t('Create this profile. You can add environments and the remaining commands on its page afterward.')}>{saving ? t('Saving...') : editing ? t('Save Changes') : t('Create Workflow Profile')}</button>
-              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving}>{t('Cancel')}</button>
+              <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={saving} title={t('Close without saving. Nothing you entered here is kept.')}>{t('Cancel')}</button>
             </div>
           </form>
         </div>

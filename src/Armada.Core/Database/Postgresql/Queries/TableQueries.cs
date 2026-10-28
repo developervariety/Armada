@@ -2016,7 +2016,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(99, "Add test_command, lint_command and audit_command to vessels so a vessel can override the ecosystem default command for the test, lint and audit intents",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS test_command TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS lint_command TEXT;",
-                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS audit_command TEXT;")
+                    @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS audit_command TEXT;"),
+                new SchemaMigration(100, "Add abbreviated_unit_test_command to workflow_profiles so a profile can carry a quick unit-test command next to the full one",
+                    @"ALTER TABLE workflow_profiles ADD COLUMN IF NOT EXISTS abbreviated_unit_test_command TEXT;")
 
 
             };
