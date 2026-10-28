@@ -652,10 +652,6 @@ export default function CaptainDetail() {
                 { label: 'Duplicate', onClick: () => navigate(`/missions?duplicate=${encodeURIComponent(m.id)}`) },
               ]} /> },
               {
-                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
-                render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,
-              },
-              {
                 key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix). Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
                 render: (m) => (
                   <span className="id-display">
@@ -663,6 +659,10 @@ export default function CaptainDetail() {
                     <CopyButton text={m.id} onClick={(e) => e.stopPropagation()} />
                   </span>
                 ),
+              },
+              {
+                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'),
+                render: (m) => <strong className="cell-one-line" title={m.title}>{m.title}</strong>,
               },
               { key: 'status', label: t('Status'), headerTitle: t('Where the mission is in its lifecycle, for example Pending, InProgress, Review, Complete or Failed.'), cellClassName: 'cell-nowrap', render: (m) => <StatusBadge status={m.status} /> },
               {

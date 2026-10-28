@@ -221,12 +221,6 @@ export default function ProjectProfiles() {
   // Name, ID and description used to stack in one cell, and "Default" sat under the scope badge; each is on one line now.
   const columns: DataTableColumn<ProjectProfile>[] = [
     {
-      key: 'name', label: t('Profile'), required: true, headerTitle: t('Project profile name. A project profile picks the pipeline, workflow profile, persona overrides and skills for the vessels it applies to.'),
-      clearFilter: () => setColFilters(f => ({ ...f, name: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Profile')} title={t('Show only profiles whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
-      render: (profile) => <strong>{profile.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique project profile ID (ppf_ prefix). Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (profile) => (
         <span className="id-display">
@@ -234,6 +228,12 @@ export default function ProjectProfiles() {
           <CopyButton text={profile.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Profile'), required: true, headerTitle: t('Project profile name. A project profile picks the pipeline, workflow profile, persona overrides and skills for the vessels it applies to.'),
+      clearFilter: () => setColFilters(f => ({ ...f, name: '' })),
+      filter: <input type="text" className="col-filter" aria-label={t('Profile')} title={t('Show only profiles whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
+      render: (profile) => <strong>{profile.name}</strong>,
     },
     {
       key: 'description', label: t('Description'), headerTitle: t('What this profile is for. Hover a value for the full text.'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',

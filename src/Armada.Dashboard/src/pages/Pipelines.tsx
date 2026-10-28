@@ -191,11 +191,6 @@ export default function Pipelines() {
 
   const columns: DataTableColumn<Pipeline>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Pipeline name, chosen on a vessel, fleet or dispatch to decide which persona stages the work goes through. Click to sort.'), cellClassName: 'cell-ident',
-      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only pipelines whose name contains this text (not case sensitive).')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} />,
-      render: (p) => <strong>{p.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique pipeline ID (ppl_ prefix). Pipelines are usually referred to by name; use the copy button to copy the ID.'), cellClassName: 'mono text-dim table-id-cell',
       render: (p) => (
         <span className="id-display">
@@ -203,6 +198,11 @@ export default function Pipelines() {
           <CopyButton text={p.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Pipeline name, chosen on a vessel, fleet or dispatch to decide which persona stages the work goes through. Click to sort.'), cellClassName: 'cell-ident',
+      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only pipelines whose name contains this text (not case sensitive).')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Search...')} />,
+      render: (p) => <strong>{p.name}</strong>,
     },
     {
       key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('What this pipeline is for. Hover a value for the full text; click to sort.'), cellClassName: 'text-dim truncate-cell',

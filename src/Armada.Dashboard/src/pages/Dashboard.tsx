@@ -399,11 +399,6 @@ export default function Dashboard() {
             onRowClick={(vp) => navigate(`/voyages/${vp.voyage?.id}`)}
             columns={[
               {
-                key: 'voyage', label: t('Voyage'), required: true, headerTitle: t('Name of the voyage. Click a row to open it.'), cellClassName: 'cell-title',
-                cellTitle: (vp) => vp.voyage?.title || vp.voyage?.id,
-                render: (vp) => <strong className="line-clamp-2">{vp.voyage?.title || vp.voyage?.id}</strong>,
-              },
-              {
                 key: 'id', label: t('ID'), required: true, headerTitle: t('Unique voyage ID (vyg_ prefix).'), cellClassName: 'mono text-dim table-id-cell',
                 render: (vp) => (
                   <span className="id-display">
@@ -411,6 +406,11 @@ export default function Dashboard() {
                     <CopyButton text={vp.voyage?.id || ''} onClick={e => e.stopPropagation()} />
                   </span>
                 ),
+              },
+              {
+                key: 'voyage', label: t('Voyage'), required: true, headerTitle: t('Name of the voyage. Click a row to open it.'), cellClassName: 'cell-title',
+                cellTitle: (vp) => vp.voyage?.title || vp.voyage?.id,
+                render: (vp) => <strong className="line-clamp-2">{vp.voyage?.title || vp.voyage?.id}</strong>,
               },
               { key: 'status', label: t('Status'), headerTitle: t('Open while missions are being set up, InProgress while any run, then Complete, Failed or Cancelled.'), cellClassName: 'cell-nowrap', render: (vp) => <StatusBadge status={vp.voyage?.status || ''} /> },
               {
@@ -516,11 +516,6 @@ export default function Dashboard() {
             onRowClick={(m) => navigate(`/missions/${m.id}`)}
             columns={[
               {
-                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'), cellClassName: 'cell-title',
-                cellTitle: (m) => m.title,
-                render: (m) => <strong className="line-clamp-2">{m.title}</strong>,
-              },
-              {
                 key: 'id', label: t('ID'), required: true, headerTitle: t('Unique mission ID (msn_ prefix).'), cellClassName: 'mono text-dim table-id-cell',
                 render: (m) => (
                   <span className="id-display">
@@ -528,6 +523,11 @@ export default function Dashboard() {
                     <CopyButton text={m.id} onClick={e => e.stopPropagation()} />
                   </span>
                 ),
+              },
+              {
+                key: 'mission', label: t('Mission'), required: true, headerTitle: t('Mission title. Click a row to open the mission.'), cellClassName: 'cell-title',
+                cellTitle: (m) => m.title,
+                render: (m) => <strong className="line-clamp-2">{m.title}</strong>,
               },
               { key: 'status', label: t('Status'), headerTitle: t('Lifecycle state: Pending waits for a captain, InProgress is running, WorkProduced awaits landing, then Complete, Failed or Cancelled.'), cellClassName: 'cell-nowrap', render: (m) => <StatusBadge status={m.status} /> },
               { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the mission works in.'), render: (m) => vesselName(m.vesselId) },

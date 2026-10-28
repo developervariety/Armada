@@ -78,6 +78,9 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<int, bool>? OnIsProcessTracked { get; set; }
 
+        /// <summary>Oldest outstanding runtime tool call for a process, or null. Does not refresh output heartbeats.</summary>
+        public Func<int, DateTime?>? OnGetToolWaitStartedUtc { get; set; }
+
         /// <summary>Whether a process is owned by a Harbor and can outlive this Admiral.</summary>
         public Func<int, bool>? OnIsRemoteProcessTracked { get; set; }
 
@@ -703,6 +706,8 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "re-drove " + redriven + " dangling pipeline handoff(s)");
                 }
             }, token).ConfigureAwait(false);
+
+            await RunHealthPhaseAsync("missing merge handoff recovery", () => FlagMissingMergeHandoffsAsync(DateTime.UtcNow, token), token).ConfigureAwait(false);
 
             // Check for completed voyages
             await RunHealthPhaseAsync("voyage completion", async () =>
@@ -1648,10 +1653,14 @@ namespace Armada.Core.Services
                 }
 
                 // Check for stall (no output for too long)
-                if (captain.LastHeartbeatUtc.HasValue)
+                DateTime? outputHeartbeat = captain.LastHeartbeatUtc ?? mission?.StartedUtc;
+                if (outputHeartbeat.HasValue)
                 {
-                    TimeSpan elapsed = DateTime.UtcNow - captain.LastHeartbeatUtc.Value;
-                    if (elapsed.TotalMinutes > _Settings.StallThresholdMinutes)
+                    DateTime nowUtc = DateTime.UtcNow;
+                    TimeSpan elapsed = nowUtc - outputHeartbeat.Value;
+                    DateTime? toolStarted = processId.HasValue ? OnGetToolWaitStartedUtc?.Invoke(processId.Value) : null;
+                    if (RuntimeToolWaitTracker.IsStalled(nowUtc, outputHeartbeat, toolStarted,
+                        _Settings.StallThresholdMinutes, _Settings.ToolWaitHardLimitMinutes))
                     {
                         _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
                         ArmadaMetrics.CaptainStalls.Add(1);
@@ -1827,8 +1836,10 @@ namespace Armada.Core.Services
                         // captain may have been released by the review-timeout watchdog).
                         List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
                         List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+                        List<Mission> failedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false);
                         bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id) ||
-                                                   reviewMissions.Any(m => m.DockId == dock.Id);
+                                                   reviewMissions.Any(m => m.DockId == dock.Id) ||
+                                                   failedMissions.Any(m => m.DockId == dock.Id && m.FailureKind == MissionFailureKindEnum.StallRecoveryExhausted);
                         if (preservedForMission)
                         {
                             _Logging.Debug(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending re-dispatch or an in-review mission");
@@ -1916,6 +1927,41 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "error recovering overdue reviews: " + ex.ToString());
+            }
+        }
+
+        // A restart or an exception after WorkProduced was persisted can lose the landing callback.
+        // Flag rather than retry: the dock may already be reclaimed or the branch may need review.
+        private async Task FlagMissingMergeHandoffsAsync(DateTime utcNow, CancellationToken token)
+        {
+            List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            foreach (Mission mission in produced)
+            {
+                if (utcNow - mission.LastUpdateUtc < TimeSpan.FromMinutes(5)
+                    || _Missions.IsCompletionInFlight(mission.Id)
+                    || MissionModeContract.IsReadOnly(mission.Mode) || mission.RequiresReview) continue;
+                Vessel? vessel = String.IsNullOrEmpty(mission.VesselId) ? null : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                Voyage? voyage = String.IsNullOrEmpty(mission.VoyageId) ? null : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+                if ((voyage?.LandingMode ?? vessel?.LandingMode ?? _Settings.LandingMode ?? LandingModeEnum.MergeAndPush) != LandingModeEnum.MergeQueue) continue;
+                if (voyage != null && (await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false))
+                    .Any(m => m.DependsOnMissionId == mission.Id)) continue;
+                EnumerationResult<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(new EnumerationQuery { MissionId = mission.Id, PageSize = 1 }, token).ConfigureAwait(false);
+                if (entries.Objects.Count > 0) continue;
+                EnumerationResult<ArmadaEvent> checks = await _Database.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = mission.Id, EventType = StageCheckEvents.EventType, PageSize = 1,
+                    Order = EnumerationOrderEnum.CreatedDescending
+                }, token).ConfigureAwait(false);
+                StageCheckResult? check = StageCheckEvents.Read(checks.Objects.FirstOrDefault());
+                if (check == null || check.IsBlocking) continue;
+                DateTime version = mission.LastUpdateUtc;
+                mission.Status = MissionStatusEnum.LandingFailed;
+                mission.FailureReason = "Stage check was nonblocking, but no merge queue entry was recorded within five minutes. Inspect the preserved branch and enqueue landing manually.";
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                if (await _Database.Missions.TryUpdateIfUnchangedAsync(mission, version, new[] { MissionStatusEnum.WorkProduced }, token).ConfigureAwait(false))
+                    await EmitEventAsync("mission.landing_handoff_missing", mission.FailureReason,
+                        entityType: "mission", entityId: mission.Id, missionId: mission.Id, vesselId: mission.VesselId,
+                        voyageId: mission.VoyageId, tenantId: mission.TenantId, userId: mission.UserId, token: token).ConfigureAwait(false);
             }
         }
 
@@ -2251,6 +2297,13 @@ namespace Armada.Core.Services
             }
 
             if (String.IsNullOrEmpty(dockId)) return;
+            // A stalled captain may have valuable edits even after an earlier commit. Retain the entire dock,
+            // including untracked files, rather than relying on the best-effort leftover-work commit path.
+            if (mission?.FailureKind == MissionFailureKindEnum.StallRecoveryExhausted)
+            {
+                _Logging.Warn(_Header + "retaining dock " + dockId + " for stalled mission " + mission.Id + "; recover work before deleting the dock");
+                return;
+            }
 
             try
             {

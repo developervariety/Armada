@@ -233,13 +233,6 @@ export default function Incidents() {
 
   const columns: DataTableColumn<Incident>[] = [
     {
-      key: 'title', label: t('Incident'), required: true, headerTitle: t('Incident title. Hover a row for its summary or impact.'),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only incidents whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
-      // One line: the summary (or impact) is in the tooltip and in the optional Summary column.
-      cellTitle: (incident) => [incident.title, incident.summary || incident.impact].filter(Boolean).join('\n'),
-      render: (incident) => <strong className="cell-one-line">{incident.title}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Incident ID (inc_ prefix), used by the REST API, MCP tools, and links.'), cellClassName: 'mono text-dim table-id-cell',
       render: (incident) => (
         <span className="id-display">
@@ -247,6 +240,13 @@ export default function Incidents() {
           <CopyButton text={incident.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'title', label: t('Incident'), required: true, headerTitle: t('Incident title. Hover a row for its summary or impact.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by title')} title={t('Show only incidents whose title contains this text.')} value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} />,
+      // One line: the summary (or impact) is in the tooltip and in the optional Summary column.
+      cellTitle: (incident) => [incident.title, incident.summary || incident.impact].filter(Boolean).join('\n'),
+      render: (incident) => <strong className="cell-one-line">{incident.title}</strong>,
     },
     { key: 'status', label: t('Status'), headerTitle: t('Lifecycle state: Open, Monitoring, Mitigated, RolledBack, or Closed.'), cellClassName: 'cell-nowrap', render: (incident) => <StatusBadge status={incident.status} /> },
     { key: 'severity', label: t('Severity'), headerTitle: t('Impact level: Critical, High, Medium, or Low.'), cellClassName: 'cell-nowrap', render: (incident) => <StatusBadge status={incident.severity} /> },

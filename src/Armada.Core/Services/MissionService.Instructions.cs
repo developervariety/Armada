@@ -108,7 +108,8 @@ namespace Armada.Core.Services
             // Apply the vessel's project-profile persona override (if any) so per-project customization takes effect.
             PersonaOverride? personaOverride = await ResolvePersonaOverrideAsync(vessel, mission.Persona, token).ConfigureAwait(false);
             string? personaTemplateName = await ResolvePersonaTemplateNameAsync(mission, token).ConfigureAwait(false);
-            string personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+            PromptVariantEnum promptVariant = await ResolvePromptVariantAsync(mission, captain, token).ConfigureAwait(false);
+            string personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, promptVariant, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
             if (handoff != null)
             {
                 // The description's prior-stage placeholder receives the rendered handoff, unless the persona template
@@ -121,7 +122,7 @@ namespace Armada.Core.Services
                 if (!String.Equals(filled, templateParams["MissionDescription"], StringComparison.Ordinal))
                 {
                     templateParams["MissionDescription"] = filled;
-                    personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
+                    personaPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(mission.Persona, personaTemplateName, promptVariant, templateParams, _PromptTemplates, personaOverride, token).ConfigureAwait(false);
                 }
             }
 
@@ -456,6 +457,30 @@ namespace Armada.Core.Services
             }
 
             return (selectionOrder + 1).ToString("D2") + "_" + safeName;
+        }
+
+        /// <summary>
+        /// Resolve the persona prompt variant for the mission (<see cref="PromptVariantResolver"/>): the voyage's captain
+        /// override for the mission's persona, then the captain's <c>promptVariant</c> runtime option, then Current.
+        /// Best-effort: a voyage read failure falls back to the captain's setting.
+        /// </summary>
+        private async Task<PromptVariantEnum> ResolvePromptVariantAsync(Mission mission, Captain? captain, CancellationToken token)
+        {
+            List<CaptainAssignmentOverride> overrides;
+            try
+            {
+                overrides = await ReadVoyageCaptainOverridesAsync(mission.VoyageId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                _Logging.Debug(_Header + "could not read voyage overrides for the prompt variant of mission " + mission.Id + ": " + ex.Message);
+                overrides = new List<CaptainAssignmentOverride>();
+            }
+
+            PromptVariantEnum variant = PromptVariantResolver.Resolve(mission.Persona, overrides, captain);
+            if (variant != PromptVariantEnum.Current)
+                _Logging.Debug(_Header + "mission " + mission.Id + " renders the " + variant + " persona prompt variant");
+            return variant;
         }
 
         /// <summary>
