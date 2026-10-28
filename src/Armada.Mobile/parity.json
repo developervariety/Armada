@@ -2665,6 +2665,14 @@
     },
     {
       "kind": "api",
+      "key": "getVesselCleanupInventory",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W3.1",
+      "notes": "Vessels | vessel Cleanup (dock, worktree and branch garbage collection) is a dashboard operator workflow; the app does not offer destructive repository cleanup"
+    },
+    {
+      "kind": "api",
       "key": "getVesselCommitActivity",
       "status": "implemented",
       "mobile": "src/screens/vessels",
@@ -3534,6 +3542,14 @@
       "mobile": "src/screens/fleetActions",
       "workstream": "W3.2",
       "notes": "Fleet Actions"
+    },
+    {
+      "kind": "api",
+      "key": "runVesselCleanup",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W3.1",
+      "notes": "Vessels | vessel Cleanup (dock, worktree and branch garbage collection) is a dashboard operator workflow; the app does not offer destructive repository cleanup"
     },
     {
       "kind": "api",

@@ -1089,6 +1089,13 @@ namespace Armada.Core.Services
             return true;
         }
 
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<GitWorktreeEntry>?> ListWorktreeEntriesAsync(string repoPath, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            return await ListWorktreesAsync(repoPath, token).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Check if a path is registered as a git worktree.
         /// </summary>

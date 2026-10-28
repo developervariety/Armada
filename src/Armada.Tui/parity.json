@@ -2617,6 +2617,14 @@
     },
     {
       "kind": "api",
+      "key": "getVesselCleanupInventory",
+      "status": "implemented",
+      "tui": "ArmadaClient.GetVesselCleanupInventoryAsync",
+      "workstream": "W0.2",
+      "notes": "Vessels"
+    },
+    {
+      "kind": "api",
       "key": "getVesselCommitActivity",
       "status": "implemented",
       "tui": "ArmadaClient.GetVesselCommitActivityAsync",
@@ -3454,6 +3462,14 @@
       "tui": "ArmadaClient.RunFleetActionAsync",
       "workstream": "W0.2",
       "notes": "Fleet Actions"
+    },
+    {
+      "kind": "api",
+      "key": "runVesselCleanup",
+      "status": "implemented",
+      "tui": "ArmadaClient.RunVesselCleanupAsync",
+      "workstream": "W0.2",
+      "notes": "Vessels"
     },
     {
       "kind": "api",
