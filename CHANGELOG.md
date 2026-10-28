@@ -6,13 +6,22 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
+
 ### Handoff and landing resilience
+
+- Record failed landing callbacks as LandingFailed; periodically flag verified merge-queue missions missing a queue entry after five minutes for manual recovery.
 
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
 
 ### Persona prompt variants for battery comparison
 
 - Persona prompts render as one of three variants through the existing template path: Current (today's default, unchanged), Lean (one demand per line, the output contract stated first and repeated as the last line) and Compact (a shorter tier for small-context readers). Built-in `persona.<name>.lean` and `persona.<name>.compact` templates ship for the Worker, Test Engineer, Judge and Architect and appear in `list_prompt_templates`; completion and signal lines are identical in every variant, and acceptance criteria and project rules are untouched. The variant is chosen by a voyage captain override's `PromptVariant`, then the captain's `promptVariant` runtime option, then Current. A fixture battery run takes `promptVariant` (REST body and `run_battery`) and records a non-Current variant in its configuration.
+### Stage outcomes record contract repairs
+
+- `StageOutcome.ContractRepairKind` (nullable; `CompletionLineMissing`, `CompletionLineMalformed`, `CommitMissingRecoveredFromRepo`, `VerdictNonCanonical` or `PlanBlockNonCanonical`) records the contract repair Armada applied to the attempt, read from the latest `mission.contract_repaired` event written since the attempt started. Migration 98 adds the `contract_repair_kind` column to `stage_outcomes` on SQLite, PostgreSQL, SQL Server and MySQL; existing rows read as null. The field is returned by the stage outcome REST routes and the `get_stage_outcome` / `list_stage_outcomes` MCP tools. The `mission.contract_repaired` event is still emitted for every repair.
 
 ## v1.2.0 (2026-10-27)
 
@@ -89,6 +98,18 @@ startup; see [UPGRADING.md](docs/UPGRADING.md#v110-to-v120).
   `battery_task_results`).
 - **Settings.** `Evaluation.BatteryDirectory` overrides where packs are read from. `Evaluation.BatteryTaskTimeoutMinutes`
   (default 60) bounds each task's mission.
+
+### Missions and voyages carry an IsEvaluation flag
+
+- **Stored on all four databases.** `Mission.IsEvaluation` and `Voyage.IsEvaluation` (default false) are persisted by
+  migration 96, which adds `is_evaluation` to `missions` and `voyages` on SQLite, PostgreSQL, MySQL and SQL Server.
+- **Set at dispatch.** REST `VoyageRequest.IsEvaluation`, MCP `dispatch` and `create_mission` `isEvaluation`, and the
+  .NET client `VoyageCreateRequest`/`DispatchRequest.IsEvaluation` set the flag. Missions inherit it from their voyage
+  and from the mission they are derived from (rework, judge, architect, rescue). Fixture battery runs dispatch with it
+  set.
+- **Stage outcomes are tagged from it.** A stage outcome's `IsEvaluation` now comes from its mission's flag instead of
+  being inferred from the vessel's `ModelEvaluation` pipeline.
+- **Dashboard.** Missions and voyages that carry the flag show an `Evaluation` badge on list rows and detail headers.
 
 ### Evaluate: probe-only Quick model probes over REST, MCP and the .NET client
 

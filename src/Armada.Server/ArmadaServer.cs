@@ -472,6 +472,7 @@ namespace Armada.Server
             _Admiral.OnCaptureDiff = _MissionLanding.HandleCaptureDiffAsync;
             _Admiral.OnIsProcessExitHandled = _AgentLifecycle.IsProcessExitHandled;
             admiralService.OnIsProcessTracked = _AgentLifecycle.IsProcessTracked;
+            admiralService.OnGetToolWaitStartedUtc = _AgentLifecycle.GetToolWaitStartedUtc;
             admiralService.OnIsRemoteProcessTracked = _HarborConnectionManager.IsProcessTracked;
             admiralService.OnIsProcessAwaitingReconnect = _HarborConnectionManager.IsProcessAwaitingReconnect;
             missionService.OnGetMissionOutput = _AgentLifecycle.GetAndClearMissionOutput;

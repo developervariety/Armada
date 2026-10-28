@@ -71,7 +71,11 @@ namespace Armada.Core.Services
             {
                 if (!PersonaPromptImprovements.Additions.ContainsKey(entry.Key)) continue;
                 _PreviousPersonaContents[entry.Key] = entry.Value.Content;
-                entry.Value.Content = PersonaPromptImprovements.Briefs[entry.Key];
+                // The architect brief already states this index rule earlier; remove the repetition to keep
+                // the shared long-command reminder within the existing concise persona budget.
+                entry.Value.Content = PersonaPromptImprovements.Briefs[entry.Key]
+                    .Replace("Use decisionIndexes for the 1-based indexes of only this slice's relevant decisions ([] if none).", String.Empty)
+                    + "\nPrint progress before long commands; skip the full test suite when Armada runs post-stage checks.\n";
             }
         }
 
@@ -431,7 +435,7 @@ namespace Armada.Core.Services
                 string recall = previous.Key == "persona.recorder" ? String.Empty : _MemoryRecallGuidance;
                 string improved = PersonaPromptImprovements.Apply(previous.Key, previous.Value);
                 string recallBeforeImprovement = PersonaPromptImprovements.Apply(previous.Key, previous.Value + recall);
-                if (!new[] { previous.Value, previous.Value + recall, improved, improved + recall, recallBeforeImprovement, PersonaPromptImprovements.PreviousBriefs[previous.Key], PersonaPromptImprovements.RecentBriefs[previous.Key], PersonaPromptImprovements.EvidenceBriefs[previous.Key], PersonaPromptImprovements.ScopedBriefs[previous.Key], PersonaPromptImprovements.DecisionBriefs[previous.Key] }
+                if (!new[] { previous.Value, previous.Value + recall, improved, improved + recall, recallBeforeImprovement, PersonaPromptImprovements.PreviousBriefs[previous.Key], PersonaPromptImprovements.RecentBriefs[previous.Key], PersonaPromptImprovements.EvidenceBriefs[previous.Key], PersonaPromptImprovements.ScopedBriefs[previous.Key], PersonaPromptImprovements.DecisionBriefs[previous.Key], PersonaPromptImprovements.Briefs[previous.Key] }
                     .Any(shipped => NormalizeLineEndings(existing.Content) == NormalizeLineEndings(shipped))) continue;
                 existing.Content = _EmbeddedDefaults[previous.Key].Content;
                 existing.LastUpdateUtc = DateTime.UtcNow;

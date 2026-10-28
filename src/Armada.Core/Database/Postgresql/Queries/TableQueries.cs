@@ -2009,7 +2009,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                         last_update_utc TIMESTAMP NOT NULL
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
-                    @"CREATE INDEX IF NOT EXISTS idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);")
+                    @"CREATE INDEX IF NOT EXISTS idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);"),
+                new SchemaMigration(98, "Add contract_repair_kind to stage_outcomes so a deterministic contract repair shows on the stage outcome as well as in the mission.contract_repaired event",
+                    @"ALTER TABLE stage_outcomes ADD COLUMN IF NOT EXISTS contract_repair_kind TEXT;")
 
 
             };
