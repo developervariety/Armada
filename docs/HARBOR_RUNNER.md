@@ -63,6 +63,15 @@ Enable and enroll the runner through the existing
 [Harbor operator controls](HARBOR_PROTOCOL.md#opt-in-operation). Starting this
 console does not enable the Admiral's Harbor listener or create an enrollment.
 
+## Host samples
+
+Each heartbeat carries an optional `host` object. The runner fills CPU percent from `/proc/stat` when that file
+is readable. The first sample has no earlier counter, so its CPU percent is null. Memory comes from
+`/proc/meminfo` when both total and available are present. Disk is the drive that holds the runner state
+directory. A counter the runner cannot read stays null. Live job and live captain counts are included when the
+runner can count them. A measured zero stays zero. An older runner that omits `host` makes the Admiral report
+`no-data` for that runner.
+
 ## Job ownership and recovery
 
 One console owns a state directory at a time. Each accepted job starts an

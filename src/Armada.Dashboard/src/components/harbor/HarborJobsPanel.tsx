@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { getHarborJobs } from '../../api/client';
+import { getHarborHostMetrics, getHarborJobs } from '../../api/client';
 import { useLocale } from '../../context/LocaleContext';
-import type { HarborJob, HarborJobsQuery } from '../../types/models';
+import type { HarborHostMetrics, HarborJob, HarborJobsQuery } from '../../types/models';
 import StatusBadge from '../shared/StatusBadge';
+import HarborHostChart from './HarborHostChart';
 
 interface LoadError { kind: 'unavailable' | 'unauthorized' | 'forbidden' | 'failure'; message: string; }
 function classifyError(error: unknown, t: (value: string) => string): LoadError {
@@ -14,18 +15,40 @@ function classifyError(error: unknown, t: (value: string) => string): LoadError 
   return { kind: 'failure', message: error instanceof Error ? error.message : t('Could not load Harbor jobs.') };
 }
 
+function classifyHostError(error: unknown, t: (value: string) => string): string {
+  const status = typeof error === 'object' && error !== null && 'status' in error ? error.status : undefined;
+  if (status === 404) return t('This Harbor host is unknown or not visible.');
+  if (status === 403) return t('You do not have access to this Harbor host.');
+  if (status === 401 || (error instanceof Error && error.message === 'Unauthorized')) return t('Your session is not authorized. Sign in again to view this Harbor host.');
+  return error instanceof Error ? error.message : t('Could not load Harbor host metrics.');
+}
+
 export default function HarborJobsPanel() {
   const { t, formatDateTime } = useLocale();
   const [jobs, setJobs] = useState<HarborJob[]>([]); const [runnerId, setRunnerId] = useState('');
   const [activeOnly, setActiveOnly] = useState(false); const [limit, setLimit] = useState('100');
   const [loading, setLoading] = useState(false); const [loaded, setLoaded] = useState(false); const [error, setError] = useState<LoadError | null>(null);
+  const [hostRunnerId, setHostRunnerId] = useState('');
+  const [hostReading, setHostReading] = useState<HarborHostMetrics | null>(null);
+  const [hostError, setHostError] = useState<string | null>(null);
   const request = useRef(0); const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; request.current++; }; }, []);
   const load = useCallback(async (query: HarborJobsQuery) => {
     const current = ++request.current; setLoading(true); setLoaded(false); setError(null); setJobs([]);
+    setHostReading(null); setHostError(null);
+    const selectedRunner = query.runnerId?.trim() ?? '';
+    setHostRunnerId(selectedRunner);
     try {
       const result = await getHarborJobs(query);
-      if (mounted.current && current === request.current) { setJobs(result.jobs); setLoaded(true); }
+      if (!(mounted.current && current === request.current)) return;
+      setJobs(result.jobs); setLoaded(true);
+      if (!selectedRunner) return;
+      try {
+        const metrics = await getHarborHostMetrics(selectedRunner);
+        if (mounted.current && current === request.current) setHostReading(metrics);
+      } catch (hostErr: unknown) {
+        if (mounted.current && current === request.current) setHostError(classifyHostError(hostErr, t));
+      }
     } catch (err: unknown) {
       if (mounted.current && current === request.current) setError(classifyError(err, t));
     } finally { if (mounted.current && current === request.current) setLoading(false); }
@@ -38,6 +61,12 @@ export default function HarborJobsPanel() {
   }
   return <section aria-labelledby="harbor-jobs-title">
     <div className="page-header"><div><h2 id="harbor-jobs-title">{t('Harbor jobs')}</h2><p className="text-dim">{t('Read-only records for jobs visible to your account. This view does not report runner connection status.')}</p></div></div>
+    <section aria-labelledby="harbor-host-title">
+      <h3 id="harbor-host-title">{t('Harbor host')}</h3>
+      {!hostRunnerId && <p className="text-dim">{t('Enter a runner ID to chart that Harbor host.')}</p>}
+      {hostError && <p className="alert alert-error" role="alert">{hostError}</p>}
+      {hostReading && <HarborHostChart reading={hostReading} formatDateTime={formatDateTime} />}
+    </section>
     <form className="filter-bar" onSubmit={submit}>
       <label>{t('Runner ID')}<input disabled={loading} value={runnerId} onChange={(event) => setRunnerId(event.target.value)} /></label>
       <label className="checkbox-row"><input disabled={loading} type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} />{t('Active jobs only')}</label>

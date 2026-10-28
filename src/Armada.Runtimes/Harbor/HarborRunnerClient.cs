@@ -16,6 +16,7 @@ namespace Armada.Runtimes.Harbor
         private readonly Action<string> _Log;
         private readonly HarborJobJournal _Journal;
         private readonly HarborRunnerWorkspace? _Workspace;
+        private readonly HarborHostSampler _HostSampler = new HarborHostSampler();
         private int _ActiveWorkspaceOperations;
 
         /// <summary>Create a headless Harbor runner client.</summary>

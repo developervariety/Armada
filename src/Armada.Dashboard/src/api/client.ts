@@ -139,6 +139,7 @@ import type {
   LongRunningJobList,
   HarborJobsQuery,
   HarborJobsResponse,
+  HarborHostMetrics,
   TokenUsageSummaryResult,
   TokenUsageSummaryQuery,
   CaptainChatRequest,
@@ -1274,6 +1275,10 @@ export const getHarborJobs = (params: HarborJobsQuery = {}) => {
   const query = search.toString();
   return get<HarborJobsResponse>(`/api/v1/harbor-runners/jobs${query ? `?${query}` : ''}`);
 };
+
+/** In-memory host series for one enrolled runner. A missing point is a gap, not a zero. */
+export const getHarborHostMetrics = (runnerId: string) =>
+  get<HarborHostMetrics>(`/api/v1/harbor-runners/${encodeURIComponent(runnerId)}/metrics`);
 
 /** Bucketed token-usage summary used by the Activity token-usage view. */
 export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery, opts?: RequestOptions) => {

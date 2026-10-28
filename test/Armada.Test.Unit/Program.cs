@@ -457,6 +457,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new HarborRunnerSessionRegistryTests());
             runner.AddSuite(new HarborRunnerEnrollmentServiceTests());
             runner.AddSuite(new HarborProtocolTests());
+            runner.AddSuite(new HarborHostMetricsTests());
             runner.AddSuite(new HarborRunnerTests());
             runner.AddSuite(new HarborTransportTests());
             runner.AddSuite(new AutonomousObjectiveSchedulerSettingsTests());

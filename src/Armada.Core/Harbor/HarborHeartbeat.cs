@@ -15,6 +15,12 @@ namespace Armada.Core.Harbor
         /// </summary>
         public List<string> LiveJobIds { get; set; } = new List<string>();
 
+        /// <summary>
+        /// Optional host reading. An older Harbor omits it. A null or empty reading stores nothing, and a null
+        /// field inside a reading is a missing measurement, not zero.
+        /// </summary>
+        public HarborHostSample? Host { get; set; }
+
         #endregion
     }
 }

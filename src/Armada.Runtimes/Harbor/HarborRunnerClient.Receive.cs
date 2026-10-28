@@ -60,6 +60,7 @@ namespace Armada.Runtimes.Harbor
             {
                 await Task.Delay(TimeSpan.FromSeconds(_Settings.HeartbeatIntervalSeconds), token).ConfigureAwait(false);
                 HarborHeartbeat heartbeat = new HarborHeartbeat();
+                int activeCaptains = 0;
                 foreach (HarborLocalJobRecord record in _Journal.Enumerate())
                 {
                     bool sent;
@@ -73,7 +74,9 @@ namespace Armada.Runtimes.Harbor
                     if ((record.StopConfirmed && record.ProcessId.HasValue && record.ProcessStartedUtc.HasValue)
                         || (!record.StopConfirmed && supervisorAlive && (!record.IsRunning || childAlive)))
                         heartbeat.LiveJobIds.Add(record.JobId);
+                    if (!record.StopConfirmed && record.IsRunning && childAlive) activeCaptains++;
                 }
+                heartbeat.Host = _HostSampler.Capture(heartbeat.LiveJobIds.Count, activeCaptains, _Settings.Supervisor.StateDirectory);
                 await SendAsync(socket, sendLock, heartbeat, token).ConfigureAwait(false);
             }
         }

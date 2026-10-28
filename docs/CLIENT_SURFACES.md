@@ -12,6 +12,7 @@ catalog page. Service availability and caller scope can change that catalog.
 | Local checkout import: `VesselCheckoutDiscovery`, `VesselCheckoutCandidate` | Vessel local-checkouts and import-checkout routes; Vessels requests | Vessels import dialog | No dedicated import command | `armada_discover_vessel_checkouts`, `armada_import_vessel_checkout` |
 | Saved mission actions: `FleetAction`, `FleetActionRun` | Fleet-actions and fleet-action-runs routes; Mission Actions requests | Mission Actions | No dedicated command | No dedicated Mission Actions tool |
 | Harbor jobs: `HarborJobRecord` | Harbor job list and detail GET routes; Harbor requests | Server, Harbor jobs | No dedicated job-list command | `armada_harbor_jobs`, `armada_harbor_job` |
+| Harbor host metrics | `GET /api/v1/harbor-runners/{runnerId}/metrics`; Harbor requests | Server, Harbor host chart | No dedicated command | No host-metrics tool |
 | Process health and diagnostic checks | `/api/v1/status/health`, `/api/v1/doctor`; Status requests | Server and Diagnostics | `armada doctor` checks its host and configured server | `armada_status`; no doctor tool |
 
 The owning guides define inputs and behavior:
@@ -41,6 +42,13 @@ Job state describes the recorded attempt. `Uncertain` is non-terminal, and
 does not establish runner connectivity. The panel does not display launch keys,
 owner identifiers, process identifiers or connection generations.
 
+The Harbor host chart reads `GET /api/v1/harbor-runners/{runnerId}/metrics` for
+the runner ID in the jobs filter. `no-data` is an empty chart. `stale` names
+the last sample time and the series has a gap. A null field is a gap. The chart
+does not draw a gap as zero. The series is in memory on the Admiral. Helm and
+MCP do not read it. The route is absent while Harbor is disabled, and that
+`404` is a hidden or unknown runner when Harbor is enabled.
+
 ## Health, storage and backup boundaries
 
 Health reports process reachability, start time, version, Admiral and MCP ports,
@@ -53,7 +61,9 @@ value is a database file size, not host free space or Docker usage. The Helm
 doctor command also checks its own host configuration; it is not a substitute
 for the Admiral's scoped diagnostic result.
 
-The REST API has no host-storage or cleanup-history feed. The MCP
+The REST API has no host-storage or cleanup-history feed. The Harbor host metrics
+route is a separate in-memory sample ring for one enrolled runner. It is not
+that inventory. The MCP
 `armada_disk_lifecycle` scan reports Armada-owned storage through its existing
 operator contract. A backup download creates and verifies a backup; it is not a
 backup-age or restore-readiness status endpoint. Clients do not infer these

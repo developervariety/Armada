@@ -79,7 +79,7 @@ explain the fork behavior and link to its subsystem guides.
 | Database protection | Pre-migration backup with isolated restore verification, historical upgrade checks and per-file SQLite write queues. |
 | Runtime and MCP evidence | Typed provider failures, final reply artifacts, deferred caller-filtered catalogs, bounded file reads and matching HTTP/stdio tool names. Missing standalone services return `Unavailable`. |
 | Harbor execution | Capacity waits, opt-in host-owned checkouts and fenced restart adoption with verified output replay. |
-| Operator workflows | Saved Ask threads, exact human approval proposals, fork-aware work reports, checkout import, Mission actions and a read-only Harbor jobs view. |
+| Operator workflows | Saved Ask threads, exact human approval proposals, fork-aware work reports, checkout import, Mission actions, a read-only Harbor jobs view and a Harbor host chart. |
 | Ask native tool permissions | Adapted: each Ask launch resolves a read-only native shell and file policy on its own launch copy, with an operator setting that widens it. Mission launch defaults are unchanged. |
 | UI and local releases | Shared table controls on Voyages only; staged Dashboard installation with rollback and fresh-install failure checks. |
 | Architect plans | Version 2 and 3 JSON contracts with an explicit integration barrier that waits for all accepted branches to land. |
@@ -118,9 +118,12 @@ through its existing dispatch, checks and landing rules. Definitions and run
 snapshots belong to one operator. Durable claims prevent repeated dispatch,
 and an unknown dispatch outcome stays blocked from automatic retry.
 
-The fork's Server area includes a read-only Harbor jobs view. It uses the current
-caller's scoped records and separates an unavailable endpoint from an empty job
-list. The [client surface map](docs/CLIENT_SURFACES.md) identifies the REST,
+The fork's Server area includes a read-only Harbor jobs view and a host chart for
+one enrolled runner. The view uses the current caller's scoped records and
+separates an unavailable endpoint from an empty job list. The chart reads an
+in-memory sample ring. A missing or late sample is a gap, and a stale host names
+the time of its last sample. The ring is not a storage inventory and it keeps no
+durable history. The [client surface map](docs/CLIENT_SURFACES.md) identifies the REST,
 Dashboard, Helm and MCP entry points and their availability boundaries.
 
 The Voyages list uses shared table controls with saved optional columns. Server

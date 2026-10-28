@@ -53,7 +53,14 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(7L, output.Sequence, "output sequence");
                 AssertEqual(HarborOutputStreamEnum.Stderr, output.Stream, "output stream");
                 AssertEqual(3, RoundTrip<HarborExited>(new HarborExited { JobId = "j", ExitCode = 3 }).ExitCode, "exit code");
-                AssertEqual(2, RoundTrip<HarborHeartbeat>(new HarborHeartbeat { LiveJobIds = new List<string> { "a", "b" } }).LiveJobIds.Count, "heartbeat jobs");
+                HarborHeartbeat heartbeat = RoundTrip<HarborHeartbeat>(new HarborHeartbeat
+                {
+                    LiveJobIds = new List<string> { "a", "b" },
+                    Host = new HarborHostSample { CpuPercent = 12.5, ActiveJobs = 1, ActiveCaptains = 1 }
+                });
+                AssertEqual(2, heartbeat.LiveJobIds.Count, "heartbeat jobs");
+                AssertEqual(12.5, heartbeat.Host!.CpuPercent, "heartbeat host cpu");
+                AssertEqual(1, heartbeat.Host.ActiveCaptains, "heartbeat host captains");
                 AssertEqual("boom", RoundTrip<HarborError>(new HarborError { JobId = "j", Message = "boom" }).Message, "error message");
                 AssertEqual("nope", RoundTrip<HarborHandshakeAck>(new HarborHandshakeAck { Accepted = false, Reason = "nope" }).Reason, "ack reason");
             });
@@ -66,6 +73,17 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertRejected<FormatException>(() => HarborProtocol.Deserialize("{\"type\":\"bogus\"}"), "unknown discriminator");
                 AssertRejected<FormatException>(() => HarborProtocol.Deserialize("{\"type\":\"git\",\"requestId\":\"r\"}"), "git command is not part of the protocol");
                 AssertRejected<FormatException>(() => HarborProtocol.Deserialize("{\"type\":\"stdin\",\"jobId\":\"j\"}"), "stdin command is not part of the protocol");
+            });
+
+            await RunTest("OlderHeartbeat_WithoutHost_Deserializes", () =>
+            {
+                HarborHeartbeat older = (HarborHeartbeat)HarborProtocol.Deserialize("{\"type\":\"heartbeat\",\"liveJobIds\":[]}");
+                AssertEqual(0, older.LiveJobIds.Count, "older heartbeat jobs");
+                AssertTrue(older.Host == null, "an omitted host sample is absent");
+                HarborHeartbeat empty = (HarborHeartbeat)HarborProtocol.Deserialize("{\"type\":\"heartbeat\",\"liveJobIds\":[],\"host\":{}}");
+                AssertTrue(empty.Host != null, "an empty host object is present");
+                AssertTrue(empty.Host!.CpuPercent == null, "an empty host object has no cpu measurement");
+                AssertTrue(empty.Host.ActiveJobs == null, "an empty host object has no job count");
             });
         }
 

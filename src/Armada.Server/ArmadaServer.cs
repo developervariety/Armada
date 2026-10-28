@@ -1510,10 +1510,13 @@ namespace Armada.Server
                 registry, enrollments, new Armada.Server.Harbor.DatabaseHarborWorkspaceBindingVerifier(_Database), _Logging);
             _HarborCheckouts.SetChannel(workspace);
             _CaptainTools.SetCodexWorkspace(workspace);
+            Armada.Core.Harbor.HarborHostMetricsBuffer hostMetrics = new Armada.Core.Harbor.HarborHostMetricsBuffer();
             Armada.Server.Harbor.HarborLinkEndpoint endpoint = new Armada.Server.Harbor.HarborLinkEndpoint(
-                _Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging, workspace);
+                _Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging, workspace, hostMetrics);
             _App.WebSocket(_Settings.Harbor.LinkPath, endpoint.HandleWebSocketAsync);
             new HarborRunnerEnrollmentRoutes(enrollments, _JsonOptions).Register(_App, AuthenticateRequestAsync, _AuthorizationService);
+            new HarborHostMetricsRoutes(new Armada.Core.Services.HarborHostMetricsService(hostMetrics, _Database.HarborRunnerEnrollments, enrollments))
+                .Register(_App, AuthenticateRequestAsync, _AuthorizationService);
 
             // Missions reach a runner only through a configured route; the host is what the lifecycle launches through.
             new HarborJobRoutes(_HarborJobService, _JsonOptions).Register(_App, AuthenticateRequestAsync, _AuthorizationService);

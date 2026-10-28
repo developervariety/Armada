@@ -12721,6 +12721,27 @@
 					}
 				},
 				{
+					"name": "Get Harbor Host Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/harbor-runners/{{harborRunnerId}}/metrics",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"harbor-runners",
+								"{{harborRunnerId}}",
+								"metrics"
+							]
+						},
+						"description": "Requires Harbor: served only when Harbor.Enabled and WebSocketEnabled are set. Reads the in-memory host sample series for one enrolled runner. The caller must be the runner owner or have authority over that owner. no-data is an empty series. A stale series ends in a gap. A null field is missing, not zero."
+					}
+				},
+				{
 					"name": "Get Harbor Job",
 					"request": {
 						"method": "GET",

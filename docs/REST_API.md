@@ -965,6 +965,23 @@ List visible jobs, newest first. Query: `runnerId`, `activeOnly` (`true` for job
 
 **Response:** `200 OK` - `{ "Jobs": [ ... ] }`. **Errors:** `401` unauthenticated.
 
+#### GET /api/v1/harbor-runners/{runnerId}/metrics
+
+Read the in-memory host series for one enrolled runner. The caller is the runner owner or has authority over
+that owner, the same rule as the job list. Another caller, and an unknown runner, receive `404`
+`harbor_host_unknown`.
+
+The body is `state` (`no-data`, `current`, or `stale`), `staleSinceUtc` when `state` is `stale`,
+`newestSampleUtc`, and `points`. Each point has `atUtc`, `missing`, and the measured fields `cpuPercent`,
+`memoryUsedBytes`, `memoryTotalBytes`, `diskUsedBytes`, `diskTotalBytes`, `activeJobs`, and `activeCaptains`.
+A missing point, and a null field, are gaps. A client does not draw them as zero. A measured zero stays zero.
+`no-data` means the runner has sent no host sample. It is not an error. The series holds at most 120 samples,
+none older than 24 hours. The newest sample is `stale` after 90 seconds, and the series then ends in a gap.
+
+The route is absent while Harbor is disabled.
+
+**Response:** `200 OK`. **Errors:** `401` unauthenticated; `404` `harbor_host_unknown`.
+
 #### GET /api/v1/harbor-runners/jobs/{jobId}
 
 Read one visible job. A job held by this Admiral process includes output progress not yet persisted.

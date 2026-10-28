@@ -67,7 +67,7 @@ Runner to Admiral:
 | `started` | `HarborStarted` | a launched process started (host process id and UTC start time) |
 | `output` | `HarborOutput` | one output chunk with its `sequence` |
 | `exited` | `HarborExited` | the process exited (exit code) |
-| `heartbeat` | `HarborHeartbeat` | liveness plus the jobs still running |
+| `heartbeat` | `HarborHeartbeat` | liveness, the jobs still running, and an optional host sample |
 | `error` | `HarborError` | a job failed outside its normal exit |
 
 Git delegation and standard-input commands are not part of this protocol version; frames of those types are
@@ -140,8 +140,20 @@ runner  -> exited  { jobId, exitCode }
 
 ## Heartbeats, revocation and reconnection
 
-Send `heartbeat` well inside `Harbor.IdleTimeoutSeconds`; a link with no frames for that long is closed. Every
-heartbeat, and every `started`, `output`, `exited` and job `error` frame, revalidates the durable enrollment and
+Send `heartbeat` well inside `Harbor.IdleTimeoutSeconds`; a link with no frames for that long is closed. A heartbeat
+may include `host`. The object is optional, so the protocol version stays `1.0`. An older Harbor omits `host`.
+The Admiral stores no sample for that heartbeat, and the host metrics read reports `no-data`. An older Admiral
+ignores `host` because it is an extra property on `heartbeat`. A present `host` may omit any field. An omitted
+field is a missing measurement. It is not zero. A measured zero stays zero. The Admiral keeps the samples in
+memory only: at most 120 samples for a runner, and none older than 24 hours. The Admiral records the sample
+under the authenticated runner, not under an identifier in the payload. A sample older than 90 seconds makes
+the read `stale`, names that sample's time, and adds a gap after it. A gap carries null measurements.
+
+```json
+{ "type": "heartbeat", "liveJobIds": ["hjob_example"], "host": { "cpuPercent": 12.5, "activeJobs": 1, "activeCaptains": 1 } }
+```
+
+Every heartbeat, and every `started`, `output`, `exited` and job `error` frame, revalidates the durable enrollment and
 credential outside the registry lock before it changes a job. A revoked enrollment, a changed enrollment
 generation, or an inactive credential, user or tenant is answered with `error` naming the reason
 (`runner_enrollment_revoked`, `runner_enrollment_generation_stale`, `runner_principal_inactive`,

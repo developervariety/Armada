@@ -2646,6 +2646,28 @@ export interface HarborJob {
 export interface HarborJobsResponse { jobs: HarborJob[]; }
 export interface HarborJobsQuery { runnerId?: string; activeOnly?: boolean; limit?: number; }
 
+/** One Harbor host chart point. A missing point, or a null field, is a gap and is not zero. */
+export interface HarborHostMetricPoint {
+  atUtc: string;
+  missing: boolean;
+  cpuPercent: number | null;
+  memoryUsedBytes: number | null;
+  memoryTotalBytes: number | null;
+  diskUsedBytes: number | null;
+  diskTotalBytes: number | null;
+  activeJobs: number | null;
+  activeCaptains: number | null;
+}
+
+/** In-memory host series for one enrolled Harbor runner. */
+export interface HarborHostMetrics {
+  runnerId: string;
+  state: 'no-data' | 'current' | 'stale' | string;
+  staleSinceUtc: string | null;
+  newestSampleUtc: string | null;
+  points: HarborHostMetricPoint[];
+}
+
 /** One time bucket of the token-usage summary. Bucket totals carry a single cachedTokens figure;
  *  the per-model breakdown splits it into cacheReadTokens and cacheWriteTokens. */
 export interface TokenUsageBucket {

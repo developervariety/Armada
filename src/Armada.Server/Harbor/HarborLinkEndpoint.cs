@@ -29,6 +29,7 @@ namespace Armada.Server.Harbor
         private readonly HarborRunnerSessionRegistry _Registry;
         private readonly HarborJobCoordinator _Coordinator;
         private readonly HarborWorkspaceCoordinator? _Workspace;
+        private readonly HarborHostMetricsBuffer? _HostMetrics;
         private readonly LoggingModule _Logging;
 
         #endregion
@@ -42,19 +43,22 @@ namespace Armada.Server.Harbor
         /// <param name="coordinator">Job coordinator.</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="workspace">Typed workspace coordinator, when workspace operations are enabled.</param>
+        /// <param name="hostMetrics">In-memory host sample ring. Null leaves heartbeats without a stored sample.</param>
         public HarborLinkEndpoint(
             HarborSettings settings,
             IAuthenticationService authentication,
             HarborRunnerSessionRegistry registry,
             HarborJobCoordinator coordinator,
             LoggingModule logging,
-            HarborWorkspaceCoordinator? workspace = null)
+            HarborWorkspaceCoordinator? workspace = null,
+            HarborHostMetricsBuffer? hostMetrics = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
             _Registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _Coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
             _Workspace = workspace;
+            _HostMetrics = hostMetrics;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
         }
 
@@ -232,6 +236,7 @@ namespace Armada.Server.Harbor
                     await RejectAsync(session, send, heartbeat.CorrelationId, heartbeatReason, true).ConfigureAwait(false);
                     return false;
                 }
+                _HostMetrics?.Record(current.Identity.RunnerId, heartbeat.Host);
                 HarborHeartbeatResult applied = await _Coordinator.ApplyHeartbeatAsync(current, heartbeat.LiveJobIds).ConfigureAwait(false);
                 foreach (System.Collections.Generic.KeyValuePair<string, string> refused in applied.Rejected)
                     await send(new HarborError { CorrelationId = heartbeat.CorrelationId, JobId = refused.Key, Message = refused.Value }, token).ConfigureAwait(false);

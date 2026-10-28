@@ -9,6 +9,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Archive an expired history folder of at least `diskLifecycle.archiveBundleMinFiles` files (default 50) as one verified `.tar.gz` object instead of one object per file, so a folder of thousands of small files archives in one round trip. A deny-listed file inside an expired history folder keeps only itself: the rest of the folder is archived and freed around it. Keep a disk-lifecycle background job past the stale limit while its pass is still advancing, and remove idle evidence build outputs that hold read-only folders.
 
+### Harbor host metrics
+
+- A Harbor heartbeat may include a host sample: CPU percent, memory, the drive that holds the runner state, and counts of live jobs and live captain processes. An older Harbor omits the sample. The Admiral stores nothing for that heartbeat and the host read reports `no-data`.
+- The Admiral keeps the samples in memory for each enrolled runner. The ring holds at most 120 samples and drops a sample older than 24 hours. A sample older than 90 seconds marks the host `stale` and the series ends in a gap. A gap field is null. A measured zero stays zero.
+- `GET /api/v1/harbor-runners/{runnerId}/metrics` returns that series to the runner owner or a caller with authority over the owner. Another caller receives `404`. The route exists only when Harbor is enabled. The Dashboard Harbor host chart draws a gap for a missing sample and shows the stale time.
+
 - Rank guidance and native facts as one list in `armada_search_context`, so the strongest match leads whatever its source; code results join by reciprocal rank. Read unified-recall memory candidates with a database-side tenant and vessel filter on every provider instead of loading every visible record.
 
 - Add optional local semantic ranking to `armada_search_context`. `contextRetrieval.semanticEndpointId` pins a registered Ollama or OpenAI-compatible Embedding endpoint on a local or private host; hosted endpoints are refused. Guidance and native facts are ranked by BM25 fused with cosine similarity. Vectors are stored per tenant, source and model in `context_embeddings` on SQLite, PostgreSQL, MySQL and SQL Server, re-embedded when content changes, and deleted with their memory. Without the pin, search stays BM25 and makes no embedding call.
