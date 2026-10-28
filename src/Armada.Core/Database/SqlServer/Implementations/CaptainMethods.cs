@@ -4,6 +4,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using System.Text.Json.Serialization;
     using Microsoft.Data.SqlClient;
     using SyslogLogging;
     using Armada.Core.Database.Interfaces;
@@ -25,6 +26,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
         private readonly DatabaseSettings _Settings;
         private readonly LoggingModule _Logging;
 
+        [JsonConverter(typeof(JsonStringEnumConverter))]
         private enum CaptainDeleteScope
         {
             ById,
