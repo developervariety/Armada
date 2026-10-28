@@ -2143,11 +2143,15 @@ namespace Armada.Core.Services
                         }
 
                         // A pi launch whose exit was never handled may have left its generated .pi/mcp.json in the dock
-                        // (it is git-excluded and holds no token, but it must not linger).
-                        if (captain.Runtime == AgentRuntimeEnum.Pi && dock != null && !String.IsNullOrEmpty(dock.WorktreePath)
-                            && PiProjectMcpConfig.RemoveGenerated(dock.WorktreePath))
+                        // (it is git-excluded and holds no token, but it must not linger), and its generated
+                        // AGENTS.override.md, which pi would load ahead of the repository's AGENTS.md and the next mission
+                        // generation would read back as the dock's own instructions.
+                        if (captain.Runtime == AgentRuntimeEnum.Pi && dock != null && !String.IsNullOrEmpty(dock.WorktreePath))
                         {
-                            _Logging.Info(_Header + "removed the generated .pi/mcp.json left in orphaned mission " + mission.Id + "'s dock");
+                            if (PiProjectMcpConfig.RemoveGenerated(dock.WorktreePath))
+                                _Logging.Info(_Header + "removed the generated .pi/mcp.json left in orphaned mission " + mission.Id + "'s dock");
+                            if (RemoveGeneratedInstructionsFile(dock.WorktreePath, MissionPromptBuilder.GetInstructionsFileName(AgentRuntimeEnum.Pi.ToString())))
+                                _Logging.Info(_Header + "removed the generated mission instructions left in orphaned mission " + mission.Id + "'s dock");
                         }
 
                         // A vanished process has no confirmed exit result or stage check. Preserve its work for
@@ -2167,6 +2171,23 @@ namespace Armada.Core.Services
                             vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
                     }
                 }
+            }
+        }
+
+        private static bool RemoveGeneratedInstructionsFile(string worktreePath, string fileName)
+        {
+            // Only a file Armada generated (it carries the mission instructions heading); never the repository's own.
+            try
+            {
+                string path = System.IO.Path.Combine(worktreePath, fileName);
+                if (!System.IO.File.Exists(path)) return false;
+                if (!System.IO.File.ReadAllText(path).Contains("# Mission Instructions", StringComparison.Ordinal)) return false;
+                System.IO.File.Delete(path);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 

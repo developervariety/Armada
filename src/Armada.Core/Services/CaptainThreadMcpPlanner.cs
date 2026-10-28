@@ -53,6 +53,11 @@ namespace Armada.Core.Services
         public const string TokenEnvironmentVariable = "ARMADA_MCP_TOKEN";
 
         /// <summary>
+        /// Environment variable carrying the Armada MCP URL to a pi launch, read by Armada's pi permission gate extension.
+        /// </summary>
+        public const string UrlEnvironmentVariable = "ARMADA_MCP_URL";
+
+        /// <summary>
         /// Default name of the scoped Armada server in generated configuration.
         /// </summary>
         public const string ServerName = "armada";
@@ -270,6 +275,8 @@ namespace Armada.Core.Services
                             OriginalContents = existing
                         });
                         plan.ExtraArguments.Add("--approve");
+                        // Armada's pi permission gate extension (Approve in Armada) calls cli_permission_prompt at this URL.
+                        plan.EnvironmentOverrides[UrlEnvironmentVariable] = url;
                         break;
                     }
                 default:

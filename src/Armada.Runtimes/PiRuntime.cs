@@ -11,7 +11,9 @@ namespace Armada.Runtimes
     /// Agent runtime adapter for the pi coding agent CLI (pi.dev). pi runs headlessly in print mode with JSONL
     /// event output (<c>pi -p --mode json --no-session</c>), reads the prompt from stdin, addresses models as
     /// <c>provider/id</c>, and maps per-captain reasoning effort to <c>--thinking</c>. pi never prompts for
-    /// permission: Bypass is its default behavior and Refuse removes the <c>bash</c> tool.
+    /// permission: Bypass is its default behavior, Refuse removes the shell tools (<c>bash</c> and <c>powershell</c>), and
+    /// Approve in Armada loads Armada's permission gate extension (<c>Pi/armada-permission-gate.ts</c>), which asks
+    /// Armada's <c>cli_permission_prompt</c> tool before a shell (or other non-file) tool runs.
     /// </summary>
     public class PiRuntime : BaseAgentRuntime
     {
@@ -42,9 +44,40 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Whether pi may run shell commands. pi never prompts, so when false (or when the captain's effective
-        /// auto-approve is off, the Refuse policy) the launch adds <c>--exclude-tools bash</c>.
+        /// auto-approve is off, the Refuse policy) the launch adds <c>--exclude-tools bash,powershell</c>, unless
+        /// <see cref="PermissionGateExtensionPath"/> is set.
         /// </summary>
         public bool AutoApprove { get; set; } = true;
+
+        /// <summary>
+        /// Approve in Armada: absolute path of the permission gate extension, added as <c>--extension &lt;path&gt;</c>
+        /// (replacing the Refuse tool exclusion), or null. Set by <see cref="CliPermissionPromptSetup"/>; the launch must
+        /// carry a scoped MCP token, which the extension uses to reach <c>cli_permission_prompt</c>.
+        /// </summary>
+        public string? PermissionGateExtensionPath { get; set; } = null;
+
+        /// <summary>
+        /// Seconds the permission gate extension waits for a decision (passed as
+        /// <see cref="PermissionTimeoutEnvironmentVariable"/>), or null for the extension's default.
+        /// </summary>
+        public int? PermissionPromptTimeoutSeconds { get; set; } = null;
+
+        /// <summary>
+        /// Whether the prompt is written to a temporary file passed as <c>@&lt;file&gt;</c> instead of stdin. Defaults to
+        /// true on Windows, where pi is usually an npm <c>.cmd</c> wrapper and stdin delivery through it is not verified;
+        /// false elsewhere (stdin verified on macOS with pi 1.4.0).
+        /// </summary>
+        public bool UsePromptFile { get; set; } = OperatingSystem.IsWindows();
+
+        /// <summary>
+        /// Environment variable carrying <see cref="PermissionPromptTimeoutSeconds"/> to the permission gate extension.
+        /// </summary>
+        public const string PermissionTimeoutEnvironmentVariable = "ARMADA_PERMISSION_TIMEOUT_SECONDS";
+
+        /// <summary>
+        /// File name of the permission gate extension, shipped in the <c>Pi</c> folder of the build output.
+        /// </summary>
+        public const string PermissionGateFileName = "armada-permission-gate.ts";
 
         #endregion
 
@@ -53,6 +86,7 @@ namespace Armada.Runtimes
         private string _ExecutablePath = "pi";
         private readonly PiFinalMessage _FinalMessage = new PiFinalMessage();
         private bool _ProviderErrorRaised = false;
+        private string? _PromptFilePath = null;
 
         #endregion
 
@@ -106,6 +140,17 @@ namespace Armada.Runtimes
             return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pi", "agent", "mcp.json");
         }
 
+        /// <summary>
+        /// The permission gate extension shipped with Armada (<c>Pi/armada-permission-gate.ts</c> next to the binaries),
+        /// or null when it is missing.
+        /// </summary>
+        /// <returns>The absolute path, or null.</returns>
+        public static string? FindPermissionGateExtension()
+        {
+            string path = System.IO.Path.Combine(AppContext.BaseDirectory, "Pi", PermissionGateFileName);
+            return System.IO.File.Exists(path) ? path : null;
+        }
+
         #endregion
 
         #region Private-Methods
@@ -134,6 +179,7 @@ namespace Armada.Runtimes
         /// <param name="finalMessageFilePath">The launch's final-message file, or null.</param>
         protected override void BeginLaunch(string? finalMessageFilePath)
         {
+            DeletePromptFile();
             _ProviderErrorRaised = false;
             _FinalMessage.Begin(finalMessageFilePath);
         }
@@ -147,6 +193,7 @@ namespace Armada.Runtimes
         /// <returns>The resolved exit code.</returns>
         protected override int? ResolveExitCode(int? exitCode)
         {
+            DeletePromptFile();
             return _FinalMessage.Complete(exitCode);
         }
 
@@ -175,7 +222,22 @@ namespace Armada.Runtimes
         {
             string? thinking = ReasoningEffortTranslator.ToPiThinkingLevel(captain?.ReasoningEffort);
             bool refuseShell = !(AutoApprove && CaptainRuntimeOptions.GetAutoApprove(captain));
-            return PiCommandBuilder.BuildRunArguments(workingDirectory, prompt, model, thinking, refuseShell, false);
+            string? gate = refuseShell ? PermissionGateExtensionPath : null;
+            string? promptFile = UsePromptFile ? WritePromptFile(prompt) : null;
+            return PiCommandBuilder.BuildRunArguments(workingDirectory, prompt, model, thinking, refuseShell, false, gate, promptFile);
+        }
+
+        /// <summary>
+        /// Pass the permission gate's timeout to the extension.
+        /// </summary>
+        /// <param name="startInfo">The process start info being configured.</param>
+        /// <param name="captain">The captain being launched, if any.</param>
+        protected override void ApplyEnvironment(System.Diagnostics.ProcessStartInfo startInfo, Captain? captain)
+        {
+            if (PermissionPromptTimeoutSeconds.HasValue)
+                startInfo.Environment[PermissionTimeoutEnvironmentVariable] = PermissionPromptTimeoutSeconds.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            else
+                startInfo.Environment.Remove(PermissionTimeoutEnvironmentVariable);
         }
 
         /// <summary>
@@ -197,11 +259,37 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// Deliver the prompt on stdin: with no positional message, 'pi -p' reads redirected stdin to EOF (verified on
-        /// macOS with pi 1.4.0). Windows: UNVERIFIED (no Windows host was available when pi support was added); stdin
-        /// avoids the cmd.exe multi-line-argument truncation that a positional prompt through an npm ".cmd" wrapper
-        /// would hit. If stdin fails there, switch to pi's <c>@file</c> argument.
+        /// macOS with pi 1.4.0). On Windows (<see cref="UsePromptFile"/>) the prompt goes to a temporary file passed as
+        /// <c>@file</c> instead, because stdin through pi's npm ".cmd" wrapper is UNVERIFIED there; both forms avoid the
+        /// cmd.exe multi-line-argument truncation a positional prompt would hit.
         /// </summary>
-        protected override bool UsePromptStdin => true;
+        protected override bool UsePromptStdin => !UsePromptFile;
+
+        private string WritePromptFile(string prompt)
+        {
+            DeletePromptFile();
+            string directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada", "pi-prompts");
+            System.IO.Directory.CreateDirectory(directory);
+            string path = System.IO.Path.Combine(directory, "prompt-" + Guid.NewGuid().ToString("N") + ".md");
+            System.IO.File.WriteAllText(path, prompt, new System.Text.UTF8Encoding(false));
+            _PromptFilePath = path;
+            return path;
+        }
+
+        private void DeletePromptFile()
+        {
+            string? path = _PromptFilePath;
+            _PromptFilePath = null;
+            if (String.IsNullOrEmpty(path)) return;
+            try
+            {
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+            }
+            catch
+            {
+                // A prompt file that cannot be deleted stays in the temp folder; it never blocks a launch.
+            }
+        }
 
         #endregion
     }

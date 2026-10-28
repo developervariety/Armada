@@ -105,10 +105,11 @@ It exits 0 (`ready`) when the provider can be used and 1 (`not_ready`) otherwise
 For each mission, Ask turn, or planning session Armada runs, in the dock (or turn) working directory:
 
 ```bash
-pi -p --mode json --no-session [--approve] [--model provider/id] [--thinking off|minimal|low|medium|high] [--exclude-tools bash]
+pi -p --mode json --no-session [--approve] [--model provider/id] [--thinking off|minimal|low|medium|high] \
+   [--exclude-tools bash,powershell | --extension <armada bin>/Pi/armada-permission-gate.ts] [@<prompt file>]
 ```
 
-- The prompt is written to pi's stdin, never on the command line.
+- The prompt is written to pi's stdin, never on the command line. On Windows Armada writes it to a temporary file and passes `@<file>` instead (pi reads the file into the first message), because stdin delivery through pi's npm `.cmd` wrapper has not been verified there; the file is deleted when pi exits.
 - `--mode json` makes pi print one JSON event per line. Armada reads token usage and cost from each assistant `message_end` usage block, so pi captains report exact cost.
 - pi exits 0 in JSON mode even when the provider fails, so Armada inspects the final assistant message's `stopReason`: `error`, `aborted`, or `length` marks the run as failed.
 - A captain's reasoning effort maps to `--thinking`.
@@ -132,8 +133,20 @@ pi never prompts for permission and has no sandbox. Armada maps the captain's CL
 | Policy | pi behavior |
 |--------|-------------|
 | Bypass | pi default: all built-in tools (`read`, `bash`, `edit`, `write`) and MCP tools, no prompts. |
-| Refuse | `--exclude-tools bash`: file reads and edits and MCP tools stay available, shell commands are refused. Turning off the captain's `autoApprove` switch also maps to Refuse. |
-| Approve in Armada | Not supported by pi yet: falls back to Refuse (reason `RuntimeUnsupported`), and the fallback is shown to the user. An extension-based approval gate is planned for a later phase. |
+| Refuse | `--exclude-tools bash,powershell`: file reads and edits and MCP tools stay available; shell commands are refused, including pi's optional `powershell` tool on native Windows. Turning off the captain's `autoApprove` switch also maps to Refuse. |
+| Approve in Armada | `--extension <armada bin>/Pi/armada-permission-gate.ts` (see below). Shell commands wait for an approver in Armada. |
+
+##### Approve in Armada: the permission gate extension
+
+Armada ships a pi extension, `Pi/armada-permission-gate.ts`, next to its binaries (Admiral and Harbor) and loads it with `--extension` when a pi captain runs under Approve in Armada. Its `tool_call` hook calls Armada's `cli_permission_prompt` MCP tool over the launch's scoped MCP connection (`ARMADA_MCP_URL`, `ARMADA_MCP_TOKEN`) and waits:
+
+- The request appears under Approvals in the dashboard and, for an Ask turn, as an approval card in the conversation. CLI permission rules apply; pi's `bash` is reported as `Bash`, so `Bash(...)` rules match it.
+- Allow: the command runs. Deny: the tool call is blocked and the approver's reason becomes the tool's error result, so the model sees it and the mission continues.
+- If Armada cannot be reached, returns no decision, or does not answer within the prompt timeout (Armada's `Permissions.PromptTimeoutSeconds` plus 120 seconds, passed as `ARMADA_PERMISSION_TIMEOUT_SECONDS`), the call is blocked: the gate fails closed.
+- File tools (`read`, `edit`, `write`, `grep`, `find`, `ls`), `tool_search`, `codemode` (its nested tool calls go through the same hook) and Armada's own MCP tools run without a prompt, like Claude Code's `acceptEdits`. Every other tool, including `powershell` and tools added by repository extensions, needs approval.
+- pi decides parallel tool calls one at a time, so a pending approval holds the other calls of the same response.
+
+The gate needs a scoped MCP token: without one (or when the extension file is missing) the launch runs as Refuse. A Harbor runs the same extension from its own installation.
 
 Armada's own MCP tools stay governed by Ask proposals and per-tool authorization regardless of the CLI policy.
 

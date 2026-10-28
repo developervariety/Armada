@@ -45,10 +45,63 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("-p|--mode|json|--no-session|--model|anthropic/claude-opus-4-8|--thinking|high", String.Join("|", args));
             }));
 
-            cases.Add(Case("args_refuse_excludes_bash", "Refuse adds --exclude-tools bash; --approve is added only on request", TestTags.Positive, () =>
+            cases.Add(Case("args_refuse_excludes_bash", "Refuse adds --exclude-tools bash,powershell; --approve is added only on request", TestTags.Positive, () =>
             {
                 List<string> args = PiCommandBuilder.BuildRunArguments("/tmp/wd", "hi", null, null, true, true);
-                AssertEqual("-p|--mode|json|--no-session|--approve|--exclude-tools|bash", String.Join("|", args));
+                AssertEqual("-p|--mode|json|--no-session|--approve|--exclude-tools|bash,powershell", String.Join("|", args));
+            }));
+
+            cases.Add(Case("args_refuse_covers_every_shell_tool", "Refuse removes both of pi's shell tools (bash, and powershell on native Windows) and no file tool", TestTags.Negative, () =>
+            {
+                List<string> args = PiCommandBuilder.BuildRunArguments("/tmp/wd", "hi", null, null, true, false);
+                List<string> excluded = new List<string>(args[args.IndexOf("--exclude-tools") + 1].Split(','));
+                AssertTrue(excluded.Contains("bash") && excluded.Contains("powershell"), "bash and powershell are excluded: " + String.Join(",", excluded));
+                foreach (string fileTool in new[] { "read", "edit", "write", "grep", "find", "ls" })
+                    AssertFalse(excluded.Contains(fileTool), fileTool + " stays available under Refuse");
+                AssertEqual(2, PiCommandBuilder.ShellToolNames.Count);
+            }));
+
+            cases.Add(Case("args_permission_gate_replaces_exclusion", "Approve in Armada adds --extension <gate> instead of excluding the shell tools", TestTags.Positive, () =>
+            {
+                List<string> args = PiCommandBuilder.BuildRunArguments("/tmp/wd", "hi", null, null, true, true, "/opt/armada/Pi/armada-permission-gate.ts", null);
+                AssertEqual("-p|--mode|json|--no-session|--approve|--extension|/opt/armada/Pi/armada-permission-gate.ts", String.Join("|", args));
+                List<string> bypass = PiCommandBuilder.BuildRunArguments("/tmp/wd", "hi", null, null, false, false, null, null);
+                AssertEqual("-p|--mode|json|--no-session", String.Join("|", bypass), "no gate and no exclusion under Bypass");
+                List<string> blankGate = PiCommandBuilder.BuildRunArguments("/tmp/wd", "hi", null, null, true, false, "  ", null);
+                AssertEqual("-p|--mode|json|--no-session|--exclude-tools|bash,powershell", String.Join("|", blankGate), "a blank gate path keeps the Refuse exclusion");
+            }));
+
+            cases.Add(Case("args_prompt_file_is_last", "The Windows @file prompt path passes @<file> last; the stdin path passes no prompt argument", TestTags.Positive, () =>
+            {
+                List<string> file = PiCommandBuilder.BuildRunArguments("C:\\work", "line one\nline two", "openai/gpt-5.2", "low", true, true, null, "C:\\Temp\\armada\\pi-prompts\\prompt-1.md");
+                AssertEqual("-p|--mode|json|--no-session|--approve|--model|openai/gpt-5.2|--thinking|low|--exclude-tools|bash,powershell|@C:\\Temp\\armada\\pi-prompts\\prompt-1.md", String.Join("|", file));
+                AssertFalse(file.Exists(a => a.Contains("line one", StringComparison.Ordinal)), "the prompt text is never an argument");
+                List<string> stdin = PiCommandBuilder.BuildRunArguments("/work", "line one\nline two", null, null, false, false, null, null);
+                AssertFalse(stdin.Exists(a => a.StartsWith("@", StringComparison.Ordinal)), "no @file argument on the stdin path");
+                List<string> gated = PiCommandBuilder.BuildRunArguments("/work", "hi", null, null, true, false, "/gate.ts", "/tmp/p.md");
+                AssertEqual("-p|--mode|json|--no-session|--extension|/gate.ts|@/tmp/p.md", String.Join("|", gated));
+            }));
+
+            cases.Add(Case("prompt_file_defaults_to_windows_only", "PiRuntime delivers the prompt with @file only on Windows by default", TestTags.Positive, () =>
+            {
+                AssertEqual(OperatingSystem.IsWindows(), new PiRuntime(Logging()).UsePromptFile);
+            }));
+
+            cases.Add(Case("permission_setup_configures_gate", "CliPermissionPromptSetup points a pi launch at the shipped gate for Approve in Armada and clears it for every other policy", TestTags.Positive, () =>
+            {
+                PiRuntime runtime = new PiRuntime(Logging());
+                AssertTrue(CliPermissionPromptSetup.Configure(runtime, CliPermissionPolicyEnum.ApproveInArmada, 600), "pi sends its prompts to Armada");
+                AssertNotNull(runtime.PermissionGateExtensionPath, "the gate path is set");
+                AssertTrue(File.Exists(runtime.PermissionGateExtensionPath!), "the gate ships in the build output: " + runtime.PermissionGateExtensionPath);
+                AssertEqual(Path.Combine(AppContext.BaseDirectory, "Pi", PiRuntime.PermissionGateFileName), runtime.PermissionGateExtensionPath);
+                AssertEqual(600 + CliPermissionPromptSetup.CliTimeoutMarginSeconds, runtime.PermissionPromptTimeoutSeconds ?? -1, "the gate outwaits Armada's own prompt timeout");
+                foreach (CliPermissionPolicyEnum other in new[] { CliPermissionPolicyEnum.Refuse, CliPermissionPolicyEnum.Bypass })
+                {
+                    CliPermissionPromptSetup.Configure(runtime, CliPermissionPolicyEnum.ApproveInArmada, 600);
+                    AssertFalse(CliPermissionPromptSetup.Configure(runtime, other, 600), other + " does not prompt");
+                    AssertNull(runtime.PermissionGateExtensionPath, other + " clears the gate");
+                    AssertNull(runtime.PermissionPromptTimeoutSeconds, other + " clears the timeout");
+                }
             }));
 
             cases.Add(Case("args_reject_blank", "Blank working directory or prompt throws", TestTags.Negative, () =>
@@ -121,7 +174,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("stub_launch_refuse_excludes_bash", "A captain without auto-approve launches pi with --exclude-tools bash", TestTags.Negative, async () =>
+            cases.Add(CaseAsync("stub_launch_refuse_excludes_bash", "A captain without auto-approve launches pi with --exclude-tools bash,powershell", TestTags.Negative, async () =>
             {
                 if (OperatingSystem.IsWindows()) return;
                 string root = TestTemp.NewDirectory("pi_refuse");
@@ -133,7 +186,71 @@ namespace Test.Shared.Suites.Services
                     Captain refuse = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("pi", AgentRuntimeEnum.Pi), false);
                     await LaunchAsync(new PiRuntime(Logging()) { ExecutablePath = stub }, work, "hi", null, refuse).ConfigureAwait(false);
                     string[] argv = File.ReadAllLines(Path.Combine(root, "stub", "pi-argv.txt"));
-                    AssertEqual("-p|--mode|json|--no-session|--exclude-tools|bash", String.Join("|", argv));
+                    AssertEqual("-p|--mode|json|--no-session|--exclude-tools|bash,powershell", String.Join("|", argv));
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            }));
+
+            cases.Add(CaseAsync("stub_launch_approve_in_armada_loads_gate", "Approve in Armada launches pi with --extension pointing at the gate file in the bin, keeps bash, and passes the gate timeout; Refuse afterwards drops it", TestTags.Positive, async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string root = TestTemp.NewDirectory("pi_gate_launch");
+                try
+                {
+                    string work = Path.Combine(root, "work");
+                    Directory.CreateDirectory(work);
+                    string stub = StubAgentProcesses.WritePiStub(Path.Combine(root, "stub"));
+                    PiRuntime runtime = new PiRuntime(Logging()) { ExecutablePath = stub };
+                    // The server launches an ApproveInArmada captain with its effective auto-approve off.
+                    Captain approve = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("pi", AgentRuntimeEnum.Pi), false);
+                    AssertTrue(CliPermissionPromptSetup.Configure(runtime, CliPermissionPolicyEnum.ApproveInArmada, 300));
+                    await LaunchAsync(runtime, work, "hi", null, approve).ConfigureAwait(false);
+
+                    string[] argv = File.ReadAllLines(Path.Combine(root, "stub", "pi-argv.txt"));
+                    int at = Array.IndexOf(argv, "--extension");
+                    AssertTrue(at >= 0 && at + 1 < argv.Length, "argv has --extension <path>: " + String.Join(" ", argv));
+                    AssertTrue(File.Exists(argv[at + 1]), "the extension path exists: " + argv[at + 1]);
+                    AssertEqual(PiRuntime.PermissionGateFileName, Path.GetFileName(argv[at + 1]));
+                    AssertEqual(Path.Combine(AppContext.BaseDirectory, "Pi"), Path.GetDirectoryName(argv[at + 1]), "the extension is the copy in the bin");
+                    AssertFalse(Array.Exists(argv, a => a == "--exclude-tools"), "the gate replaces the Refuse exclusion");
+                    AssertEqual("420", File.ReadAllText(Path.Combine(root, "stub", "pi-permission-timeout.txt")), "Armada's 300 s timeout plus the CLI margin");
+
+                    CliPermissionPromptSetup.Configure(runtime, CliPermissionPolicyEnum.Refuse, 300);
+                    await LaunchAsync(runtime, work, "hi", null, approve).ConfigureAwait(false);
+                    AssertEqual("-p|--mode|json|--no-session|--exclude-tools|bash,powershell", String.Join("|", File.ReadAllLines(Path.Combine(root, "stub", "pi-argv.txt"))), "a reused runtime keeps no gate");
+                    AssertEqual("", File.ReadAllText(Path.Combine(root, "stub", "pi-permission-timeout.txt")), "no gate timeout without the gate");
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            }));
+
+            cases.Add(CaseAsync("stub_launch_prompt_file_path", "With UsePromptFile (the Windows default) the prompt goes to a temp file passed as @file, stdin stays empty, and the file is removed after exit", TestTags.Positive, async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string root = TestTemp.NewDirectory("pi_prompt_file");
+                try
+                {
+                    string work = Path.Combine(root, "work");
+                    Directory.CreateDirectory(work);
+                    string stub = StubAgentProcesses.WritePiStub(Path.Combine(root, "stub"));
+                    File.WriteAllText(Path.Combine(root, "stub", "pi-replay.jsonl"), String.Join("\n", PiStreamFixtures.PlainReply) + "\n");
+                    string prompt = "line one\nline two with 'quotes' and $HOME\nline three";
+                    PiRuntime runtime = new PiRuntime(Logging()) { ExecutablePath = stub, UsePromptFile = true };
+                    int? code = await LaunchAsync(runtime, work, prompt, "openai/gpt-5.2", new Captain("pi", AgentRuntimeEnum.Pi)).ConfigureAwait(false);
+
+                    AssertEqual(0, code ?? -1);
+                    string[] argv = File.ReadAllLines(Path.Combine(root, "stub", "pi-argv.txt"));
+                    AssertEqual("-p|--mode|json|--no-session|--model|openai/gpt-5.2", String.Join("|", argv, 0, argv.Length - 1));
+                    string fileArg = argv[argv.Length - 1];
+                    AssertTrue(fileArg.StartsWith("@", StringComparison.Ordinal), "the last argument is @file: " + fileArg);
+                    AssertEqual(prompt, File.ReadAllText(Path.Combine(root, "stub", "pi-prompt-file.txt")), "the file holds the multi-line prompt intact");
+                    AssertEqual("", File.ReadAllText(Path.Combine(root, "stub", "pi-stdin.txt")), "nothing is written to stdin");
+                    AssertFalse(File.Exists(fileArg.Substring(1)), "the prompt file is removed after the run");
                 }
                 finally
                 {

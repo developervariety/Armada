@@ -90,6 +90,56 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(Case("real_pi_approve_in_armada_gate", "Approve in Armada with a real pi: an allowed bash call runs, a denied one returns the reason to the model, and the run continues", skip, async () =>
+            {
+                string root = TestTemp.NewDirectory("pi_smoke_gate");
+                try
+                {
+                    Git(root, "init", "-q");
+                    using FakePermissionPromptMcpServer server = new FakePermissionPromptMcpServer();
+                    server.Decide = call => Task.FromResult((call.Command ?? "").Contains("approved", StringComparison.Ordinal)
+                        ? FakePermissionPromptMcpServer.Allow()
+                        : FakePermissionPromptMcpServer.Deny("ARMADA-DENIED-BY-TEST"));
+                    string finalMessage = Path.Combine(Path.GetTempPath(), "armada-pi-smoke-gate-" + Guid.NewGuid().ToString("N") + ".txt");
+                    List<string> stdout = new List<string>();
+                    PiRuntime runtime = new PiRuntime(Logging());
+                    runtime.OnStdoutReceived += (int pid, string line) => { lock (stdout) stdout.Add(line); };
+                    AssertTrue(CliPermissionPromptSetup.Configure(runtime, CliPermissionPolicyEnum.ApproveInArmada, 60), "the gate is configured");
+                    Captain captain = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("pi-gate", AgentRuntimeEnum.Pi), false);
+                    Dictionary<string, string> environment = new Dictionary<string, string>
+                    {
+                        [CaptainThreadMcpPlanner.UrlEnvironmentVariable] = server.Url,
+                        [CaptainThreadMcpPlanner.TokenEnvironmentVariable] = "smoke-token"
+                    };
+
+                    TaskCompletionSource<int?> exited = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    runtime.OnProcessExited += (int pid, int? exitCode) => exited.TrySetResult(exitCode);
+                    string prompt = "Use the bash tool for each step, one command per call, in order.\n"
+                        + "1. Run exactly: echo approved > approved.txt\n"
+                        + "2. Run exactly: echo second > second.txt\n"
+                        + "If a command is blocked, do not retry it and do not use any other tool for it. Finally reply with exactly: DONE";
+                    await runtime.StartAsync(root, prompt, environment, finalMessageFilePath: finalMessage, model: model, captain: captain).ConfigureAwait(false);
+                    Task finished = await Task.WhenAny(exited.Task, Task.Delay(TimeSpan.FromMinutes(4))).ConfigureAwait(false);
+                    AssertTrue(finished == exited.Task, "pi did not finish within 4 minutes");
+                    int? code = await exited.Task.ConfigureAwait(false);
+                    string transcript;
+                    lock (stdout) transcript = String.Join("\n", stdout);
+                    string tail = transcript.Length > 3000 ? transcript.Substring(transcript.Length - 3000) : transcript;
+
+                    AssertEqual(0, code ?? -1, "the run continued after the denial and ended cleanly; stdout tail: " + tail);
+                    AssertTrue(server.Calls.Count >= 2, "both bash calls were asked in Armada (" + server.Calls.Count + "); stdout tail: " + tail);
+                    AssertEqual("approved", File.ReadAllText(Path.Combine(root, "approved.txt")).Trim(), "the allowed command ran");
+                    AssertFalse(File.Exists(Path.Combine(root, "second.txt")), "the denied command did not run");
+                    AssertContains("ARMADA-DENIED-BY-TEST", transcript, "the denial reason reached the model as the tool result");
+                    AssertContains("DONE", File.ReadAllText(finalMessage));
+                    try { File.Delete(finalMessage); } catch { }
+                }
+                finally
+                {
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "pi Runtime Smoke (real pi)",

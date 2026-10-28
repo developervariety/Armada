@@ -5,8 +5,8 @@ namespace Test.Shared.Infrastructure
     /// claude-haiku-4-5) on 2026-10-28: <see cref="PlainReply"/>, <see cref="ToolCalls"/> (bash, write, edit),
     /// <see cref="BadKey"/> (invalid API key, pi exited 0) and <see cref="Aborted"/> (SIGTERM during a bash tool call,
     /// pi exited 143). The system prompt, thinking signatures and temporary paths were trimmed; everything else is verbatim.
-    /// The remaining fixtures are derived from those captures with the record shapes of pi's docs/json.md, because the
-    /// events could not be provoked on demand: <see cref="LengthStop"/>, <see cref="RateLimited"/>, <see cref="Overloaded"/>,
+    /// The remaining fixtures are DOC-DERIVED, not captured: they are built from those captures with the record shapes of
+    /// pi's docs/json.md, because the events could not be provoked on demand: <see cref="LengthStop"/>, <see cref="RateLimited"/>, <see cref="Overloaded"/>,
     /// <see cref="RetryRecovered"/>, <see cref="RetryExhausted"/> and <see cref="McpToolCall"/>.
     /// </summary>
     public static class PiStreamFixtures
@@ -171,7 +171,7 @@ namespace Test.Shared.Infrastructure
             @"{""type"":""tool_execution_update"",""toolCallId"":""toolu_01R576f9v5mvvffZ4PgWbHbo"",""toolName"":""bash"",""args"":{""command"":""sleep 40"",""timeout"":null},""partialResult"":{""content"":[]}}"
         };
         /// <summary>
-        /// Derived: the plain reply stopped at the output limit (stopReason length).
+        /// DOC-DERIVED (not captured from a real pi run; shaped after docs/json.md): the plain reply stopped at the output limit (stopReason length).
         /// </summary>
         public static readonly string[] LengthStop = new string[]
         {
@@ -204,7 +204,7 @@ namespace Test.Shared.Infrastructure
             @"{""type"":""agent_settled"",""aborted"":false}"
         };
         /// <summary>
-        /// Derived: the bad-key run failing with a 429 rate limit instead of a 401.
+        /// DOC-DERIVED (not captured from a real pi run; shaped after docs/json.md): the bad-key run failing with a 429 rate limit instead of a 401.
         /// </summary>
         public static readonly string[] RateLimited = new string[]
         {
@@ -222,7 +222,7 @@ namespace Test.Shared.Infrastructure
             @"{""type"":""agent_settled"",""aborted"":false}"
         };
         /// <summary>
-        /// Derived: the bad-key run failing with a 529 overloaded error.
+        /// DOC-DERIVED (not captured from a real pi run; shaped after docs/json.md): the bad-key run failing with a 529 overloaded error.
         /// </summary>
         public static readonly string[] Overloaded = new string[]
         {
@@ -240,7 +240,7 @@ namespace Test.Shared.Infrastructure
             @"{""type"":""agent_settled"",""aborted"":false}"
         };
         /// <summary>
-        /// Derived: a 529 that pi retried (agent_end willRetry true, auto_retry_start) and then recovered from.
+        /// DOC-DERIVED (not captured from a real pi run; shaped after docs/json.md): a 529 that pi retried (agent_end willRetry true, auto_retry_start) and then recovered from.
         /// </summary>
         public static readonly string[] RetryRecovered = new string[]
         {
@@ -285,7 +285,7 @@ namespace Test.Shared.Infrastructure
             @"{""type"":""agent_settled"",""aborted"":false}"
         };
         /// <summary>
-        /// Derived: a 529 retried until pi gave up (auto_retry_end success false).
+        /// DOC-DERIVED (not captured from a real pi run; shaped after docs/json.md): a 529 retried until pi gave up (auto_retry_end success false).
         /// </summary>
         public static readonly string[] RetryExhausted = new string[]
         {
@@ -315,7 +315,7 @@ namespace Test.Shared.Infrastructure
             @"{""type"": ""agent_settled"", ""aborted"": false}"
         };
         /// <summary>
-        /// Derived: the tool-call run with its bash calls renamed to the Armada MCP tool mcp__armada__status.
+        /// DOC-DERIVED (not captured from a real pi run; shaped after docs/json.md): the tool-call run with its bash calls renamed to the Armada MCP tool mcp__armada__status.
         /// </summary>
         public static readonly string[] McpToolCall = new string[]
         {
