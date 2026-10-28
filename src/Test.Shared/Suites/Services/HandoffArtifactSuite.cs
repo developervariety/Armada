@@ -351,6 +351,13 @@ namespace Test.Shared.Suites.Services
                 AssertContains("get_handoff_artifact with artifactId", brief, "MCP pointer for a Claude Code reader");
                 AssertContains("#### Did not fit", brief, "explicit did-not-fit section");
                 AssertFalse(brief.Contains(PipelineHandoffContext.ArtifactPlaceholder, StringComparison.Ordinal), "placeholder filled");
+                // Phase 3 item 2: the findings are listed once in the rework section, then the demands, then the contract last.
+                string parserFinding = "1. [Blocking] src/Parser.cs:42 -- Required fix:";
+                AssertEqual(brief.IndexOf(parserFinding, StringComparison.Ordinal), brief.LastIndexOf(parserFinding, StringComparison.Ordinal), "finding delivered once");
+                AssertTrue(brief.IndexOf("### Findings to fix", StringComparison.Ordinal) < brief.IndexOf(parserFinding, StringComparison.Ordinal), "finding in the rework section");
+                AssertContains("### Rework demands\n1. Resolve every reported finding.\n2. ", brief, "numbered demands, one per line");
+                AssertFalse(brief.Contains(ReworkPromptBuilder.FindingsPlaceholder, StringComparison.Ordinal), "findings placeholder filled");
+                AssertTrue(brief.IndexOf("#### Did not fit", StringComparison.Ordinal) < brief.LastIndexOf(ReworkPromptBuilder.OutputContract, StringComparison.Ordinal), "output contract repeated after the handoff");
 
                 HandoffArtifact stored = (await testDb.Driver.HandoffArtifacts.ReadLatestByMissionAsync(flow.Judge.Id).ConfigureAwait(false))!;
                 AssertNotNull(stored, "the artifact the pointer names is stored");
