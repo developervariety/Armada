@@ -156,9 +156,9 @@ connection too, with the link status at the top, so nothing needs a window open.
 | Menu | Items |
 |---|---|
 | **Armada Harbor** (macOS) | About Armada Harbor, Settings... (Cmd+,), and the standard Services, Hide, and Quit |
-| **Harbor** | Connect, Disconnect, Reconnect (Cmd/Ctrl+R), Copy Harbor ID, Copy MCP URL, Open Harbor Folder, and on macOS Close Window (Cmd+W) (on Windows and Linux Settings... (Ctrl+,) and Quit (Ctrl+Q) instead) |
+| **Harbor** | Connect, Disconnect, Reconnect (Cmd/Ctrl+R), Copy Harbor ID, Copy MCP URL, Open Harbor Folder, Open Dashboard (Cmd/Ctrl+D; opens `DashboardUrl` in the default browser), and on macOS Close Window (Cmd+W) (on Windows and Linux Settings... (Ctrl+,) and Quit (Ctrl+Q) instead) |
 | **Edit** (macOS) | Undo (Cmd+Z), Redo (Shift+Cmd+Z), Cut, Copy, Paste, Select All, acting on the focused text field, plus the items macOS adds (Writing Tools, AutoFill, Dictation, Emoji & Symbols) |
-| **View** | Status (Cmd/Ctrl+I), Activity, Logs (Cmd/Ctrl+L), Appearance (System, Light, or Dark; saved like the Settings color scheme), Open Dashboard (Cmd/Ctrl+D), and on macOS Enter Full Screen |
+| **View** | Status (Cmd/Ctrl+I), Activity, Logs (Cmd/Ctrl+L), Appearance (System, Light, or Dark; saved like the Settings color scheme), and on macOS Enter Full Screen |
 | **Window** (macOS) | Minimize (Cmd+M), Zoom, Armada Harbor, Bring All to Front |
 | **Help** | Armada Documentation, Report an Issue..., Copy Diagnostics (versions, paths, link state, recent activity; credentials are reported only as configured or not), and About on Windows and Linux |
 | Tray | Link status, Open Armada Harbor, Status, Logs, Settings..., Connect, Disconnect, Open Dashboard, Quit Armada Harbor |
