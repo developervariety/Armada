@@ -156,7 +156,19 @@ namespace Test.Shared.Suites.Client
                 AssertEqual("updated", (await c.UpdateWorkflowProfileAsync(createdWorkflow.Id, createdWorkflow))?.Description, "update workflow profile");
                 AssertEqual(createdWorkflow.Id, (await c.PreviewWorkflowProfileForVesselAsync(setup.Vessel.Id, createdWorkflow.Id))?.ResolvedProfile?.Id, "preview workflow profile");
                 AssertEqual(createdWorkflow.Id, (await c.ResolveWorkflowProfileAsync(setup.Vessel.Id, createdWorkflow.Id))?.Id, "resolve workflow profile");
+                EnumerationResult<WorkflowProfile>? enumeratedWorkflows = await c.EnumerateWorkflowProfilesAsync(new WorkflowProfileQuery { VesselId = setup.Vessel.Id, Search = workflow.Name });
+                AssertEqual(createdWorkflow.Id, enumeratedWorkflows?.Objects.Single().Id, "enumerate workflow profiles filters by vessel and search");
                 await c.DeleteWorkflowProfileAsync(createdWorkflow.Id);
+                AssertEqual(0, (await c.EnumerateWorkflowProfilesAsync(new WorkflowProfileQuery { VesselId = setup.Vessel.Id, Search = workflow.Name }))?.Objects.Count, "deleted workflow profile no longer enumerated");
+
+                WorkflowProfile batchWorkflow = new WorkflowProfile();
+                batchWorkflow.Name = "contract-workflow-batch-" + s;
+                batchWorkflow.BuildCommand = "echo build";
+                WorkflowProfile createdBatchWorkflow = (await c.CreateWorkflowProfileAsync(batchWorkflow))!;
+                BatchDeleteResult? batchDeleted = await c.DeleteWorkflowProfilesBatchAsync(new List<string> { createdBatchWorkflow.Id, "wfp_missing_" + s });
+                AssertEqual(1, batchDeleted?.Deleted, "batch delete workflow profiles deletes the existing id");
+                AssertEqual(1, batchDeleted?.Skipped.Count, "batch delete workflow profiles skips the missing id");
+                await AssertThrowsAsync<ArmadaApiException>(() => c.GetWorkflowProfileAsync(createdBatchWorkflow.Id), "batch-deleted workflow profile is gone");
             }));
 
             cases.Add(Case("harbors_and_endpoints", "Harbor CRUD, enable and disable, metrics, and jobs; model endpoint CRUD, validate, and health sweep", async (c, fx) =>

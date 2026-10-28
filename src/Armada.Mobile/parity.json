@@ -1857,6 +1857,14 @@
     },
     {
       "kind": "api",
+      "key": "deleteWorkflowProfilesBatch",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.2",
+      "notes": "Workflow Profiles: API-parity batch delete for MCP/SDK callers; neither the dashboard nor mobile has a multi-select delete for profiles"
+    },
+    {
+      "kind": "api",
       "key": "deleteWorkspaceEntry",
       "status": "implemented",
       "mobile": "src/screens/workspace",
@@ -2086,6 +2094,14 @@
       "mobile": "src/screens/vessels/import",
       "workstream": "W3.1",
       "notes": "Vessel Import"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateWorkflowProfiles",
+      "status": "not-applicable",
+      "mobile": "",
+      "workstream": "W4.2",
+      "notes": "Workflow Profiles: API-parity filtered enumerate for SDK callers; mobile pages through listWorkflowProfiles as the dashboard does"
     },
     {
       "kind": "api",

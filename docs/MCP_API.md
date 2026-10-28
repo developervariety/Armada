@@ -110,6 +110,15 @@ If/when MCP-over-tunnel is added, this document will gain explicit routed-tool s
     - [create_playbook](#create_playbook)
     - [update_playbook](#update_playbook)
     - [delete_playbook](#delete_playbook)
+  - **Workflow Profiles**
+    - [get_workflow_profile](#get_workflow_profile)
+    - [create_workflow_profile](#create_workflow_profile)
+    - [update_workflow_profile](#update_workflow_profile)
+    - [delete_workflow_profile](#delete_workflow_profile)
+    - [delete_workflow_profiles](#delete_workflow_profiles)
+    - [validate_workflow_profile](#validate_workflow_profile)
+    - [resolve_workflow_profile](#resolve_workflow_profile)
+    - [preview_workflow_profile](#preview_workflow_profile)
   - **Fleet Actions**
     - [create_fleet_action](#create_fleet_action)
     - [update_fleet_action](#update_fleet_action)
@@ -262,6 +271,7 @@ Armada exposes a full MCP server that allows AI agents and MCP-compatible client
 - Read captain session logs (with pagination)
 - List and inspect docks (worktrees)
 - Manage reusable markdown playbooks and attach them to dispatches
+- Manage workflow profiles (the build, test, release, and deploy commands stage checks run) and preview what a vessel resolves to
 - Run and inspect structured delivery checks
 - Manage backlog/objective records, reorder them, refine them with explicit captain selection, and hand them off into planning and dispatch
 - Inspect, create, approve, verify, and roll back deployments
@@ -358,7 +368,7 @@ call against the caller (including Ask Armada proposals executed after approval)
 | Level | Tools |
 |---|---|
 | Authenticated | Reads (`status`, `enumerate`, `get_*`, `list_*`, `mission_status`, `voyage_status`, logs, diffs, `inbox`, `vessel_health`, `search_memory`, `token_usage_summary`, ...), writes to caller-owned resources (memories, model endpoints, harbors), persona, pipeline, and prompt-template writes (as on REST: a regular user creates only `UserSpecific` ones and edits only their own), and `cli_permission_prompt` and `decide_cli_permission_request` (the handlers check the caller; see [CLI Permissions](#cli-permissions)) |
-| TenantAdmin | Every other write or execution (dispatch, captains, missions, voyages, docks, merge queue, signals, events, objectives, backlog, playbooks, releases, deployments, runbooks, check runs, fleet actions, vessel import, vessel health) |
+| TenantAdmin | Every other write or execution (dispatch, captains, missions, voyages, docks, merge queue, signals, events, objectives, backlog, playbooks, workflow profiles (including `validate_workflow_profile`, as on REST), releases, deployments, runbooks, check runs, fleet actions, vessel import, vessel health) |
 | AdminOnly | `backup`, `restore`, `stop_server` (a credential is required even on loopback; use `X-Api-Key` from `settings.json`) |
 
 A denied call returns an `McpToolError` with `ErrorCode` `Forbidden` whose message names the required level. The full per-tool list is in
@@ -408,7 +418,9 @@ handler is registered through the Ask gate, which checks that claim:
   `get_backlog_refinement_session`, `get_captain`, `get_captain_log`, `get_captain_tools`, `get_check_run`,
   `get_deployment`, `get_dock`, `get_fleet`, `get_harbor`, `get_harbor_metrics`, `get_memory`, `get_merge_entry`, `get_mission_diff`,
   `get_mission_log`, `get_model_endpoint`, `get_objective`, `get_persona`, `get_pipeline`, `get_playbook`,
-  `get_prompt_template`, `get_release`, `get_runbook`, `get_runbook_execution`, `get_vessel`), and the `list_*` readers
+  `get_prompt_template`, `get_release`, `get_runbook`, `get_runbook_execution`, `get_vessel`, `get_workflow_profile`), the
+  workflow profile readers (`validate_workflow_profile`, `resolve_workflow_profile`, `preview_workflow_profile`; validate
+  saves nothing), and the `list_*` readers
   (`list_backlog`, `list_backlog_refinement_sessions`, `list_objectives`, `list_prompt_templates`,
   `list_cli_permission_requests`, `list_cli_permission_rules`, plus `get_cli_permission_request`), and the Ask Armada
   readers (`list_ask_threads`, `get_ask_thread`, `list_ask_messages`, `list_ask_quick_actions`, `get_ask_work`). The list lives in
@@ -3789,6 +3801,262 @@ Delete a playbook by ID. Existing mission snapshots remain immutable.
 
 ---
 
+### get_workflow_profile
+
+Get a workflow profile by ID, including every command stage checks run and its environments. Requires an authenticated
+caller; a regular user sees the tenant's tenant-wide profiles plus their own user-specific ones, and another tenant's
+profile is `NotFound`.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Workflow profile ID (wfp_ prefix)" }
+  },
+  "required": ["id"]
+}
+```
+
+**Example:** `{ "id": "wfp_abc123" }`
+
+**Response:** [WorkflowProfile](#workflowprofile) object, or `{ "Error": "Workflow profile not found", "ErrorCode": "NotFound" }`.
+
+---
+
+### create_workflow_profile
+
+Create a workflow profile in the caller's tenant (a global admin may pass `tenantId`). Requires TenantAdmin, as
+`POST /api/v1/workflow-profiles` does. The definition is validated first (the same `WorkflowProfileService` validation
+REST uses): at least one command is required, `Fleet` scope needs `fleetId`, `Vessel` scope needs `vesselId`, environment
+names must be unique, and required inputs must name known environments. A `fleetId` or `vesselId` outside the caller's
+tenant is refused as `InvalidArgument` "... not found". Setting `isDefault` clears the default flag on the other profiles
+at the same scope.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "tenantId": { "type": "string", "description": "Tenant to create the profile in (global admins only; ignored for everyone else)" },
+    "name": { "type": "string", "description": "Human-readable profile name" },
+    "description": { "type": "string", "description": "Optional description" },
+    "scope": { "type": "string", "enum": ["Global", "Fleet", "Vessel"], "description": "Application scope: Global (default), Fleet (needs fleetId), or Vessel (needs vesselId)" },
+    "fleetId": { "type": "string", "description": "Fleet ID for a Fleet-scoped profile (flt_ prefix)" },
+    "vesselId": { "type": "string", "description": "Vessel ID for a Vessel-scoped profile (vsl_ prefix)" },
+    "isDefault": { "type": "boolean", "description": "Whether this is the default profile at its scope" },
+    "active": { "type": "boolean", "description": "Whether the profile is active (default true)" },
+    "ownershipScope": { "type": "string", "enum": ["UserSpecific", "TenantWide"], "description": "Ownership: UserSpecific (only you) or TenantWide (default for administrators); only tenant and global admins may change it" },
+    "languageHints": { "type": "array", "items": { "type": "string" } },
+    "lintCommand": { "type": "string" },
+    "buildCommand": { "type": "string" },
+    "unitTestCommand": { "type": "string" },
+    "integrationTestCommand": { "type": "string" },
+    "e2eTestCommand": { "type": "string" },
+    "migrationCommand": { "type": "string" },
+    "securityScanCommand": { "type": "string" },
+    "performanceCommand": { "type": "string" },
+    "packageCommand": { "type": "string" },
+    "deploymentVerificationCommand": { "type": "string" },
+    "rollbackVerificationCommand": { "type": "string" },
+    "publishArtifactCommand": { "type": "string" },
+    "releaseVersioningCommand": { "type": "string" },
+    "changelogGenerationCommand": { "type": "string" },
+    "requiredInputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string", "enum": ["EnvironmentVariable", "FilePath", "DirectoryPath", "AwsSecretsManager", "AzureKeyVaultSecret", "HashiCorpVault", "OnePassword"] },
+          "key": { "type": "string" },
+          "environmentName": { "type": "string" },
+          "description": { "type": "string" }
+        },
+        "required": ["key"]
+      }
+    },
+    "expectedArtifacts": { "type": "array", "items": { "type": "string" } },
+    "environments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "environmentName": { "type": "string" },
+          "deployCommand": { "type": "string" },
+          "rollbackCommand": { "type": "string" },
+          "smokeTestCommand": { "type": "string" },
+          "healthCheckCommand": { "type": "string" },
+          "deploymentVerificationCommand": { "type": "string" },
+          "rollbackVerificationCommand": { "type": "string" }
+        },
+        "required": ["environmentName"]
+      }
+    }
+  },
+  "required": ["name"]
+}
+```
+
+**Example:**
+
+```json
+{
+  "name": "dotnet service",
+  "scope": "Vessel",
+  "vesselId": "vsl_abc123",
+  "buildCommand": "dotnet build",
+  "unitTestCommand": "dotnet test",
+  "environments": [{ "environmentName": "staging", "deployCommand": "./deploy.sh staging", "healthCheckCommand": "curl -f https://staging/health" }]
+}
+```
+
+**Response:** the created [WorkflowProfile](#workflowprofile), or `{ "Error": "At least one build, test, release, deploy, verification, migration, security, or performance command is required.", "ErrorCode": "InvalidArgument" }`.
+
+---
+
+### update_workflow_profile
+
+Partially update a workflow profile. Only the fields you pass change; omitted fields keep their stored values. Pass an
+empty string to clear a command, `fleetId`, or `vesselId`. Lists (`languageHints`, `requiredInputs`, `expectedArtifacts`,
+`environments`) replace the stored list when passed. The merged profile is validated before it is saved, so a rejected
+update changes nothing; an edited profile is no longer replaced by Armada's generated defaults. Requires TenantAdmin, as
+`PUT /api/v1/workflow-profiles/{id}` does; a profile in another tenant is `NotFound`, and a profile the caller may not
+edit is `Forbidden`.
+
+**Input Schema:** the [create_workflow_profile](#create_workflow_profile) properties without `tenantId`, plus
+`"id": { "type": "string", "description": "Workflow profile ID (wfp_ prefix)" }`; only `id` is required.
+
+**Example:** change only the unit test command:
+
+```json
+{ "id": "wfp_abc123", "unitTestCommand": "dotnet test --no-build" }
+```
+
+**Response:** the updated [WorkflowProfile](#workflowprofile).
+
+---
+
+### delete_workflow_profile
+
+Delete a workflow profile by ID. Requires TenantAdmin. This cannot be undone.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Workflow profile ID (wfp_ prefix)" }
+  },
+  "required": ["id"]
+}
+```
+
+**Response:**
+
+```json
+{ "Status": "deleted", "WorkflowProfileId": "wfp_..." }
+```
+
+---
+
+### delete_workflow_profiles
+
+Permanently delete several workflow profiles by ID (the MCP form of `POST /api/v1/workflow-profiles/delete/multiple`).
+Requires TenantAdmin. Ids that are empty, missing, in another tenant, or not editable by the caller are skipped with a
+reason instead of failing the batch.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "ids": { "type": "array", "items": { "type": "string" }, "description": "List of workflow profile IDs to delete (wfp_ prefix)" }
+  },
+  "required": ["ids"]
+}
+```
+
+**Example:** `{ "ids": ["wfp_abc123", "wfp_def456"] }`
+
+**Response:**
+
+```json
+{ "Status": "PartiallyDeleted", "Deleted": 1, "Skipped": [{ "Id": "wfp_def456", "Reason": "Not found" }] }
+```
+
+---
+
+### validate_workflow_profile
+
+Validate a workflow-profile definition without saving it. Requires TenantAdmin, as `POST /api/v1/workflow-profiles/validate`
+does. Takes the same properties as [create_workflow_profile](#create_workflow_profile) (without `tenantId`); `name` is
+required.
+
+**Example:** `{ "name": "draft", "buildCommand": "make", "unitTestCommand": "make test" }`
+
+**Response:** `WorkflowProfileValidationResult`:
+
+```json
+{
+  "IsValid": true,
+  "Errors": [],
+  "Warnings": [],
+  "AvailableCheckTypes": ["Build", "UnitTest"],
+  "CommandPreviews": [{ "CheckType": "Build", "EnvironmentName": null, "Command": "make" }]
+}
+```
+
+---
+
+### resolve_workflow_profile
+
+Resolve the workflow profile that applies to a vessel: the explicit `workflowProfileId` when given, otherwise the vessel's
+assigned profile, then vessel, fleet, and global precedence (the same resolution stage checks use). Requires an
+authenticated caller who can see the vessel.
+
+**Input Schema:**
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "vesselId": { "type": "string", "description": "Vessel ID (vsl_ prefix)" },
+    "workflowProfileId": { "type": "string", "description": "Optional explicit workflow profile override (wfp_ prefix)" }
+  },
+  "required": ["vesselId"]
+}
+```
+
+**Example:** `{ "vesselId": "vsl_abc123" }`
+
+**Response:** the resolved [WorkflowProfile](#workflowprofile), or `NotFound` with `Vessel not found` or `No workflow profile could be resolved for this vessel`.
+
+---
+
+### preview_workflow_profile
+
+Preview the commands a vessel would run: resolves the profile as [resolve_workflow_profile](#resolve_workflow_profile)
+does and returns the fully resolved command set. Same input schema and permissions as `resolve_workflow_profile`.
+
+**Example:** `{ "vesselId": "vsl_abc123", "workflowProfileId": "wfp_abc123" }`
+
+**Response:**
+
+```json
+{
+  "ResolvedProfile": { "Id": "wfp_abc123", "Name": "dotnet service" },
+  "ResolutionMode": "Explicit",
+  "AvailableCheckTypes": ["Build", "UnitTest"],
+  "CommandPreviews": [{ "CheckType": "UnitTest", "EnvironmentName": null, "Command": "dotnet test" }]
+}
+```
+
+---
+
 ### get_merge_entry
 
 Get details of a specific merge queue entry.
@@ -5786,6 +6054,28 @@ Paginated result wrapper returned by `enumerate`.
 | `CreatedUtc` | string | ISO 8601 creation timestamp |
 | `LastUpdateUtc` | string | ISO 8601 last update timestamp |
 | `Scope` | string | Armada.Core.Enums.ScopeEnum value. Ownership scope: tenant-wide playbooks are visible to everyone in the tenant but editable only by tenant/global admins; user-specific playbooks are owned by `UserId`. Defaults tenant-wide. |
+
+#### WorkflowProfile
+
+| Field | Type | Description |
+|---|---|---|
+| `Id` | string | Workflow profile ID (prefix `wfp_`) |
+| `TenantId` | string \| null | Owning tenant |
+| `UserId` | string \| null | Owning user |
+| `OwnershipScope` | string | `TenantWide` (visible to the tenant, editable by tenant/global admins) or `UserSpecific` (owned by `UserId`) |
+| `Name` | string | Profile name |
+| `Description` | string \| null | Description |
+| `Scope` | string | Application scope: `Global`, `Fleet`, or `Vessel` |
+| `FleetId` / `VesselId` | string \| null | Target for `Fleet` / `Vessel` scope |
+| `IsDefault` | bool | Default profile at its scope (at most one) |
+| `Active` | bool | Whether the profile is used for resolution |
+| `SourceTemplate` | string \| null | Set when Armada generated the profile; cleared once a person edits it |
+| `LanguageHints` | string[] | Language or framework hints |
+| `LintCommand`, `BuildCommand`, `UnitTestCommand`, `IntegrationTestCommand`, `E2ETestCommand`, `MigrationCommand`, `SecurityScanCommand`, `PerformanceCommand`, `PackageCommand`, `DeploymentVerificationCommand`, `RollbackVerificationCommand`, `PublishArtifactCommand`, `ReleaseVersioningCommand`, `ChangelogGenerationCommand` | string \| null | Commands stage checks and delivery helpers run |
+| `RequiredInputs` | object[] | `{ Provider, Key, EnvironmentName, Description }` secret or configuration references |
+| `ExpectedArtifacts` | string[] | Expected build or release artifacts |
+| `Environments` | object[] | `{ EnvironmentName, DeployCommand, RollbackCommand, SmokeTestCommand, HealthCheckCommand, DeploymentVerificationCommand, RollbackVerificationCommand }` |
+| `CreatedUtc` / `LastUpdateUtc` | string | ISO 8601 timestamps |
 
 #### SelectedPlaybook
 

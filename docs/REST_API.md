@@ -336,7 +336,7 @@ without a declaration requires a global admin. The complete per-route list is th
 | `/api/v1/harbors/{id}/enable` | POST | Authenticated | Enable one Harbor |
 | `/api/v1/harbors/{id}/disable` | POST | Authenticated | Disable one Harbor; it keeps its docks but receives no new missions |
 | `/api/v1/workflow-profiles`, `/api/v1/workflow-profiles/{id}` | GET | Authenticated | Category B (ownership scope via `ownershipScope`). Reads return tenant-wide + own. |
-| `/api/v1/workflow-profiles` (POST), `/api/v1/workflow-profiles/{id}` (PUT/DELETE) | POST/PUT/DELETE | TenantAdmin | Writes require a tenant admin |
+| `/api/v1/workflow-profiles` (POST), `/api/v1/workflow-profiles/{id}` (PUT/DELETE), `/api/v1/workflow-profiles/delete/multiple` (POST) | POST/PUT/DELETE | TenantAdmin | Writes require a tenant admin |
 | `/api/v1/workflow-profiles/validate` | POST | TenantAdmin | Validate a workflow profile without saving it |
 | `/api/v1/workflow-profiles/resolve/vessels/{vesselId}` | GET | Authenticated | Resolve the active workflow profile for one vessel |
 | `/api/v1/workflow-profiles/preview/vessels/{vesselId}` | GET | Authenticated | Preview the resolved workflow commands for one vessel |
@@ -7603,7 +7603,24 @@ Delete one workflow profile.
 **Permission:** TenantAdmin
 
 - Response: `204 No Content`
-- Errors: `404 Not Found`
+- Errors: `403 Forbidden` (a profile the caller may not edit), `404 Not Found`
+
+#### POST /api/v1/workflow-profiles/delete/multiple
+
+Permanently delete several workflow profiles by ID. Ids that are empty, missing, in another tenant, or not editable by
+the caller are skipped with a reason (`Empty ID`, `Not found`, `Not permitted`) instead of failing the batch.
+
+**Permission:** TenantAdmin
+
+- Request body: `DeleteMultipleRequest` - `{ "Ids": ["wfp_abc123", "wfp_def456"] }`
+- Response: `200 OK` - `DeleteMultipleResult` (`Status`, `Deleted`, `Skipped[{Id, Reason}]`)
+- Errors: `400 Bad Request` when `Ids` is missing or empty
+
+The same create, update, delete, validate, resolve, and preview rules are available over MCP (`create_workflow_profile`,
+`update_workflow_profile`, `delete_workflow_profile`, `delete_workflow_profiles`, `validate_workflow_profile`,
+`resolve_workflow_profile`, `preview_workflow_profile`, `get_workflow_profile`); REST and MCP share
+`WorkflowProfileAccessService`. On create, update, and validate, a `FleetId` or `VesselId` outside the caller's tenant is
+refused with `400 Bad Request` ("Fleet not found" / "Vessel not found") for callers other than a global admin.
 
 ---
 
@@ -10480,27 +10497,28 @@ the matrix and each route's section describe. `/openapi.json` and `/swagger` rem
 | 340 | GET | `/api/v1/whoami` | Get current identity | Authenticated |
 | 341 | GET | `/api/v1/workflow-profiles` | List workflow profiles | Authenticated |
 | 342 | POST | `/api/v1/workflow-profiles` | Create a workflow profile | TenantAdmin |
-| 343 | POST | `/api/v1/workflow-profiles/enumerate` | Enumerate workflow profiles | Authenticated |
-| 344 | GET | `/api/v1/workflow-profiles/preview/vessels/{vesselId}` | Preview resolved workflow commands for a vessel | Authenticated |
-| 345 | GET | `/api/v1/workflow-profiles/resolve/vessels/{vesselId}` | Resolve the active workflow profile for a vessel | Authenticated |
-| 346 | POST | `/api/v1/workflow-profiles/validate` | Validate a workflow profile | TenantAdmin |
-| 347 | GET | `/api/v1/workflow-profiles/{id}` | Get a workflow profile | Authenticated |
-| 348 | PUT | `/api/v1/workflow-profiles/{id}` | Update a workflow profile | TenantAdmin |
-| 349 | DELETE | `/api/v1/workflow-profiles/{id}` | Delete a workflow profile | TenantAdmin |
-| 350 | GET | `/api/v1/workspace/vessels/{vesselId}/changes` | Get workspace changes | Authenticated |
-| 351 | GET | `/api/v1/workspace/vessels/{vesselId}/diff` | Get a working-tree diff | Authenticated |
-| 352 | POST | `/api/v1/workspace/vessels/{vesselId}/directory` | Create one workspace directory | Authenticated |
-| 353 | DELETE | `/api/v1/workspace/vessels/{vesselId}/entry` | Delete one workspace entry | Authenticated |
-| 354 | POST | `/api/v1/workspace/vessels/{vesselId}/exec` | Run a command in the vessel workspace | TenantAdmin |
-| 355 | GET | `/api/v1/workspace/vessels/{vesselId}/file` | Read one workspace file | Authenticated |
-| 356 | PUT | `/api/v1/workspace/vessels/{vesselId}/file` | Save one workspace file | Authenticated |
-| 357 | POST | `/api/v1/workspace/vessels/{vesselId}/open-terminal` | Open a terminal at the vessel checkout | Authenticated |
-| 358 | POST | `/api/v1/workspace/vessels/{vesselId}/rename` | Rename or move one workspace entry | Authenticated |
-| 359 | GET | `/api/v1/workspace/vessels/{vesselId}/search` | Search one workspace | Authenticated |
-| 360 | GET | `/api/v1/workspace/vessels/{vesselId}/status` | Get workspace status | Authenticated |
-| 361 | GET | `/api/v1/workspace/vessels/{vesselId}/tree` | List one workspace directory | Authenticated |
-| 362 | GET | `/openapi.json` |  | NoAuthRequired |
-| 363 | GET | `/swagger` |  | NoAuthRequired |
+| 343 | POST | `/api/v1/workflow-profiles/delete/multiple` | Batch delete multiple workflow profiles | TenantAdmin |
+| 344 | POST | `/api/v1/workflow-profiles/enumerate` | Enumerate workflow profiles | Authenticated |
+| 345 | GET | `/api/v1/workflow-profiles/preview/vessels/{vesselId}` | Preview resolved workflow commands for a vessel | Authenticated |
+| 346 | GET | `/api/v1/workflow-profiles/resolve/vessels/{vesselId}` | Resolve the active workflow profile for a vessel | Authenticated |
+| 347 | POST | `/api/v1/workflow-profiles/validate` | Validate a workflow profile | TenantAdmin |
+| 348 | GET | `/api/v1/workflow-profiles/{id}` | Get a workflow profile | Authenticated |
+| 349 | PUT | `/api/v1/workflow-profiles/{id}` | Update a workflow profile | TenantAdmin |
+| 350 | DELETE | `/api/v1/workflow-profiles/{id}` | Delete a workflow profile | TenantAdmin |
+| 351 | GET | `/api/v1/workspace/vessels/{vesselId}/changes` | Get workspace changes | Authenticated |
+| 352 | GET | `/api/v1/workspace/vessels/{vesselId}/diff` | Get a working-tree diff | Authenticated |
+| 353 | POST | `/api/v1/workspace/vessels/{vesselId}/directory` | Create one workspace directory | Authenticated |
+| 354 | DELETE | `/api/v1/workspace/vessels/{vesselId}/entry` | Delete one workspace entry | Authenticated |
+| 355 | POST | `/api/v1/workspace/vessels/{vesselId}/exec` | Run a command in the vessel workspace | TenantAdmin |
+| 356 | GET | `/api/v1/workspace/vessels/{vesselId}/file` | Read one workspace file | Authenticated |
+| 357 | PUT | `/api/v1/workspace/vessels/{vesselId}/file` | Save one workspace file | Authenticated |
+| 358 | POST | `/api/v1/workspace/vessels/{vesselId}/open-terminal` | Open a terminal at the vessel checkout | Authenticated |
+| 359 | POST | `/api/v1/workspace/vessels/{vesselId}/rename` | Rename or move one workspace entry | Authenticated |
+| 360 | GET | `/api/v1/workspace/vessels/{vesselId}/search` | Search one workspace | Authenticated |
+| 361 | GET | `/api/v1/workspace/vessels/{vesselId}/status` | Get workspace status | Authenticated |
+| 362 | GET | `/api/v1/workspace/vessels/{vesselId}/tree` | List one workspace directory | Authenticated |
+| 363 | GET | `/openapi.json` |  | NoAuthRequired |
+| 364 | GET | `/swagger` |  | NoAuthRequired |
 
 ---
 

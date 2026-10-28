@@ -1809,6 +1809,14 @@
     },
     {
       "kind": "api",
+      "key": "deleteWorkflowProfilesBatch",
+      "status": "implemented",
+      "tui": "ArmadaClient.DeleteWorkflowProfilesBatchAsync",
+      "workstream": "W0.2",
+      "notes": "Workflow Profiles"
+    },
+    {
+      "kind": "api",
       "key": "deleteWorkspaceEntry",
       "status": "implemented",
       "tui": "ArmadaClient.DeleteWorkspaceEntryAsync",
@@ -2038,6 +2046,14 @@
       "tui": "ArmadaClient.EnumerateVesselImportBatchesAsync",
       "workstream": "W0.2",
       "notes": "Vessel Import"
+    },
+    {
+      "kind": "api",
+      "key": "enumerateWorkflowProfiles",
+      "status": "implemented",
+      "tui": "ArmadaClient.EnumerateWorkflowProfilesAsync",
+      "workstream": "W0.2",
+      "notes": "Workflow Profiles"
     },
     {
       "kind": "api",

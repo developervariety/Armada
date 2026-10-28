@@ -1158,6 +1158,9 @@ export const getWorkflowProfile = (id: string) => get<WorkflowProfile>(`/api/v1/
 export const createWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfile>('/api/v1/workflow-profiles', data);
 export const updateWorkflowProfile = (id: string, data: Partial<WorkflowProfile>) => put<WorkflowProfile>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`, data);
 export const deleteWorkflowProfile = (id: string) => del<void>(`/api/v1/workflow-profiles/${encodeURIComponent(id)}`);
+export const enumerateWorkflowProfiles = (query?: { pageNumber?: number; pageSize?: number; scope?: string; fleetId?: string; vesselId?: string; search?: string; active?: boolean }) =>
+  post<EnumerationResult<WorkflowProfile>>('/api/v1/workflow-profiles/enumerate', query || {});
+export const deleteWorkflowProfilesBatch = (ids: string[]) => post<BatchDeleteResult>('/api/v1/workflow-profiles/delete/multiple', { Ids: ids });
 export const validateWorkflowProfile = (data: Partial<WorkflowProfile>) => post<WorkflowProfileValidationResult>('/api/v1/workflow-profiles/validate', data);
 export const previewWorkflowProfileForVessel = (vesselId: string, workflowProfileId?: string | null) =>
   get<WorkflowProfileResolutionPreviewResult>(`/api/v1/workflow-profiles/preview/vessels/${encodeURIComponent(vesselId)}${workflowProfileId ? `?workflowProfileId=${encodeURIComponent(workflowProfileId)}` : ''}`);

@@ -97,8 +97,7 @@ namespace Test.Shared.Suites.Client
             ["POST /api/v1/vessels/delete/multiple"] = "Batch delete not offered by the dashboard (vessels are deleted one at a time)",
             ["POST /api/v1/vessels/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters",
             ["POST /api/v1/voyages/delete/multiple"] = "Batch delete not offered by the dashboard (voyages are purged one at a time)",
-            ["POST /api/v1/voyages/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters",
-            ["POST /api/v1/workflow-profiles/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters"
+            ["POST /api/v1/voyages/enumerate"] = "Enumerate twin of the GET list; the dashboard and the client use the GET list with query parameters"
         };
 
         #endregion

@@ -10170,6 +10170,36 @@
                     }
                 },
                 {
+                    "name": "Batch Delete Workflow Profiles",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Ids\": [\"wfp_abc123\", \"wfp_def456\"]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/workflow-profiles/delete/multiple",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "workflow-profiles",
+                                "delete",
+                                "multiple"
+                            ]
+                        },
+                        "description": "Batch delete multiple workflow profiles by ID (tenant admins). Missing, out-of-scope, or non-editable ids are skipped with a reason."
+                    }
+                },
+                {
                     "name": "Enumerate Workflow Profiles",
                     "request": {
                         "method": "POST",
