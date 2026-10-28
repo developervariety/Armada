@@ -6080,7 +6080,13 @@
         "Detected ecosystems, comma-separated, or empty; rendered on the server": "Ecosistemas detectados, separados por comas, o vacío; se representa en el servidor",
         "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server": "El comando de prueba resuelto (personalización del repositorio, script del repositorio y luego valor predeterminado del ecosistema); se representa en el servidor",
         "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server": "El comando de lint resuelto (personalización del repositorio, script del repositorio y luego valor predeterminado del ecosistema); se representa en el servidor",
-        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "El comando de auditoría resuelto (personalización del repositorio, script del repositorio, valor predeterminado del ecosistema y luego osv-scanner); se representa en el servidor"
+        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "El comando de auditoría resuelto (personalización del repositorio, script del repositorio, valor predeterminado del ecosistema y luego osv-scanner); se representa en el servidor",
+        "The output parser reported findings.": "El analizador de salida ha encontrado incidencias.",
+        "Not configured": "Sin configurar",
+        "No matching ecosystem": "No hay un ecosistema coincidente",
+        "No forge credentials": "No hay credenciales del proveedor Git",
+        "Network unavailable": "Red no disponible",
+        "Tool missing": "Falta una herramienta"
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -11097,7 +11103,13 @@
         "Detected ecosystems, comma-separated, or empty; rendered on the server": "检测到的生态系统，以逗号分隔，或为空；在服务器上渲染",
         "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server": "解析后的测试命令（仓库覆盖、仓库脚本，然后是生态系统默认值）；在服务器上渲染",
         "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server": "解析后的 Lint 命令（仓库覆盖、仓库脚本，然后是生态系统默认值）；在服务器上渲染",
-        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "解析后的审计命令（仓库覆盖、仓库脚本、生态系统默认值，然后是 osv-scanner）；在服务器上渲染"
+        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "解析后的审计命令（仓库覆盖、仓库脚本、生态系统默认值，然后是 osv-scanner）；在服务器上渲染",
+        "The output parser reported findings.": "输出解析器报告了发现项。",
+        "Not configured": "未配置",
+        "No matching ecosystem": "没有匹配的生态系统",
+        "No forge credentials": "没有代码托管凭据",
+        "Network unavailable": "网络不可用",
+        "Tool missing": "缺少工具"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -16077,7 +16089,13 @@
         "Detected ecosystems, comma-separated, or empty; rendered on the server": "偵測到的生態系統，以逗號分隔，或為空；於伺服器上轉譯",
         "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server": "解析後的測試命令（儲存庫覆寫、儲存庫指令碼，然後是生態系統預設值）；於伺服器上轉譯",
         "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server": "解析後的 Lint 命令（儲存庫覆寫、儲存庫指令碼，然後是生態系統預設值）；於伺服器上轉譯",
-        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "解析後的稽核命令（儲存庫覆寫、儲存庫指令碼、生態系統預設值，然後是 osv-scanner）；於伺服器上轉譯"
+        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "解析後的稽核命令（儲存庫覆寫、儲存庫指令碼、生態系統預設值，然後是 osv-scanner）；於伺服器上轉譯",
+        "The output parser reported findings.": "輸出解析器報告了發現項目。",
+        "Not configured": "未設定",
+        "No matching ecosystem": "沒有相符的生態系統",
+        "No forge credentials": "沒有程式碼託管憑證",
+        "Network unavailable": "網路無法使用",
+        "Tool missing": "缺少工具"
       },
       "sections": {}
     },
@@ -21017,7 +21035,13 @@
         "Detected ecosystems, comma-separated, or empty; rendered on the server": "偵測到嘅生態系統，用逗號分隔，或者空白；喺伺服器轉譯",
         "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server": "解析咗嘅測試命令（儲存庫覆寫、儲存庫指令碼，跟住係生態系統預設值）；喺伺服器轉譯",
         "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server": "解析咗嘅 Lint 命令（儲存庫覆寫、儲存庫指令碼，跟住係生態系統預設值）；喺伺服器轉譯",
-        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "解析咗嘅稽核命令（儲存庫覆寫、儲存庫指令碼、生態系統預設值，跟住係 osv-scanner）；喺伺服器轉譯"
+        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "解析咗嘅稽核命令（儲存庫覆寫、儲存庫指令碼、生態系統預設值，跟住係 osv-scanner）；喺伺服器轉譯",
+        "The output parser reported findings.": "輸出解析器報告咗發現項目。",
+        "Not configured": "未設定",
+        "No matching ecosystem": "冇相符嘅生態系統",
+        "No forge credentials": "冇程式碼託管憑證",
+        "Network unavailable": "網絡用唔到",
+        "Tool missing": "缺少工具"
       },
       "sections": {}
     },
@@ -25973,7 +25997,13 @@
         "Detected ecosystems, comma-separated, or empty; rendered on the server": "検出されたエコシステム（カンマ区切り）、または空。サーバーでレンダリングされます",
         "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server": "解決されたテストコマンド（ベッセルの上書き、リポジトリのスクリプト、次にエコシステムの既定値）。サーバーでレンダリングされます",
         "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server": "解決された Lint コマンド（ベッセルの上書き、リポジトリのスクリプト、次にエコシステムの既定値）。サーバーでレンダリングされます",
-        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "解決された監査コマンド（ベッセルの上書き、リポジトリのスクリプト、エコシステムの既定値、次に osv-scanner）。サーバーでレンダリングされます"
+        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "解決された監査コマンド（ベッセルの上書き、リポジトリのスクリプト、エコシステムの既定値、次に osv-scanner）。サーバーでレンダリングされます",
+        "The output parser reported findings.": "出力パーサーが検出結果を報告しました。",
+        "Not configured": "未設定",
+        "No matching ecosystem": "一致するエコシステムがありません",
+        "No forge credentials": "コードホスティングの認証情報がありません",
+        "Network unavailable": "ネットワークを利用できません",
+        "Tool missing": "ツールがありません"
       },
       "sections": {}
     },
@@ -30920,7 +30950,13 @@
         "Detected ecosystems, comma-separated, or empty; rendered on the server": "Erkannte Ökosysteme, durch Kommas getrennt, oder leer; wird auf dem Server gerendert",
         "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server": "Der aufgelöste Testbefehl (Repository-Überschreibung, Repository-Skript, dann Ökosystem-Standard); wird auf dem Server gerendert",
         "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server": "Der aufgelöste Lint-Befehl (Repository-Überschreibung, Repository-Skript, dann Ökosystem-Standard); wird auf dem Server gerendert",
-        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "Der aufgelöste Audit-Befehl (Repository-Überschreibung, Repository-Skript, Ökosystem-Standard, dann osv-scanner); wird auf dem Server gerendert"
+        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "Der aufgelöste Audit-Befehl (Repository-Überschreibung, Repository-Skript, Ökosystem-Standard, dann osv-scanner); wird auf dem Server gerendert",
+        "The output parser reported findings.": "Der Ausgabeparser hat Befunde gemeldet.",
+        "Not configured": "Nicht konfiguriert",
+        "No matching ecosystem": "Kein passendes Oekosystem",
+        "No forge credentials": "Keine Zugangsdaten fuer den Git-Anbieter",
+        "Network unavailable": "Netzwerk nicht verfuegbar",
+        "Tool missing": "Werkzeug fehlt"
       },
       "sections": {}
     },
@@ -35867,7 +35903,13 @@
         "Detected ecosystems, comma-separated, or empty; rendered on the server": "Écosystèmes détectés, séparés par des virgules, ou vide ; rendu sur le serveur",
         "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server": "La commande de test résolue (remplacement du dépôt, script du dépôt, puis valeur par défaut de l'écosystème) ; rendue sur le serveur",
         "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server": "La commande de lint résolue (remplacement du dépôt, script du dépôt, puis valeur par défaut de l'écosystème) ; rendue sur le serveur",
-        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "La commande d'audit résolue (remplacement du dépôt, script du dépôt, valeur par défaut de l'écosystème, puis osv-scanner) ; rendue sur le serveur"
+        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "La commande d'audit résolue (remplacement du dépôt, script du dépôt, valeur par défaut de l'écosystème, puis osv-scanner) ; rendue sur le serveur",
+        "The output parser reported findings.": "L’analyseur de sortie a signale des resultats.",
+        "Not configured": "Non configure",
+        "No matching ecosystem": "Aucun ecosysteme correspondant",
+        "No forge credentials": "Aucun identifiant de forge",
+        "Network unavailable": "Reseau indisponible",
+        "Tool missing": "Outil manquant"
       },
       "sections": {}
     },
@@ -40814,7 +40856,13 @@
         "Detected ecosystems, comma-separated, or empty; rendered on the server": "Ecosistemi rilevati, separati da virgole, oppure vuoto; reso sul server",
         "The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server": "Il comando di test risolto (sostituzione del repository, script del repository, poi valore predefinito dell'ecosistema); reso sul server",
         "The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server": "Il comando di lint risolto (sostituzione del repository, script del repository, poi valore predefinito dell'ecosistema); reso sul server",
-        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "Il comando di audit risolto (sostituzione del repository, script del repository, valore predefinito dell'ecosistema, poi osv-scanner); reso sul server"
+        "The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server": "Il comando di audit risolto (sostituzione del repository, script del repository, valore predefinito dell'ecosistema, poi osv-scanner); reso sul server",
+        "The output parser reported findings.": "Il parser di output ha segnalato risultati.",
+        "Not configured": "Non configurato",
+        "No matching ecosystem": "Nessun ecosistema corrispondente",
+        "No forge credentials": "Nessuna credenziale del servizio Git",
+        "Network unavailable": "Rete non disponibile",
+        "Tool missing": "Strumento mancante"
       },
       "sections": {}
     }

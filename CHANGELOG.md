@@ -9,6 +9,10 @@ All notable changes to Armada are documented in this file.
 ### Fixed
 
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
+### Fleet action scan and test runs
+
+- Add Findings outcomes counted separately from successful and failed targets, fourteen audit/test output parsers, redacted secret scan output, persisted scan summaries, and mission templates using a named source action through `{{scan.summary}}`.
+- Add executable preflight with `ToolMissing:<tool>` skips, offline network skips, optional Windows commands, and typed runtime inputs with defaults and validation before dispatch. REST, MCP, SDK models, Postman examples, and the dashboard run dialog carry the new fields. Migration 100 preserves action options and run snapshots across all database providers.
 
 ### Handoff and landing resilience
 

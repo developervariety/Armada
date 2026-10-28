@@ -30,7 +30,7 @@ administrator).
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 214 | 12 |
+| Settings keys | 216 | 12 |
 
 ## REST API
 
@@ -478,7 +478,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `create_deployment` | TenantAdmin | `autoExecute: boolean`, `environmentId: string`, `environmentName: string`, `missionId: string`, `notes: string`, `releaseId: string`, `sourceRef: string`, `summary: string`, `title: string`, `vesselId: string`, `voyageId: string`, `workflowProfileId: string` |  |
 | `create_failure_cause_rule` | Authenticated | `cause*: string`, `description: string`, `enabled: boolean`, `match*: object`, `name*: string`, `priority: integer`, `tenantId: string` |  |
 | `create_fleet` | TenantAdmin | `description: string`, `name*: string` |  |
-| `create_fleet_action` | TenantAdmin | `commandText: string`, `defaultConcurrency: integer`, `description: string`, `kind: string`, `name*: string`, `persona: string`, `pipelineId: string`, `promptTemplate: string`, `requiresCleanWorkingTree: boolean`, `timeoutSeconds: integer` |  |
+| `create_fleet_action` | TenantAdmin | `commandText: string`, `commandWindows: string`, `defaultConcurrency: integer`, `description: string`, `inputs: array<object>`, `kind: string`, `name*: string`, `outputParser: string`, `persona: string`, `pipelineId: string`, `promptTemplate: string`, `requiredTools: array<string>`, `requiresCleanWorkingTree: boolean`, `requiresNetwork: boolean`, `scanSourceActionKey: string`, `timeoutSeconds: integer` |  |
 | `create_harbor` | Authenticated | `enabled: boolean`, `maxConcurrentJobs: integer`, `name*: string` | experimental |
 | `create_memory` | Authenticated | `content*: string`, `key: string`, `salience: number`, `scope: string`, `sourceDetail: string`, `sourceKind: string`, `sourceMissionId: string`, `sourceVesselId: string`, `sourceVoyageId: string`, `summary: string`, `tags: array<string>`, `topic: string`, `type: string`, `vesselId: string` |  |
 | `create_mission` | TenantAdmin | `description*: string`, `isEvaluation: boolean`, `mode: string`, `persona: string`, `selectedPlaybooks: array<object>`, `tier: string`, `title*: string`, `vesselId*: string`, `voyageId: string` |  |
@@ -607,7 +607,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `run_ask_quick_action` | Authenticated | `arguments: object`, `threadId*: string`, `toolName*: string` |  |
 | `run_battery` | Authenticated | `captainId*: string`, `createFixtureVessel: boolean`, `packs*: array<string>`, `promptVariant: string`, `runCount: integer`, `seed: integer` |  |
 | `run_check` | TenantAdmin | `branchName: string`, `commandOverride: string`, `commitHash: string`, `environmentName: string`, `label: string`, `missionId: string`, `type*: string`, `vesselId*: string`, `voyageId: string`, `workflowProfileId: string` |  |
-| `run_fleet_action` | TenantAdmin | `actionId: string`, `approvalOptions: object`, `commandText: string`, `concurrency: integer`, `kind: string`, `name: string`, `pipelineId: string`, `promptTemplate: string`, `requiresCleanWorkingTree: boolean`, `timeoutSeconds: integer`, `vesselIds*: array<string>` |  |
+| `run_fleet_action` | TenantAdmin | `actionId: string`, `approvalOptions: object`, `commandText: string`, `commandWindows: string`, `concurrency: integer`, `inputValues: object`, `inputs: array<object>`, `kind: string`, `name: string`, `outputParser: string`, `pipelineId: string`, `promptTemplate: string`, `requiredTools: array<string>`, `requiresCleanWorkingTree: boolean`, `requiresNetwork: boolean`, `scanSourceActionKey: string`, `timeoutSeconds: integer`, `vesselIds*: array<string>` |  |
 | `search_memory` | Authenticated | `pageNumber: integer`, `pageSize: integer`, `search: string`, `topic: string`, `type: string`, `vesselId: string` |  |
 | `send_ask_message` | Authenticated | `content*: string`, `showThinking: boolean`, `threadId*: string`, `waitSeconds: integer` |  |
 | `send_backlog_refinement_message` | TenantAdmin | `content*: string`, `sessionId*: string` |  |
@@ -633,7 +633,7 @@ Arguments are camelCase; `*` marks a required argument. See [MCP_API.md](MCP_API
 | `update_cli_permission_rule` | TenantAdmin | `action*: string`, `description: string`, `pattern*: string`, `ruleId*: string` |  |
 | `update_failure_cause_rule` | Authenticated | `cause: string`, `description: string`, `enabled: boolean`, `match: object`, `name: string`, `priority: integer`, `ruleId*: string` |  |
 | `update_fleet` | TenantAdmin | `defaultPipelineId: string`, `description: string`, `fleetId*: string`, `name: string` |  |
-| `update_fleet_action` | TenantAdmin | `actionId*: string`, `commandText: string`, `defaultConcurrency: integer`, `description: string`, `kind: string`, `name: string`, `persona: string`, `pipelineId: string`, `promptTemplate: string`, `requiresCleanWorkingTree: boolean`, `timeoutSeconds: integer` |  |
+| `update_fleet_action` | TenantAdmin | `actionId*: string`, `commandText: string`, `commandWindows: string`, `defaultConcurrency: integer`, `description: string`, `inputs: array<object>`, `kind: string`, `name: string`, `outputParser: string`, `persona: string`, `pipelineId: string`, `promptTemplate: string`, `requiredTools: array<string>`, `requiresCleanWorkingTree: boolean`, `requiresNetwork: boolean`, `scanSourceActionKey: string`, `timeoutSeconds: integer` |  |
 | `update_harbor` | Authenticated | `enabled: boolean`, `harborId*: string`, `maxConcurrentJobs: integer`, `name: string` | experimental |
 | `update_memory` | Authenticated | `content: string`, `key: string`, `memoryId*: string`, `salience: number`, `scope: string`, `sourceDetail: string`, `summary: string`, `tags: array<string>`, `topic: string`, `type: string`, `vesselId: string` |  |
 | `update_mission` | TenantAdmin | `branchName: string`, `description: string`, `missionId*: string`, `mode: string`, `parentMissionId: string`, `persona: string`, `prUrl: string`, `priority: integer`, `title: string`, `vesselId: string`, `voyageId: string` |  |
@@ -898,6 +898,8 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `fleetActions.defaultTimeoutSeconds` | int | `300` |  |
 | `fleetActions.maxConcurrency` | int | `8` |  |
 | `fleetActions.maxOutputBytes` | int | `65536` |  |
+| `fleetActions.offline` | bool | `false` |  |
+| `fleetActions.offlineHarborIds` | array<string> | `[]` |  |
 | `fleetActions.runRetentionDays` | int | `30` |  |
 | `gitHubToken` | string | `null` |  |
 | `handoffBudgetTokens` | int | `4000` |  |

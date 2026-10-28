@@ -2308,7 +2308,23 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(99, "Add test_command, lint_command and audit_command to vessels so a vessel can override the ecosystem default command for the test, lint and audit intents",
                     @"ALTER TABLE vessels ADD COLUMN test_command TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN lint_command TEXT;",
-                    @"ALTER TABLE vessels ADD COLUMN audit_command TEXT;")
+                    @"ALTER TABLE vessels ADD COLUMN audit_command TEXT;"),
+                new SchemaMigration(100, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"ALTER TABLE fleet_actions ADD COLUMN command_windows TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN output_parser TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN scan_source_action_key TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN required_tools_json TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN requires_network INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN inputs_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN command_windows TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN output_parser TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN scan_source_action_key TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN required_tools_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN requires_network INTEGER NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN inputs_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN input_values_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN findings_count INT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN scan_summary TEXT NULL;")
 
 
 

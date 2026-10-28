@@ -1979,7 +1979,23 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(99, "Add test_command, lint_command and audit_command to vessels so a vessel can override the ecosystem default command for the test, lint and audit intents",
                     @"IF COL_LENGTH('vessels', 'test_command') IS NULL ALTER TABLE vessels ADD test_command NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('vessels', 'lint_command') IS NULL ALTER TABLE vessels ADD lint_command NVARCHAR(MAX) NULL;",
-                    @"IF COL_LENGTH('vessels', 'audit_command') IS NULL ALTER TABLE vessels ADD audit_command NVARCHAR(MAX) NULL;")
+                    @"IF COL_LENGTH('vessels', 'audit_command') IS NULL ALTER TABLE vessels ADD audit_command NVARCHAR(MAX) NULL;"),
+                new SchemaMigration(100, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"ALTER TABLE fleet_actions ADD command_windows NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_actions ADD output_parser NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_actions ADD scan_source_action_key NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_actions ADD required_tools_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_actions ADD requires_network BIT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_actions ADD inputs_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD command_windows NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD output_parser NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD scan_source_action_key NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD required_tools_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD requires_network BIT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_runs ADD inputs_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD input_values_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD findings_count INT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_run_targets ADD scan_summary NVARCHAR(MAX) NULL;")
 
 
             };
