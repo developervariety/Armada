@@ -1295,6 +1295,7 @@ namespace Armada.Core.Settings
             MaxRecoveryAttempts = source.MaxRecoveryAttempts;
             MaxLandingRetries = source.MaxLandingRetries;
             CaptainInstructionByteBudget = source.CaptainInstructionByteBudget;
+            ClaudeCodeEntrypoint = source.ClaudeCodeEntrypoint;
             AvailableLicensedContexts = new List<string>(source.AvailableLicensedContexts);
 
             // Landing behaviour.

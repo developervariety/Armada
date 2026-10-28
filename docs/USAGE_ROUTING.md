@@ -662,7 +662,8 @@ count more heavily against the five-hour usage window than other labels; the
 weekly limit is unaffected. The top-level setting `claudeCodeEntrypoint` names
 the label Armada sends as `CLAUDE_CODE_ENTRYPOINT` (for example `armada`). It is
 unset by default, which leaves the variable out. A value that starts with `sdk-`
-has no effect and is ignored. Harbor runners receive the same label.
+has no effect and is ignored. The setting reloads without a restart, and Harbor
+runners receive the same label.
 
 ### Model gateway timeouts
 

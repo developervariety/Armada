@@ -32,6 +32,21 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("ArmadaSettings ApplyHotReloadableFrom ClaudeCodeEntrypoint TakesEffectWithoutRestart", () =>
+            {
+                // Every Claude Code launch reads the label through the shared settings instance, so a reloaded
+                // value reaches the next launch, and a reload that clears it stops sending it.
+                ArmadaSettings live = new ArmadaSettings();
+                AssertNull(live.ClaudeCodeEntrypoint, "no label by default");
+
+                live.ApplyHotReloadableFrom(ArmadaSettings.FromJson("{\"claudeCodeEntrypoint\":\"armada\"}", "settings.json"));
+                AssertEqual("armada", live.ClaudeCodeEntrypoint, "a reloaded label is applied");
+
+                live.ApplyHotReloadableFrom(new ArmadaSettings());
+                AssertNull(live.ClaudeCodeEntrypoint, "a reload without the label clears it");
+                return Task.CompletedTask;
+            });
+
             await RunTest("ArmadaSettings Ask native tool access defaults to read-only, reloads in place and reads from settings.json", () =>
             {
                 ArmadaSettings live = new ArmadaSettings();
