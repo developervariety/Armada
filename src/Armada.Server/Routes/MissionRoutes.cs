@@ -196,8 +196,6 @@ namespace Armada.Server.Routes
             Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
             IAuthorizationService authz)
         {
-            string _Header = "[ArmadaServer] ";
-
             // Missions
             app.Get("/api/v1/missions", async (ApiRequest req) =>
             {
