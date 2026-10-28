@@ -15,6 +15,14 @@ upstream integrations and excludes changes already present at that baseline.
 - The Admiral keeps the samples in memory for each enrolled runner. The ring holds at most 120 samples and drops a sample older than 24 hours. A sample older than 90 seconds marks the host `stale` and the series ends in a gap. A gap field is null. A measured zero stays zero.
 - `GET /api/v1/harbor-runners/{runnerId}/metrics` returns that series to the runner owner or a caller with authority over the owner. Another caller receives `404`. The route exists only when Harbor is enabled. The Dashboard Harbor host chart draws a gap for a missing sample and shows the stale time.
 
+### Administrator storage inventory
+
+- Add a read-only storage inventory for global administrators: a bounded, cached scan of the data directory by category (database files, logs, mission logs, docks, repositories, backups, archive staging, code index, operator evidence and the remainder), exact file counts and sizes, the largest files, volume capacity, and database size and table metadata on SQLite, PostgreSQL, MySQL and SQL Server. See [Storage Inventory](docs/STORAGE_INVENTORY.md).
+- The scan is bounded by `storage.maxEntries`, `storage.maxDepth` and `storage.timeoutSeconds`. It never follows a link, tolerates files that vanish mid-scan, and reports a partial result with a named reason (`EntryLimit`, `DepthLimit`, `TimeLimit`, `NotReached`, `AccessDenied`) instead of failing silently. Collection deletes and moves nothing.
+- `GET /api/v1/storage` returns the cache and never scans; `POST /api/v1/storage/refresh` starts a coalesced background collection and returns `202`. The Admiral also refreshes every `storage.refreshIntervalSeconds` while `storage.enabled` is true; the section hot-reloads.
+- Growth history keeps the newest `storage.historyCapacity` samples in `storage-history.json` in the data directory. It needs no database table or migration.
+- The Dashboard Storage page shows the categories, largest files, database tables, growth history and partial-result reasons, with a refresh button. Harbor runners do not report storage.
+
 - Rank guidance and native facts as one list in `armada_search_context`, so the strongest match leads whatever its source; code results join by reciprocal rank. Read unified-recall memory candidates with a database-side tenant and vessel filter on every provider instead of loading every visible record.
 
 - Add optional local semantic ranking to `armada_search_context`. `contextRetrieval.semanticEndpointId` pins a registered Ollama or OpenAI-compatible Embedding endpoint on a local or private host; hosted endpoints are refused. Guidance and native facts are ranked by BM25 fused with cosine similarity. Vectors are stored per tenant, source and model in `context_embeddings` on SQLite, PostgreSQL, MySQL and SQL Server, re-embedded when content changes, and deleted with their memory. Without the pin, search stays BM25 and makes no embedding call.
@@ -97,7 +105,7 @@ covers database protection, client compatibility and rollback.
 
 Docker and local publish scripts remain the release targets. CI workflow
 publication stays held. Signed installers and package-service publishing are
-outside this release. Upstream's administrator storage inventory is not included.
+outside this release.
 
 ### Release preparation
 

@@ -82,13 +82,13 @@ explain the fork behavior and link to its subsystem guides.
 | Operator workflows | Saved Ask threads, exact human approval proposals, fork-aware work reports, checkout import, Mission actions, a read-only Harbor jobs view and a Harbor host chart. |
 | Ask native tool permissions | Adapted: each Ask launch resolves a read-only native shell and file policy on its own launch copy, with an operator setting that widens it. Mission launch defaults are unchanged. |
 | UI and local releases | Shared table controls on Voyages only; staged Dashboard installation with rollback and fresh-install failure checks. |
+| Administrator storage inventory | Adapted: a cached, read-only, bounded scan of the data directory by category plus database size and table metadata on all four providers, a manual refresh, a bounded growth history kept in one JSON file, `GET /api/v1/storage`, `POST /api/v1/storage/refresh` and a Dashboard Storage page, all global-administrator only. Harbor runners do not report storage. See [Storage Inventory](docs/STORAGE_INVENTORY.md). Disk lifecycle cleanup is a separate feature. |
 | Architect plans | Version 2 and 3 JSON contracts with an explicit integration barrier that waits for all accepted branches to land. |
 
 ### Upstream features not imported
 
 | Capability | v1.0.0 decision |
 | --- | --- |
-| Administrator storage inventory (storage monitoring) | Not imported. No upstream System > Storage page, `/api/v1/storage` inventory, background exact counts, growth history or Harbor storage heartbeat reports. Existing disk lifecycle scans and cleanup are separate fork features. |
 | TUI and mobile app with server push | Deferred; Dashboard and Helm remain the supported clients. |
 | Central CLI permission requests and rules | Requires a separate design; saved Ask approvals do not provide this tool-permission workflow. Ask launches use the fixed read-only native policy described in [saved conversations](docs/ASK_CONVERSATIONS.md#native-tool-access) instead. |
 | Hosted CI workflow publication | Held. Local verification and the Linux gate remain available. |

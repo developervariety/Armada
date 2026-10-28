@@ -100,9 +100,10 @@ export const navSections: NavSection[] = [
   {
     key: 'system',
     label: 'SYSTEM',
-    matchers: ['/server', '/doctor', '/settings', '/admin', '/api-explorer'],
+    matchers: ['/server', '/doctor', '/settings', '/admin', '/api-explorer', '/storage'],
     items: [
       { to: '/api-explorer', label: 'API Explorer', tooltip: 'Browse the live OpenAPI document, execute requests, and inspect responses', icon: icons.apiExplorer },
+      { to: '/storage', label: 'Storage', tooltip: 'Where the data directory and database use disk space (global administrators)', icon: icons.storage },
       { to: '/server', label: 'Settings', tooltip: 'Server settings, diagnostics, and tenant/user/credential administration', icon: icons.server },
     ],
   },

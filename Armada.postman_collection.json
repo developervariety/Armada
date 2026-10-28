@@ -11504,6 +11504,60 @@
 			]
 		},
 		{
+			"name": "Storage",
+			"description": "Administrator storage inventory: a cached, read-only measurement of Armada's on-disk data and database. Requires a global administrator.",
+			"item": [
+				{
+					"name": "Read Storage Inventory",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/storage",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"storage"
+							]
+						},
+						"description": "Returns the cached inventory by category, the database size and table metadata, and the growth history. It never starts a scan. Partial figures name their reason in Warnings or PartialReasons. Requires a global administrator."
+					}
+				},
+				{
+					"name": "Refresh Storage Inventory",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"ExactCounts\": false\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/storage/refresh",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"storage",
+								"refresh"
+							]
+						},
+						"description": "Starts a bounded background collection and returns 202 with the current cache; poll the read route until Collecting is false. Concurrent requests join the running collection. ExactCounts counts every table's rows. Requires a global administrator."
+					}
+				}
+			]
+		},
+		{
 			"name": "Model Endpoints",
 			"description": "Managed embedding and inference endpoints. API keys are write-only.",
 			"item": [

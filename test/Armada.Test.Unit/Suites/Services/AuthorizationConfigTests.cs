@@ -20,6 +20,13 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.NoAuthRequired, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/status/health"));
             });
 
+            await RunTest("Storage Inventory Routes AreAdminOnly", () =>
+            {
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/storage"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/storage/"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/storage/refresh"));
+            });
+
             await RunTest("StopAll And WholeMergeQueueProcess AreAdminOnly", () =>
             {
                 // Both act on every tenant at once, so a tenant administrator may not run them. Processing one

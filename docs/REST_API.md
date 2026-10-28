@@ -189,6 +189,8 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/inbox` | GET | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
 | `/api/v1/jobs` | GET | AdminOnly | Global admin only. Long-running background jobs carry no tenant or user scope, the same audience as MCP `armada_job_status` |
+| `/api/v1/storage` | GET | AdminOnly | Global admin only. The inventory lists server-wide paths, sizes and database tables |
+| `/api/v1/storage/refresh` | POST | AdminOnly | Global admin only. Starts a bounded background collection |
 | `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
 | `/api/v1/check-runs` | GET, POST `/enumerate` | Authenticated | Tenant-scoped reads. `includeOutput=false` on the `GET` query string, or `"includeOutput": false` in a `POST /enumerate` body, lists each Check without reading its `output` log (returned as null) and adds `outputLength`, the log's length in characters as the database computes it; every other field is read. The default is `true`. The dashboard lists Checks with `includeOutput=false`. A single-Check `GET /api/v1/check-runs/{id}` always carries the whole log |
 | `/api/v1/check-runs` | POST/DELETE | TenantAdmin | Run, import, retry, GitHub Actions sync and delete. A linked mission, voyage or deployment must be in the caller's tenant (`400` otherwise). `commandOverride`, and retrying an imported check, are global admin only (`403`). `Deploy` and `Rollback` checks run only through the deployment workflow (`400`) |
@@ -4448,6 +4450,76 @@ failed or was lost.
 
 **Response:** `200 OK` — the job. **Errors:** `404` when the job is unknown or
 its journal record has expired.
+
+### Storage
+
+The storage inventory is a cached, read-only measurement of Armada's on-disk data
+and database; see [Storage Inventory](STORAGE_INVENTORY.md). Both routes require
+a global administrator: a tenant administrator or user receives `403`, an
+anonymous caller `401`.
+
+#### GET /api/v1/storage
+
+Return the cached inventory. The route never starts a scan.
+
+**Response:** `200 OK`
+
+```json
+{
+  "MeasuredUtc": "2026-01-01T00:00:00Z",
+  "Collecting": false,
+  "LastError": null,
+  "RefreshIntervalSeconds": 900,
+  "HistoryCapacity": 288,
+  "Files": {
+    "Status": "Partial",
+    "MeasuredUtc": "2026-01-01T00:00:00Z",
+    "EntriesExamined": 250000,
+    "ElapsedMilliseconds": 4200,
+    "PartialReasons": ["EntryLimit"],
+    "Locations": [
+      {
+        "Category": "Docks",
+        "Path": "<docks-directory>",
+        "Bytes": 1048576,
+        "FileCount": 812,
+        "OldestWriteUtc": "2025-12-01T00:00:00Z",
+        "NewestWriteUtc": "2026-01-01T00:00:00Z",
+        "LinksSkipped": 0,
+        "VanishedEntries": 3,
+        "Status": "Partial",
+        "Warnings": ["EntryLimit"],
+        "LargestFiles": [{ "Path": "<docks-directory>/example/pack.bin", "Bytes": 524288, "LastWriteUtc": "2025-12-31T00:00:00Z" }]
+      }
+    ],
+    "Volumes": [{ "Path": "/", "TotalBytes": 1000000000000, "AvailableBytes": 400000000000 }]
+  },
+  "Database": {
+    "Provider": "Sqlite",
+    "MeasuredUtc": "2026-01-01T00:00:00Z",
+    "AllocatedBytes": 8388608,
+    "UnusedBytes": 4096,
+    "Status": "Complete",
+    "Tables": [{ "Schema": "main", "Name": "missions", "Rows": 120, "CountKind": "Exact", "DataBytes": null, "IndexBytes": null, "Warning": null }],
+    "Warnings": ["TableSizesUnavailable"]
+  },
+  "History": [{ "MeasuredUtc": "2026-01-01T00:00:00Z", "ObservedFileBytes": 1048576, "DatabaseBytes": 8388608, "Categories": { "Docks": 1048576 } }],
+  "Warnings": []
+}
+```
+
+Before the first collection finishes, `MeasuredUtc` and `Files` are null.
+`PartialReasons` and each location's `Warnings` use the codes in
+[Bounds and partial results](STORAGE_INVENTORY.md#bounds-and-partial-results).
+
+#### POST /api/v1/storage/refresh
+
+Start a collection in the background. A request made while a collection runs
+joins it. Optional body: `{ "ExactCounts": true }` counts every table's rows with
+a bounded query instead of reading provider statistics.
+
+**Response:** `202 Accepted` with the current cache (`Collecting` is `true` while
+the collection runs). **Errors:** `400` for a body that is not a refresh request.
 
 ---
 

@@ -138,6 +138,7 @@ import type {
   LongRunningJob,
   LongRunningJobList,
   HarborJobsQuery,
+  StorageSnapshot,
   HarborJobsResponse,
   HarborHostMetrics,
   TokenUsageSummaryResult,
@@ -1264,6 +1265,12 @@ export const deleteSkill = (id: string) => del<void>(`/api/v1/skills/${encodeURI
 // ==================== Background Jobs ====================
 export const listJobs = () => get<LongRunningJobList>('/api/v1/jobs');
 export const getJob = (id: string) => get<LongRunningJob>(`/api/v1/jobs/${encodeURIComponent(id)}`);
+
+// ==================== Storage Inventory ====================
+/** Cached storage inventory; a read never starts a scan. Requires a global administrator. */
+export const getStorage = () => get<StorageSnapshot>('/api/v1/storage');
+/** Start a background collection and return the current cache; poll getStorage until collecting is false. */
+export const refreshStorage = (exactCounts = false) => post<StorageSnapshot>('/api/v1/storage/refresh', { ExactCounts: exactCounts });
 
 // ==================== Harbor Jobs (read only) ====================
 export const getHarborJobs = (params: HarborJobsQuery = {}) => {

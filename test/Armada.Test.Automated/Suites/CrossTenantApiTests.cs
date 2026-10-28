@@ -1697,6 +1697,9 @@ using System.IO;
                     new AuthRefusalProbe("StatusRoutes", "GET", "/api/v1/status", false),
                     new AuthRefusalProbe("StatusRoutes", "GET", "/api/v1/status", true),
                     new AuthRefusalProbe("StatusRoutes", "POST", "/api/v1/settings/usage-preview", true),
+                    new AuthRefusalProbe("StorageRoutes", "GET", "/api/v1/storage", false),
+                    new AuthRefusalProbe("StorageRoutes", "GET", "/api/v1/storage", true),
+                    new AuthRefusalProbe("StorageRoutes", "POST", "/api/v1/storage/refresh", true),
                     new AuthRefusalProbe("TenantRoutes", "GET", "/api/v1/tenants", false),
                     new AuthRefusalProbe("TenantRoutes", "GET", "/api/v1/tenants", true),
                     new AuthRefusalProbe("TokenUsageRoutes", "GET", "/api/v1/token-usage/summary", false),
@@ -2333,6 +2336,44 @@ using System.IO;
 
                 HttpResponseMessage missing = await _AdminClient.GetAsync("/api/v1/jobs/job_missing").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.NotFound, missing.StatusCode, "An unknown job reads 404");
+            }).ConfigureAwait(false);
+
+            // The storage inventory lists server-wide paths, sizes and database tables, so only a global
+            // administrator reads it or asks for a refresh.
+            await RunTest("Storage_FromTenantAdminOrUser_Returns403", async () =>
+            {
+                foreach (HttpClient client in new[] { _ClientA!, _ClientA3! })
+                {
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/storage").ConfigureAwait(false)).StatusCode, "storage read");
+                    AssertEqual(HttpStatusCode.Forbidden,
+                        (await client.PostAsync("/api/v1/storage/refresh", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false)).StatusCode, "storage refresh");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Storage_FromGlobalAdmin_ReadsCacheAndRefreshIsAccepted", async () =>
+            {
+                HttpResponseMessage read = await _AdminClient.GetAsync("/api/v1/storage").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, read.StatusCode, "A global administrator reads the storage inventory");
+                string body = await read.Content.ReadAsStringAsync().ConfigureAwait(false);
+                foreach (string field in new[] { "\"RefreshIntervalSeconds\":", "\"Database\":", "\"History\":", "\"Collecting\":" })
+                    AssertTrue(body.Contains(field, StringComparison.OrdinalIgnoreCase), "The snapshot carries " + field + ": " + body);
+
+                HttpResponseMessage malformed = await _AdminClient.PostAsync("/api/v1/storage/refresh",
+                    new StringContent("{ not json", System.Text.Encoding.UTF8, "application/json")).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.BadRequest, malformed.StatusCode, "A malformed refresh body is refused");
+
+                HttpResponseMessage refresh = await _AdminClient.PostAsync("/api/v1/storage/refresh",
+                    JsonHelper.ToJsonContent(new { ExactCounts = true })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Accepted, refresh.StatusCode, "A refresh is accepted and runs in the background");
+
+                bool measured = false;
+                for (int attempt = 0; attempt < 200 && !measured; attempt++)
+                {
+                    string polled = await (await _AdminClient.GetAsync("/api/v1/storage").ConfigureAwait(false)).Content.ReadAsStringAsync().ConfigureAwait(false);
+                    measured = polled.Contains("\"Files\":{", StringComparison.OrdinalIgnoreCase) && polled.Contains("\"Collecting\":false", StringComparison.OrdinalIgnoreCase);
+                    if (!measured) await Task.Delay(100).ConfigureAwait(false);
+                }
+                AssertTrue(measured, "The refresh fills the cache with a file scan");
             }).ConfigureAwait(false);
 
             // The status intent reads fleet status only and starts no captain runtime.

@@ -2637,6 +2637,78 @@ export interface LongRunningJobList {
   unreadableJournalRecords: number;
 }
 
+/** Measurement outcome of one storage location, scan or database. */
+export type StorageStatus = 'Pending' | 'Complete' | 'Partial' | 'Missing' | 'Unavailable';
+
+export interface StorageFile { path: string; bytes: number; lastWriteUtc: string; }
+
+export interface StorageLocation {
+  category: string;
+  path: string;
+  bytes: number | null;
+  fileCount: number;
+  oldestWriteUtc: string | null;
+  newestWriteUtc: string | null;
+  linksSkipped: number;
+  vanishedEntries: number;
+  status: StorageStatus;
+  warnings: string[];
+  largestFiles: StorageFile[];
+}
+
+export interface StorageVolume { path: string; totalBytes: number | null; availableBytes: number | null; }
+
+export interface StorageScanReport {
+  status: StorageStatus;
+  measuredUtc: string;
+  entriesExamined: number;
+  elapsedMilliseconds: number;
+  partialReasons: string[];
+  locations: StorageLocation[];
+  volumes: StorageVolume[];
+}
+
+export interface StorageTable {
+  schema: string;
+  name: string;
+  rows: number | null;
+  countKind: 'Unavailable' | 'Estimated' | 'Exact';
+  dataBytes: number | null;
+  indexBytes: number | null;
+  warning: string | null;
+}
+
+export interface StorageDatabase {
+  provider: string;
+  measuredUtc: string;
+  allocatedBytes: number | null;
+  unusedBytes: number | null;
+  status: StorageStatus;
+  tables: StorageTable[];
+  warnings: string[];
+}
+
+/** One growth sample. Category keys arrive camelCased by the client. */
+export interface StorageHistoryPoint {
+  measuredUtc: string;
+  observedFileBytes: number;
+  databaseBytes: number | null;
+  categories: Record<string, number>;
+}
+
+/** GET /api/v1/storage: the cached inventory. files is null until the first collection finishes. */
+export interface StorageSnapshot {
+  measuredUtc: string | null;
+  collecting: boolean;
+  lastError: string | null;
+  refreshIntervalSeconds: number;
+  historyCapacity: number;
+  files: StorageScanReport | null;
+  database: StorageDatabase;
+  history: StorageHistoryPoint[];
+  warnings: string[];
+}
+
 export type HarborJobState = 'Pending' | 'Running' | 'Stopping' | 'Exited' | 'Failed' | 'Lost' | 'Uncertain';
 export interface HarborJob {
   jobId: string; runnerId: string; state: HarborJobState; missionId: string | null; captainId: string | null;

@@ -52,6 +52,7 @@ export const icons: Record<string, ReactNode> = {
   requests: svg(<><path d="M3 12h18" /><path d="M8 7l-5 5 5 5" /><path d="M16 17l5-5-5-5" /></>),
   apiExplorer: svg(<><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /><path d="M11 8v6" /><path d="M8 11h6" /></>),
   codeIndex: svg(<><path d="m8 8-4 4 4 4" /><path d="m16 8 4 4-4 4" /><path d="m14 5-4 14" /></>),
+  storage: svg(<><ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5" /><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3" /></>),
   server: svg(<><rect x="2" y="2" width="20" height="8" rx="2" ry="2" /><rect x="2" y="14" width="20" height="8" rx="2" ry="2" /><line x1="6" y1="6" x2="6.01" y2="6" /><line x1="6" y1="18" x2="6.01" y2="18" /></>),
   doctor: svg(<path d="M22 12h-4l-3 9L9 3l-3 9H2" />),
   tenants: svg(<><path d="M3 21h18" /><path d="M5 21V7l7-4 7 4v14" /><path d="M9 9h.01" /><path d="M9 13h.01" /><path d="M15 9h.01" /><path d="M15 13h.01" /></>),

@@ -78,8 +78,10 @@ remain visible. Column visibility does not change the server query, row
 selection or the caller's authority. Refresh results use the latest request;
 a slower old response cannot replace the current page.
 
-Upstream's administrator storage inventory is not included in v1.0.0. The fork
-has no System > Storage view, `/api/v1/storage` cached inventory or refresh
-route, database exact-count collector, storage growth history, or Harbor storage
-heartbeat reports. Its disk lifecycle service is a separate scan and cleanup
-contract. See the [upstream adoption map](../README.md#upstream-features-not-imported).
+The Dashboard Storage page, in the System navigation section, shows the
+administrator storage inventory: bytes and file counts by category, the largest
+files, database tables, growth history and the reason for any partial figure. A
+refresh button starts a background collection. The page needs a global
+administrator; any other signed-in user sees a notice instead of data. See
+[Storage Inventory](STORAGE_INVENTORY.md). Helm has no storage command, and the
+disk lifecycle service is a separate scan and cleanup contract.

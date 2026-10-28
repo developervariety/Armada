@@ -67,9 +67,10 @@ number or run an old migration script because its filename looks similar.
 - Smart Routing, exact-commit Checks, consumer verification, local landing,
   incident recovery, rescue budgets and verified history archives keep the
   fork's rules. Review loaded settings rather than assuming upstream defaults.
-- Upstream's administrator storage inventory is not included. The settings
-  watcher and disk lifecycle scans do not provide its file/database/Harbor
-  inventory, growth history or System > Storage page.
+- The administrator storage inventory adds a `storage` settings section and
+  `storage-history.json` in the data directory. It needs no database migration.
+  See [Storage Inventory](STORAGE_INVENTORY.md). The settings watcher and disk
+  lifecycle scans are separate features.
 
 ## Seeded default credentials
 
