@@ -260,6 +260,118 @@ describe('AskArmada thread list', () => {
     await waitFor(() => expect(screen.queryByText('Checkout tests')).not.toBeInTheDocument());
   });
 
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
+  }
+
+  async function settleDelete() {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+  }
+
+  const DELETING_TEXT = 'This conversation is being deleted. This may take a few moments.';
+
+  it('keeps the progress modal up until a slow delete completes', async () => {
+    const pending = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValue(pending.promise);
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const confirm = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
+
+    const progress = await screen.findByRole('alertdialog', { name: 'Deleting conversation' });
+    expect(progress).toHaveTextContent(DELETING_TEXT);
+    expect(progress).toHaveAttribute('aria-busy', 'true');
+    expect(within(progress).queryAllByRole('button')).toHaveLength(0);
+    expect(screen.queryByText(/Work it started keeps running/)).not.toBeInTheDocument();
+    // Escape and the backdrop do not hide it while the request is in flight.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.click(progress.parentElement as HTMLElement);
+    await settleDelete();
+    expect(screen.getByText(DELETING_TEXT)).toBeInTheDocument();
+    expect(screen.getByText('Checkout tests')).toBeInTheDocument();
+
+    await act(async () => { pending.resolve(undefined); await pending.promise; });
+    await waitFor(() => expect(screen.queryByText(DELETING_TEXT)).not.toBeInTheDocument());
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByText('Checkout tests')).not.toBeInTheDocument();
+    expect(deleteAskThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('submits a delete only once while it is pending', async () => {
+    const pending = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValue(pending.promise);
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    const confirm = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    const button = within(confirm).getByRole('button', { name: 'Delete' });
+    // A double click lands both clicks on the confirm button before React re-renders.
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await screen.findByText(DELETING_TEXT);
+    // Opening the row menu again while pending cannot start a second delete.
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    const again = screen.queryByRole('menuitem', { name: 'Delete' });
+    if (again) fireEvent.click(again);
+    await settleDelete();
+    expect(screen.queryByText('Delete conversation')).not.toBeInTheDocument();
+    expect(deleteAskThread).toHaveBeenCalledTimes(1);
+
+    await act(async () => { pending.resolve(undefined); await pending.promise; });
+    await waitFor(() => expect(screen.queryByText(DELETING_TEXT)).not.toBeInTheDocument());
+    expect(deleteAskThread).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns a failed delete into an error with Dismiss and Retry', async () => {
+    const first = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValueOnce(first.promise);
+    renderAt('/ask');
+    await screen.findByText('Checkout tests');
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Checkout tests' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    let confirm = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
+    await screen.findByText(DELETING_TEXT);
+
+    await act(async () => { first.reject(new ApiError('Database is locked', 500, null)); await first.promise.catch(() => undefined); });
+    const failure = await screen.findByRole('alertdialog', { name: 'Error' });
+    expect(failure).toHaveTextContent('Database is locked');
+    expect(failure).toHaveAttribute('aria-busy', 'false');
+    expect(screen.queryByText(DELETING_TEXT)).not.toBeInTheDocument();
+    expect(within(failure).getByRole('button', { name: 'Dismiss' })).toHaveFocus();
+    expect(screen.getByText('Checkout tests')).toBeInTheDocument();
+
+    // Retry shows the progress state again and removes the row once it succeeds.
+    const second = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValueOnce(second.promise);
+    fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(DELETING_TEXT)).toBeInTheDocument();
+    expect(deleteAskThread).toHaveBeenCalledTimes(2);
+    await act(async () => { second.resolve(undefined); await second.promise; });
+    await waitFor(() => expect(screen.queryByText('Checkout tests')).not.toBeInTheDocument());
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    // Dismiss after a failure clears the pending state and allows deleting again.
+    vi.mocked(deleteAskThread).mockRejectedValueOnce(new ApiError('Still locked', 500, null));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    confirm = screen.getByText('Delete conversation').closest('.modal-box') as HTMLElement;
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }));
+    const again = await screen.findByRole('alertdialog', { name: 'Error' });
+    fireEvent.click(within(again).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByText('Billing fix')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for Billing fix' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    expect(screen.getByText('Delete conversation')).toBeInTheDocument();
+  });
+
   it('badges another thread from an ask.thread event and re-sorts it', async () => {
     renderAt('/ask/ath_1');
     await screen.findByText('Checkout tests');

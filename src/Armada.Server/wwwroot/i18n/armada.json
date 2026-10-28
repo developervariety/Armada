@@ -6120,7 +6120,10 @@
         "Tags": "Etiquetas",
         "Tenant-wide": "Todo el inquilino",
         "Visibility": "Visibilidad",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "El programa de agente que ejecuta este capitán. Los runtimes de CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) deben estar instalados donde se ejecutan los capitanes; API Endpoint llama directamente a un endpoint de modelo configurado. Obligatorio."
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "El programa de agente que ejecuta este capitán. Los runtimes de CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) deben estar instalados donde se ejecutan los capitanes; API Endpoint llama directamente a un endpoint de modelo configurado. Obligatorio.",
+        "Deleting conversation": "Eliminando conversación",
+        "This conversation is being deleted. This may take a few moments.": "Se está eliminando esta conversación. Esto puede tardar unos momentos.",
+        "Try deleting this conversation again.": "Intentar eliminar esta conversación de nuevo."
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -11177,7 +11180,10 @@
         "Tags": "标签",
         "Tenant-wide": "租户范围",
         "Visibility": "可见性",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "此船长运行的代理程序。CLI 运行时（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必须安装在船长运行的位置；API Endpoint 直接调用已配置的模型端点。必填。"
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "此船长运行的代理程序。CLI 运行时（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必须安装在船长运行的位置；API Endpoint 直接调用已配置的模型端点。必填。",
+        "Deleting conversation": "正在删除对话",
+        "This conversation is being deleted. This may take a few moments.": "正在删除此对话。这可能需要一些时间。",
+        "Try deleting this conversation again.": "再次尝试删除此对话。"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -16197,7 +16203,10 @@
         "Tags": "標籤",
         "Tenant-wide": "租用戶範圍",
         "Visibility": "可見性",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "此船長執行的代理程式。CLI 執行環境（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必須安裝在船長執行的位置；API Endpoint 則直接呼叫已設定的模型端點。必填。"
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "此船長執行的代理程式。CLI 執行環境（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必須安裝在船長執行的位置；API Endpoint 則直接呼叫已設定的模型端點。必填。",
+        "Deleting conversation": "正在刪除對話",
+        "This conversation is being deleted. This may take a few moments.": "正在刪除此對話。這可能需要一些時間。",
+        "Try deleting this conversation again.": "再次嘗試刪除此對話。"
       },
       "sections": {}
     },
@@ -21177,7 +21186,10 @@
         "Tags": "標籤",
         "Tenant-wide": "租戶範圍",
         "Visibility": "可見性",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "呢個船長執行嘅代理程式。CLI 執行環境（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必須安裝喺船長執行嘅地方；API Endpoint 會直接呼叫已設定嘅模型端點。必填。"
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "呢個船長執行嘅代理程式。CLI 執行環境（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必須安裝喺船長執行嘅地方；API Endpoint 會直接呼叫已設定嘅模型端點。必填。",
+        "Deleting conversation": "刪緊對話",
+        "This conversation is being deleted. This may take a few moments.": "呢個對話刪緊。可能要等一陣。",
+        "Try deleting this conversation again.": "再試下刪除呢個對話。"
       },
       "sections": {}
     },
@@ -26173,7 +26185,10 @@
         "Tags": "タグ",
         "Tenant-wide": "テナント全体",
         "Visibility": "公開範囲",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "このキャプテンが実行するエージェントプログラムです。CLI ランタイム（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）はキャプテンを実行する場所にインストールされている必要があります。API Endpoint は構成済みのモデルエンドポイントを直接呼び出します。必須です。"
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "このキャプテンが実行するエージェントプログラムです。CLI ランタイム（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）はキャプテンを実行する場所にインストールされている必要があります。API Endpoint は構成済みのモデルエンドポイントを直接呼び出します。必須です。",
+        "Deleting conversation": "会話を削除しています",
+        "This conversation is being deleted. This may take a few moments.": "この会話を削除しています。しばらく時間がかかる場合があります。",
+        "Try deleting this conversation again.": "この会話の削除をもう一度試します。"
       },
       "sections": {}
     },
@@ -31160,7 +31175,10 @@
         "Tags": "Tags",
         "Tenant-wide": "Mandantenweit",
         "Visibility": "Sichtbarkeit",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Das Agent-Programm, das dieser Captain ausführt. CLI-Laufzeiten (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) müssen dort installiert sein, wo Captains laufen; API Endpoint ruft direkt einen konfigurierten Modell-Endpunkt auf. Erforderlich."
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Das Agent-Programm, das dieser Captain ausführt. CLI-Laufzeiten (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) müssen dort installiert sein, wo Captains laufen; API Endpoint ruft direkt einen konfigurierten Modell-Endpunkt auf. Erforderlich.",
+        "Deleting conversation": "Unterhaltung wird gelöscht",
+        "This conversation is being deleted. This may take a few moments.": "Diese Unterhaltung wird gelöscht. Das kann einen Moment dauern.",
+        "Try deleting this conversation again.": "Erneut versuchen, diese Unterhaltung zu löschen."
       },
       "sections": {}
     },
@@ -36147,7 +36165,10 @@
         "Tags": "Tags",
         "Tenant-wide": "Tout le locataire",
         "Visibility": "Visibilité",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Le programme d'agent exécuté par ce capitaine. Les environnements d'exécution CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) doivent être installés là où les capitaines s'exécutent ; API Endpoint appelle directement un point de terminaison de modèle configuré. Obligatoire."
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Le programme d'agent exécuté par ce capitaine. Les environnements d'exécution CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) doivent être installés là où les capitaines s'exécutent ; API Endpoint appelle directement un point de terminaison de modèle configuré. Obligatoire.",
+        "Deleting conversation": "Suppression de la conversation",
+        "This conversation is being deleted. This may take a few moments.": "Cette conversation est en cours de suppression. Cela peut prendre quelques instants.",
+        "Try deleting this conversation again.": "Réessayer de supprimer cette conversation."
       },
       "sections": {}
     },
@@ -41134,7 +41155,10 @@
         "Tags": "Tag",
         "Tenant-wide": "Intero tenant",
         "Visibility": "Visibilità",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Il programma agente eseguito da questo capitano. I runtime CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) devono essere installati dove vengono eseguiti i capitani; API Endpoint chiama direttamente un endpoint di modello configurato. Obbligatorio."
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Il programma agente eseguito da questo capitano. I runtime CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) devono essere installati dove vengono eseguiti i capitani; API Endpoint chiama direttamente un endpoint di modello configurato. Obbligatorio.",
+        "Deleting conversation": "Eliminazione della conversazione",
+        "This conversation is being deleted. This may take a few moments.": "Questa conversazione è in fase di eliminazione. Potrebbe richiedere qualche istante.",
+        "Try deleting this conversation again.": "Riprova a eliminare questa conversazione."
       },
       "sections": {}
     }

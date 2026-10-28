@@ -44,6 +44,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import ErrorModal from '../components/shared/ErrorModal';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
+import AskDeleteProgressDialog from '../components/ask/AskDeleteProgressDialog';
 import { ErrorState, LoadingState } from '../components/shared/StateBlocks';
 import ImportWizard from '../components/vessels/import/ImportWizard';
 import AskThreadList from '../components/ask/AskThreadList';
@@ -177,6 +178,10 @@ export default function AskArmada() {
   // Dialogs and announcements.
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AskThread | null>(null);
+  // Single delete in flight (or just failed): the progress modal stays up until the server answers. The ref blocks a
+  // second submission before React re-renders.
+  const [deleteProgress, setDeleteProgress] = useState<{ thread: AskThread; error: string } | null>(null);
+  const deletingRef = useRef(false);
   // Bulk delete: the rows ticked in the list, and the confirmation dialog they open.
   const [selectedThreadIds, setSelectedThreadIds] = useState<string[]>([]);
   const [deleteManyOpen, setDeleteManyOpen] = useState(false);
@@ -652,19 +657,33 @@ export default function AskArmada() {
     writeStored(THINKING_STORAGE_KEY, value ? 'true' : 'false');
   }
 
-  async function confirmDelete() {
+  function requestDelete(target: AskThread) {
+    if (deletingRef.current) return;
+    setDeleteTarget(target);
+  }
+
+  function confirmDelete() {
     const target = deleteTarget;
     setDeleteTarget(null);
-    if (!target) return;
+    if (target) void runDelete(target);
+  }
+
+  async function runDelete(target: AskThread) {
+    if (deletingRef.current) return;
+    deletingRef.current = true;
+    setDeleteProgress({ thread: target, error: '' });
     try {
       await deleteAskThread(target.id);
       setThreads((prev) => prev.filter((th) => th.id !== target.id));
+      setDeleteProgress(null);
       pushToast('success', t('Conversation deleted.'));
       forgetLastThread([target.id]);
       saveDraft(target.id, '');
       if (target.id === convRef.current.threadId) navigate('/ask', { state: NEW_CONVERSATION_STATE });
     } catch (err: unknown) {
-      setError(errorText(err, t('The conversation could not be deleted.')));
+      setDeleteProgress({ thread: target, error: errorText(err, t('The conversation could not be deleted.')) });
+    } finally {
+      deletingRef.current = false;
     }
   }
 
@@ -784,7 +803,7 @@ export default function AskArmada() {
           onToggleArchive={(th) => void updateThread(th, { archived: !th.archived })}
           onMarkRead={(th) => void markThreadRead(th)}
           onMarkUnread={(th) => void markThreadUnread(th)}
-          onDelete={(th) => setDeleteTarget(th)}
+          onDelete={(th) => requestDelete(th)}
           selectedIds={selectedThreadIds}
           onToggleSelected={toggleSelected}
           onSelectAll={selectAllThreads}
@@ -830,7 +849,7 @@ export default function AskArmada() {
           onSummarize={() => { if (thread) void summarize(thread); }}
           onTogglePin={() => { if (thread) void updateThread(thread, { pinned: !thread.pinned }); }}
           onToggleArchive={() => { if (thread) void updateThread(thread, { archived: !thread.archived }); }}
-          onDelete={() => { if (thread) setDeleteTarget(thread); }}
+          onDelete={() => { if (thread) requestDelete(thread); }}
           onOpenList={() => setDrawerOpen(true)}
           busy={conv.turnActive}
           onCliPolicyChange={(policy) => { if (thread) void changeCliPolicy(thread, policy); }}
@@ -924,7 +943,7 @@ export default function AskArmada() {
         confirmLabel={t('Delete')}
         cancelLabel={t('Cancel')}
         danger
-        onConfirm={() => void confirmDelete()}
+        onConfirm={confirmDelete}
         onCancel={() => setDeleteTarget(null)}
       />
       <ConfirmDialog
@@ -938,6 +957,12 @@ export default function AskArmada() {
         danger
         onConfirm={() => void confirmDeleteMany()}
         onCancel={() => setDeleteManyOpen(false)}
+      />
+      <AskDeleteProgressDialog
+        open={!!deleteProgress}
+        error={deleteProgress?.error ?? ''}
+        onRetry={() => { if (deleteProgress) void runDelete(deleteProgress.thread); }}
+        onDismiss={() => { if (!deletingRef.current) setDeleteProgress(null); }}
       />
       <ImportWizard open={importOpen} onClose={() => setImportOpen(false)} tenantId={user?.user?.tenantId ?? null} />
     </div>
