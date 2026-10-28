@@ -305,11 +305,14 @@ Guides: [INSTRUCTIONS_FOR_OPENCODE.md](INSTRUCTIONS_FOR_OPENCODE.md),
 ### pi
 
 ```
-pi -p --mode json --no-session [--approve] [--model <provider/id>] [--thinking <level>] [--exclude-tools bash]
+pi -p --mode json --no-session [--approve] [--model <provider/id>] [--thinking <level>]
+   [--exclude-tools bash,powershell | --extension <bin>/Pi/armada-permission-gate.ts] [@<prompt file> (Windows)]
 ```
 
-The prompt goes to stdin and pi runs in the dock (or turn) working directory; pi has no directory flag. `--exclude-tools
-bash` is added under the `Refuse` policy (including a captain with auto-approve off). `--approve` is added when Armada
+The prompt goes to stdin (on Windows to a temporary file passed as `@<file>`, because stdin through pi's npm `.cmd`
+wrapper is unverified there) and pi runs in the dock (or turn) working directory; pi has no directory flag.
+`--exclude-tools bash,powershell` is added under the `Refuse` policy (including a captain with auto-approve off), and
+`--extension <bin>/Pi/armada-permission-gate.ts` under `ApproveInArmada` (see the permissions table below). `--approve` is added when Armada
 writes the per-run `.pi/mcp.json` binding, so the headless run trusts the project; it also loads the repository's own
 `.pi/extensions` and `.pi/settings.json`, the same trust a captain already has through `bash`. Mission instructions are
 written to `AGENTS.override.md` (pi loads only one of `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.md` per directory),
@@ -317,7 +320,7 @@ which carries the repository's `AGENTS.md` (or `CLAUDE.md`). Token usage and cos
 `message_end` usage. pi exits 0 in JSON mode even on a provider error, so Armada treats a final `stopReason` of
 `error`, `aborted`, or `length` (or a missing `agent_end`) as a failure. pi is stopped with SIGTERM and a process tree
 kill, never SIGINT. pi has no entry in the launch isolation planner, so `IsolateCaptainLaunch` does not isolate it.
-Windows behavior is unverified.
+Windows behavior (the `@file` prompt, Git Bash, the `powershell` tool) is unverified on a real Windows host.
 
 Guides: [INSTRUCTIONS_FOR_PI.md](INSTRUCTIONS_FOR_PI.md), [PI_AS_ORCHESTRATOR.md](PI_AS_ORCHESTRATOR.md).
 
@@ -382,7 +385,7 @@ These settings turn the switch off (the full resolution order is under [CLI tool
   "Auto-approve agent tool use" checkbox on the dashboard and TUI captain forms, still applies when the captain has no
   `CliPermissionPolicy`: an explicit `true` is `Bypass` and `false` is `Refuse`. With auto-approve off, Claude Code runs
   with `--permission-mode acceptEdits --allowedTools mcp__armada`, Codex with `--sandbox workspace-write`, Gemini with
-  `--approval-mode auto_edit`, Cursor without `--force`, OpenCode without `--auto`, pi with `--exclude-tools bash`, and Mux with approval policy `deny`
+  `--approval-mode auto_edit`, Cursor without `--force`, OpenCode without `--auto`, pi with `--exclude-tools bash,powershell`, and Mux with approval policy `deny`
   (unless `muxApprovalPolicy` is set).
 - **Per vessel:** `autoApprove` on `add_vessel` / `update_vessel` (`clearAutoApprove` removes it), shown as "Agent
   Auto-Approve" on the vessel form (On, Off, or use the captain setting). When set it wins over the captain's setting
@@ -448,7 +451,7 @@ conversation, so they ask instead.
 | Gemini | `--approval-mode auto_edit` | Runs as `Refuse` | `--approval-mode yolo` |
 | Cursor | Without `--force` | Runs as `Refuse` | `--force` |
 | OpenCode | Without `--auto` | Runs as `Refuse` | `--auto` |
-| pi | `--exclude-tools bash` (file reads, edits, and MCP tools stay available) | Runs as `Refuse` (`RuntimeUnsupported`) | pi's default (all tools, no prompts) |
+| pi | `--exclude-tools bash,powershell` (file reads, edits, and MCP tools stay available) | `--extension <bin>/Pi/armada-permission-gate.ts`: the extension's `tool_call` hook sends `bash`, `powershell`, and any other tool that is not a file tool or an Armada MCP tool to `cli_permission_prompt` (bash is reported as `Bash`, so Bash rules apply); a denial becomes the tool's error result, and an unreachable Admiral or a timeout blocks the call | pi's default (all tools, no prompts) |
 | Mux | `--approval-policy deny` | Mux 1.5.0 or later: `--approval-policy ask --permission-prompt-tool armada.cli_permission_prompt --permission-prompt-timeout <prompt timeout + 120> --auto-approve-tools armada.*,write_file,edit_file,multi_edit,process_stop --sandbox workspace-write`; older Mux runs as `Refuse` | `--yolo` |
 | ApiEndpoint | No CLI flags; the built-in `run_process` tool refuses every call | Each `run_process` call becomes a CLI permission request, answered in-process (no MCP token needed) | `run_process` runs without asking |
 

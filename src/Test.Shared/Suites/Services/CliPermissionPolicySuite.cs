@@ -151,7 +151,7 @@ namespace Test.Shared.Suites.Services
                     {
                         Captain captain = new Captain("c") { Runtime = runtime };
                         CliPermissionResolution r = CliPermissionPolicyResolver.ResolveForMission(settings, captain, null, true, false);
-                        bool hook = runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint;
+                        bool hook = runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.ApiEndpoint || runtime == AgentRuntimeEnum.Pi;
                         AssertEqual(hook, CliPermissionPolicyResolver.SupportsPromptHook(runtime), "hook support: " + runtime);
                         AssertEqual(hook ? CliPermissionPolicyEnum.ApproveInArmada : CliPermissionPolicyEnum.Refuse, r.Effective, "effective: " + runtime);
                         AssertEqual(CliPermissionPolicyEnum.ApproveInArmada, r.Requested, "requested: " + runtime);
@@ -166,6 +166,11 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, false, false).FallbackReason);
                     AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, claude, null, true, true).FallbackReason);
                     AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForAsk(settings, new AskThread(), claude, false).FallbackReason);
+                    Captain piCaptain = new Captain("pi") { Runtime = AgentRuntimeEnum.Pi };
+                    AssertTrue(CliPermissionPolicyResolver.PromptsOverMcp(AgentRuntimeEnum.Pi), "the pi gate reaches cli_permission_prompt over the scoped MCP connection");
+                    AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, CliPermissionPolicyResolver.ResolveForMission(settings, piCaptain, null, false, false).FallbackReason, "the pi gate needs the scoped token");
+                    AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, piCaptain, null, true, true, false).FallbackReason, "a Harbor that cannot prompt falls back");
+                    AssertNull(CliPermissionPolicyResolver.ResolveForMission(settings, piCaptain, null, true, true, true).FallbackReason, "a prompting Harbor runs the pi gate");
                     AssertNull(CliPermissionPolicyResolver.ResolveForMission(settings, new Captain("api") { Runtime = AgentRuntimeEnum.ApiEndpoint }, null, false, false).FallbackReason, "the in-process gate needs no token");
                     AssertEqual(CliPermissionFallbackReasonEnum.RemoteHarbor, CliPermissionPolicyResolver.ResolveForMission(settings, new Captain("api2") { Runtime = AgentRuntimeEnum.ApiEndpoint }, null, true, true).FallbackReason, "Harbor launches fall back");
                     settings.Permissions.MissionDefaultPolicy = CliPermissionPolicyEnum.Bypass;
@@ -317,18 +322,27 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(openCode.Args(bypass).Contains("--auto"), "OpenCode Bypass is --auto");
 
                 InspectablePi pi = new InspectablePi(Logging());
-                AssertFalse(CliPermissionLaunch.Apply(pi, CliPermissionPolicyEnum.ApproveInArmada, 600), "pi has no prompt hook until the Phase 5 extension");
+                AssertTrue(CliPermissionLaunch.Apply(pi, CliPermissionPolicyEnum.ApproveInArmada, 600), "pi sends its prompts to Armada through the permission gate extension");
+                List<string> piApprove = pi.Args(refuse);
+                int extension = piApprove.IndexOf("--extension");
+                AssertTrue(extension >= 0 && piApprove[extension + 1].EndsWith(PiRuntime.PermissionGateFileName, StringComparison.Ordinal), "pi ApproveInArmada loads the gate: " + String.Join(" ", piApprove));
+                AssertFalse(piApprove.Contains("--exclude-tools"), "the gate decides shell calls instead of removing them");
+                AssertFalse(CliPermissionLaunch.Apply(pi, CliPermissionPolicyEnum.Refuse, 600), "pi Refuse has no prompt hook");
                 List<string> piRefuse = pi.Args(refuse);
                 int excluded = piRefuse.IndexOf("--exclude-tools");
-                AssertTrue(excluded >= 0 && piRefuse[excluded + 1] == "bash", "pi Refuse is --exclude-tools bash: " + String.Join(" ", piRefuse));
+                AssertTrue(excluded >= 0 && piRefuse[excluded + 1] == "bash,powershell", "pi Refuse is --exclude-tools bash,powershell: " + String.Join(" ", piRefuse));
+                AssertFalse(piRefuse.Contains("--extension"), "Refuse clears the gate of a reused runtime");
                 AssertFalse(pi.Args(bypass).Contains("--exclude-tools"), "pi Bypass keeps every tool (pi never prompts)");
 
                 ArmadaSettings askSettings = new ArmadaSettings();
                 askSettings.Permissions.AskDefaultPolicy = CliPermissionPolicyEnum.ApproveInArmada;
                 CliPermissionResolution piAsk = CliPermissionPolicyResolver.ResolveForAsk(askSettings, new AskThread(), new Captain("p") { Runtime = AgentRuntimeEnum.Pi }, true);
-                AssertEqual(CliPermissionPolicyEnum.Refuse, piAsk.Effective, "pi ApproveInArmada runs as Refuse");
-                AssertEqual(CliPermissionFallbackReasonEnum.RuntimeUnsupported, piAsk.FallbackReason);
-                AssertContains("no permission prompt hook", piAsk.Note ?? String.Empty, "the user-visible note explains the fallback");
+                AssertEqual(CliPermissionPolicyEnum.ApproveInArmada, piAsk.Effective, "pi ApproveInArmada is honored");
+                AssertNull(piAsk.FallbackReason, "no RuntimeUnsupported fallback for pi");
+                AssertContains("wait for an approver in Armada", piAsk.Note ?? String.Empty, "the user-visible note says approvals go to Armada");
+                CliPermissionResolution piNoToken = CliPermissionPolicyResolver.ResolveForAsk(askSettings, new AskThread(), new Captain("p2") { Runtime = AgentRuntimeEnum.Pi }, false);
+                AssertEqual(CliPermissionPolicyEnum.Refuse, piNoToken.Effective, "without a scoped token the gate cannot reach Armada, so pi runs as Refuse");
+                AssertEqual(CliPermissionFallbackReasonEnum.NoSessionToken, piNoToken.FallbackReason);
 
                 InspectableMux mux = new InspectableMux(Logging());
                 Captain muxRefuse = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("m") { Runtime = AgentRuntimeEnum.Mux }, false);

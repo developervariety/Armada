@@ -149,6 +149,13 @@ Armada does not replace your agent. It runs it. The comparison is with the work 
 
 ## What's New in v1.2.0
 
+- **pi runtime support.** [pi](https://pi.dev) (the pi coding agent) is a first-class captain runtime: missions, Ask turns, and planning sessions run `pi -p --mode json` with exact token usage and cost, provider-error detection (pi exits 0 on provider errors in JSON mode), and the scoped Armada MCP binding. `armada mcp install` configures pi's `~/.pi/agent/mcp.json`; Approve in Armada works through a shipped pi extension that sends each shell command to the Approvals center and Ask (it fails closed); Refuse removes both of pi's shell tools (`bash` and Windows `powershell`). Add one with:
+
+  ```bash
+  armada captain add pi-1 --runtime pi
+  ```
+
+  See [docs/INSTRUCTIONS_FOR_PI.md](docs/INSTRUCTIONS_FOR_PI.md) (captain setup, permissions) and [docs/PI_AS_ORCHESTRATOR.md](docs/PI_AS_ORCHESTRATOR.md) (pi driving Armada over MCP).
 - **Model evaluation.** Every stage attempt is recorded as a stage outcome with its provenance (runtime version, model digest, escalation record) and a suspected cause, with editable failure-cause rules over REST, MCP, and the clients.
 - **Evaluate a captain or model endpoint.** Quick probes check served context, output contract, format rules, tool calling, speed, and determinism; the fixture battery runs data-defined task packs (starting with C#) through real dispatch and grades the results.
 - **Reader-aware handoffs.** Work is handed to the next stage in a form suited to the model that reads it.
@@ -241,7 +248,7 @@ Every change is in [CHANGELOG.md](CHANGELOG.md#v110-2026-10-15).
   - [Cursor](https://docs.cursor.com/cli) (`cursor-agent`)
   - Mux (`mux`)
   - [OpenCode](https://opencode.ai) (`opencode`)
-  - [pi](https://pi.dev) (`pi`)
+  - [pi](https://pi.dev) (`pi`; install with `curl -fsSL https://pi.dev/install.sh | sh` or `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`, sign in to a provider or set its API key, and confirm with `pi auth check --provider <name>`). See [docs/INSTRUCTIONS_FOR_PI.md](docs/INSTRUCTIONS_FOR_PI.md).
 - Optional: Node.js to rebuild the dashboard (without it, the install uses the prebuilt bundle committed in the repository).
 
 ### Install
@@ -298,9 +305,9 @@ The default password is flagged, not blocked: the API keeps working, the TUI sig
 
 ### Running Agents Safely
 
-Captains run as CLI agents with your account's permissions, and by default with their auto-approve flags (Claude Code `--dangerously-skip-permissions`, Codex `--sandbox workspace-write`, or `--dangerously-bypass-approvals-and-sandbox` on Windows, Gemini `--approval-mode yolo`, Cursor `--force`, Mux `--yolo`, OpenCode `--auto`, pi by default since it never prompts), so they can read, write, and execute without confirmation. To run a captain without them, untick **Auto-approve agent tool use** when editing the captain (or pass `autoApprove: false` to the `create_captain` / `update_captain` MCP tools); the runtime then uses its safer mode (for example Claude Code `--permission-mode acceptEdits`, Codex `--sandbox workspace-write`).
+Captains run as CLI agents with your account's permissions, and by default with their auto-approve flags (Claude Code `--dangerously-skip-permissions`, Codex `--sandbox workspace-write`, or `--dangerously-bypass-approvals-and-sandbox` on Windows, Gemini `--approval-mode yolo`, Cursor `--force`, Mux `--yolo`, OpenCode `--auto`, pi by default since it never prompts), so they can read, write, and execute without confirmation. To run a captain without them, untick **Auto-approve agent tool use** when editing the captain (or pass `autoApprove: false` to the `create_captain` / `update_captain` MCP tools); the runtime then uses its safer mode (for example Claude Code `--permission-mode acceptEdits`, Codex `--sandbox workspace-write`, pi `--exclude-tools bash,powershell`).
 
-Which of a captain's own tools may run is set by its CLI tool permission policy: `Refuse`, `ApproveInArmada` (permission prompts become approval cards in Ask, the Approvals center, Needs You, and the mobile app, with remembered allow and deny rules; available for Claude Code, Mux 1.5.0 or later, and `ApiEndpoint` captains), or `Bypass`. See [CLI tool permissions](docs/ASK_ARMADA_HOME_BASE.md#cli-tool-permissions) and the `Permissions` settings.
+Which of a captain's own tools may run is set by its CLI tool permission policy: `Refuse`, `ApproveInArmada` (permission prompts become approval cards in Ask, the Approvals center, Needs You, and the mobile app, with remembered allow and deny rules; available for Claude Code, Mux 1.5.0 or later, pi (through Armada's pi permission gate extension), and `ApiEndpoint` captains), or `Bypass`. See [CLI tool permissions](docs/ASK_ARMADA_HOME_BASE.md#cli-tool-permissions) and the `Permissions` settings.
 
 Run Armada under a dedicated account, keep it on localhost unless you need remote access (then follow [docs/REMOTE_SERVER.md](docs/REMOTE_SERVER.md): a non-default admin password, TLS in front, and one bearer token per user or machine), and review `audit.command` events for commands run through workspace exec, fleet actions, and check runs. See [Running agents safely](docs/SECURITY_REVIEW.md#running-agents-safely) and [SECURITY.md](SECURITY.md).
 
@@ -1085,6 +1092,8 @@ Armada exposes an MCP (Model Context Protocol) server so Claude Code and other M
 armada mcp install    # Configure Claude Code, Codex, Gemini, Cursor (and Mux, OpenCode, pi when installed) for Armada MCP
 armada mcp remove     # Remove those Armada MCP entries again
 ```
+
+For pi, `armada mcp install` adds an `armada` entry under `mcpServers` in `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`) when `pi` is on PATH, keeping the file's other servers; pi loads Armada's tools through its tool search. See [docs/PI_AS_ORCHESTRATOR.md](docs/PI_AS_ORCHESTRATOR.md).
 
 From a source checkout, the same installer is `scripts/macos/install-mcp.sh` (or the `linux` / `windows` equivalent); it runs `armada mcp install --yes`.
 

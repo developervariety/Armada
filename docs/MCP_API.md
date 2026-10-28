@@ -3334,7 +3334,7 @@ Register a new captain (AI agent).
 | `muxMaxTokens` | integer | No | Optional Mux max tokens override (Mux runtime only) |
 | `muxSystemPromptPath` | string | No | Optional Mux system prompt file path (Mux runtime only) |
 | `muxApprovalPolicy` | string | No | Optional Mux approval policy override (Mux runtime only) |
-| `autoApprove` | boolean | No | Whether the CLI captain runs with its auto-approve or permission-bypass flag (default `true`). `false` runs it without auto-approve where the runtime supports it (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, pi --exclude-tools bash, Mux deny) |
+| `autoApprove` | boolean | No | Whether the CLI captain runs with its auto-approve or permission-bypass flag (default `true`). `false` runs it without auto-approve where the runtime supports it (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, pi --exclude-tools bash,powershell, Mux deny) |
 
 **Response:** [Captain](#captain) object. Invalid or unavailable models are returned as MCP tool errors. A taken name returns `{ "Error": "A captain named '...' already exists.", "ErrorCode": "Conflict", "Code": "DuplicateEntity" }`. The Mux options apply only when `runtime` is `Mux`.
 

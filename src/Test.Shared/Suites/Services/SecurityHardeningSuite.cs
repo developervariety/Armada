@@ -106,12 +106,12 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(runtime.Args(Off()).Contains("--auto"));
             }));
 
-            cases.Add(Case("pi_without_auto_approve", "pi removes the bash tool when auto-approve is off", TestTags.Positive, () =>
+            cases.Add(Case("pi_without_auto_approve", "pi removes the bash and powershell tools when auto-approve is off", TestTags.Positive, () =>
             {
                 InspectablePi runtime = new InspectablePi(Logging());
                 AssertFalse(runtime.Args(new Captain("on")).Contains("--exclude-tools"));
                 List<string> off = runtime.Args(Off());
-                AssertTrue(off.Contains("--exclude-tools") && off.Contains("bash"));
+                AssertTrue(off.Contains("--exclude-tools") && off.Contains("bash,powershell"), String.Join(" ", off));
             }));
 
             cases.Add(Case("pi_token_never_in_argv_or_file", "A pi launch plan carries the session token only in the environment: not in argv, not in .pi/mcp.json", TestTags.Positive, () =>

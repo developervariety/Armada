@@ -1,8 +1,10 @@
 # Plan: pi as an Armada agent runtime
 
-Status: Phases 1-4 are implemented (mission msn_mvsftf4t_Lz5EG4dfqbP, 2026-10-28; every task below is
-marked [DONE]). Phase 5 (the optional ApproveInArmada extension) is not implemented. Deviations from the
-plan are listed in "Implementation notes and deviations" below. When this plan was written, paths marked
+Status: Phases 1-4 are implemented (mission msn_mvsftf4t_Lz5EG4dfqbP, 2026-10-28) and Phase 5 (the ApproveInArmada
+permission gate extension) plus the Refuse, Windows prompt-delivery and crash-recovery gaps are implemented (mission
+msn_mvsj2k9t_7TXuBAhn0rz, 2026-10-28); every task below is marked [DONE]. Deviations from the plan are listed in
+"Implementation notes and deviations" below. Still open (see "Remaining work"): manual verification on a real Windows
+host, RPC mode, and session resume. When this plan was written, paths marked
 (NEW) did not exist; every other Armada path existed in the repository at commit dbef448c9. Paths that belong to the pi
 repository (`docs/json.md`, `src/modes/print-mode.ts`, `examples/extensions/...`) are relative to
 `packages/coding-agent/` in github.com/earendil-works/pi, and names such as `mcp.json`,
@@ -94,10 +96,14 @@ a choice open, this is what was done and why:
   repository's own `.pi/mcp.json`, whose servers are merged into the generated file) before `OnProcessExited`, and
   on a failed start. Crash leftovers: orphan recovery (`AdmiralService.RecoverOrphanedMissionAsync`) calls
   `PiProjectMcpConfig.RemoveGenerated`, which deletes only an Armada-generated file. That helper is unit tested;
-  the full orphan-recovery path with a pi mission is not exercised by a test.
-- Permissions (3.3): no code change in `CliPermissionPolicyResolver` beyond its doc comment; pi has no prompt hook,
-  so the existing fallback records `RuntimeUnsupported` and the note. On Windows, pi's optional `powershell` tool is
-  not excluded under Refuse (the plan specifies `--exclude-tools bash` only); UNVERIFIED.
+  the full orphan-recovery path with a pi mission was not exercised by a test in Phases 1-4; `Services.PiCrashRecovery`
+  now covers it (see "Phase 5 and gap closure").
+- Permissions (3.3): no code change in `CliPermissionPolicyResolver` beyond its doc comment in Phases 1-4 (Phase 5 then
+  made pi a prompting runtime, see below). The Refuse gap is closed: Refuse now passes `--exclude-tools bash,powershell`
+  (`PiCommandBuilder.ShellToolNames`), so pi's optional Windows `powershell` tool is refused too. pi's other built-in tools
+  (`read`, `edit`, `write`, `grep`, `find`, `ls`) do not run commands, and `codemode` scripts reach commands only through
+  those tools (pi's nested calls go through the same tool set and `tool_call` hooks). The comma-separated list was
+  checked against a real pi 1.4.0 on macOS; the `powershell` tool itself exists only on native Windows (UNVERIFIED there).
 - Dashboard (4.4): the approval picker's existing tooltip already says runtimes other than Claude Code, Mux 1.5+
   and API endpoints fall back to Refuse, so it was not changed. The runtime label is "pi". The runtime tooltip
   i18n key was replaced in all eight locales.
@@ -108,6 +114,53 @@ a choice open, this is what was done and why:
   `Runtimes.PiSmoke` takes the provider from `ARMADA_TEST_PI_PROVIDER` (default `anthropic`) and the model from
   `ARMADA_TEST_PI_MODEL` (default `anthropic/claude-haiku-4-5` for anthropic) and passes `--provider` to
   `pi auth check --no-refresh`.
+
+## Phase 5 and gap closure (mission msn_mvsj2k9t_7TXuBAhn0rz)
+
+- Extension (5.1): `src/Armada.Runtimes/Pi/armada-permission-gate.ts`, written as plain JavaScript with JSDoc types so
+  pi's loader and plain `node` (tests) both run it; `Armada.Runtimes.csproj` copies it to `Pi/` in every build output
+  (Admiral, Harbor, tests) for net8.0 and net10.0. Its `tool_call` handler calls `cli_permission_prompt` over MCP JSON-RPC
+  (`initialize`, then `tools/call` with the `Mcp-Session-Id`; JSON or `text/event-stream` replies) at `ARMADA_MCP_URL` with
+  `X-Token: $ARMADA_MCP_TOKEN`. File tools, `tool_search`, `codemode` and `mcp__armada__*` pass without a prompt (Claude
+  Code `acceptEdits` semantics); every other tool is gated, including `powershell` and repository-extension tools. pi's
+  `bash` is sent as `Bash` with its `command`, so Bash permission rules match. Calls are decided one at a time in arrival
+  order. Missing URL/token, an unreachable Admiral, an HTTP or JSON-RPC error, an `isError` result, an unreadable reply and
+  the timeout (`ARMADA_PERMISSION_TIMEOUT_SECONDS` = prompt timeout + 120 s, so Armada expires the request first) all
+  block the call.
+- Launch (5.2): `CliPermissionPolicyResolver.SupportsPromptHook(Pi)` and `PromptsOverMcp(Pi)` are true, so the resolver
+  no longer records `RuntimeUnsupported` for pi (a launch without a scoped token still falls back with `NoSessionToken`,
+  and a Harbor without the prompt capability with `RemoteHarbor`). `CliPermissionPromptSetup.Configure` sets
+  `PiRuntime.PermissionGateExtensionPath` (the copy next to the binaries, `PiRuntime.FindPermissionGateExtension`) and
+  `PermissionPromptTimeoutSeconds`; without the file it returns false and the launch keeps the Refuse exclusion.
+  `PiCommandBuilder` adds `--extension <path>` in place of `--exclude-tools`. `CaptainThreadMcpPlanner` now also sets
+  `ARMADA_MCP_URL` for pi launches (the Harbor job runner already did). A Harbor runs its own copy of the extension; an
+  older Harbor without it runs the launch as Refuse and logs that in the job note.
+- Windows prompt delivery (gap C): `PiRuntime.UsePromptFile` defaults to `OperatingSystem.IsWindows()`; then the prompt
+  is written to `%TEMP%/armada/pi-prompts/prompt-<guid>.md`, passed last as `@<file>`, and deleted when the exit is
+  resolved (or at the next launch). `pi -p --mode json @file` with no message was verified on macOS with pi 1.4.0 (the
+  file arrives as the first user message inside `<file name=...>`); it is NOT verified on Windows.
+- Crash recovery (gap D): orphan recovery of a pi mission now also removes a generated `AGENTS.override.md` (one that
+  carries the `# Mission Instructions` heading); a leftover one would otherwise be read back as the dock's own
+  instructions by the next generation, which then drops the repository's `AGENTS.md`. `Services.PiCrashRecovery` runs the
+  whole path: real instructions generation, a real `PiRuntime` launch of the recording stub writing `.pi/mcp.json`, a
+  killed process whose exit the Admiral never handled, then `AdmiralService.HealthCheckAsync`.
+- Doc-derived fixtures: the MCP tool call, length stop, 429/529 and auto-retry fixtures in `PiStreamFixtures.cs` are
+  labeled DOC-DERIVED (not captured) in the class summary and on each fixture.
+- Tests: `Services.PiPermissionGate` (node harness against a fake MCP endpoint: allow, deny, event-stream reply,
+  unreachable, timeout, two concurrent calls in order, ungated tools, missing token, error result, shipped file),
+  `E2E.PiPermissionGate` (the extension against the real Admiral: the request is pending in the approvals list and as an
+  Ask card; admin allow runs, deny blocks with the message), `Runtimes.PiSmoke` `real_pi_approve_in_armada_gate` (a real pi
+  1.4.0 with the extension: the allowed bash call ran, the denied one did not, its reason reached the model, the run
+  ended DONE with exit 0), and Pi cases in `Services.PiRuntime`, `Services.CliPermissionPolicy`,
+  `Services.SecurityHardening` and `Services.CaptainThreadMcpPlanner`.
+
+## Remaining work
+
+- Manual verification on a real Windows host (no Windows machine was available): install through `install.ps1` or npm,
+  the `@file` prompt through the npm `.cmd` wrapper, the `bash` tool with Git Bash, Refuse removing the `powershell` tool,
+  and the permission gate extension loading from the Admiral/Harbor bin path.
+- RPC mode (`pi --mode rpc`: steering, `get_session_stats`, `extension_ui_request` approvals): open question, out of scope.
+- Session resume (`SupportsResume` with `--session-id <missionId>`): open question, out of scope.
 
 ## 1. Summary of pi and why it fits
 
@@ -170,7 +223,7 @@ Values for existing runtimes come from the current adapters (`src/Armada.Runtime
 | Armada MCP binding | isolation plan | `-c` overrides | workspace settings | project mcp.json | `--mcp-config` | `OPENCODE_CONFIG_CONTENT` | project `.pi/mcp.json` (see 3.3) |
 | Bypass flag | `--dangerously-skip-permissions` | full-auto/bypass | yolo | `--force` | `--yolo` | `--auto` | default behavior (no prompts) |
 | Refuse | acceptEdits | non-bypass | auto_edit | no `--force` | no `--yolo` | no `--auto` | `--exclude-tools bash` (see 3.4) |
-| ApproveInArmada | yes (`--permission-prompt-tool`) | falls back to Refuse | falls back | falls back | yes (Mux 1.5+) | falls back | falls back first; extension later (Phase 5) |
+| ApproveInArmada | yes (`--permission-prompt-tool`) | falls back to Refuse | falls back | falls back | yes (Mux 1.5+) | falls back | yes, `--extension armada-permission-gate.ts` (Phase 5 [DONE]) |
 | Reasoning effort | thinking-token env | `ToCodexReasoningEffort` | none | none | `ToMuxEffort` | `--variant` minimal/high | `--thinking off..high` (1:1) |
 | Model selection | `--model` | `--model` | `--model` | `--model` | endpoint | `--model provider/id` | `--model provider/id` (+`--provider`) |
 | Resume (`SupportsResume`) | true | false | false | false | false | false | false at first; `--session-id` makes true possible |
@@ -336,10 +389,10 @@ pi never prompts; there is no flag to turn prompts on. Mapping of `CliPermission
   other prompting tools are refused. The pi equivalent is `--exclude-tools bash` (keeps `read`,
   `edit`, `write` and MCP tools; `--tools` would drop MCP tools only if an entry starts with
   `mcp__`, which Armada will not pass). Captain `AutoApprove=false` maps to Refuse, as for OpenCode.
-- ApproveInArmada: Phases 1-4 leave `CliPermissionPolicyResolver.SupportsPromptHook(Pi)` and
-  `PromptsOverMcp(Pi)` false, so the resolver's existing `ApplyFallback` downgrades to Refuse with
-  `CliPermissionFallbackReasonEnum.RuntimeUnsupported` and a user-visible note. No new refusal path is needed.
-- Phase 5 (optional): ship an Armada extension, `src/Armada.Runtimes/Pi/armada-permission-gate.ts`
+- ApproveInArmada: Phases 1-4 left `CliPermissionPolicyResolver.SupportsPromptHook(Pi)` and
+  `PromptsOverMcp(Pi)` false, so the resolver's `ApplyFallback` downgraded to Refuse with
+  `CliPermissionFallbackReasonEnum.RuntimeUnsupported`. Phase 5 [DONE] made both true (see "Phase 5 and gap closure").
+- Phase 5 [DONE]: ship an Armada extension, `src/Armada.Runtimes/Pi/armada-permission-gate.ts`
   (NEW), loaded with `--extension <path>`. Its `tool_call` handler calls the Armada MCP tool
   `cli_permission_prompt` over the same scoped MCP connection (or the REST equivalent with
   `ARMADA_MCP_TOKEN`), awaits the decision, and returns `{ block: true, reason }` on deny. Then
@@ -577,13 +630,13 @@ vitest cases in `captainForm.test.ts`, `captainApproval.test.ts` and an `askCapt
 gates `Tui`, `Client`, `E2E.ApiContract`, dashboard `npm run build` and `npm run test:run`
 (including the `*Catalog.test.ts` i18n suites).
 
-### Phase 5 (optional) - ApproveInArmada through a pi extension (NOT STARTED)
+### Phase 5 [DONE] - ApproveInArmada through a pi extension
 
-5.1 `src/Armada.Runtimes/Pi/armada-permission-gate.ts` (NEW) per 3.4, copied to the bin
+5.1 [DONE] `src/Armada.Runtimes/Pi/armada-permission-gate.ts` (NEW) per 3.4, copied to the bin
     (csproj item; edit the `.csproj` as bytes, CRLF).
-5.2 `CliPermissionPolicyResolver.SupportsPromptHook`/`PromptsOverMcp` return true for Pi;
+5.2 [DONE] `CliPermissionPolicyResolver.SupportsPromptHook`/`PromptsOverMcp` return true for Pi;
     `CliPermissionPromptSetup.cs` adds `--extension <path>` to the launch.
-5.3 Tests: allow, deny, Admiral unreachable (must block), extension timeout (must block), a
+5.3 [DONE] Tests: allow, deny, Admiral unreachable (must block), extension timeout (must block), a
     model response with two parallel tool calls (both decided, in order), and a stub-pi launch
     whose argv contains `--extension <path>` pointing at a file that exists in the bin.
 Acceptance for the phase: with ApproveInArmada, a pi mission that runs `bash` raises an
@@ -639,7 +692,7 @@ Integration smoke test:
   git repo with prompt "create hello.txt containing hi and reply DONE", asserts exit 0, the file,
   the final message, and nonzero token counts. A second case runs with a deliberately bad API key
   (`--api-key` or env) and asserts the provider error is classified and the exit code is nonzero.
-- The smoke suite lands with Phase 2 (after the fixtures exist); Phase 5 adds an ApproveInArmada case.
+- The smoke suite lands with Phase 2 (after the fixtures exist); Phase 5 adds an ApproveInArmada case ([DONE]: `real_pi_approve_in_armada_gate`).
 - Manual check per release on Windows (install.ps1, Git Bash present) since CI has no pi.
 
 Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Services.Captain`,
@@ -651,9 +704,9 @@ Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Servi
 - Resolved by the live check (see Sources): stdin prompt delivery (macOS), session header with
   `--no-session`, context-file precedence (now 3.7), no turn limit, SIGTERM behavior, long
   extension waits (Phase 5), `pi auth check` options, and identifying pi on PATH.
-- UNVERIFIED: behavior on Windows beyond `docs/windows.md` (stdin prompt delivery through the npm
-  `.cmd` wrapper, the bash tool requiring Git Bash, the optional `powershell` tool). Task 2.1
-  settles it on a Windows host.
+- UNVERIFIED (still open): behavior on Windows beyond `docs/windows.md`. Armada now passes the prompt as `@file` on
+  Windows instead of stdin through the npm `.cmd` wrapper and Refuse also removes the optional `powershell` tool, but
+  neither, nor the bash tool requiring Git Bash, has been run on a Windows host.
 - Risk: a repository with `AGENTS.md` silently drops mission instructions written to `CLAUDE.md`.
   Task 2.9 must land with Phase 2, before any real pi mission runs.
 - Risk: pi gates parallel tool calls one at a time in Phase 5, so a slow human approval stalls
@@ -663,15 +716,15 @@ Gates to run: `Services.PiRuntime`, `Runtimes`, `Services.CliPermission`, `Servi
 - Risk: `--approve` loads repository-supplied `.pi/extensions` (repository code running in the
   pi process). Same trust as bash, but must be documented; alternatively offer a captain option
   to use `--no-approve` and accept no Armada MCP.
-- Risk: writing `.pi/mcp.json` into a dock; the exclude entry and cleanup must be robust to
-  crashes (orphan recovery should delete it).
+- Risk (addressed): writing `.pi/mcp.json` into a dock; the exclude entry and cleanup must be robust to
+  crashes. Orphan recovery deletes it and the generated `AGENTS.override.md` (`Services.PiCrashRecovery`).
 - Risk: pi auto-compaction and auto-retry change usage mid-run; telemetry tests must include
   compaction and retry fixtures.
 - Risk: a slow stdout reader stalls pi (documented); Armada's reader must keep draining while
   formatting.
 - Risk: `pi` command name collisions on PATH.
 - Open: should Pi ever use RPC mode (steering, `get_session_stats`, `extension_ui_request`
-  approvals)? Revisit after Phase 5.
+  approvals)? Phase 5 is done without it; still open and out of scope.
 - Open: `SupportsResume` could become true with `--session-id <missionId>`; out of scope until
   Armada needs resume for non-Claude runtimes.
 

@@ -209,6 +209,8 @@ namespace Test.Shared.Suites.Services
                 AssertNull(file.OriginalContents, "nothing to restore");
                 AssertEqual("--approve", String.Join(" ", plan.ExtraArguments));
                 AssertEqual(_Token, plan.EnvironmentOverrides[CaptainThreadMcpPlanner.TokenEnvironmentVariable]);
+                string gateUrl = plan.EnvironmentOverrides[CaptainThreadMcpPlanner.UrlEnvironmentVariable];
+                AssertTrue(gateUrl.EndsWith(":" + _Port + "/mcp", StringComparison.Ordinal) && file.Contents.Contains("\"" + gateUrl + "\"", StringComparison.Ordinal), "the pi permission gate extension gets the same MCP URL as the project file: " + gateUrl);
                 AssertFalse(file.Contents.Contains(_Token, StringComparison.Ordinal), "the token never reaches the file");
                 AssertFalse(file.Contents.Contains("admin-key", StringComparison.Ordinal), "host credentials are not copied");
                 AssertTrue(PiProjectMcpConfig.IsGenerated(file.Contents));

@@ -110,7 +110,9 @@ namespace Test.Shared.Infrastructure
         /// its argv (one argument per line) in <c>pi-argv.txt</c>, its stdin in <c>pi-stdin.txt</c>, its working
         /// directory in <c>pi-cwd.txt</c>, the inherited <c>ARMADA_MCP_TOKEN</c> in <c>pi-token.txt</c>, and copies of the
         /// working directory's <c>.pi/mcp.json</c> and <c>AGENTS.override.md</c> (when present) as <c>pi-mcp.json</c> and
-        /// <c>pi-agents-override.md</c>. It then replays <c>pi-replay.jsonl</c> to stdout (when present), optionally
+        /// <c>pi-agents-override.md</c>, the inherited <c>ARMADA_MCP_URL</c> and <c>ARMADA_PERMISSION_TIMEOUT_SECONDS</c> in
+        /// <c>pi-mcp-url.txt</c> and <c>pi-permission-timeout.txt</c>, and the contents of an <c>@file</c> argument in
+        /// <c>pi-prompt-file.txt</c>. It then replays <c>pi-replay.jsonl</c> to stdout (when present), optionally
         /// sleeping for the seconds in <c>pi-sleep.txt</c>, and exits with the code in <c>pi-exit.txt</c> (default 0).
         /// </summary>
         /// <param name="directory">Directory that holds the stub and its record files.</param>
@@ -128,6 +130,9 @@ namespace Test.Shared.Infrastructure
                 + "cat > \"$d/pi-stdin.txt\"\n"
                 + "pwd > \"$d/pi-cwd.txt\"\n"
                 + "printf '%s' \"$ARMADA_MCP_TOKEN\" > \"$d/pi-token.txt\"\n"
+                + "printf '%s' \"$ARMADA_MCP_URL\" > \"$d/pi-mcp-url.txt\"\n"
+                + "printf '%s' \"$ARMADA_PERMISSION_TIMEOUT_SECONDS\" > \"$d/pi-permission-timeout.txt\"\n"
+                + "for a in \"$@\"; do case \"$a\" in @*) cp \"${a#@}\" \"$d/pi-prompt-file.txt\";; esac; done\n"
                 + "if [ -f .pi/mcp.json ]; then cp .pi/mcp.json \"$d/pi-mcp.json\"; fi\n"
                 + "if [ -f AGENTS.override.md ]; then cp AGENTS.override.md \"$d/pi-agents-override.md\"; fi\n"
                 + "if [ -f \"$d/pi-replay.jsonl\" ]; then cat \"$d/pi-replay.jsonl\"; fi\n"

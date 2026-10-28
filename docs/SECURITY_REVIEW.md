@@ -271,7 +271,7 @@ and the server defaults ([CAPTAINS.md](CAPTAINS.md#cli-tool-permissions)):
 | Gemini | `--approval-mode yolo` | `--approval-mode auto_edit` |
 | Cursor | `--force` | no `--force` |
 | OpenCode | `--auto` | no `--auto` |
-| pi | pi's default (no prompts, all tools) | `--exclude-tools bash` (shell refused; file and MCP tools stay) |
+| pi | pi's default (no prompts, all tools) | `--exclude-tools bash,powershell` (shell refused, including the Windows `powershell` tool; file and MCP tools stay) |
 | Mux | `--yolo` | `--approval-policy deny` (an explicit Mux approval policy on the captain wins) |
 | ApiEndpoint | no CLI flags; the built-in `run_process` tool runs commands in-process | `run_process` refuses every call (the file tools still run) |
 
@@ -281,7 +281,10 @@ Mux 1.5.0 or later gets `--approval-policy ask --permission-prompt-tool armada.c
 `--sandbox workspace-write`: file edits inside the worktree run (like Claude Code's `acceptEdits`), edits outside it are
 refused, and other mutating tools wait for a decision; a prompt error, timeout, or unreadable answer denies the call.
 ApiEndpoint captains ask the same way for each `run_process` call, in-process.
-A Harbor that advertises the `cli-permission-prompt` capability sets up the same flags for Claude Code and Mux on its
+pi gets `--extension <bin>/Pi/armada-permission-gate.ts` instead of the `Refuse` exclusion: the extension's `tool_call` hook
+asks `cli_permission_prompt` before `bash`, `powershell`, or any tool that is not a file tool or an Armada MCP tool runs,
+and blocks the call when Armada denies it, cannot be reached, or does not answer in time (it fails closed).
+A Harbor that advertises the `cli-permission-prompt` capability sets up the same flags for Claude Code, Mux and pi on its
 host, against the scoped MCP server bound to the launch's token. Every other runtime (and Mux before 1.5.0), and every
 launch on a Harbor without that capability, runs `ApproveInArmada` as `Refuse`.
 

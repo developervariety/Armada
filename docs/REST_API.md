@@ -9607,7 +9607,7 @@ The policy a captain launch runs with (`AskThread.CliPermission` for the thread'
 | `Requested` | [CliPermissionPolicyEnum](#clipermissionpolicyenum) | The policy the resolution order selected |
 | `Effective` | [CliPermissionPolicyEnum](#clipermissionpolicyenum) | The policy the launch uses (`Requested`, or `Refuse` after a fallback) |
 | `Source` | string | `AskThread`, `VesselAutoApprove`, `Captain`, `CaptainAutoApprove` (the legacy `autoApprove` option), or `ServerDefault` |
-| `FallbackReason` | string? | Why `ApproveInArmada` runs as `Refuse`: `RuntimeUnsupported` (no permission prompt hook; only Claude Code, Mux 1.5.0 or later, and ApiEndpoint have one), `NoSessionToken` (a Claude Code or Mux launch without a scoped MCP token), or `RemoteHarbor` (the launch runs on a Harbor that does not advertise the `cli-permission-prompt` capability for the runtime); null otherwise |
+| `FallbackReason` | string? | Why `ApproveInArmada` runs as `Refuse`: `RuntimeUnsupported` (no permission prompt hook; only Claude Code, Mux 1.5.0 or later, pi, and ApiEndpoint have one), `NoSessionToken` (a Claude Code, Mux, or pi launch without a scoped MCP token), or `RemoteHarbor` (the launch runs on a Harbor that does not advertise the `cli-permission-prompt` capability for the runtime); null otherwise |
 | `Note` | string | One-line English explanation, including where to change the policy |
 
 ---
