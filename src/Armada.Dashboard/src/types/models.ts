@@ -178,6 +178,12 @@ export interface Vessel {
   definitionOfDoneBuildCommand?: string | null;
   definitionOfDoneTestCommand?: string | null;
   definitionOfDoneTimeoutSeconds?: number;
+  /** Per-vessel override for the Test intent; null uses the repo script or ecosystem default. */
+  testCommand?: string | null;
+  /** Per-vessel override for the Lint intent. */
+  lintCommand?: string | null;
+  /** Per-vessel override for the Audit intent. */
+  auditCommand?: string | null;
   allowConcurrentMissions: boolean;
   /** Per-vessel auto-approve override for missions; null or absent uses the captain setting. */
   autoApprove?: boolean | null;

@@ -537,6 +537,12 @@ namespace Armada.Core.Database.SqlServer
             catch { vessel.DefinitionOfDoneBuildCommand = null; }
             try { vessel.DefinitionOfDoneTestCommand = NullableString(reader["definition_of_done_test_command"]); }
             catch { vessel.DefinitionOfDoneTestCommand = null; }
+            try { vessel.TestCommand = NullableString(reader["test_command"]); }
+            catch { vessel.TestCommand = null; }
+            try { vessel.LintCommand = NullableString(reader["lint_command"]); }
+            catch { vessel.LintCommand = null; }
+            try { vessel.AuditCommand = NullableString(reader["audit_command"]); }
+            catch { vessel.AuditCommand = null; }
             try { vessel.DefinitionOfDoneTimeoutSeconds = Convert.ToInt32(reader["definition_of_done_timeout_seconds"]); }
             catch { vessel.DefinitionOfDoneTimeoutSeconds = 1800; }
             vessel.DefaultBranch = reader["default_branch"].ToString()!;

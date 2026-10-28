@@ -998,7 +998,12 @@ namespace Armada.Core.Database.Mysql
                     @"CREATE INDEX idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
                     @"CREATE INDEX idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);"),
                 new SchemaMigration(98, "Add contract_repair_kind to stage_outcomes so a deterministic contract repair shows on the stage outcome as well as in the mission.contract_repaired event",
-                    @"ALTER TABLE stage_outcomes ADD COLUMN contract_repair_kind VARCHAR(64) NULL;")
+                    @"ALTER TABLE stage_outcomes ADD COLUMN contract_repair_kind VARCHAR(64) NULL;"),
+
+                new SchemaMigration(99, "Add test_command, lint_command and audit_command to vessels so a vessel can override the ecosystem default command for the test, lint and audit intents",
+                    @"ALTER TABLE vessels ADD COLUMN test_command TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN lint_command TEXT;",
+                    @"ALTER TABLE vessels ADD COLUMN audit_command TEXT;")
 
 
             };

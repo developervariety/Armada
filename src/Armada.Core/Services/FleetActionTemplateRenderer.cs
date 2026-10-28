@@ -44,6 +44,26 @@ namespace Armada.Core.Services
         public static readonly string BuildCommandVariable = "vessel.buildCommand";
 
         /// <summary>
+        /// {{vessel.ecosystems}}: detected ecosystem names, comma-separated, or empty when none were detected.
+        /// </summary>
+        public static readonly string EcosystemsVariable = "vessel.ecosystems";
+
+        /// <summary>
+        /// {{vessel.testCommand}}: the resolved Test command (vessel override, repo script, then ecosystem default), or empty.
+        /// </summary>
+        public static readonly string TestCommandVariable = "vessel.testCommand";
+
+        /// <summary>
+        /// {{vessel.lintCommand}}: the resolved Lint command (vessel override, repo script, then ecosystem default), or empty.
+        /// </summary>
+        public static readonly string LintCommandVariable = "vessel.lintCommand";
+
+        /// <summary>
+        /// {{vessel.auditCommand}}: the resolved Audit command (vessel override, repo script, ecosystem default, then osv-scanner).
+        /// </summary>
+        public static readonly string AuditCommandVariable = "vessel.auditCommand";
+
+        /// <summary>
         /// {{health.summary}}: a plain-text list of the vessel's non-passing health findings and outdated or
         /// vulnerable dependencies.
         /// </summary>
@@ -63,6 +83,10 @@ namespace Armada.Core.Services
                     DefaultBranchVariable,
                     WorkingDirectoryVariable,
                     BuildCommandVariable,
+                    EcosystemsVariable,
+                    TestCommandVariable,
+                    LintCommandVariable,
+                    AuditCommandVariable,
                     HealthSummaryVariable
                 };
             }
@@ -168,6 +192,10 @@ namespace Armada.Core.Services
             if (name == DefaultBranchVariable) return context.DefaultBranch;
             if (name == WorkingDirectoryVariable) return context.WorkingDirectory;
             if (name == BuildCommandVariable) return context.BuildCommand;
+            if (name == EcosystemsVariable) return context.Ecosystems;
+            if (name == TestCommandVariable) return context.TestCommand;
+            if (name == LintCommandVariable) return context.LintCommand;
+            if (name == AuditCommandVariable) return context.AuditCommand;
             if (name == HealthSummaryVariable) return context.HealthSummary;
             throw new FleetActionTemplateException(name);
         }
