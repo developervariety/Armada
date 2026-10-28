@@ -1665,6 +1665,28 @@ Returns readiness warnings and blocking issues for a vessel. Optional query:
 
 ---
 
+#### GET /api/v1/vessels/{id}/repository-health
+
+Returns advisory repository health for a vessel. The report lists findings
+with a criterion, severity, and stable code. It does not block dispatch,
+readiness, preflight, Checks, or the definition-of-done gate. Evaluation uses
+read-only Git commands and does not fetch or move refs. A Harbor-owned vessel
+is read on its owner host. When that host is offline, `Availability` is
+`Unavailable`, `UnavailableReason` is `owner_host_unavailable`, and `Findings`
+is empty.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Vessel ID (`vsl_` prefix) |
+
+**Response:** `200 OK` - `RepositoryHealthReport`
+**Error:** `404` - Vessel not found
+**Error:** `503` - Repository health is not available
+
+---
+
 #### GET /api/v1/vessels/{id}/landing-preview
 
 Predicts how Armada would land a branch for this vessel. Optional query:
@@ -5822,6 +5844,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 102 | POST | `/api/v1/vessels/{id}/branches/merge` | Fast-forward or merge-commit landing-repository branches (tenant administrator) | Yes |
 | 103 | POST | `/api/v1/merge-queue/{id}/cancel` | Cancel an active merge entry; a finished entry is refused | Yes |
 | 104 | GET | `/api/v1/missions/{id}/change-summary` | Paths one mission stage committed, from its recorded commit pair, with no dock | Yes |
+| 105 | GET | `/api/v1/vessels/{id}/repository-health` | Advisory repository health; does not block dispatch | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 

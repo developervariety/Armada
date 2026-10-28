@@ -39,6 +39,7 @@ namespace Armada.Server.Routes
         private readonly VesselContextService? _contextService;
         private readonly IBranchInventory? _branchInventory;
         private readonly VesselBranchWriteService? _branchWrites;
+        private readonly RepositoryHealthService? _repositoryHealth;
 
         /// <summary>
         /// Instantiate.
@@ -55,6 +56,7 @@ namespace Armada.Server.Routes
         /// <param name="operations">Shared mission and voyage operations; vessel delete runs through them. When null, one is
         /// built that removes docks through <paramref name="dockService"/>, writes vessel events through
         /// <paramref name="emitEvent"/>, and releases a running captain in the database without stopping its process.</param>
+        /// <param name="repositoryHealth">Advisory repository health. When null the route reports that health is not available.</param>
         public VesselRoutes(
             DatabaseDriver database,
             VesselReadinessService readiness,
@@ -65,9 +67,11 @@ namespace Armada.Server.Routes
             VesselContextService? contextService = null,
             IBranchInventory? branchInventory = null,
             VesselBranchWriteService? branchWrites = null,
-            MissionOperations? operations = null)
+            MissionOperations? operations = null,
+            RepositoryHealthService? repositoryHealth = null)
         {
             _branchWrites = branchWrites;
+            _repositoryHealth = repositoryHealth;
             _operations = operations;
             _database = database;
             _readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
@@ -594,6 +598,38 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("environmentName", "Optional environment name for deploy, rollback, smoke-test, or health-check readiness", false))
                 .WithParameter(OpenApiParameterMetadata.Query("includeWorkflowRequirements", "When false, only vessel and repository basics are evaluated", false))
                 .WithResponse(200, OpenApiJson.For<VesselReadinessResult>("Vessel readiness summary"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/vessels/{id}/repository-health", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    return RouteAuthRefusal.Refuse(req, ctx);
+                }
+                if (_repositoryHealth == null)
+                {
+                    req.Http.Response.StatusCode = 503;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Repository health is not available" };
+                }
+
+                string id = req.Parameters["id"];
+                RepositoryHealthReport? report = await _repositoryHealth.EvaluateAsync(ctx, id).ConfigureAwait(false);
+                if (report == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+
+                return report;
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("Get advisory repository health")
+                .WithDescription("Returns read-only repository health findings for a vessel. The report does not block dispatch, readiness, preflight, Checks, or the definition-of-done gate. A Harbor-owned vessel is read on its owner host. An offline owner returns unavailable.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<RepositoryHealthReport>("Advisory repository health"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

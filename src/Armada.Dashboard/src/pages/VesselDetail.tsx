@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { getVessel, listMissionSummaries, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview, listAllFleets, listAllPipelines } from '../api/client';
+import { getVessel, listMissionSummaries, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselRepositoryHealth, getVesselLandingPreview, listAllFleets, listAllPipelines } from '../api/client';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
 import { autoLandFormFromPredicate, describeAutoLand } from '../lib/vesselAutoLand';
 import VesselBranchPanel from '../components/shared/VesselBranchPanel';
-import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
+import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, RepositoryHealthReport, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -60,8 +60,10 @@ export default function VesselDetail() {
   const [missionTotal, setMissionTotal] = useState(0);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
+  const [repositoryHealth, setRepositoryHealth] = useState<RepositoryHealthReport | null>(null);
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
   const [loadingReadiness, setLoadingReadiness] = useState(false);
+  const [loadingRepositoryHealth, setLoadingRepositoryHealth] = useState(false);
   const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -96,6 +98,7 @@ export default function VesselDetail() {
       setMissions([]);
       setMissionTotal(0);
       setReadiness(null);
+      setRepositoryHealth(null);
       setLandingPreview(null);
       setNotFound(false);
       setError('');
@@ -131,6 +134,11 @@ export default function VesselDetail() {
         .then((result) => { if (request.isCurrent()) setReadiness(result); })
         .catch(() => { if (request.isCurrent()) setReadiness(null); })
         .finally(() => { if (request.isCurrent()) setLoadingReadiness(false); });
+      if (isInitialLoad) setLoadingRepositoryHealth(true);
+      getVesselRepositoryHealth(id)
+        .then((result) => { if (request.isCurrent()) setRepositoryHealth(result); })
+        .catch(() => { if (request.isCurrent()) setRepositoryHealth(null); })
+        .finally(() => { if (request.isCurrent()) setLoadingRepositoryHealth(false); });
       if (isInitialLoad) setLoadingLandingPreview(true);
       getVesselLandingPreview(id, found.defaultBranch || null)
         .then((result) => { if (request.isCurrent()) setLandingPreview(result); })
@@ -434,6 +442,28 @@ export default function VesselDetail() {
         loading={loadingReadiness}
         emptyMessage={t('Readiness data is not available for this vessel yet.')}
       />
+
+      <div className="card">
+        <div className="readiness-panel-header">
+          <h3>{t('Repository health')}</h3>
+        </div>
+        <div className="text-dim">{t('These findings do not block dispatch.')}</div>
+        {loadingRepositoryHealth ? (
+          <div className="text-dim">{t('Loading repository health...')}</div>
+        ) : !repositoryHealth ? (
+          <div className="text-dim">{t('Repository health is not available for this vessel yet.')}</div>
+        ) : repositoryHealth.availability === 'Unavailable' ? (
+          <div className="text-dim">{t('Repository health is unavailable because the owner host is offline.')}</div>
+        ) : repositoryHealth.findings.length === 0 ? (
+          <div className="text-dim">{t('No repository health findings.')}</div>
+        ) : (
+          <ul>
+            {repositoryHealth.findings.map((finding) => (
+              <li key={finding.code}>{finding.severity}: {finding.message}</li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="card landing-preview-card">
         <div className="readiness-panel-header">

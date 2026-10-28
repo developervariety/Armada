@@ -2747,6 +2747,27 @@
 					}
 				},
 				{
+					"name": "Get Vessel Repository Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/repository-health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"vessels",
+								"{{vesselId}}",
+								"repository-health"
+							]
+						},
+						"description": "Returns advisory repository health. The report is read-only, does not fetch, and does not block dispatch."
+					}
+				},
+				{
 					"name": "Push Vessel Branch",
 					"request": {
 						"method": "POST",

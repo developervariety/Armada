@@ -21,6 +21,9 @@ namespace Armada.Runtimes.Harbor
                     if (request.Binding != null) throw Failure("workspace_binding_unexpected", "Repository inspection does not accept a checkout binding.");
                     await InspectRepositoryAsync(request, grant, result, token).ConfigureAwait(false);
                     break;
+                case HarborWorkspaceOperationEnum.ReadRepositoryHealth:
+                    await ReadRepositoryHealthAsync(request, grant, result, token).ConfigureAwait(false);
+                    break;
                 case HarborWorkspaceOperationEnum.ProvisionCheckout:
                     HarborCheckoutBinding provisionBinding = RequireBinding(request, ack, grant);
                     await ProvisionCheckoutAsync(request, provisionBinding, grant, result, token).ConfigureAwait(false);

@@ -35,6 +35,7 @@ namespace Test.Shared.Infrastructure
             ListRoute("GetVoyages", "/api/v1/voyages"),
             ListRoute("GetSignals", "/api/v1/signals"),
             ListRoute("GetVessels", "/api/v1/vessels"),
+            ListRoute("GetVesselRepositoryHealth", "/api/v1/vessels/vsl_missing/repository-health"),
             PostFleet(),
             PostCaptain(),
             PostMission()

@@ -242,7 +242,12 @@ corresponding filled file without `.example` from its configured docs root.
 The dashboard provides Code Index at `/code-index` and notification history at
 `/notifications`. The `/token-usage` path redirects to `/activity?source=tokens`.
 Code Index reports why a selected vessel's index is unavailable and discards
-responses from a previous vessel selection.
+responses from a previous vessel selection. The vessel page shows repository
+health from `GET /api/v1/vessels/{id}/repository-health`. The report is
+advisory: it does not replace readiness, preflight, exact-commit Checks, or
+the definition-of-done gate, and it does not block dispatch. A Harbor-owned
+vessel is evaluated on its owner host. An offline owner is unavailable. The
+evaluation uses read-only Git commands and does not fetch.
 
 Dashboard GET requests retry a connection failure after 250 ms and 750 ms,
 with one deadline covering the attempts and the response body. HTTP refusals

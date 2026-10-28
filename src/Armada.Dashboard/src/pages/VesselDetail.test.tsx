@@ -6,6 +6,7 @@ import {
   getVessel,
   getVesselLandingPreview,
   getVesselReadiness,
+  getVesselRepositoryHealth,
   listFleets,
   listMissionSummaries,
   listPipelines,
@@ -21,6 +22,7 @@ vi.mock('../api/client', async () => (await import('../test/clientMock')).withAl
   updateVessel: vi.fn(),
   deleteVessel: vi.fn(),
   getVesselReadiness: vi.fn(),
+  getVesselRepositoryHealth: vi.fn(),
   getVesselLandingPreview: vi.fn(),
 }));
 
@@ -81,6 +83,10 @@ describe('VesselDetail', () => {
     vi.mocked(listMissionSummaries).mockResolvedValue(page([]) as never);
     vi.mocked(listPipelines).mockResolvedValue(page([]) as never);
     vi.mocked(getVesselReadiness).mockResolvedValue(null as never);
+    vi.mocked(getVesselRepositoryHealth).mockResolvedValue({
+      vesselId: 'vsl_1', advisory: true, availability: 'Available', unavailableReason: null,
+      evaluatedUtc: '2026-10-27T00:00:00Z', findings: [],
+    } as never);
     vi.mocked(getVesselLandingPreview).mockResolvedValue(null as never);
   });
 
@@ -137,6 +143,26 @@ describe('VesselDetail', () => {
     expect(screen.getByText('Passing checks required')).toBeInTheDocument();
     expect(screen.getByText('Require Passing Checks To Land')).toBeInTheDocument();
     expect(screen.queryByText(/advisory/i)).not.toBeInTheDocument();
+    expect(screen.getByText('These findings do not block dispatch.')).toBeInTheDocument();
+  });
+
+  it('shows a dirty repository finding', async () => {
+    vi.mocked(getVesselRepositoryHealth).mockResolvedValue({
+      vesselId: 'vsl_1', advisory: true, availability: 'Available', unavailableReason: null,
+      evaluatedUtc: '2026-10-27T00:00:00Z',
+      findings: [{ criterion: 'WorkingCheckout', severity: 'Warning', code: 'working_checkout_dirty', message: 'The working checkout has uncommitted changes.' }],
+    } as never);
+    renderDetail();
+    expect(await screen.findByText('Warning: The working checkout has uncommitted changes.')).toBeInTheDocument();
+  });
+
+  it('says repository health is unavailable when the owner host is offline', async () => {
+    vi.mocked(getVesselRepositoryHealth).mockResolvedValue({
+      vesselId: 'vsl_1', advisory: true, availability: 'Unavailable', unavailableReason: 'owner_host_unavailable',
+      evaluatedUtc: '2026-10-27T00:00:00Z', findings: [],
+    } as never);
+    renderDetail();
+    expect(await screen.findByText('Repository health is unavailable because the owner host is offline.')).toBeInTheDocument();
   });
 
   it('refreshes on the auto-refresh interval without the loading spinner', async () => {

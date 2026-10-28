@@ -30,7 +30,8 @@ namespace Armada.Server.Harbor
             if (vessel == null) return "workspace_vessel_unavailable";
             string? missionFailure = await ValidateMissionScopeAsync(auth, session, vessel, token).ConfigureAwait(false);
             if (missionFailure != null) return missionFailure;
-            if (request.Operation == HarborWorkspaceOperationEnum.InspectRepository)
+            if (request.Operation == HarborWorkspaceOperationEnum.InspectRepository
+                || request.Operation == HarborWorkspaceOperationEnum.ReadRepositoryHealth)
                 return request.Binding == null && String.IsNullOrWhiteSpace(request.DockId) ? null : "workspace_repository_binding_invalid";
             if (request.Operation == HarborWorkspaceOperationEnum.ProbeCodexInventory)
             {

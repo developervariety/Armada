@@ -103,6 +103,7 @@ import type {
   HistoricalTimelineEntry,
   HistoricalTimelineQuery,
   VesselReadinessResult,
+  RepositoryHealthReport,
   LandingPreviewResult,
   MuxEndpointListResult,
   MuxEndpointShowResult,
@@ -732,6 +733,8 @@ export const getVesselReadiness = (
   const suffix = query.toString().length > 0 ? `?${query.toString()}` : '';
   return get<VesselReadinessResult>(`/api/v1/vessels/${encodeURIComponent(id)}/readiness${suffix}`);
 };
+export const getVesselRepositoryHealth = (id: string) =>
+  get<RepositoryHealthReport>(`/api/v1/vessels/${encodeURIComponent(id)}/repository-health`);
 export const getVesselLandingPreview = (id: string, sourceBranch?: string | null) =>
   get<LandingPreviewResult>(`/api/v1/vessels/${encodeURIComponent(id)}/landing-preview${sourceBranch ? `?sourceBranch=${encodeURIComponent(sourceBranch)}` : ''}`);
 export const getVesselBranches = (id: string) =>

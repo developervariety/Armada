@@ -24,6 +24,7 @@ namespace Armada.Core.Harbor
                 HarborWorkspaceOperationEnum.ReadVerificationOutput => false,
                 HarborWorkspaceOperationEnum.EnumerateFiles => false,
                 HarborWorkspaceOperationEnum.ProbeCodexInventory => false,
+                HarborWorkspaceOperationEnum.ReadRepositoryHealth => false,
                 HarborWorkspaceOperationEnum.Git => request.Git == null || IsGitMutation(request.Git.Operation),
                 _ => true
             };

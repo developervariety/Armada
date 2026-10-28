@@ -1772,6 +1772,22 @@ export interface VesselDeploymentMetadata {
   hasRollbackVerificationCommand: boolean;
 }
 
+export interface RepositoryHealthFinding {
+  criterion: string;
+  severity: string;
+  code: string;
+  message: string;
+}
+
+export interface RepositoryHealthReport {
+  vesselId: string;
+  advisory: boolean;
+  availability: string;
+  unavailableReason: string | null;
+  evaluatedUtc: string;
+  findings: RepositoryHealthFinding[];
+}
+
 export interface VesselReadinessResult {
   vesselId: string;
   hasWorkingDirectory: boolean;

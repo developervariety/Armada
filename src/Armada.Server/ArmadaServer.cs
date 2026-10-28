@@ -159,6 +159,7 @@ namespace Armada.Server
         private RequestHistoryCaptureService _RequestHistoryCapture = null!;
         private WorkflowProfileService _WorkflowProfileService = null!;
         private VesselReadinessService _VesselReadinessService = null!;
+        private RepositoryHealthService _RepositoryHealthService = null!;
         private DeploymentEnvironmentService _EnvironmentService = null!;
         private CheckRunService _CheckRunService = null!;
         private ObjectiveService _ObjectiveService = null!;
@@ -470,6 +471,11 @@ namespace Armada.Server
             _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
             _VesselReadinessService.HarborSettings = _Settings.Harbor;
             _VesselReadinessService.HarborCheckouts = _HarborCheckouts;
+            _RepositoryHealthService = new RepositoryHealthService(
+                _Database,
+                _WorkflowProfileService,
+                _Settings.Harbor,
+                new HarborCheckoutHealthChannel(_HarborCheckouts));
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging, () => _Settings.BannedDiffPatterns);
             _CheckRunService.HarborSettings = _Settings.Harbor;
@@ -1630,7 +1636,8 @@ namespace Armada.Server
                 new VesselContextService(_Database, _RuntimeFactory, _Docks, _PromptTemplateService, _Logging),
                 _Git as IBranchInventory,
                 new VesselBranchWriteService(_Database, _Logging, _Settings.Harbor),
-                _MissionOperations)
+                _MissionOperations,
+                _RepositoryHealthService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Workspace

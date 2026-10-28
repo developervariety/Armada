@@ -34,6 +34,11 @@ namespace Armada.Server.Harbor
                     return request.Binding == null && String.IsNullOrWhiteSpace(request.DockId)
                         && request.ExpectedHead == null && request.RelativePath == null && request.Text == null && request.BytesBase64 == null
                         && request.Git == null && request.Verification == null && request.OperationKey == null;
+                case HarborWorkspaceOperationEnum.ReadRepositoryHealth:
+                    return request.Binding == null && String.IsNullOrWhiteSpace(request.DockId)
+                        && request.ExpectedHead == null && request.RelativePath == null && request.Text == null && request.BytesBase64 == null
+                        && request.Git == null && request.Verification == null && request.OperationKey == null
+                        && !String.IsNullOrWhiteSpace(request.RequestedRevision);
                 case HarborWorkspaceOperationEnum.ProvisionCheckout:
                     return request.Binding != null && FullCommit(request.ExpectedHead)
                         && String.Equals(request.ExpectedHead, request.Binding.BaseCommit, StringComparison.OrdinalIgnoreCase)

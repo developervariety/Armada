@@ -38,5 +38,7 @@ namespace Armada.Core.Harbor
         ReadVerificationOutput,
         /// <summary>Run one allowlisted Codex inventory command on the runner host.</summary>
         ProbeCodexInventory,
+        /// <summary>Read repository health with read-only Git commands on the owner host.</summary>
+        ReadRepositoryHealth,
     }
 }
