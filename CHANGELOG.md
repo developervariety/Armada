@@ -8,6 +8,8 @@ All notable changes to Armada are documented in this file.
 
 ### Handoff and landing resilience
 
+- Record failed landing callbacks as LandingFailed; periodically flag verified merge-queue missions missing a queue entry after five minutes for manual recovery.
+
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
 
 ### Stage outcomes record contract repairs
