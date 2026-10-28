@@ -6913,6 +6913,11 @@
           "required": false
         },
         {
+          "name": "auditCommand",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "autoApprove",
           "type": "boolean",
           "required": false
@@ -6943,6 +6948,11 @@
           "required": false
         },
         {
+          "name": "lintCommand",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "name",
           "type": "string",
           "required": true
@@ -6959,6 +6969,11 @@
         },
         {
           "name": "styleGuide",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "testCommand",
           "type": "string",
           "required": false
         },
@@ -12542,6 +12557,11 @@
           "required": false
         },
         {
+          "name": "auditCommand",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "autoApprove",
           "type": "boolean",
           "required": false
@@ -12617,6 +12637,11 @@
           "required": false
         },
         {
+          "name": "lintCommand",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "modelContext",
           "type": "string",
           "required": false
@@ -12638,6 +12663,11 @@
         },
         {
           "name": "styleGuide",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "testCommand",
           "type": "string",
           "required": false
         },

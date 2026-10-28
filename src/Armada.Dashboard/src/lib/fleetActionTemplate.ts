@@ -2,7 +2,7 @@ import type { Vessel } from '../types/models';
 
 const VARIABLE_PATTERN = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
-const KNOWN = ['vessel.name', 'vessel.id', 'vessel.defaultbranch', 'vessel.workingdirectory', 'vessel.buildcommand', 'health.summary'];
+const KNOWN = ['vessel.name', 'vessel.id', 'vessel.defaultbranch', 'vessel.workingdirectory', 'vessel.buildcommand', 'vessel.ecosystems', 'vessel.testcommand', 'vessel.lintcommand', 'vessel.auditcommand', 'health.summary'];
 
 /** Return every `{{name}}` in the text that the server would reject (case-insensitive, de-duplicated). */
 export function findUnknownTemplateVariables(text: string | null | undefined): string[] {
@@ -27,7 +27,7 @@ export interface TemplatePreview {
  * Client-side approximation of the server's single-pass template renderer, used only for previews.
  * `{{health.summary}}` is replaced with `healthPlaceholder` because it is rendered on the server.
  */
-export function renderTemplatePreview(text: string, vessel: Pick<Vessel, 'name' | 'id' | 'defaultBranch' | 'workingDirectory'> & { definitionOfDoneBuildCommand?: string | null }, healthPlaceholder: string): TemplatePreview {
+export function renderTemplatePreview(text: string, vessel: Pick<Vessel, 'name' | 'id' | 'defaultBranch' | 'workingDirectory'> & { definitionOfDoneBuildCommand?: string | null; definitionOfDoneTestCommand?: string | null; testCommand?: string | null; lintCommand?: string | null; auditCommand?: string | null }, healthPlaceholder: string): TemplatePreview {
   let usesHealthSummary = false;
   let missingBuildCommand = false;
   const rendered = text.replace(VARIABLE_PATTERN, (whole, rawName: string) => {
@@ -42,6 +42,11 @@ export function renderTemplatePreview(text: string, vessel: Pick<Vessel, 'name' 
         if (!cmd) missingBuildCommand = true;
         return cmd;
       }
+      // Ecosystems and resolved commands depend on the working tree, so only explicit vessel overrides preview;
+      // otherwise the variable is left as written for the server to render.
+      case 'vessel.testcommand': return vessel.testCommand || vessel.definitionOfDoneTestCommand || whole;
+      case 'vessel.lintcommand': return vessel.lintCommand || whole;
+      case 'vessel.auditcommand': return vessel.auditCommand || whole;
       case 'health.summary':
         usesHealthSummary = true;
         return healthPlaceholder;

@@ -40,6 +40,9 @@ export interface VesselFormState {
   definitionOfDoneBuildCommand: string;
   definitionOfDoneTestCommand: string;
   definitionOfDoneTimeoutSeconds: string;
+  testCommand: string;
+  lintCommand: string;
+  auditCommand: string;
 }
 
 /** Landing-mode option with a short label and a full explanation. */
@@ -60,6 +63,7 @@ export const emptyVesselForm: VesselFormState = {
   secretScanEnabled: false, protectedPathPatterns: '', privateIdentifierDenylist: '',
   autoLandEnabled: false, autoLandMaxFiles: '', autoLandMaxLines: '', autoLandPathAllowGlobs: '', autoLandPathDenyGlobs: '',
   definitionOfDoneEnabled: false, definitionOfDoneBuildCommand: '', definitionOfDoneTestCommand: '', definitionOfDoneTimeoutSeconds: '',
+  testCommand: '', lintCommand: '', auditCommand: '',
 };
 
 /** Landing-mode metadata shared by the vessel form, the Vessels filter, and the Vessels table. */
@@ -134,6 +138,9 @@ export function vesselToForm(v: Vessel): VesselFormState {
     definitionOfDoneBuildCommand: v.definitionOfDoneBuildCommand || '',
     definitionOfDoneTestCommand: v.definitionOfDoneTestCommand || '',
     definitionOfDoneTimeoutSeconds: v.definitionOfDoneTimeoutSeconds ? String(v.definitionOfDoneTimeoutSeconds) : '',
+    testCommand: v.testCommand || '',
+    lintCommand: v.lintCommand || '',
+    auditCommand: v.auditCommand || '',
   };
 }
 
@@ -186,6 +193,10 @@ export function buildVesselPayload(form: VesselFormState, existing: Vessel | nul
   payload.definitionOfDoneTimeoutSeconds = form.definitionOfDoneTimeoutSeconds.trim()
     ? Math.max(30, parseInt(form.definitionOfDoneTimeoutSeconds, 10) || 1800)
     : 1800;
+  // Blank command overrides clear the field so the repo script or ecosystem default applies.
+  payload.testCommand = form.testCommand.trim() || null;
+  payload.lintCommand = form.lintCommand.trim() || null;
+  payload.auditCommand = form.auditCommand.trim() || null;
 
   // GitHub token override: omit to keep the stored value; an empty string clears it.
   if (existing && form.clearGitHubTokenOverride) payload.gitHubTokenOverride = '';
