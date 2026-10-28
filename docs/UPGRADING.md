@@ -45,6 +45,10 @@ number or run an old migration script because its filename looks similar.
 
 ## Compatibility and policy
 
+- HTTP 501, 503 and 504 REST bodies keep their existing `Error` value and add `Code`
+  (`NotImplemented`, `ServiceUnavailable` or `GatewayTimeout`). A WebSocket
+  `command.error` frame for an unhandled command failure adds `code`. Invalid
+  command JSON uses `invalid_argument`. HTTP status codes are unchanged.
 - Legacy password rows remain readable and upgrade after successful login.
   New writes use salted PBKDF2. Do not restore weak password storage to downgrade.
 - Existing Ask routes remain available. Saved threads, approvals and Mission

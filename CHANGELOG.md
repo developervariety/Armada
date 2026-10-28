@@ -7,6 +7,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Machine-readable failure codes
+
+- A WebSocket `command.error` frame for an unhandled command failure carries `code`. Invalid command JSON uses `invalid_argument`. Other failures use `not_found`, `forbidden`, `unavailable`, `conflict` or `internal_error`.
+- REST responses for HTTP 501, 503 and 504 keep `Error` and add `Code`: `NotImplemented`, `ServiceUnavailable` or `GatewayTimeout`. Local checkout import keeps `Error` `InternalError` on HTTP 503. See [Error Responses](docs/REST_API.md#error-responses).
+
 - Let concurrent `armada_search_context` queries store a vector for the same source on PostgreSQL, MySQL and SQL Server without a duplicate-key failure: one row remains and every query completes.
 
 - Keep a text-only copy of the most recently searched code indexes in memory for the lexical code part of `armada_search_context`, and reload it when the index file changes, so a query no longer parses every stored embedding.

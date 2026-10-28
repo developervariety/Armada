@@ -2908,12 +2908,13 @@ When a command fails, the server returns a `command.error` message:
 }
 ```
 
-If the command body cannot be parsed or an exception occurs:
+If the command body cannot be parsed, or the command throws, the frame carries `code`. A body that is not valid JSON, or that does not match the command model, uses `invalid_argument`. Any other unhandled failure uses `not_found`, `forbidden`, `unavailable`, `conflict` or `internal_error`, chosen from the exception type.
 
 ```json
 {
   "type": "command.error",
-  "error": "Unexpected character encountered while parsing value"
+  "error": "The JSON value could not be converted to System.Int32. Path: $.lines",
+  "code": "invalid_argument"
 }
 ```
 

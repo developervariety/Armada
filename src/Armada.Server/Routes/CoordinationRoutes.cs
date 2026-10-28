@@ -7,6 +7,7 @@ namespace Armada.Server.Routes
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -123,7 +124,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -131,6 +132,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Read coordination room messages")
                 .WithDescription("Returns messages from a coordination room oldest first. Use afterUtc for incremental reads.")
                 .WithResponse(200, OpenApiJson.For<List<CoordinationMessage>>("Coordination messages"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<CoordinationMessagePostRequest>("/api/v1/coordination/rooms/{key}/messages", async (ApiRequest req) =>
@@ -178,7 +180,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -186,6 +188,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Post a coordination message")
                 .WithDescription("Posts a note to a coordination room on behalf of a participant. AuthorName is optional: without it the note is posted under the AuthorId participant's last board name, else the name of the credential the request authenticated with.")
                 .WithResponse(201, OpenApiJson.For<CoordinationMessage>("Coordination message"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<CoordinationPresenceRequest>("/api/v1/coordination/rooms/{key}/presence", async (ApiRequest req) =>
@@ -216,7 +219,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -224,6 +227,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Send a presence heartbeat")
                 .WithDescription("Refreshes a participant's presence in a coordination room. DisplayName is optional: without it the participant keeps its last board name, else takes the name of the credential the request authenticated with, else its participant key.")
                 .WithResponse(200, OpenApiJson.For<CoordinationParticipant>("Coordination participant"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/coordination/claims", async (ApiRequest req) =>
@@ -272,7 +276,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -280,6 +284,7 @@ namespace Armada.Server.Routes
                 .WithSummary("List active participants")
                 .WithDescription("Returns participants seen in the room within the given window, most recently active first.")
                 .WithResponse(200, OpenApiJson.For<List<CoordinationParticipant>>("Coordination participants"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/coordination/presence", async (ApiRequest req) =>
@@ -300,7 +305,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -308,6 +313,7 @@ namespace Armada.Server.Routes
                 .WithSummary("List presence across every room")
                 .WithDescription("Returns one entry per participant active within the window in any room, naming each room the participant was seen in, most recently active first.")
                 .WithResponse(200, OpenApiJson.For<List<CoordinationPresenceEntry>>("Coordination presence across rooms"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
         }
 

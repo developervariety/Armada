@@ -466,7 +466,7 @@ namespace Armada.Server.Routes
                 if (_branchInventory == null)
                 {
                     req.Http.Response.StatusCode = 503;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Git branch inventory is not available" };
+                    return ApiStatusErrorResponse.ServiceUnavailable("Git branch inventory is not available");
                 }
                 BranchWriteControls writeControls = _branchWrites == null
                     ? new BranchWriteControls { MergeUnavailableReason = BranchWriteReasons.Unavailable, PushUnavailableReason = BranchWriteReasons.Unavailable }
@@ -513,6 +513,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns local branches and their divergence from the configured default branch without changing repository refs, plus the push and merge controls the caller may request.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<BranchListResponse>("Branch listing"))
+                .WithResponse(503, OpenApiJson.For<ApiStatusErrorResponse>("Git branch inventory is not available (Code ServiceUnavailable)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<BranchPushRequest>("/api/v1/vessels/{id}/branches/push", async (ApiRequest req) =>
@@ -611,7 +612,7 @@ namespace Armada.Server.Routes
                 if (_repositoryHealth == null)
                 {
                     req.Http.Response.StatusCode = 503;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Repository health is not available" };
+                    return ApiStatusErrorResponse.ServiceUnavailable("Repository health is not available");
                 }
 
                 string id = req.Parameters["id"];
@@ -631,6 +632,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<RepositoryHealthReport>("Advisory repository health"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(503, OpenApiJson.For<ApiStatusErrorResponse>("Repository health is not available (Code ServiceUnavailable)"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/vessels/{id}/landing-preview", async (ApiRequest req) =>
@@ -677,7 +679,7 @@ namespace Armada.Server.Routes
                 if (_contextService == null)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Model Context building is not available on this server." };
+                    return ApiStatusErrorResponse.NotImplemented("Model Context building is not available on this server.");
                 }
 
                 string buildId = req.Parameters["id"];
@@ -716,7 +718,7 @@ namespace Armada.Server.Routes
                 catch (TimeoutException ex)
                 {
                     req.Http.Response.StatusCode = 504;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.GatewayTimeout(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -732,6 +734,8 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<VesselBuildContextRequest>("Build context request", true))
                 .WithResponse(200, OpenApiJson.For<Vessel>("Updated vessel with new Model Context"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("Model context building is not available on this server (Code NotImplemented)"))
+                .WithResponse(504, OpenApiJson.For<ApiStatusErrorResponse>("Model context build timed out (Code GatewayTimeout)"))
                 .WithSecurity("ApiKey"));
 
             app.Delete("/api/v1/vessels/{id}", async (ApiRequest req) =>

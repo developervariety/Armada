@@ -39,7 +39,7 @@ namespace Armada.Server.Routes
                 if (_Service == null)
                 {
                     req.Http.Response.StatusCode = 503;
-                    return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = "Unavailable: local checkout import is not available on this host." };
+                    return ApiStatusErrorResponse.ServiceUnavailable(ApiResultEnum.InternalError, "Unavailable: local checkout import is not available on this host.");
                 }
                 try
                 {
@@ -53,7 +53,7 @@ namespace Armada.Server.Routes
             }, api => api.WithTag("Vessels").WithSummary("Discover local vessel checkouts")
                 .WithResponse(200, OpenApiJson.For<VesselCheckoutDiscovery>("Configured local checkout candidates"))
                 .WithResponse(403, OpenApiJson.For<ApiErrorResponse>("Human global administrator required"))
-                .WithResponse(503, OpenApiJson.For<ApiErrorResponse>("Local checkout import service unavailable"))
+                .WithResponse(503, OpenApiJson.For<ApiStatusErrorResponse>("Local checkout import is not available (Error InternalError, code ServiceUnavailable)"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/vessels/import-checkout", async req =>
@@ -65,7 +65,7 @@ namespace Armada.Server.Routes
                 if (_Service == null)
                 {
                     req.Http.Response.StatusCode = 503;
-                    return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = "Unavailable: local checkout import is not available on this host." };
+                    return ApiStatusErrorResponse.ServiceUnavailable(ApiResultEnum.InternalError, "Unavailable: local checkout import is not available on this host.");
                 }
                 VesselCheckoutImportRequest request;
                 try
@@ -95,7 +95,7 @@ namespace Armada.Server.Routes
                 catch (VesselCheckoutImportUnavailableException ex)
                 {
                     req.Http.Response.StatusCode = 503;
-                    return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = ex.Message };
+                    return ApiStatusErrorResponse.ServiceUnavailable(ApiResultEnum.InternalError, ex.Message);
                 }
                 catch (InvalidOperationException)
                 {
@@ -108,7 +108,7 @@ namespace Armada.Server.Routes
                 .WithResponse(400, OpenApiJson.For<ApiErrorResponse>("Invalid request or checkout path"))
                 .WithResponse(403, OpenApiJson.For<ApiErrorResponse>("Human global administrator required"))
                 .WithResponse(409, OpenApiJson.For<ApiErrorResponse>("Vessel conflict"))
-                .WithResponse(503, OpenApiJson.For<ApiErrorResponse>("Import service unavailable"))
+                .WithResponse(503, OpenApiJson.For<ApiStatusErrorResponse>("Import service is not available (Error InternalError, code ServiceUnavailable)"))
                 .WithSecurity("ApiKey"));
         }
 

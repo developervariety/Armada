@@ -4,6 +4,7 @@ namespace Armada.Server.Routes
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -99,7 +100,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -107,6 +108,7 @@ namespace Armada.Server.Routes
                 .WithSummary("List planning sessions")
                 .WithDescription("Returns planning sessions visible to the authenticated user.")
                 .WithResponse(200, OpenApiJson.For<List<PlanningSession>>("Planning sessions"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<PlanningSessionCreateRequest>("/api/v1/planning-sessions", async (ApiRequest req) =>
@@ -173,7 +175,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -186,6 +188,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Create a planning session")
                 .WithDescription("Creates a planning session, reserves a captain, and provisions a planning dock.")
                 .WithRequestBody(OpenApiJson.BodyFor<PlanningSessionCreateRequest>("Planning session request", true))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/planning-sessions/{id}", async (ApiRequest req) =>
@@ -210,7 +213,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -218,6 +221,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Get a planning session")
                 .WithDescription("Returns a planning session, its transcript, and related captain/vessel context.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<PlanningSessionMessageRequest>("/api/v1/planning-sessions/{id}/messages", async (ApiRequest req) =>
@@ -251,7 +255,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -265,6 +269,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Appends a user message to the planning transcript and launches the next planning turn.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<PlanningSessionMessageRequest>("Planning message request", true))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<PlanningSessionDispatchRequest>("/api/v1/planning-sessions/{id}/dispatch", async (ApiRequest req) =>
@@ -294,7 +299,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -308,6 +313,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Creates a voyage from selected or inferred planning output.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<PlanningSessionDispatchRequest>("Planning dispatch request", false))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<PlanningSessionSummaryRequest>("/api/v1/planning-sessions/{id}/summarize", async (ApiRequest req) =>
@@ -336,7 +342,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -350,6 +356,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Generates a server-owned dispatch draft from selected or inferred planning output without launching the voyage yet.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<PlanningSessionSummaryRequest>("Planning summary request", false))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/planning-sessions/{id}/stop", async (ApiRequest req) =>
@@ -375,7 +382,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -383,6 +390,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Stop a planning session")
                 .WithDescription("Stops an active planning session, releases the captain, and reclaims the planning dock.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/planning-sessions/{id}/stop-turn", async (ApiRequest req) =>
@@ -408,7 +416,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -416,6 +424,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Stop the current planning turn")
                 .WithDescription("Aborts the in-flight planning turn (cancelling the captain runtime) while keeping the session active so the user can keep chatting.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Delete("/api/v1/planning-sessions/{id}", async (ApiRequest req) =>
@@ -442,7 +451,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -455,6 +464,7 @@ namespace Armada.Server.Routes
                 .WithSummary("Delete a planning session")
                 .WithDescription("Deletes a planning session and its transcript. Active sessions are stopped first.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Planning session ID (psn_ prefix)"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
         }
 

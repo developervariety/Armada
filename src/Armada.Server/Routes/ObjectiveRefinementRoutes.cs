@@ -4,6 +4,7 @@ namespace Armada.Server.Routes
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
+    using Armada.Server;
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -127,7 +128,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -142,6 +143,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective ID (obj_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveRefinementSessionCreateRequest>("Objective refinement session request", true))
                 .WithResponse(201, OpenApiJson.For<ObjectiveRefinementSessionDetail>("Created objective refinement session detail"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/backlog/{id}/refinement-sessions", async (ApiRequest req) =>
@@ -229,7 +231,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -244,6 +246,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Backlog item ID (obj_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveRefinementSessionCreateRequest>("Backlog refinement session request", true))
                 .WithResponse(201, OpenApiJson.For<ObjectiveRefinementSessionDetail>("Created backlog refinement session detail"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/objective-refinement-sessions/{id}", async (ApiRequest req) =>
@@ -268,7 +271,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -277,6 +280,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns an objective refinement session, its transcript, and linked captain/objective context.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective refinement session ID (ors_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<ObjectiveRefinementSessionDetail>("Objective refinement session detail"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<ObjectiveRefinementMessageRequest>("/api/v1/objective-refinement-sessions/{id}/messages", async (ApiRequest req) =>
@@ -310,7 +314,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -325,6 +329,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective refinement session ID (ors_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveRefinementMessageRequest>("Objective refinement message request", true))
                 .WithResponse(200, OpenApiJson.For<ObjectiveRefinementSessionDetail>("Updated objective refinement session detail"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<ObjectiveRefinementSummaryRequest>("/api/v1/objective-refinement-sessions/{id}/summarize", async (ApiRequest req) =>
@@ -351,7 +356,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -366,6 +371,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective refinement session ID (ors_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveRefinementSummaryRequest>("Objective refinement summary request", false))
                 .WithResponse(200, OpenApiJson.For<ObjectiveRefinementSummaryResponse>("Objective refinement summary"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post<ObjectiveRefinementApplyRequest>("/api/v1/objective-refinement-sessions/{id}/apply", async (ApiRequest req) =>
@@ -407,7 +413,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -422,6 +428,7 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective refinement session ID (ors_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveRefinementApplyRequest>("Objective refinement apply request", false))
                 .WithResponse(200, OpenApiJson.For<ObjectiveRefinementApplyResponse>("Objective refinement apply response"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/objective-refinement-sessions/{id}/stop", async (ApiRequest req) =>
@@ -447,7 +454,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -456,6 +463,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Stops an active refinement session and releases the selected captain.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective refinement session ID (ors_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<ObjectiveRefinementSessionDetail>("Stopped objective refinement session detail"))
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Delete("/api/v1/objective-refinement-sessions/{id}", async (ApiRequest req) =>
@@ -482,7 +490,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
                 catch (InvalidOperationException ex)
                 {
@@ -496,6 +504,7 @@ namespace Armada.Server.Routes
                 .WithDescription("Deletes an objective refinement session and its transcript. Active sessions are stopped first.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective refinement session ID (ors_ prefix)"))
                 .WithResponse(204, OpenApiResponseMetadata.NoContent())
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
         }
 

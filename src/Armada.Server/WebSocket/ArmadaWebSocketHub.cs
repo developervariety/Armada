@@ -611,7 +611,7 @@ namespace Armada.Server.WebSocket
                 _Logging.Warn(_Header + "error handling message: " + ex.Message);
                 try
                 {
-                    string errorJson = JsonSerializer.Serialize(new { type = "command.error", error = ex.Message }, _JsonOptions);
+                    string errorJson = JsonSerializer.Serialize(WebSocketCommandFailure.FromException(ex), _JsonOptions);
                     EnqueueOrDisconnect(sessionId, errorJson);
                 }
                 catch
