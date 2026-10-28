@@ -10923,6 +10923,11 @@
           "required": true
         },
         {
+          "name": "promptVariant",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "runCount",
           "type": "integer",
           "required": false

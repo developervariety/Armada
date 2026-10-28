@@ -581,14 +581,23 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
    (new commits, or non-scratch changes the leftover-work commit commits); with nothing there it stays unfinished work.
    A single Judge verdict in a nearby form and a single valid plan outside an `armada-plan` fence are appended in
    canonical form below the original output; ambiguous or duplicated verdicts and two plan blocks are refused. Each
-   repair is recorded as a `mission.contract_repaired` event (`ContractRepairRecord` payload with the repair kind);
-   `StageOutcome` has no column for it yet, so adding one needs a migration.
+   repair is recorded as a `mission.contract_repaired` event (`ContractRepairRecord` payload with the repair kind),
+   and the attempt's stage outcome carries it too: `StageOutcome.ContractRepairKind` (column `contract_repair_kind`,
+   migration 98) holds the latest repair recorded since the attempt started, or null when none was needed. When one
+   attempt needs two repairs (a leftover-work commit and a completion-line repair) the outcome keeps the last and each
+   repair still has its own event.
 4. Measure each change on the battery, separately from prompt changes.
 
 ### Phase 4: prompts
 
 1. Compare a lean default against Full and Compact variants through the existing persona template-resolution path,
    keeping acceptance criteria and project rules (3.2).
+   Status: variants available. Current (today's default, the Full tier), Lean and Compact are built-in templates
+   (`persona.<name>`, `persona.<name>.lean`, `persona.<name>.compact`) for the Worker, Test Engineer, Judge and
+   Architect; other personas render Current. Selection order: the voyage captain override's `PromptVariant` for the
+   persona (exact, then `*`), the captain's `promptVariant` runtime option, then Current. To compare, run the same
+   captain, packs, run count and seed once per variant, for example `run_battery` with `promptVariant` Current, Lean
+   and Compact; the variant is recorded in each run's configuration (and revision), so compare the runs' counts.
 2. If the lean default does not hurt strong models, replace the default instead of forking it.
 
 ### Phase 5: advisory profiles, scorecard and Evaluate

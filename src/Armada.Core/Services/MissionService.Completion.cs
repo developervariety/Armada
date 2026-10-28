@@ -731,10 +731,35 @@ namespace Armada.Core.Services
                 try
                 {
                     await OnMissionComplete.Invoke(mission, dock).ConfigureAwait(false);
+                    // The landing handler can return after logging an enqueue error. Require durable
+                    // evidence of the MergeQueue handoff rather than treating that return as success.
+                    Vessel? landingVessel = String.IsNullOrEmpty(mission.VesselId) ? null
+                        : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                    Voyage? landingVoyage = String.IsNullOrEmpty(mission.VoyageId) ? null
+                        : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+                    if ((landingVoyage?.LandingMode ?? landingVessel?.LandingMode ?? _Settings.LandingMode ?? LandingModeEnum.MergeAndPush) == LandingModeEnum.MergeQueue)
+                    {
+                        EnumerationResult<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(
+                            new EnumerationQuery { MissionId = mission.Id, PageSize = 1 }, token).ConfigureAwait(false);
+                        if (entries.Objects.Count == 0)
+                            throw new InvalidOperationException("Landing handoff returned without recording a merge queue entry.");
+                    }
                 }
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "error in mission complete handler for " + mission.Id + ": " + ex.ToString());
+                    // Persist the failed handoff instead of leaving an idempotently skipped WorkProduced mission.
+                    Mission? stranded = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                    if (stranded?.Status == MissionStatusEnum.WorkProduced)
+                    {
+                        DateTime version = stranded.LastUpdateUtc;
+                        stranded.Status = MissionStatusEnum.LandingFailed;
+                        stranded.FailureReason = "Landing handoff failed: " + ex.Message;
+                        stranded.LastUpdateUtc = DateTime.UtcNow;
+                        if (await _Database.Missions.TryUpdateIfUnchangedAsync(stranded, version,
+                            new[] { MissionStatusEnum.WorkProduced }, token).ConfigureAwait(false))
+                            mission = stranded;
+                    }
                 }
             }
 
