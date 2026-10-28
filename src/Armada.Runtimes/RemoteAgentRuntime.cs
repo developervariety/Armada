@@ -486,6 +486,7 @@ namespace Armada.Runtimes
                 case AgentRuntimeEnum.Gemini:
                 case AgentRuntimeEnum.Cursor:
                 case AgentRuntimeEnum.OpenCode:
+                case AgentRuntimeEnum.Pi:
                     return fromStdout ? null : RuntimeProviderErrorParser.TryParseCliStderrLine(data, _RuntimeType.ToString());
                 default:
                     return null;

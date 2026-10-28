@@ -15,7 +15,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Resolve the reader. A null captain is an unknown reader: unknown context, MCP tools and file access assumed (the
-        /// CLI default). CLI runtimes (Claude Code, Codex, Gemini, Cursor, OpenCode) read files and get the Armada MCP
+        /// CLI default). CLI runtimes (Claude Code, Codex, Gemini, Cursor, OpenCode, Pi) read files and get the Armada MCP
         /// server; a Custom runtime reads files but is not assumed to have MCP. API endpoint and Mux captains follow their
         /// endpoint's inference options: no tools means neither MCP nor files; MCP needs MCP tools enabled and, with an
         /// allow-list, get_handoff_artifact on it.
