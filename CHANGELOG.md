@@ -10,6 +10,10 @@ All notable changes to Armada are documented in this file.
 
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
 
+### Persona prompt variants for battery comparison
+
+- Persona prompts render as one of three variants through the existing template path: Current (today's default, unchanged), Lean (one demand per line, the output contract stated first and repeated as the last line) and Compact (a shorter tier for small-context readers). Built-in `persona.<name>.lean` and `persona.<name>.compact` templates ship for the Worker, Test Engineer, Judge and Architect and appear in `list_prompt_templates`; completion and signal lines are identical in every variant, and acceptance criteria and project rules are untouched. The variant is chosen by a voyage captain override's `PromptVariant`, then the captain's `promptVariant` runtime option, then Current. A fixture battery run takes `promptVariant` (REST body and `run_battery`) and records a non-Current variant in its configuration.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

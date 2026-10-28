@@ -8,6 +8,7 @@ namespace Armada.Core.Services
     using SyslogLogging;
     using Armada.Core;
     using Armada.Core.Database;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -1342,6 +1343,22 @@ namespace Armada.Core.Services
                     "- Use REPOSITORIES.md first. Open a repository at its path only when the manifest is not enough to tell what it does.\n" +
                     "- Put every repository in exactly one fleet.\n"
             };
+
+            // Lean and Compact persona prompt variants (selected per captain or per voyage, see PromptVariantResolver).
+            foreach (string personaTemplateName in PersonaPromptVariants.PersonaTemplateNames)
+            {
+                foreach (PromptVariantEnum variant in new[] { PromptVariantEnum.Lean, PromptVariantEnum.Compact })
+                {
+                    string variantName = MissionPromptBuilder.GetPersonaVariantTemplateName(personaTemplateName, variant);
+                    defaults[variantName] = new EmbeddedTemplate
+                    {
+                        Name = variantName,
+                        Description = variant.ToString() + " variant of " + personaTemplateName + " (prompt variant comparison; Current is " + personaTemplateName + ").",
+                        Category = "persona",
+                        Content = PersonaPromptVariants.GetContent(personaTemplateName, variant)!
+                    };
+                }
+            }
 
             return defaults;
         }

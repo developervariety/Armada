@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System.Text.RegularExpressions;
     using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
@@ -192,11 +193,30 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// The template name of a persona prompt variant: the conventional <c>persona.&lt;name&gt;</c> template for
+        /// <see cref="PromptVariantEnum.Current"/>, else that name with a <c>.lean</c> or <c>.compact</c> suffix. A
+        /// name that already starts with <c>persona.</c> is taken as the persona template name.
+        /// </summary>
+        /// <param name="persona">Persona name (for example "Test Engineer") or persona template name.</param>
+        /// <param name="variant">Variant.</param>
+        /// <returns>Template name.</returns>
+        public static string GetPersonaVariantTemplateName(string? persona, PromptVariantEnum variant)
+        {
+            string baseName = !String.IsNullOrWhiteSpace(persona) && persona.Trim().StartsWith("persona.", StringComparison.Ordinal)
+                ? persona.Trim()
+                : GetPersonaTemplateName(persona);
+            return variant switch
+            {
+                PromptVariantEnum.Lean => baseName + ".lean",
+                PromptVariantEnum.Compact => baseName + ".compact",
+                _ => baseName
+            };
+        }
+
+        /// <summary>
         /// Resolve the persona prompt for the mission using the persona's own prompt template
-        /// (<see cref="Persona.PromptTemplateName"/>) when one is supplied. Precedence: an enabled project-profile
-        /// override's template, then <paramref name="personaTemplateName"/>, then the conventional
-        /// <c>persona.&lt;name&gt;</c> template; a template that renders empty (missing) falls back to the conventional
-        /// template and then to the built-in role summary.
+        /// (<see cref="Persona.PromptTemplateName"/>) with the <see cref="PromptVariantEnum.Current"/> variant. See
+        /// <see cref="ResolvePersonaPromptAsync(string?, string?, PromptVariantEnum, Dictionary{string, string}, IPromptTemplateService?, PersonaOverride?, CancellationToken)"/>.
         /// </summary>
         /// <param name="persona">Mission persona name.</param>
         /// <param name="personaTemplateName">The persona's configured prompt template name, or null for the convention.</param>
@@ -205,9 +225,38 @@ namespace Armada.Core.Services
         /// <param name="personaOverride">Project-profile persona override, or null.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The resolved persona prompt.</returns>
+        public static Task<string> ResolvePersonaPromptAsync(
+            string? persona,
+            string? personaTemplateName,
+            Dictionary<string, string> templateParams,
+            IPromptTemplateService? promptTemplates,
+            PersonaOverride? personaOverride = null,
+            CancellationToken token = default)
+        {
+            return ResolvePersonaPromptAsync(persona, personaTemplateName, PromptVariantEnum.Current, templateParams, promptTemplates, personaOverride, token);
+        }
+
+        /// <summary>
+        /// Resolve the persona prompt for the mission using the persona's own prompt template
+        /// (<see cref="Persona.PromptTemplateName"/>) when one is supplied. Precedence: an enabled project-profile
+        /// override's template, then <paramref name="personaTemplateName"/> when it names a template other than the
+        /// conventional one, then the <paramref name="variant"/> of the conventional template
+        /// (<see cref="GetPersonaVariantTemplateName"/>; Current is the conventional <c>persona.&lt;name&gt;</c>
+        /// template itself); a template that renders empty (missing) falls back to the conventional template and then
+        /// to the built-in role summary.
+        /// </summary>
+        /// <param name="persona">Mission persona name.</param>
+        /// <param name="personaTemplateName">The persona's configured prompt template name, or null for the convention.</param>
+        /// <param name="variant">Prompt variant (<see cref="PromptVariantResolver"/>); Current renders exactly as before.</param>
+        /// <param name="templateParams">Template parameters.</param>
+        /// <param name="promptTemplates">Template service, or null.</param>
+        /// <param name="personaOverride">Project-profile persona override, or null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The resolved persona prompt.</returns>
         public static async Task<string> ResolvePersonaPromptAsync(
             string? persona,
             string? personaTemplateName,
+            PromptVariantEnum variant,
             Dictionary<string, string> templateParams,
             IPromptTemplateService? promptTemplates,
             PersonaOverride? personaOverride = null,
@@ -219,6 +268,8 @@ namespace Armada.Core.Services
 
             string conventionalName = GetPersonaTemplateName(persona);
             string templateName = String.IsNullOrWhiteSpace(personaTemplateName) ? conventionalName : personaTemplateName!.Trim();
+            if (variant != PromptVariantEnum.Current && String.Equals(templateName, conventionalName, StringComparison.Ordinal))
+                templateName = GetPersonaVariantTemplateName(persona, variant);
             if (overrideActive && !String.IsNullOrWhiteSpace(personaOverride!.PromptTemplateName))
                 templateName = personaOverride.PromptTemplateName!.Trim();
 

@@ -589,6 +589,12 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
 
 1. Compare a lean default against Full and Compact variants through the existing persona template-resolution path,
    keeping acceptance criteria and project rules (3.2).
+   Status: variants available. Current (today's default, the Full tier), Lean and Compact are built-in templates
+   (`persona.<name>`, `persona.<name>.lean`, `persona.<name>.compact`) for the Worker, Test Engineer, Judge and
+   Architect; other personas render Current. Selection order: the voyage captain override's `PromptVariant` for the
+   persona (exact, then `*`), the captain's `promptVariant` runtime option, then Current. To compare, run the same
+   captain, packs, run count and seed once per variant, for example `run_battery` with `promptVariant` Current, Lean
+   and Compact; the variant is recorded in each run's configuration (and revision), so compare the runs' counts.
 2. If the lean default does not hurt strong models, replace the default instead of forking it.
 
 ### Phase 5: advisory profiles, scorecard and Evaluate
