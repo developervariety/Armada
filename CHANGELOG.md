@@ -20,6 +20,7 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Ask Armada: tool-call cards (and the streamed reply text and thinking) no longer disappear when you leave a conversation while the captain is still answering and come back, reload, or reconnect. The reply and its tool calls are persisted only when the turn ends, so `GET /api/v1/ask/threads/{id}` now returns `ActiveTurn` (`AskTurnProgress`: turn id, reserved reply id, text, thinking, and tool calls so far) while a turn runs, and the dashboard and mobile app restore the live reply from it, merged with socket events by call id so no card is shown twice. A turn that is stopped or crashes now keeps the tool calls it already made on its error message, and error messages show those tool calls (expandable, with arguments and results) instead of dropping them.
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.
 ### Fleet action scan and test runs
 

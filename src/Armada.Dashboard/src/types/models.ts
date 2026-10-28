@@ -3531,12 +3531,26 @@ export interface AskMessage {
   isLocal?: boolean;
 }
 
+/** What the captain turn still running in a thread has streamed so far (the reply is persisted only when it ends). */
+export interface AskTurnProgress {
+  turnId: string;
+  /** The reply message reserved for the turn. */
+  messageId?: string | null;
+  text?: string | null;
+  thinkingText?: string | null;
+  /** Tool calls so far; a call still running has a null `ok` and no result. */
+  toolCalls?: AskToolCall[] | null;
+  startedUtc?: string;
+}
+
 export interface AskThreadDetail {
   thread: AskThread;
   trackedWork?: AskTrackedWork[] | null;
   pendingProposals?: AskActionProposal[] | null;
   /** Pending CLI permission requests of this thread's captain turns. */
   pendingCliPermissions?: CliPermissionRequest[] | null;
+  /** The running turn's streamed reply, tool calls, and thinking so far; null or absent when no turn is running. */
+  activeTurn?: AskTurnProgress | null;
 }
 
 export interface AskMessagePage {
