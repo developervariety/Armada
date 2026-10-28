@@ -59,8 +59,11 @@ repositories and agent logins live:
 | Linux | `armada-harbor` `.deb` / `.rpm` | `armada-harbor --install-startup` (as yourself) |
 | Any, from source | `scripts/<os>/run-harbor.sh` (or `scripts\windows\run-harbor.bat`), which builds and runs `src/Armada.Harbor`; or `dotnet run --project src/Armada.Harbor` | -- |
 
-To load updated Harbor code on macOS, quit **Armada Harbor** from its menu-bar menu, replace the application in
-`/Applications` with the newly built app from the matching DMG (`osx-arm64` for Apple Silicon), and reopen it.
+`./scripts/macos/build-harbor-app.sh` builds and verifies both macOS DMGs, then copies the app matching this Mac's
+architecture into `~/Applications/Armada Harbor.app`. It stages and verifies a fresh bundle before replacing an older
+copy. Use `--no-install` to build without installing; `--no-build` only verifies existing images.
+To load updated Harbor code on macOS, quit **Armada Harbor** from its menu-bar menu and open the new app with
+`open "$HOME/Applications/Armada Harbor.app"`. A manual DMG install can use `/Applications` instead.
 For a source run, quit the old instance and run `./scripts/macos/run-harbor.sh` from the repository root instead.
 Closing the window or choosing **Reconnect** does not reload the executable. `update.sh` updates the Admiral and CLI;
 it does not replace or restart the Harbor app. Harbor's saved settings remain in `~/.armada-harbor/settings.json`.
