@@ -10,6 +10,10 @@ All notable changes to Armada are documented in this file.
 
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
 
+### Stage outcomes record contract repairs
+
+- `StageOutcome.ContractRepairKind` (nullable; `CompletionLineMissing`, `CompletionLineMalformed`, `CommitMissingRecoveredFromRepo`, `VerdictNonCanonical` or `PlanBlockNonCanonical`) records the contract repair Armada applied to the attempt, read from the latest `mission.contract_repaired` event written since the attempt started. Migration 98 adds the `contract_repair_kind` column to `stage_outcomes` on SQLite, PostgreSQL, SQL Server and MySQL; existing rows read as null. The field is returned by the stage outcome REST routes and the `get_stage_outcome` / `list_stage_outcomes` MCP tools. The `mission.contract_repaired` event is still emitted for every repair.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

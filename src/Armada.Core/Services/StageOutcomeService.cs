@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using System.Reflection;
     using System.Security.Cryptography;
     using System.Text;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -283,6 +284,7 @@ namespace Armada.Core.Services
             await ReadProvenanceAsync(captain, outcome, endpointRead, token).ConfigureAwait(false);
 
             DecideDisposition(capture, mission, outcome);
+            outcome.ContractRepairKind = await ReadContractRepairKindAsync(mission, capture, token).ConfigureAwait(false);
             if (PersonaCatalog.Matches(outcome.Persona, PersonaCatalog.Judge))
             {
                 outcome.JudgeVerdict = JudgeVerdictParser.Parse(mission.AgentOutput).ToString();
@@ -290,6 +292,37 @@ namespace Armada.Core.Services
             }
 
             return outcome;
+        }
+
+        /// <summary>
+        /// The contract repair recorded for this attempt: the latest <c>mission.contract_repaired</c> event of the mission
+        /// written since the attempt started. Null without a start time (the window cannot be bounded), without a repair,
+        /// or when the event cannot be read; the outcome must still be recorded.
+        /// </summary>
+        private async Task<ContractRepairKindEnum?> ReadContractRepairKindAsync(Mission mission, StageAttemptCapture capture, CancellationToken token)
+        {
+            if (!capture.StartedUtc.HasValue) return null;
+            try
+            {
+                EnumerationResult<ArmadaEvent> repairs = await _Database.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = mission.Id,
+                    EventType = ContractRepair.EventType,
+                    CreatedAfter = capture.StartedUtc.Value,
+                    PageSize = 1,
+                    Order = EnumerationOrderEnum.CreatedDescending
+                }, token).ConfigureAwait(false);
+                ArmadaEvent? latest = repairs.Objects.FirstOrDefault();
+                if (latest == null || String.IsNullOrWhiteSpace(latest.Payload)) return null;
+                ContractRepairRecord? record = JsonSerializer.Deserialize<ContractRepairRecord>(latest.Payload!);
+                if (record == null || record.RepairKind == ContractRepairKindEnum.None) return null;
+                return record.RepairKind;
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+            {
+                _Logging.Warn(_Header + "could not read the contract repair for mission " + mission.Id + ": " + ex.Message);
+                return null;
+            }
         }
 
         /// <summary>
