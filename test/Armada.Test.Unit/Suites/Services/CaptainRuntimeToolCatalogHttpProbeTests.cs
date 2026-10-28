@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using System.Net;
@@ -11,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading.Tasks;
     using Armada.Core;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -187,6 +189,267 @@ namespace Armada.Test.Unit.Suites.Services
                     try { Directory.Delete(root, true); } catch (IOException) { }
                 }
             }).ConfigureAwait(false);
+
+            if (OperatingSystem.IsWindows())
+            {
+                SkipTest("Codex inventory runs on the selected owner host", "The Codex inventory fixture is a POSIX shell script.");
+                SkipTest("Codex inventory stays on the Admiral when no remote host is selected", "The Codex inventory fixture is a POSIX shell script.");
+                SkipTest("Codex inventory is unavailable when the selected owner cannot be authenticated", "The Codex inventory fixture is a POSIX shell script.");
+                SkipTest("Codex inventory is unavailable when the selected owner host is offline", "The Codex inventory fixture is a POSIX shell script.");
+            }
+            else
+            {
+                await RunTest("Codex inventory runs on the selected owner host", () => ProbeCodexHostAsync(CodexHostCase.Remote)).ConfigureAwait(false);
+                await RunTest("Codex inventory stays on the Admiral when no remote host is selected", () => ProbeCodexHostAsync(CodexHostCase.Local)).ConfigureAwait(false);
+                await RunTest("Codex inventory is unavailable when the selected owner cannot be authenticated", () => ProbeCodexHostAsync(CodexHostCase.UnknownOwner)).ConfigureAwait(false);
+                await RunTest("Codex inventory is unavailable when the selected owner host is offline", () => ProbeCodexHostAsync(CodexHostCase.Offline)).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ProbeCodexHostAsync(CodexHostCase hostCase)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "codex-probe-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            string stubDir = Path.Combine(root, "bin");
+            Directory.CreateDirectory(stubDir);
+            string script = Path.Combine(stubDir, "codex");
+            string localLog = Path.Combine(root, "local-argv");
+            string ownerLog = Path.Combine(root, "owner-argv");
+            File.WriteAllText(script, "#!/bin/sh\nprintf '%s\\n' \"${CODEX_PROBE_HOST}\" >> \"${CODEX_ARGV_FILE}\"\nprintf '%s\\n' \"$*\" >> \"${CODEX_ARGV_FILE}\"\nprintf '%s' '[]'\nexit 0\n");
+            if (!OperatingSystem.IsWindows())
+            {
+                File.SetUnixFileMode(script,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            }
+
+            string? originalPath = Environment.GetEnvironmentVariable("PATH");
+            string? originalHost = Environment.GetEnvironmentVariable("CODEX_PROBE_HOST");
+            string? originalArgv = Environment.GetEnvironmentVariable("CODEX_ARGV_FILE");
+            Environment.SetEnvironmentVariable("PATH", stubDir + Path.PathSeparator + (originalPath ?? String.Empty));
+            Environment.SetEnvironmentVariable("CODEX_PROBE_HOST", "admiral");
+            Environment.SetEnvironmentVariable("CODEX_ARGV_FILE", localLog);
+            try
+            {
+                using TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await database.Driver.Vessels.CreateAsync(new Vessel("inventory-vessel", "https://example.invalid/inventory.git")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                }).ConfigureAwait(false);
+                Captain captain = await database.Driver.Captains.CreateAsync(new Captain("inventory-captain")
+                {
+                    Runtime = AgentRuntimeEnum.Codex,
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                }).ConfigureAwait(false);
+                Mission mission = await database.Driver.Missions.CreateAsync(new Mission("inventory mission")
+                {
+                    VesselId = vessel.Id,
+                    CaptainId = captain.Id,
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                }).ConfigureAwait(false);
+                string runnerId = "hbr_owner";
+                string grantId = "grant_owner";
+                Dock dock = new Dock(vessel.Id)
+                {
+                    CaptainId = captain.Id,
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    BranchName = "main",
+                    WorktreePath = root
+                };
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    LogDirectory = Path.Combine(root, "logs"),
+                    Harbor = new HarborSettings { Enabled = true }
+                };
+                Directory.CreateDirectory(settings.LogDirectory);
+                if (hostCase == CodexHostCase.Remote)
+                {
+                    settings.Harbor.MissionRoutes.Add(new HarborMissionRoute
+                    {
+                        CaptainId = captain.Id,
+                        RunnerId = runnerId,
+                        RepositoryGrantId = grantId,
+                        VesselId = vessel.Id
+                    });
+                }
+                else if (hostCase == CodexHostCase.Local)
+                {
+                    settings.Harbor.MissionRoutes.Add(new HarborMissionRoute
+                    {
+                        CaptainId = "cpt_other",
+                        RunnerId = "hbr_other",
+                        RepositoryGrantId = grantId,
+                        VesselId = vessel.Id
+                    });
+                }
+                else
+                {
+                    if (hostCase == CodexHostCase.UnknownOwner)
+                    {
+                        UserMaster? owner = await database.Driver.Users.ReadAsync(Constants.DefaultTenantId, Constants.DefaultUserId).ConfigureAwait(false);
+                        AssertNotNull(owner, "the default owner exists");
+                        owner!.Active = false;
+                        await database.Driver.Users.UpdateAsync(owner).ConfigureAwait(false);
+                    }
+                    dock.TenantId = Constants.DefaultTenantId;
+                    dock.UserId = Constants.DefaultUserId;
+                    dock.HostCheckout = CompleteBinding(runnerId, grantId, Constants.DefaultTenantId, Constants.DefaultUserId);
+                }
+
+                dock = await database.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                captain.CurrentMissionId = mission.Id;
+                captain.CurrentDockId = dock.Id;
+                await database.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                ScriptedCodexChannel channel = new ScriptedCodexChannel(script, ownerLog, runnerId)
+                {
+                    Offline = hostCase == CodexHostCase.Offline
+                };
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                CaptainToolService service = new CaptainToolService(logging, database.Driver, settings, userProfileDirectory: root);
+                service.SetCodexWorkspace(channel);
+                CaptainToolAccessResult result = await service.DescribeAsync(captain).ConfigureAwait(false);
+
+                string localText = File.Exists(localLog) ? File.ReadAllText(localLog) : String.Empty;
+                string ownerText = File.Exists(ownerLog) ? File.ReadAllText(ownerLog) : String.Empty;
+                if (hostCase == CodexHostCase.Remote)
+                {
+                    AssertEqual("codex-owner-host-probe", result.AvailabilitySource, "source: " + result.Summary);
+                    AssertTrue(result.AvailabilityVerified, "the owner host answered");
+                    AssertEqual(1, channel.Calls, "one inventory command");
+                    AssertEqual(runnerId, channel.RunnerIds.Count == 0 ? String.Empty : channel.RunnerIds[0], "the selected runner");
+                    AssertContains("owner", ownerText);
+                    AssertContains("mcp list --json", ownerText);
+                    AssertEqual(String.Empty, localText, "the Admiral script did not run");
+                }
+                else if (hostCase == CodexHostCase.Local)
+                {
+                    AssertEqual("codex-mcp-probe", result.AvailabilitySource, "source: " + result.Summary);
+                    AssertTrue(result.AvailabilityVerified, "the local probe answered");
+                    AssertEqual(0, channel.Calls, "no remote channel");
+                    AssertContains("admiral", localText);
+                    AssertContains("mcp list --json", localText);
+                    AssertEqual(String.Empty, ownerText, "the owner script did not run");
+                }
+                else if (hostCase == CodexHostCase.UnknownOwner)
+                {
+                    AssertEqual("unavailable", result.AvailabilitySource, "source: " + result.Summary);
+                    AssertFalse(result.AvailabilityVerified, "an unauthenticated owner is not a verified inventory");
+                    AssertContains("owner could not be authenticated", result.Summary);
+                    AssertEqual(0, channel.Calls, "the channel is not called");
+                    AssertEqual(String.Empty, localText, "the Admiral script did not run");
+                    AssertEqual(String.Empty, ownerText, "the owner script did not run");
+                }
+                else
+                {
+                    AssertEqual("unavailable", result.AvailabilitySource, "source: " + result.Summary);
+                    AssertFalse(result.AvailabilityVerified, "an offline host is not a verified inventory");
+                    AssertContains("selected execution host is unavailable", result.Summary);
+                    AssertEqual(1, channel.Calls, "the selected host was asked");
+                    AssertEqual(runnerId, channel.RunnerIds[0], "the selected runner");
+                    AssertEqual(String.Empty, localText, "the Admiral script did not run");
+                    AssertEqual(String.Empty, ownerText, "the owner script did not run");
+                }
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("PATH", originalPath);
+                Environment.SetEnvironmentVariable("CODEX_PROBE_HOST", originalHost);
+                Environment.SetEnvironmentVariable("CODEX_ARGV_FILE", originalArgv);
+                try { Directory.Delete(root, true); } catch (IOException) { }
+            }
+        }
+
+        private static HarborCheckoutBinding CompleteBinding(string runnerId, string grantId, string tenantId, string userId)
+        {
+            return new HarborCheckoutBinding
+            {
+                RunnerId = runnerId,
+                EnrollmentGeneration = 1,
+                TenantId = tenantId,
+                UserId = userId,
+                RepositoryGrantId = grantId,
+                RepositoryFingerprint = new String('a', 64),
+                CheckoutId = "hco_" + Guid.NewGuid().ToString("N"),
+                BaseCommit = new String('b', 40),
+                BranchName = "main",
+                Revision = "rev_owner"
+            };
+        }
+
+        private enum CodexHostCase
+        {
+            Remote,
+            Local,
+            UnknownOwner,
+            Offline
+        }
+
+        private sealed class ScriptedCodexChannel : IHarborWorkspaceOperations
+        {
+            private readonly string _Script;
+            private readonly string _ArgvFile;
+            private readonly string _RunnerId;
+
+            public ScriptedCodexChannel(string script, string argvFile, string runnerId)
+            {
+                _Script = script;
+                _ArgvFile = argvFile;
+                _RunnerId = runnerId;
+            }
+
+            public bool Offline { get; set; }
+
+            public int Calls { get; private set; }
+
+            public List<string> RunnerIds { get; } = new List<string>();
+
+            public async Task<HarborWorkspaceOperationResult> ExecuteAsync(AuthContext auth, HarborWorkspaceOperationRequest request, CancellationToken token = default)
+            {
+                Calls++;
+                RunnerIds.Add(request.RunnerId ?? String.Empty);
+                if (Offline || !String.Equals(request.RunnerId, _RunnerId, StringComparison.Ordinal)
+                    || request.Operation != HarborWorkspaceOperationEnum.ProbeCodexInventory
+                    || !CodexInventoryCommand.TryParse(request.InventoryCommand, out IReadOnlyList<string> arguments))
+                {
+                    return new HarborWorkspaceOperationResult
+                    {
+                        Accepted = false,
+                        Reason = "workspace_runner_unavailable",
+                        Operation = request.Operation
+                    };
+                }
+
+                ProcessStartInfo start = new ProcessStartInfo(_Script)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                foreach (string argument in arguments) start.ArgumentList.Add(argument);
+                start.Environment["CODEX_PROBE_HOST"] = "owner";
+                start.Environment["CODEX_ARGV_FILE"] = _ArgvFile;
+                using Process process = new Process { StartInfo = start };
+                process.Start();
+                string stdout = await process.StandardOutput.ReadToEndAsync(token).ConfigureAwait(false);
+                string stderr = await process.StandardError.ReadToEndAsync(token).ConfigureAwait(false);
+                await process.WaitForExitAsync(token).ConfigureAwait(false);
+                return new HarborWorkspaceOperationResult
+                {
+                    Accepted = true,
+                    ExitCode = process.ExitCode,
+                    StandardOutput = stdout,
+                    StandardError = stderr,
+                    Operation = request.Operation
+                };
+            }
         }
 
         private async Task<CaptainToolServerSummary> DescribeMuxBuiltInAsync(

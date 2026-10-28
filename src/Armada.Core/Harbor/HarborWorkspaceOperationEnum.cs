@@ -36,5 +36,7 @@ namespace Armada.Core.Harbor
         AddGitExclude,
         /// <summary>Read one bounded chunk from a completed verification output spool.</summary>
         ReadVerificationOutput,
+        /// <summary>Run one allowlisted Codex inventory command on the runner host.</summary>
+        ProbeCodexInventory,
     }
 }

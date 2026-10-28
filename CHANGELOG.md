@@ -58,6 +58,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The API runtime MCP client opens one new session with the same caller credential and sends a request once more when that request carried a session id and received HTTP 404. A second 404, a timeout, an HTTP 5xx response, and a network failure stay failed.
 
+### Codex inventory
+
+- A running Codex captain's tool inventory runs on the host that executes that captain. A selected host that is offline, or whose owner cannot be authenticated, reports the inventory unavailable.
+
 ### Publish
 
 - POSIX `publish-server` passes the resolved framework and the matching `TargetFramework` and `TargetFrameworks` properties to `dotnet publish`. Options that are not a framework stay on the dashboard deploy.

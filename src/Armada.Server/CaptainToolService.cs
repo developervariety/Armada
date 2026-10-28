@@ -45,6 +45,16 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Route a Codex inventory probe through the authenticated owner channel.
+        /// A selected remote host that this channel cannot reach stays unavailable.
+        /// </summary>
+        /// <param name="workspace">Owner channel. It executes only on the runner the probe names.</param>
+        public void SetCodexWorkspace(IHarborWorkspaceOperations workspace)
+        {
+            _runtimeCatalog.SetWorkspace(workspace);
+        }
+
+        /// <summary>
         /// Describe the runtime-visible tool sources and named tools available to a captain.
         /// </summary>
         /// <param name="captain">Captain to inspect.</param>

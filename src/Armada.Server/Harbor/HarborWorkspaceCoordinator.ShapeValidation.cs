@@ -23,6 +23,7 @@ namespace Armada.Server.Harbor
             if ((request.Operation == HarborWorkspaceOperationEnum.Git) != (request.Git != null)) return false;
             if ((request.Operation == HarborWorkspaceOperationEnum.RunVerification) != (request.Verification != null)) return false;
             if (request.Text != null && request.Operation != HarborWorkspaceOperationEnum.WriteText) return false;
+            if (request.InventoryCommand != null && request.Operation != HarborWorkspaceOperationEnum.ProbeCodexInventory) return false;
             if ((request.Operation == HarborWorkspaceOperationEnum.WriteText) != (request.Text != null)) return false;
             if (request.BytesBase64 != null && request.Operation != HarborWorkspaceOperationEnum.WriteBytes) return false;
             if ((request.Operation == HarborWorkspaceOperationEnum.WriteBytes) != (request.BytesBase64 != null)) return false;
@@ -62,6 +63,13 @@ namespace Armada.Server.Harbor
                     return request.Binding != null && FullCommit(request.ExpectedHead) && ValidVerification(request.Verification!)
                         && request.RelativePath == null && request.Text == null && request.BytesBase64 == null
                         && request.Git == null && request.RequestedRevision == null;
+                case HarborWorkspaceOperationEnum.ProbeCodexInventory:
+                    return request.Binding == null && String.IsNullOrWhiteSpace(request.DockId)
+                        && request.ExpectedHead == null && request.RelativePath == null && request.Text == null
+                        && request.BytesBase64 == null && request.Git == null && request.Verification == null
+                        && request.VerificationOutput == null && request.OperationKey == null
+                        && request.RequestedRevision == null
+                        && CodexInventoryCommand.TryParse(request.InventoryCommand, out _);
                 case HarborWorkspaceOperationEnum.ReadVerificationOutput:
                     return request.Binding != null && FullCommit(request.ExpectedHead)
                         && request.VerificationOutput != null

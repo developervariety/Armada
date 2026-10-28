@@ -869,6 +869,8 @@ Code captains are also refused the bare environment-listing commands (`env`,
 `printenv`, `set`, `export`, `export -p`, `declare -x`, `declare -p`) through
 `--disallowedTools`; `env NAME=value command` stays allowed.
 
+A running Codex captain's tool inventory runs `codex mcp list` and `codex mcp get` on the host that executes that captain. A checkout binding on the dock selects that host. With no binding, a configured Harbor route selects it. With no remote host selected, the commands run on the Admiral. A selected host whose owner cannot be authenticated, or that does not accept the probe, reports the inventory unavailable.
+
 The captain tool inventory of a running Mux mission captain lists the MCP
 servers that mission's launch delivers: it reads the servers file the launch
 plan builds, not the captain's config directory, whose servers `mux print`

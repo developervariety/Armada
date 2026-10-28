@@ -1509,6 +1509,7 @@ namespace Armada.Server
             Armada.Server.Harbor.HarborWorkspaceCoordinator workspace = new Armada.Server.Harbor.HarborWorkspaceCoordinator(
                 registry, enrollments, new Armada.Server.Harbor.DatabaseHarborWorkspaceBindingVerifier(_Database), _Logging);
             _HarborCheckouts.SetChannel(workspace);
+            _CaptainTools.SetCodexWorkspace(workspace);
             Armada.Server.Harbor.HarborLinkEndpoint endpoint = new Armada.Server.Harbor.HarborLinkEndpoint(
                 _Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging, workspace);
             _App.WebSocket(_Settings.Harbor.LinkPath, endpoint.HandleWebSocketAsync);

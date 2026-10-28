@@ -22,7 +22,8 @@ namespace Armada.Server.Harbor
                 MaxEntries = request.MaxEntries, TimeoutSeconds = request.TimeoutSeconds,
                 Recursive = request.Recursive, Overwrite = request.Overwrite, ReadOnly = request.ReadOnly, Detached = request.Detached,
                 Git = CopyGitRequest(request.Git), Verification = CopyVerification(request.Verification),
-                VerificationOutput = CopyVerificationOutput(request.VerificationOutput)
+                VerificationOutput = CopyVerificationOutput(request.VerificationOutput),
+                InventoryCommand = request.InventoryCommand
             };
         }
         private static HarborCheckoutBinding? CopyBinding(HarborCheckoutBinding? binding)

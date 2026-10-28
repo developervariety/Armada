@@ -8,9 +8,11 @@ namespace Armada.Server
     using System.Text.RegularExpressions;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Json;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Runtimes.Mcp;
@@ -27,6 +29,7 @@ namespace Armada.Server
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
         private readonly string _UserProfileDirectory;
         private readonly Armada.Core.Services.Interfaces.ISessionTokenService? _SessionTokens;
+        private IHarborWorkspaceOperations? _Workspace;
 
         // A tools report is an interactive request, so a stalled endpoint must not hold it open for long.
         private const int _CALLER_MCP_TIMEOUT_SECONDS = 15;
@@ -40,15 +43,26 @@ namespace Armada.Server
         /// <param name="sessionTokens">Session token service that mints the mission owner's own scoped token for
         /// a running mission captain's Armada MCP probe; null presents no credential, so the probe reports the
         /// endpoint unreachable rather than presenting the admiral launch credential for a mission viewer.</param>
-        public CaptainRuntimeToolCatalogService(LoggingModule logging, ArmadaSettings? settings = null, HttpClient? httpClient = null, string? userProfileDirectory = null, Armada.Core.Services.Interfaces.ISessionTokenService? sessionTokens = null)
+        public CaptainRuntimeToolCatalogService(LoggingModule logging, ArmadaSettings? settings = null, HttpClient? httpClient = null, string? userProfileDirectory = null, Armada.Core.Services.Interfaces.ISessionTokenService? sessionTokens = null, IHarborWorkspaceOperations? workspace = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = settings;
             _SessionTokens = sessionTokens;
+            _Workspace = workspace;
             _HttpClient = httpClient ?? new HttpClient();
             _UserProfileDirectory = String.IsNullOrWhiteSpace(userProfileDirectory)
                 ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
                 : userProfileDirectory;
+        }
+
+        /// <summary>
+        /// Route a Codex inventory probe through the authenticated owner channel.
+        /// A selected remote host that this channel cannot reach stays unavailable.
+        /// </summary>
+        /// <param name="workspace">Owner channel. It executes only on the runner the probe names.</param>
+        internal void SetWorkspace(IHarborWorkspaceOperations workspace)
+        {
+            _Workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         }
 
         public async Task<RuntimeToolCatalogSnapshot?> TryDescribeAsync(Captain captain, DatabaseDriver database, CancellationToken token = default, bool plannedAsk = false, CallerMcpToolAccess? callerAccess = null)
@@ -94,7 +108,7 @@ namespace Armada.Server
             switch (captain.Runtime)
             {
                 case AgentRuntimeEnum.Codex:
-                    return await DescribeCodexAsync(contextDirectory, scopedConfigDirectory != null, missionArmadaAuthorization, token).ConfigureAwait(false);
+                    return await DescribeCodexAsync(captain, database, contextDirectory, scopedConfigDirectory != null, missionArmadaAuthorization, token).ConfigureAwait(false);
                 case AgentRuntimeEnum.ClaudeCode:
                     return await DescribeConfiguredRuntimeAsync(
                         "Claude Code",
@@ -344,16 +358,22 @@ namespace Armada.Server
             return snapshot;
         }
 
-        private async Task<RuntimeToolCatalogSnapshot> DescribeCodexAsync(string? contextDirectory, bool launchConfigIncludesArmada, string? missionArmadaAuthorization, CancellationToken token)
+        private async Task<RuntimeToolCatalogSnapshot> DescribeCodexAsync(Captain captain, DatabaseDriver database, string? contextDirectory, bool launchConfigIncludesArmada, string? missionArmadaAuthorization, CancellationToken token)
         {
+            CodexProbeTarget target = await ResolveCodexProbeTargetAsync(captain, database, token).ConfigureAwait(false);
+            if (target.Place == CodexProbePlace.UnknownOwner)
+                return UnavailableCodexSnapshot("Codex tool inventory is unavailable because the selected execution host owner could not be authenticated.");
+            if (target.Place == CodexProbePlace.Unaddressable)
+                return UnavailableCodexSnapshot("Codex tool inventory is unavailable because the selected execution host is unavailable.");
+
             RuntimeToolCatalogSnapshot snapshot = new RuntimeToolCatalogSnapshot
             {
-                AvailabilitySource = "codex-mcp-probe"
+                AvailabilitySource = target.Place == CodexProbePlace.Remote ? "codex-owner-host-probe" : "codex-mcp-probe"
             };
 
             try
             {
-                List<RuntimeMcpServerDefinition> servers = await GetCodexServersAsync(contextDirectory, token).ConfigureAwait(false);
+                List<RuntimeMcpServerDefinition> servers = await GetCodexServersAsync(contextDirectory, target, token).ConfigureAwait(false);
                 if (launchConfigIncludesArmada && !servers.Any(server => String.Equals(server.Name, "armada", StringComparison.OrdinalIgnoreCase)))
                 {
                     // The running mission captain reaches Armada MCP with the mission owner's scoped token,
@@ -379,12 +399,26 @@ namespace Armada.Server
                     snapshot,
                     token).ConfigureAwait(false);
             }
+            catch (CodexProbeUnavailableException)
+            {
+                return UnavailableCodexSnapshot("Codex tool inventory is unavailable because the selected execution host is unavailable.");
+            }
             catch (Exception ex)
             {
                 snapshot.AvailabilityVerified = false;
                 snapshot.Summary = "Armada could not inspect Codex MCP servers for this captain: " + ex.Message;
                 return snapshot;
             }
+        }
+
+        private static RuntimeToolCatalogSnapshot UnavailableCodexSnapshot(string summary)
+        {
+            return new RuntimeToolCatalogSnapshot
+            {
+                AvailabilityVerified = false,
+                AvailabilitySource = "unavailable",
+                Summary = summary
+            };
         }
 
         /// <summary>
@@ -676,15 +710,14 @@ namespace Armada.Server
                     .OrderBy(tool => tool.Name, StringComparer.OrdinalIgnoreCase));
         }
 
-        private async Task<List<RuntimeMcpServerDefinition>> GetCodexServersAsync(string? contextDirectory, CancellationToken token)
+        private async Task<List<RuntimeMcpServerDefinition>> GetCodexServersAsync(string? contextDirectory, CodexProbeTarget target, CancellationToken token)
         {
-            string codexCommand = ResolveCodexCommand();
-            CommandExecutionResult listResult = await RunProcessAsync(
-                codexCommand,
+            // A selected remote host runs these commands through the owner channel. The local process is used
+            // only when no remote execution host is selected.
+            CommandExecutionResult listResult = await RunCodexCommandAsync(
+                target,
                 new[] { "mcp", "list", "--json" },
                 contextDirectory,
-                null,
-                TimeSpan.FromSeconds(15),
                 token).ConfigureAwait(false);
 
             if (listResult.ExitCode != 0)
@@ -701,12 +734,14 @@ namespace Armada.Server
             List<RuntimeMcpServerDefinition> results = new List<RuntimeMcpServerDefinition>();
             foreach (CodexMcpServerListEntry listedServer in listedServers)
             {
-                CommandExecutionResult getResult = await RunProcessAsync(
-                    codexCommand,
+                string? getCommand = CodexInventoryCommand.TextFor(new[] { "mcp", "get", listedServer.Name, "--json" });
+                if (getCommand == null)
+                    throw new InvalidOperationException("The Codex server name is not allowlisted.");
+
+                CommandExecutionResult getResult = await RunCodexCommandAsync(
+                    target,
                     new[] { "mcp", "get", listedServer.Name, "--json" },
                     contextDirectory,
-                    null,
-                    TimeSpan.FromSeconds(15),
                     token).ConfigureAwait(false);
 
                 if (getResult.ExitCode != 0)
@@ -741,6 +776,116 @@ namespace Armada.Server
             }
 
             return results;
+        }
+
+        private async Task<CommandExecutionResult> RunCodexCommandAsync(
+            CodexProbeTarget target,
+            IReadOnlyList<string> arguments,
+            string? contextDirectory,
+            CancellationToken token)
+        {
+            if (target.Place == CodexProbePlace.Local)
+            {
+                return await RunProcessAsync(
+                    ResolveCodexCommand(),
+                    arguments,
+                    contextDirectory,
+                    null,
+                    TimeSpan.FromSeconds(15),
+                    token).ConfigureAwait(false);
+            }
+
+            string? command = CodexInventoryCommand.TextFor(arguments);
+            if (command == null) throw new InvalidOperationException("The Codex inventory command is not allowlisted.");
+            if (_Workspace == null) throw new CodexProbeUnavailableException();
+
+            HarborWorkspaceOperationRequest request = new HarborWorkspaceOperationRequest
+            {
+                Operation = HarborWorkspaceOperationEnum.ProbeCodexInventory,
+                RunnerId = target.RunnerId,
+                VesselId = target.VesselId,
+                RepositoryGrantId = target.GrantId,
+                TenantId = target.TenantId,
+                UserId = target.UserId,
+                InventoryCommand = command,
+                TimeoutSeconds = 15,
+                MaxBytes = 1024 * 1024,
+                MaxEntries = 1
+            };
+            AuthContext owner = AuthContext.Authenticated(target.TenantId, target.UserId, false, false, "CodexInventory");
+            HarborWorkspaceOperationResult result = await _Workspace.ExecuteAsync(owner, request, token).ConfigureAwait(false);
+            if (!result.Accepted)
+            {
+                if (IsOwnerHostUnavailable(result.Reason)) throw new CodexProbeUnavailableException();
+                throw new InvalidOperationException(String.IsNullOrWhiteSpace(result.Reason) ? "codex_probe_failed" : result.Reason);
+            }
+
+            return new CommandExecutionResult
+            {
+                ExitCode = result.ExitCode ?? -1,
+                Stdout = result.StandardOutput?.Trim() ?? String.Empty,
+                Stderr = result.StandardError?.Trim() ?? String.Empty
+            };
+        }
+
+        private async Task<CodexProbeTarget> ResolveCodexProbeTargetAsync(Captain captain, DatabaseDriver database, CancellationToken token)
+        {
+            Mission? mission = String.IsNullOrWhiteSpace(captain.CurrentMissionId)
+                ? null
+                : await database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
+            Dock? dock = null;
+            if (!String.IsNullOrWhiteSpace(captain.CurrentDockId))
+                dock = await database.Docks.ReadAsync(captain.CurrentDockId, token).ConfigureAwait(false);
+            else if (mission != null && !String.IsNullOrWhiteSpace(mission.DockId))
+                dock = await database.Docks.ReadAsync(mission.DockId, token).ConfigureAwait(false);
+
+            string? runnerId = null;
+            string? grantId = null;
+            string? tenantId = null;
+            string? userId = null;
+            string? vesselId = mission?.VesselId;
+            if (String.IsNullOrWhiteSpace(vesselId)) vesselId = dock?.VesselId;
+
+            HarborCheckoutBinding? owned = dock?.HostCheckout;
+            if (owned != null && !String.IsNullOrWhiteSpace(owned.RunnerId))
+            {
+                runnerId = owned.RunnerId.Trim();
+                grantId = owned.RepositoryGrantId;
+                tenantId = owned.TenantId;
+                userId = owned.UserId;
+            }
+            else if (mission != null)
+            {
+                HarborMissionRoute? route = HarborMissionRouting.Resolve(_Settings?.Harbor, captain, mission);
+                if (route != null && !String.IsNullOrWhiteSpace(route.RunnerId))
+                {
+                    runnerId = route.RunnerId.Trim();
+                    grantId = route.RepositoryGrantId;
+                    tenantId = FirstIdentity(mission.TenantId, captain.TenantId);
+                    userId = FirstIdentity(mission.UserId, captain.UserId);
+                }
+            }
+
+            if (String.IsNullOrWhiteSpace(runnerId)) return CodexProbeTarget.Local();
+            if (String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId)) return CodexProbeTarget.UnknownOwner();
+
+            UserMaster? user = await database.Users.ReadAsync(tenantId, userId, token).ConfigureAwait(false);
+            if (user == null || !user.Active) return CodexProbeTarget.UnknownOwner();
+            if (String.IsNullOrWhiteSpace(vesselId) || String.IsNullOrWhiteSpace(grantId)) return CodexProbeTarget.Unaddressable();
+            return CodexProbeTarget.Remote(runnerId, tenantId, userId, vesselId, grantId);
+        }
+
+        private static string? FirstIdentity(string? preferred, string? fallback)
+            => !String.IsNullOrWhiteSpace(preferred) ? preferred : fallback;
+
+        private static bool IsOwnerHostUnavailable(string? reason)
+        {
+            return reason is "workspace_runner_unavailable"
+                or "workspace_runner_disconnected"
+                or "workspace_send_failed"
+                or "harbor_workspace_unavailable"
+                or "harbor_command_unauthorized"
+                or "workspace_runner_owner_mismatch";
         }
 
         private async Task<List<RuntimeMcpServerDefinition>> ReadJsonConfiguredServersAsync(string configPath, CancellationToken token)
@@ -2223,6 +2368,47 @@ namespace Armada.Server
             public int ExitCode { get; set; } = 0;
             public string Stdout { get; set; } = String.Empty;
             public string Stderr { get; set; } = String.Empty;
+        }
+
+        private enum CodexProbePlace
+        {
+            Local,
+            Remote,
+            UnknownOwner,
+            Unaddressable
+        }
+
+        private sealed class CodexProbeTarget
+        {
+            public CodexProbePlace Place { get; private init; }
+            public string RunnerId { get; private init; } = String.Empty;
+            public string TenantId { get; private init; } = String.Empty;
+            public string UserId { get; private init; } = String.Empty;
+            public string VesselId { get; private init; } = String.Empty;
+            public string GrantId { get; private init; } = String.Empty;
+
+            public static CodexProbeTarget Local() => new CodexProbeTarget { Place = CodexProbePlace.Local };
+
+            public static CodexProbeTarget UnknownOwner() => new CodexProbeTarget { Place = CodexProbePlace.UnknownOwner };
+
+            public static CodexProbeTarget Unaddressable() => new CodexProbeTarget { Place = CodexProbePlace.Unaddressable };
+
+            public static CodexProbeTarget Remote(string runnerId, string tenantId, string userId, string vesselId, string grantId)
+            {
+                return new CodexProbeTarget
+                {
+                    Place = CodexProbePlace.Remote,
+                    RunnerId = runnerId,
+                    TenantId = tenantId,
+                    UserId = userId,
+                    VesselId = vesselId,
+                    GrantId = grantId
+                };
+            }
+        }
+
+        private sealed class CodexProbeUnavailableException : Exception
+        {
         }
 
         private enum RpcWireProtocol

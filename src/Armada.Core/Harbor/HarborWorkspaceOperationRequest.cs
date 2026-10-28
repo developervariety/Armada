@@ -94,5 +94,10 @@ namespace Armada.Core.Harbor
         /// <summary>Bounded read request for a completed verification output spool.</summary>
         public HarborVerificationOutputRequest? VerificationOutput { get; set; }
 
+        /// <summary>
+        /// Allowlisted Codex inventory command. Only a Codex inventory probe may set it.
+        /// </summary>
+        public string? InventoryCommand { get; set; }
+
     }
 }

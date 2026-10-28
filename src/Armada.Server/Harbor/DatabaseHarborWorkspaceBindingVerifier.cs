@@ -32,6 +32,11 @@ namespace Armada.Server.Harbor
             if (missionFailure != null) return missionFailure;
             if (request.Operation == HarborWorkspaceOperationEnum.InspectRepository)
                 return request.Binding == null && String.IsNullOrWhiteSpace(request.DockId) ? null : "workspace_repository_binding_invalid";
+            if (request.Operation == HarborWorkspaceOperationEnum.ProbeCodexInventory)
+            {
+                if (request.Binding != null || !String.IsNullOrWhiteSpace(request.DockId)) return "workspace_repository_binding_invalid";
+                return CodexInventoryCommand.TryParse(request.InventoryCommand, out _) ? null : "workspace_codex_probe_arguments_invalid";
+            }
             return await ValidateDockBindingAsync(auth, session, request, vessel, token).ConfigureAwait(false);
         }
 

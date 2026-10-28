@@ -65,6 +65,10 @@ namespace Armada.Runtimes.Harbor
                     result.HeadCommit = await ReadHeadAsync(CheckoutPath(grant, outputBinding, true), token).ConfigureAwait(false);
                     result.Accepted = true;
                     break;
+                case HarborWorkspaceOperationEnum.ProbeCodexInventory:
+                    if (request.Binding != null) throw Failure("workspace_binding_unexpected", "A Codex inventory probe does not accept a checkout binding.");
+                    await ProbeCodexInventoryAsync(request, result, token).ConfigureAwait(false);
+                    break;
                 case HarborWorkspaceOperationEnum.Git:
                     HarborCheckoutBinding gitBinding = RequireBinding(request, ack, grant);
                     HarborCheckoutIntent gitIntent = ReadIntent(request, gitBinding, grant);
