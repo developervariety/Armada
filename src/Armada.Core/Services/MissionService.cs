@@ -108,7 +108,8 @@ namespace Armada.Core.Services
         {
             "CODEX.md",
             "CLAUDE.md",
-            "MUX.md"
+            "MUX.md",
+            "AGENTS.override.md"
         };
 
         /// <summary>
