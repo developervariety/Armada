@@ -2135,6 +2135,8 @@ exception is the failed stage of a `Failed` voyage, or a downstream stage cancel
 commit of the last stage that handed off verified work, the later stages cancelled behind it return to `Pending`, and
 its voyage is reopened (`docs/MCP_TOOL_CATALOG.md` states the conditions). A restart records a restart signal owned by the mission's owner, writes a `mission.restarted` event, and broadcasts the change.
 
+A restarted Judge whose earlier run ended `FAIL` or `NEEDS_REVISION` receives a bounded excerpt of that run in its description, under a heading that marks it as historical, so the new run re-checks each finding against the current commit instead of trusting it. The block holds at most 6000 characters: the opening of the review, then its findings sections, with the cut named. It states that it is not the current verdict and names `armada_mission_output` for the complete earlier output, which moves to the mission's preserved runs and is listed before the new run. Restarting again replaces the block with the newest excerpt rather than adding a second one, and a description supplied with the restart is kept ahead of it. A Judge that never ran, a Judge whose earlier run passed, and every other persona keep their description unchanged.
+
 **Path Parameters:**
 | Parameter | Description |
 |---|---|

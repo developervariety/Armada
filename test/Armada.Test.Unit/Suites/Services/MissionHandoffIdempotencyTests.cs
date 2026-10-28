@@ -174,6 +174,60 @@ namespace Armada.Test.Unit.Suites.Services
                 await Task.CompletedTask;
             });
 
+            await RunTest("A restarted Judge's historical findings block survives repeated handoffs exactly once", async () =>
+            {
+                string restarted = PriorJudgeFindingsBlock.Apply(
+                    "Review the change.",
+                    "[ARMADA:VERDICT] FAIL\n## Correctness\n- Blocking: HISTORICAL-FINDING the cache is never invalidated.\n",
+                    "msn_judge");
+                AssertEqual(1, CountOccurrences(restarted, PriorJudgeFindingsBlock.BeginMarker), "restart adds the block once");
+
+                string first = ApplyHandoff(restarted, _UpstreamId, "## Prior Stage Output\nrun one\n");
+                string second = ApplyHandoff(first, _UpstreamId, "## Prior Stage Output\nrun two\n");
+
+                AssertEqual(1, CountOccurrences(second, PriorJudgeFindingsBlock.BeginMarker), "repeated handoffs keep one historical block");
+                AssertEqual(1, CountOccurrences(second, "HISTORICAL-FINDING"), "the excerpt is not duplicated");
+                AssertEqual(1, CountOccurrences(second, MissionService.BuildHandoffMarker(_UpstreamId)), "the handoff block is still replaced, not repeated");
+                AssertEqual(second, ApplyHandoff(second, _UpstreamId, "## Prior Stage Output\nrun two\n"), "a further identical handoff changes nothing");
+
+                string reapplied = PriorJudgeFindingsBlock.Apply(second, "[ARMADA:VERDICT] FAIL\n- Blocking: HISTORICAL-FINDING the cache is never invalidated.\n", "msn_judge");
+                AssertEqual(1, CountOccurrences(reapplied, PriorJudgeFindingsBlock.BeginMarker), "applying the block again replaces it");
+
+                await Task.CompletedTask;
+            });
+
+            await RunTest("A rescue of a restarted Judge does not repeat the historical findings block", async () =>
+            {
+                Mission failed = new Mission
+                {
+                    Id = "msn_restarted_judge",
+                    Title = "Recover the failed review",
+                    Persona = "Judge",
+                    Status = MissionStatusEnum.Failed,
+                    AgentOutput = "## Correctness\n- The reviewed result misses a required case.\n## Verdict\nNEEDS_REVISION",
+                    Description = PriorJudgeFindingsBlock.Apply(
+                        "Review the change.",
+                        "[ARMADA:VERDICT] FAIL\n- Blocking: HISTORICAL-FINDING the cache is never invalidated.\n",
+                        "msn_restarted_judge")
+                };
+                Incident incident = new Incident
+                {
+                    Id = "inc_test",
+                    Title = "Rescue test",
+                    Summary = "Verify the rescue brief omits the Judge-only block.",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium
+                };
+
+                string rescue = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+                AssertFalse(rescue.Contains(PriorJudgeFindingsBlock.BeginMarker, StringComparison.Ordinal), "the Judge-only block is not carried into the rescue");
+                AssertFalse(rescue.Contains("HISTORICAL-FINDING", StringComparison.Ordinal), "the earlier excerpt is not repeated");
+                AssertContains("misses a required case", rescue, "the rescue still carries the review it must address");
+
+                await Task.CompletedTask;
+            });
+
             await RunTest("Handoff from a second upstream compacts the older block and keeps the newest in full", async () =>
             {
                 string first = ApplyHandoff("Base brief.", _UpstreamId, LargeBody("from one"));

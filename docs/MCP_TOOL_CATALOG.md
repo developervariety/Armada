@@ -191,6 +191,15 @@ and a reason that names the voyage and its status, and nothing changes.
 Assignment cancels a `Pending` mission of an ended voyage, so a restart there
 cannot run. Dispatch a new voyage, or a rescue, for that work instead.
 
+A restarted Judge whose earlier run ended `FAIL` or `NEEDS_REVISION` carries a
+bounded, historical excerpt of that run in its description (at most 6000
+characters: the opening of the review, then its findings sections). The excerpt
+tells the Judge to re-check every finding against the current commit and is not
+a verdict. The complete earlier output moves to the mission's preserved runs;
+read it with `armada_mission_output`, which lists earlier runs before the new
+one. A repeated restart replaces the excerpt, and a rescue brief does not
+repeat it.
+
 One ended voyage is reopened instead: a `Failed` voyage whose mission is the
 stage that failed on its own (`Failed`, with no terminal-voyage reconciliation
 marker), or a downstream stage `Cancelled` with `Blocked by failed dependency`.

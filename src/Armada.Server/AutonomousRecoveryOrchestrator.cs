@@ -4179,6 +4179,9 @@ namespace Armada.Server
 
             // The failed stage's description opens with that stage's role. A rescue of a Judge, Linter or
             // TestEngineer is a Worker that fixes the work, so the reviewer's role must not reach it.
+            // A restarted Judge's description holds an excerpt of its earlier review for that Judge to re-check. The
+            // rescue carries the review itself under "Reviewer feedback to address", so the excerpt is not repeated.
+            originalDescription = PriorJudgeFindingsBlock.Strip(originalDescription);
             string withoutRole = MissionService.StripPersonaPreambles(originalDescription);
             if (withoutRole.Length != originalDescription.Length)
             {

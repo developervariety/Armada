@@ -114,6 +114,117 @@ namespace Armada.Test.Unit.Suites.Routes
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RestartMission_JudgeThatRejected_GetsBoundedHistoricalBlockWithRecheckInstructionOnEverySurface", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    foreach (string surface in Surfaces)
+                    {
+                        Mission judge = await SeedJudgeAsync(harness, surface, RejectedReview("alpha-finding"), "Review the change on the branch.").ConfigureAwait(false);
+
+                        SurfaceReply reply = await RestartAsync(harness, surface, judge.Id).ConfigureAwait(false);
+
+                        AssertFalse(reply.Refused, surface + ": a Failed Judge is restarted: " + reply);
+                        Mission stored = (await harness.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                        string description = stored.Description ?? String.Empty;
+                        AssertStartsWith("Review the change on the branch.", description, surface + ": the original instructions stay first");
+                        AssertEqual(1, Count(description, PriorJudgeFindingsBlock.BeginMarker), surface + ": one historical block");
+                        AssertContains("alpha-finding", description, surface + ": the prior finding is carried");
+                        AssertContains("historical", description, surface + ": the block is labelled historical");
+                        AssertContains("Re-check every finding", description, surface + ": the block tells the Judge to re-check each finding");
+                        AssertContains("not the current verdict", description, surface + ": the block is not a verdict");
+                        AssertContains("armada_mission_output", description, surface + ": the block names the full-output read path");
+                        AssertContains(judge.Id, description, surface + ": the block names the mission whose output to read");
+                        AssertTrue(description.Length <= "Review the change on the branch.".Length + PriorJudgeFindingsBlock.MaxBlockChars + 4,
+                            surface + ": the block stays within its bound");
+
+                        AssertNull(stored.AgentOutput, surface + ": the new run starts without the old output");
+                        AssertContains("alpha-finding", stored.PreservedRunOutput ?? String.Empty, surface + ": the complete earlier output is kept");
+                        MissionOutputArtifactPage page = MissionOutputArtifact.Build(stored, 0, MissionOutputArtifact.MaximumPageLength);
+                        AssertContains("alpha-finding", page.Content, surface + ": the mission-output read path returns the earlier run");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RestartMission_JudgeWithHugePriorOutput_KeepsHeadAndFindingsWithinTheCap", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    string filler = String.Concat(Enumerable.Repeat("Walkthrough line that carries no defect.\n", 6000));
+                    string output = "[ARMADA:VERDICT] NEEDS_REVISION\nHEAD-SUMMARY-MARKER the review summary.\n\n" + filler
+                        + "## Correctness\n- Blocking: TAIL-FINDING-MARKER the retry path drops the final item.\n";
+                    AssertTrue(output.Length > 200000, "the prior output is far larger than the cap");
+                    Mission judge = await SeedJudgeAsync(harness, "huge", output, "Review it.").ConfigureAwait(false);
+
+                    SurfaceReply reply = await RestartAsync(harness, "REST", judge.Id).ConfigureAwait(false);
+
+                    AssertFalse(reply.Refused, "the Judge is restarted: " + reply);
+                    Mission stored = (await harness.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    string description = stored.Description ?? String.Empty;
+                    AssertTrue(description.Length <= "Review it.".Length + PriorJudgeFindingsBlock.MaxBlockChars + 4,
+                        "the description holds at most the capped block: " + description.Length);
+                    AssertContains("HEAD-SUMMARY-MARKER", description, "the head of the review is carried");
+                    AssertContains("TAIL-FINDING-MARKER", description, "the findings section is carried");
+                    AssertContains("elided", description, "the cut is named");
+                    AssertContains("TAIL-FINDING-MARKER", stored.PreservedRunOutput ?? String.Empty, "the full output stays readable");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RestartMission_JudgeWithoutRejectionAndOtherPersonas_KeepTheirDescription", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    Mission neverRan = await SeedJudgeAsync(harness, "never-ran", null, "First run brief.").ConfigureAwait(false);
+                    Mission passed = await SeedJudgeAsync(harness, "passed", "[ARMADA:VERDICT] PASS\nNothing blocks the change.", "Pass brief.").ConfigureAwait(false);
+                    Mission worker = await SeedJudgeAsync(harness, "worker", RejectedReview("worker-finding"), "Worker brief.", "Worker").ConfigureAwait(false);
+
+                    foreach (Mission mission in new[] { neverRan, passed, worker })
+                    {
+                        SurfaceReply reply = await RestartAsync(harness, "REST", mission.Id).ConfigureAwait(false);
+                        AssertFalse(reply.Refused, mission.Title + ": restarted: " + reply);
+                        Mission stored = (await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(mission.Description, stored.Description, mission.Title + ": the description is unchanged");
+                        AssertEqual(mission.AgentOutput, stored.AgentOutput, mission.Title + ": the output is unchanged");
+                        AssertNull(stored.PreservedRunOutput, mission.Title + ": no run is preserved");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RestartMission_JudgeRestartedRepeatedly_HoldsOneBlockWithTheNewestExcerptAndKeepsAReplacementDescription", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    Mission judge = await SeedJudgeAsync(harness, "repeat", RejectedReview("first-run-finding"), "Original brief.").ConfigureAwait(false);
+
+                    await RestartAsync(harness, "REST", judge.Id).ConfigureAwait(false);
+                    Mission afterFirst = (await harness.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    AssertEqual(1, Count(afterFirst.Description ?? String.Empty, PriorJudgeFindingsBlock.BeginMarker), "one block after the first restart");
+
+                    // Restarting a Judge that left no output keeps the block as it is.
+                    afterFirst.Status = MissionStatusEnum.Failed;
+                    await harness.Driver.Missions.UpdateAsync(afterFirst).ConfigureAwait(false);
+                    await RestartAsync(harness, "REST", judge.Id).ConfigureAwait(false);
+                    Mission afterEmpty = (await harness.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    AssertEqual(afterFirst.Description, afterEmpty.Description, "a restart with no new output leaves the description alone");
+
+                    // A second rejection replaces the block, and an operator's replacement description is kept.
+                    afterEmpty.Status = MissionStatusEnum.Failed;
+                    afterEmpty.AgentOutput = RejectedReview("second-run-finding");
+                    await harness.Driver.Missions.UpdateAsync(afterEmpty).ConfigureAwait(false);
+                    SurfaceReply reply = await harness.RestAsync(HttpMethod.Post, "/api/v1/missions/" + judge.Id + "/restart", new { description = "Replacement brief." }).ConfigureAwait(false);
+                    AssertFalse(reply.Refused, "the Judge is restarted with a replacement description: " + reply);
+
+                    Mission afterSecond = (await harness.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    string description = afterSecond.Description ?? String.Empty;
+                    AssertStartsWith("Replacement brief.", description, "the operator's description leads");
+                    AssertEqual(1, Count(description, PriorJudgeFindingsBlock.BeginMarker), "one block after the second restart");
+                    AssertContains("second-run-finding", description, "the newest excerpt is carried");
+                    AssertFalse(description.Contains("first-run-finding", StringComparison.Ordinal), "the superseded excerpt is gone");
+                    AssertContains("first-run-finding", afterSecond.PreservedRunOutput ?? String.Empty, "the first run stays readable");
+                    AssertContains("second-run-finding", afterSecond.PreservedRunOutput ?? String.Empty, "the second run stays readable");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RestartMission_MissionOfLiveVoyage_ReturnsToPendingOnEverySurface", async () =>
             {
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
@@ -528,6 +639,33 @@ namespace Armada.Test.Unit.Suites.Routes
             mission.VoyageId = voyage.Id;
             await harness.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
             return voyage;
+        }
+
+        private static string RejectedReview(string finding)
+        {
+            return "[ARMADA:VERDICT] NEEDS_REVISION\nSummary of the review.\n\n## Correctness\n- Blocking: " + finding + " the retry path drops the final item.\n";
+        }
+
+        private static int Count(string text, string needle)
+        {
+            int count = 0;
+            int index = 0;
+            while ((index = text.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += needle.Length;
+            }
+            return count;
+        }
+
+        private static async Task<Mission> SeedJudgeAsync(SurfaceParityHarness harness, string label, string? output, string description, string persona = "Judge")
+        {
+            Mission mission = await SeedAsync(harness, label, MissionStatusEnum.Failed).ConfigureAwait(false);
+            mission.Title = persona + " " + label;
+            mission.Persona = persona;
+            mission.Description = description;
+            mission.AgentOutput = output;
+            return await harness.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
         }
 
         private static async Task<Mission> SeedAsync(SurfaceParityHarness harness, string surface, MissionStatusEnum status)

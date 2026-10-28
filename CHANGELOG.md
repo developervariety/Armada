@@ -17,6 +17,11 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Add `armada_search_context`: one local query over applicable guidance, native memory and existing code indexes. Keep required guidance outside recall limits, retain source versions and enforce mission and owner scope. Use the existing database driver on SQLite, PostgreSQL, MySQL and SQL Server.
 
+### Historical Judge findings on restart
+
+- A restarted Judge whose earlier run ended `FAIL` or `NEEDS_REVISION` receives a capped excerpt of that run in its description: the opening of the review and its findings sections, at most 6000 characters, marked historical and not a verdict. The block tells the Judge to re-check each finding against the current commit and names `armada_mission_output` for the complete earlier output, which moves to the mission's preserved runs.
+- Restarting again replaces the excerpt instead of adding a second block, a description supplied with the restart stays ahead of it, and a rescue brief does not repeat it. A Judge that never ran, a Judge whose earlier run passed, and every other persona restart with an unchanged description.
+
 ### Bootstrap credentials and startup binding
 
 - The Admiral refuses to start on a non-loopback `rest.hostname` while the seeded default admin password or the `default` bearer token is active. `AllowDefaultCredentialsOnNetwork` accepts the risk and logs a warning at every start instead; a loopback listener only warns. `ARMADA_INITIAL_ADMIN_PASSWORD` sets the admin password on the first start.

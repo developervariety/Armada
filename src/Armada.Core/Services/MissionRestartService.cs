@@ -221,6 +221,7 @@ namespace Armada.Core.Services
 
             if (!String.IsNullOrWhiteSpace(title)) mission.Title = title;
             if (!String.IsNullOrWhiteSpace(description)) mission.Description = description;
+            CarryRejectedJudgeFindings(mission);
             mission.Status = MissionStatusEnum.Pending;
             mission.CreatedUtc = DateTime.UtcNow;
             mission.CaptainId = null;
@@ -253,6 +254,28 @@ namespace Armada.Core.Services
 
             await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Restarted, "restarted", _Logging, token).ConfigureAwait(false);
             return mission;
+        }
+
+        /// <summary>
+        /// Reason code recorded on the earlier Judge run that a restart keeps beside the mission output.
+        /// </summary>
+        internal const string RestartedRunReasonCode = "operator_restart";
+
+        /// <summary>
+        /// A restarted Judge whose earlier run rejected the work (FAIL or NEEDS_REVISION) carries a bounded,
+        /// historical excerpt of that run in its description (<see cref="PriorJudgeFindingsBlock"/>), so the new
+        /// run re-checks each finding instead of starting blind. The complete earlier output moves to the
+        /// mission's preserved runs, where the mission-output read path lists it before the new run. A Judge whose
+        /// earlier run did not reject, a Judge that never ran, and every other persona are left unchanged.
+        /// </summary>
+        private static void CarryRejectedJudgeFindings(Mission mission)
+        {
+            if (!PersonaCatalog.Matches(mission.Persona, PersonaCatalog.Judge)) return;
+            if (!MissionService.IsJudgeRejection(mission.AgentOutput)) return;
+
+            mission.Description = PriorJudgeFindingsBlock.Apply(mission.Description, mission.AgentOutput, mission.Id);
+            mission.PreservedRunOutput = MissionService.AppendPreservedRun(mission.PreservedRunOutput, mission.AgentOutput, RestartedRunReasonCode);
+            mission.AgentOutput = null;
         }
 
         /// <summary>

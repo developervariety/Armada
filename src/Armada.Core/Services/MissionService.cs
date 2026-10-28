@@ -11416,16 +11416,10 @@ namespace Armada.Core.Services
         /// <param name="runOutput">The output of the run about to be discarded, or null.</param>
         /// <param name="reasonCode">The reason the run is being re-done.</param>
         /// <returns>The updated preserved-run text.</returns>
-        private static string? AppendPreservedRun(string? existing, string? runOutput, string reasonCode)
+        internal static string? AppendPreservedRun(string? existing, string? runOutput, string reasonCode)
         {
             if (String.IsNullOrEmpty(runOutput)) return existing;
-            string verdict = ParseJudgeVerdict(runOutput) switch
-            {
-                JudgeVerdict.Pass => "PASS",
-                JudgeVerdict.Fail => "FAIL",
-                JudgeVerdict.NeedsRevision => "NEEDS_REVISION",
-                _ => "none"
-            };
+            string verdict = DescribeJudgeVerdict(runOutput);
             string header = PreservedRunMarker + " verdict=" + verdict + " rerun_reason=" + reasonCode;
             string block = header + Environment.NewLine + runOutput;
             return String.IsNullOrEmpty(existing) ? block : existing + Environment.NewLine + Environment.NewLine + block;
@@ -12939,6 +12933,34 @@ namespace Armada.Core.Services
         internal static bool IsJudgePass(string? agentOutput)
         {
             return ParseJudgeVerdict(agentOutput) == JudgeVerdict.Pass;
+        }
+
+        /// <summary>
+        /// Whether a Judge output's verdict is FAIL or NEEDS_REVISION, read by the same rule the Judge-completion
+        /// seam uses. An output with no verdict, or a PASS, is not a rejection.
+        /// </summary>
+        /// <param name="agentOutput">The Judge output.</param>
+        /// <returns>True for a FAIL or NEEDS_REVISION verdict.</returns>
+        internal static bool IsJudgeRejection(string? agentOutput)
+        {
+            JudgeVerdict verdict = ParseJudgeVerdict(agentOutput);
+            return verdict == JudgeVerdict.Fail || verdict == JudgeVerdict.NeedsRevision;
+        }
+
+        /// <summary>
+        /// The verdict label of a Judge output: PASS, FAIL, NEEDS_REVISION, or none when it states no verdict.
+        /// </summary>
+        /// <param name="agentOutput">The Judge output.</param>
+        /// <returns>The verdict label.</returns>
+        internal static string DescribeJudgeVerdict(string? agentOutput)
+        {
+            return ParseJudgeVerdict(agentOutput) switch
+            {
+                JudgeVerdict.Pass => "PASS",
+                JudgeVerdict.Fail => "FAIL",
+                JudgeVerdict.NeedsRevision => "NEEDS_REVISION",
+                _ => "none"
+            };
         }
 
         private static JudgeVerdict ParseJudgeVerdict(string? agentOutput)
