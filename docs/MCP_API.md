@@ -826,6 +826,8 @@ browses the catalog. An optional nonnegative `offset` selects a page. Each page
 adds up to four full schemas to the next model request and returns descriptions
 of at most 400 characters. Discovery executes no remote action.
 
+The same client keeps the remote server's `Mcp-Session-Id` and sends it on later requests. When a request that carried that id is refused with HTTP 404, the client opens one new session with the same caller credential and sends that request once more. A second 404, a timeout, an HTTP 5xx response, or a network failure is returned to the caller. Armada's own MCP endpoint stays stateless and does not require a client to keep a session id.
+
 Each run owns its catalog and loaded schemas. Calls to any selected remote name
 still use the same authenticated MCP client, and the server checks authorization
 again. Discovery does not grant access to a hidden tool. If a selected remote or

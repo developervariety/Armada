@@ -54,6 +54,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - A refinement turn releases its own claim when persistence fails before the turn starts. It releases that claim before the session is published Active, so a request that sees Active can start the next turn. A stop that has moved the session out of Responding keeps that status and leaves the captain Idle.
 
+### Remote MCP sessions
+
+- The API runtime MCP client opens one new session with the same caller credential and sends a request once more when that request carried a session id and received HTTP 404. A second 404, a timeout, an HTTP 5xx response, and a network failure stay failed.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

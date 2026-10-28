@@ -18,6 +18,9 @@ namespace Armada.Runtimes.Mcp
     /// The only credential it can present is a session token in the <c>X-Token</c> header. It never sends an
     /// Authorization header or an API key, so a caller-scoped chat token cannot be replaced by a broader
     /// credential, and the server applies the token owner's own scope and tool access to every request.
+    /// A request that carried a server session id and is refused with HTTP 404 is sent once more after the
+    /// client opens a new session with that same credential. A second 404, a timeout, a server error, and a
+    /// network failure are returned to the caller.
     /// </summary>
     public sealed class McpToolClient : IDisposable
     {
@@ -51,6 +54,7 @@ namespace Armada.Runtimes.Mcp
         private readonly string _Endpoint;
         private readonly LoggingModule? _Logging;
         private readonly string _Header = "[McpToolClient] ";
+        private readonly SemaphoreSlim _SessionRecovery = new SemaphoreSlim(1, 1);
         private string? _SessionId = null;
         private int _RpcId = 0;
         private bool _Disposed = false;
@@ -191,6 +195,7 @@ namespace Armada.Runtimes.Mcp
         {
             if (_Disposed) return;
             _Disposed = true;
+            _SessionRecovery.Dispose();
             _Http.Dispose();
         }
 
@@ -199,6 +204,38 @@ namespace Armada.Runtimes.Mcp
         #region Private-Methods
 
         private async Task<TResult> SendAsync<TResult>(string method, object parameters, CancellationToken token) where TResult : class
+        {
+            string? session = _SessionId;
+            try
+            {
+                return await SendOnceAsync<TResult>(method, parameters, token).ConfigureAwait(false);
+            }
+            catch (McpClientException ex) when (ex.StatusCode == 404
+                && !String.IsNullOrEmpty(session)
+                && !String.Equals(method, "initialize", StringComparison.Ordinal))
+            {
+                // HTTP 404 on a request that carried a session id means the server discarded that session
+                // and did not run the call. Open one new session with the same caller credential and send
+                // the request once more. A later 404, a timeout, or any other failure is not sent again.
+                await _SessionRecovery.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    if (String.Equals(_SessionId, session, StringComparison.Ordinal))
+                    {
+                        _SessionId = null;
+                        await InitializeAsync(token).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _SessionRecovery.Release();
+                }
+
+                return await SendOnceAsync<TResult>(method, parameters, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<TResult> SendOnceAsync<TResult>(string method, object parameters, CancellationToken token) where TResult : class
         {
             McpRpcRequest payload = new McpRpcRequest();
             payload.Id = Interlocked.Increment(ref _RpcId);
