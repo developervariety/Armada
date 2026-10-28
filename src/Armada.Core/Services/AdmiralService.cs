@@ -540,6 +540,8 @@ namespace Armada.Core.Services
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
+            await MissionArchive.RecordAsync(_Database.Events, _Database.StageOutcomes, mission, "Cancel", token).ConfigureAwait(false);
+
             Captain? captain = String.IsNullOrEmpty(mission.CaptainId)
                 ? null
                 : await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);

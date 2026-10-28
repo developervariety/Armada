@@ -228,6 +228,8 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <returns>Task.</returns>
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(new EventMethods(_ConnectionString), new StageOutcomeMethods(_ConnectionString),
+                await ReadAsync(id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
             using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
@@ -517,6 +519,8 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// </summary>
         public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(new EventMethods(_ConnectionString), new StageOutcomeMethods(_ConnectionString),
+                await ReadAsync(tenantId, id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
@@ -787,6 +791,8 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <inheritdoc />
         public async Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(new EventMethods(_ConnectionString), new StageOutcomeMethods(_ConnectionString),
+                await ReadAsync(tenantId, userId, id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));

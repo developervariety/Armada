@@ -1119,7 +1119,7 @@ voyages, and signals. The same scoping applies to the MCP `status` tool and the 
 
 #### GET /api/v1/status/health
 
-Health check endpoint. **Does not require authentication.**
+Health check endpoint. **Does not require authentication.** `BuildVersion` and `CommitHash` identify the source revision embedded in the running binary; `CommitHash` is null for a build without source revision information. These fields are not read from the current checkout.
 
 **Permission:** NoAuthRequired
 
@@ -1132,6 +1132,8 @@ Health check endpoint. **Does not require authentication.**
   "StartUtc": "2026-03-07T08:00:00Z",
   "Uptime": "0.04:00:00",
   "Version": "1.2.0",
+  "BuildVersion": "1.2.0+<source-revision>",
+  "CommitHash": "<source-revision>",
   "Ports": {
     "Admiral": 7890,
     "Mcp": 7891
@@ -9660,7 +9662,7 @@ Ownership scope for Category B configuration entities (see [Data Scoping](#data-
 | Value | Description |
 |---|---|
 | `LocalMerge` | Merge the branch into the default branch in the vessel's working directory; nothing is pushed |
-| `MergeAndPush` | Merge the branch into the default branch in the vessel's working directory, then push it to the remote (the default) |
+| `MergeAndPush` | Integrate and verify in the mission dock, then push the exact verified commit to the remote target branch (the default); a dirty developer checkout is left untouched |
 | `PullRequest` | Create a pull request and poll for merge confirmation |
 | `MergeQueue` | Enqueue the branch into Armada's merge queue |
 | `None` | No automated landing; leave work on the branch |

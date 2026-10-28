@@ -6,6 +6,14 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Handoff and landing integrity
+
+- Final landing verifies the integrated commit on the owning host and publishes that exact SHA. Failed, timed-out, unavailable or mutating checks refuse publication; merge-queue passes and explicit skips now have durable receipts with commit, command, exit code and timestamps. Armada additionally runs focused integration suites even with a smoke-only workflow profile.
+- MergeAndPush publishes from the isolated dock and leaves dirty or divergent developer checkouts untouched. LocalMerge only fast-forwards to the verified commit. Harbor-only landing retries no longer require an Admiral-side clone, and disconnected Harbors cannot fall back to local execution.
+- Conditional landing and merge-queue status writes preserve concurrent cancellation/newer attempts. Queue reconciliation records the verified integration SHA before publication for restart recovery.
+- Cancellation and deletion preserve tenant-scoped mission archives with failure, branch, commit, dock, stage attempts and recent diagnostics. Cascade cleanup retains archives; the receipt explicitly distinguishes stopping recovery from verified resolution.
+- Health reports include the running binary's embedded build version and source commit. Updated landing-mode guidance and translations describe isolated publication.
+
 ### Added
 
 - Vessel **Cleanup** (Vessels and vessel page action menus) opens a read-only inventory of the vessel's docks, orphaned worktrees, and Armada-managed local branches (`armada/` prefix), grouped as Safe to clean up, Still in use, or Unknown disposition, each with its owning voyage/mission/dock, reason, and measured size (none is shown when it cannot be measured). Resources are inspected on the owning Admiral or Harbor host; a disconnected Harbor makes them Unknown. Active, queued, review, LandingFailed, captain-held, voyage-active, and merge-queue (including failed entries) references keep resources in use; dirty worktrees, unmerged work, shared paths, and paths outside Armada's docks stay Unknown. Only Safe resources can be selected; after confirmation each one is revalidated immediately before removal through the existing dock purge and git worktree/branch primitives, with per-item Deleted/Skipped/Failed results and a refreshed inventory. Remote branches, default branches, and the primary checkout are never removed. New routes: `GET` and `POST /api/v1/vessels/{id}/cleanup`; .NET client `GetVesselCleanupInventoryAsync` / `RunVesselCleanupAsync`.
