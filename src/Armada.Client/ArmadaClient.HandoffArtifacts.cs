@@ -34,6 +34,19 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// POST /api/v1/missions/{id}/handoff-artifacts/enumerate: one page of a mission's handoff artifacts, newest first.
+        /// </summary>
+        /// <param name="missionId">Mission id (msn_ prefix).</param>
+        /// <param name="query">Paging, or null for the first page of 10.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<HandoffArtifact>?> EnumerateMissionHandoffArtifactsAsync(string missionId, EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<HandoffArtifact>>($"/api/v1/missions/{E(missionId)}/handoff-artifacts/enumerate", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
         /// GET /api/v1/handoff-artifacts/{id}: the complete artifact, with output and diff.
         /// </summary>
         /// <param name="id">Artifact id (hoa_ prefix).</param>

@@ -33,7 +33,6 @@ namespace Armada.Core.Services.Ask
             // Status and enumeration
             "status",
             "enumerate",
-            "inbox",
             "voyage_status",
             "mission_status",
             "fleet_action_run_status",
@@ -42,9 +41,7 @@ namespace Armada.Core.Services.Ask
             "token_usage_summary",
             "search_memory",
             "evaluate_autoland",
-            "list_cli_permission_requests",
             "get_cli_permission_request",
-            "list_cli_permission_rules",
 
             // get_* readers
             "get_backlog_item",

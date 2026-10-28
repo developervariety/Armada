@@ -469,23 +469,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/backlog/{id}/refinement-sessions",
-      "auth": "Authenticated",
-      "resource": "ObjectiveRefinementSession:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<ObjectiveRefinementSession>",
-        "404": ""
-      },
-      "tags": [
-        "Objectives"
-      ],
-      "summary": "[Deprecated] List backlog refinement sessions Use POST /api/v1/backlog/{id}/refinement-sessions/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/backlog/{id}/refinement-sessions",
       "auth": "TenantAdmin",
@@ -553,6 +536,23 @@
         "Battery"
       ],
       "summary": "List battery packs",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/battery/packs/enumerate",
+      "auth": "Authenticated",
+      "resource": "BatteryPack:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<BatteryPackInfo>",
+        "400": ""
+      },
+      "tags": [
+        "Battery"
+      ],
+      "summary": "Enumerate fixture battery packs",
       "experimental": false
     },
     {
@@ -981,20 +981,20 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/cli-permissions/requests",
+      "method": "POST",
+      "route": "/api/v1/cli-permissions/requests/enumerate",
       "auth": "Authenticated",
       "resource": "CliPermission:Read",
-      "requestType": null,
+      "requestType": "CliPermissionRequestEnumerateRequest",
       "requestRequired": false,
       "responses": {
-        "200": "List<CliPermissionRequest>",
+        "200": "EnumerationResult<CliPermissionRequest>",
         "400": ""
       },
       "tags": [
         "CliPermissions"
       ],
-      "summary": "List CLI permission requests",
+      "summary": "Enumerate CLI permission requests",
       "experimental": false
     },
     {
@@ -1031,22 +1031,6 @@
         "CliPermissions"
       ],
       "summary": "Decide a CLI permission request",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/cli-permissions/rules",
-      "auth": "Authenticated",
-      "resource": "CliPermission:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<CliPermissionRule>"
-      },
-      "tags": [
-        "CliPermissions"
-      ],
-      "summary": "[Deprecated] List CLI permission rules Use POST /api/v1/cli-permissions/rules/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -1141,7 +1125,9 @@
       "resource": "Credential:Read",
       "requestType": null,
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<Credential>"
+      },
       "tags": [
         "Credentials"
       ],
@@ -1163,6 +1149,22 @@
         "Credentials"
       ],
       "summary": "Create credential",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/credentials/enumerate",
+      "auth": "Authenticated",
+      "resource": "Credential:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<Credential>"
+      },
+      "tags": [
+        "Credentials"
+      ],
+      "summary": "Enumerate credentials",
       "experimental": false
     },
     {
@@ -1746,6 +1748,23 @@
       "experimental": false
     },
     {
+      "method": "POST",
+      "route": "/api/v1/failure-cause-rules/enumerate",
+      "auth": "Authenticated",
+      "resource": "FailureCauseRule:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<FailureCauseRule>",
+        "400": ""
+      },
+      "tags": [
+        "FailureCauseRules"
+      ],
+      "summary": "Enumerate failure-cause rules",
+      "experimental": false
+    },
+    {
       "method": "DELETE",
       "route": "/api/v1/failure-cause-rules/{id}",
       "auth": "Authenticated",
@@ -2134,23 +2153,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/harbors",
-      "auth": "Authenticated",
-      "resource": "Harbor:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<Harbor>"
-      },
-      "tags": [
-        "Experimental",
-        "Harbors"
-      ],
-      "summary": "[Experimental] [Deprecated] List Harbors Use POST /api/v1/harbors/enumerate instead; removed in 2.0.",
-      "experimental": true
-    },
-    {
       "method": "POST",
       "route": "/api/v1/harbors",
       "auth": "Authenticated",
@@ -2296,6 +2298,24 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/harbors/{id}/jobs/enumerate",
+      "auth": "Authenticated",
+      "resource": "Harbor:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<HarborJobRecord>",
+        "404": ""
+      },
+      "tags": [
+        "Experimental",
+        "Harbors"
+      ],
+      "summary": "[Experimental] Enumerate a Harbor's jobs",
+      "experimental": true
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/harbors/{id}/jobs/{jobId}/stop",
       "auth": "TenantAdmin",
       "resource": "Harbor:Execute",
@@ -2382,22 +2402,6 @@
         "History"
       ],
       "summary": "Enumerate historical timeline entries",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/inbox",
-      "auth": "Authenticated",
-      "resource": "Inbox:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<InboxItem>"
-      },
-      "tags": [
-        "Inbox"
-      ],
-      "summary": "[Deprecated] Get the needs-you inbox Use POST /api/v1/inbox/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -2529,7 +2533,24 @@
       "tags": [
         "Jobs"
       ],
-      "summary": "List background jobs",
+      "summary": "List one page of background jobs",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/jobs/enumerate",
+      "auth": "Authenticated",
+      "resource": "Job:Read",
+      "requestType": "JobQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<Job>",
+        "400": ""
+      },
+      "tags": [
+        "Jobs"
+      ],
+      "summary": "Enumerate background jobs",
       "experimental": false
     },
     {
@@ -3048,6 +3069,24 @@
       "experimental": false
     },
     {
+      "method": "POST",
+      "route": "/api/v1/missions/{id}/handoff-artifacts/enumerate",
+      "auth": "Authenticated",
+      "resource": "HandoffArtifact:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<HandoffArtifact>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "HandoffArtifacts"
+      ],
+      "summary": "Enumerate a mission's handoff artifacts",
+      "experimental": false
+    },
+    {
       "method": "GET",
       "route": "/api/v1/missions/{id}/instructions",
       "auth": "Authenticated",
@@ -3205,22 +3244,6 @@
         "Missions"
       ],
       "summary": "Transition mission status",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/model-endpoints",
-      "auth": "Authenticated",
-      "resource": "ModelEndpoint:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<ModelEndpoint>"
-      },
-      "tags": [
-        "Model Endpoints"
-      ],
-      "summary": "[Deprecated] List model endpoints Use POST /api/v1/model-endpoints/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -3394,6 +3417,23 @@
         "ModelProbes"
       ],
       "summary": "List Evaluate runs",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/model-probe-runs/enumerate",
+      "auth": "Authenticated",
+      "resource": "ModelProbeRun:Read",
+      "requestType": "ModelProbeRunQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<ModelProbeRun>",
+        "400": ""
+      },
+      "tags": [
+        "ModelProbes"
+      ],
+      "summary": "Enumerate model probe runs",
       "experimental": false
     },
     {
@@ -3655,23 +3695,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/objectives/{id}/refinement-sessions",
-      "auth": "Authenticated",
-      "resource": "ObjectiveRefinementSession:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<ObjectiveRefinementSession>",
-        "404": ""
-      },
-      "tags": [
-        "Objectives"
-      ],
-      "summary": "[Deprecated] List objective refinement sessions Use POST /api/v1/objectives/{id}/refinement-sessions/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/objectives/{id}/refinement-sessions",
       "auth": "TenantAdmin",
@@ -3923,23 +3946,6 @@
         "Pipelines"
       ],
       "summary": "Update a pipeline",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/planning-sessions",
-      "auth": "Authenticated",
-      "resource": "PlanningSession:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<PlanningSession>",
-        "501": "ApiStatusErrorResponse"
-      },
-      "tags": [
-        "Planning"
-      ],
-      "summary": "[Deprecated] List planning sessions Use POST /api/v1/planning-sessions/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -4454,23 +4460,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/push/devices",
-      "auth": "Authenticated",
-      "resource": "PushDevice:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<PushDevice>",
-        "403": "ApiErrorResponse"
-      },
-      "tags": [
-        "Push"
-      ],
-      "summary": "[Deprecated] List push devices Use POST /api/v1/push/devices/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/push/devices",
       "auth": "Authenticated",
@@ -4658,23 +4647,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/releases/{id}/github/pull-requests",
-      "auth": "Authenticated",
-      "resource": "Release:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<GitHubPullRequestDetail>",
-        "404": ""
-      },
-      "tags": [
-        "Releases"
-      ],
-      "summary": "[Deprecated] Get GitHub pull-request evidence for a release Use POST /api/v1/releases/{id}/github/pull-requests/enumerate instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "POST",
       "route": "/api/v1/releases/{id}/github/pull-requests/enumerate",
       "auth": "Authenticated",
@@ -4755,6 +4727,22 @@
         "RequestHistory"
       ],
       "summary": "Delete multiple request-history entries",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/request-history/enumerate",
+      "auth": "Authenticated",
+      "resource": "RequestHistory:Read",
+      "requestType": "RequestHistoryQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<RequestHistoryEntry>"
+      },
+      "tags": [
+        "RequestHistory"
+      ],
+      "summary": "Enumerate request-history entries",
       "experimental": false
     },
     {
@@ -5243,38 +5231,6 @@
       "experimental": false
     },
     {
-      "method": "GET",
-      "route": "/api/v1/signals/recent",
-      "auth": "Authenticated",
-      "resource": "Signal:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<Signal>"
-      },
-      "tags": [
-        "Signals"
-      ],
-      "summary": "Get recent signals",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/signals/recipient/{captainId}",
-      "auth": "Authenticated",
-      "resource": "Signal:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "List<Signal>"
-      },
-      "tags": [
-        "Signals"
-      ],
-      "summary": "[Deprecated] Enumerate signals by recipient Use POST /api/v1/signals/enumerate (toCaptainId, unreadOnly) instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "method": "DELETE",
       "route": "/api/v1/signals/{id}",
       "auth": "TenantAdmin",
@@ -5444,6 +5400,23 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/stage-outcomes/enumerate",
+      "auth": "Authenticated",
+      "resource": "StageOutcome:Read",
+      "requestType": "StageOutcomeQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<StageOutcome>",
+        "400": ""
+      },
+      "tags": [
+        "StageOutcomes"
+      ],
+      "summary": "Enumerate stage outcomes",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/stage-outcomes/reclassify",
       "auth": "TenantAdmin",
       "resource": "StageOutcome:Execute",
@@ -5587,7 +5560,9 @@
       "resource": "Tenant:Read",
       "requestType": null,
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<TenantMetadata>"
+      },
       "tags": [
         "Tenants"
       ],
@@ -5609,6 +5584,22 @@
         "Tenants"
       ],
       "summary": "Create tenant (admin only)",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/tenants/enumerate",
+      "auth": "AdminOnly",
+      "resource": "Tenant:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<TenantMetadata>"
+      },
+      "tags": [
+        "Tenants"
+      ],
+      "summary": "Enumerate tenants (admin only)",
       "experimental": false
     },
     {
@@ -5713,6 +5704,22 @@
       "experimental": false
     },
     {
+      "method": "POST",
+      "route": "/api/v1/token-usage/enumerate",
+      "auth": "Authenticated",
+      "resource": "TokenUsage:Read",
+      "requestType": "TokenUsageQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<TokenUsageRecord>"
+      },
+      "tags": [
+        "TokenUsage"
+      ],
+      "summary": "Enumerate token-usage records",
+      "experimental": false
+    },
+    {
       "method": "GET",
       "route": "/api/v1/token-usage/summary",
       "auth": "Authenticated",
@@ -5753,7 +5760,9 @@
       "resource": "User:Read",
       "requestType": null,
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<UserMaster>"
+      },
       "tags": [
         "Users"
       ],
@@ -5776,6 +5785,22 @@
         "Users"
       ],
       "summary": "Create user (admin only)",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/users/enumerate",
+      "auth": "Authenticated",
+      "resource": "User:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<UserMaster>"
+      },
+      "tags": [
+        "Users"
+      ],
+      "summary": "Enumerate users",
       "experimental": false
     },
     {
@@ -6148,24 +6173,6 @@
         "Vessels"
       ],
       "summary": "Update a vessel",
-      "experimental": false
-    },
-    {
-      "method": "GET",
-      "route": "/api/v1/vessels/{id}/branches",
-      "auth": "Authenticated",
-      "resource": "Vessel:Read",
-      "requestType": null,
-      "requestRequired": false,
-      "responses": {
-        "200": "",
-        "404": "",
-        "503": "ApiStatusErrorResponse"
-      },
-      "tags": [
-        "Vessels"
-      ],
-      "summary": "[Deprecated] List vessel branches Use POST /api/v1/vessels/{id}/branches/enumerate instead; removed in 2.0.",
       "experimental": false
     },
     {
@@ -9508,6 +9515,11 @@
           "required": false
         },
         {
+          "name": "threadId",
+          "type": "string",
+          "required": false
+        },
+        {
           "name": "toCaptainId",
           "type": "string",
           "required": false
@@ -9528,7 +9540,7 @@
           "required": false
         }
       ],
-      "description": "Find and browse entities with paginated, filtered, sorted access to: inbox (the needs-you items, most urgent first), cli_permission_rules, objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
+      "description": "Find and browse entities with paginated, filtered, sorted access to: inbox (the needs-you items, most urgent first), cli_permission_rules, cli_permission_requests, objectives, fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, and vessel_health. Returns paginated results with total counts. Filter by vesselId, fleetId, captainId, voyageId, status, date range, and more.",
       "experimental": false
     },
     {
@@ -10200,14 +10212,6 @@
       "experimental": false
     },
     {
-      "name": "inbox",
-      "auth": "Authenticated",
-      "resource": "Inbox:Read",
-      "arguments": [],
-      "description": "[Deprecated] Return the operator's inbox: everything across the fleet that requires a human's attention or action right now, ordered most-urgent first. Use this to answer questions like \"Is there anything waiting on me?\", \"Is there anything that needs my attention?\", or \"Do I have any action items from Armada work?\". It surfaces two kinds of item: (a) work awaiting your decision (human-in-the-loop) -- missions in Review to approve or reject, deployments pending approval, and Ask Armada action proposals waiting for the caller's approval; and (b) autonomous work that failed and needs intervention (human-out-of-the-loop) -- failed missions, missions whose work could not land (landing failed), failed merges, failed or verification-failed deployments, and stalled captains. Purely informational events such as completions or normal progress are deliberately excluded. Each item has: kind, severity (Critical, Warning, or Info), title, detail, the related entity (entityType and entityId), and a dashboard href. Deployment items also carry environmentName and deploymentTitle, and a deployment approval is titled with the environment first and the deployment title second (\"Deploy to production: Release 2.3 hotfix\"). An empty items list means nothing currently needs the operator's attention. Use enumerate with entityType inbox instead; removed in 2.0.",
-      "experimental": false
-    },
-    {
       "name": "list_ask_messages",
       "auth": "Authenticated",
       "resource": "AskThread:Read",
@@ -10388,69 +10392,6 @@
         }
       ],
       "description": "List the fixture battery packs (each a fixture repository plus its tasks, defined as data), with each task's persona, grader (command, byteComparison, seededSet, mutation, rubric) and toolchain. Malformed packs are listed with valid false and their validation errors. Returns an enumeration result (objects, totalRecords, totalPages).",
-      "experimental": false
-    },
-    {
-      "name": "list_cli_permission_requests",
-      "auth": "Authenticated",
-      "resource": "CliPermission:Read",
-      "arguments": [
-        {
-          "name": "captainId",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "limit",
-          "type": "integer",
-          "required": false
-        },
-        {
-          "name": "missionId",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "status",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "threadId",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "vesselId",
-          "type": "string",
-          "required": false
-        }
-      ],
-      "description": "List CLI permission requests (a CLI captain asking to run one of its own tools, for example a shell command) visible to the caller, newest first. Admins see their tenant (global admins every tenant); other users see requests from their own missions and Ask conversations. Each request has the tool name, a redacted input summary, captain, vessel, mission or thread, status, expiry, and canDecide. The result has count (rows returned), limit (the cap applied, default 100, at most 1000), and truncated (true when the limit was reached, so more requests exist).",
-      "experimental": false
-    },
-    {
-      "name": "list_cli_permission_rules",
-      "auth": "Authenticated",
-      "resource": "CliPermission:Read",
-      "arguments": [
-        {
-          "name": "captainId",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "scope",
-          "type": "string",
-          "required": false
-        },
-        {
-          "name": "vesselId",
-          "type": "string",
-          "required": false
-        }
-      ],
-      "description": "[Deprecated] List CLI permission rules visible to the caller (the caller's tenant plus rules for every tenant). Rules use Claude Code permission rule syntax, for example Bash(git status:*), WebFetch(domain:example.com), or Edit(//repo/src/**); deny rules win over allow rules. Use enumerate with entityType cli_permission_rules instead; removed in 2.0.",
       "experimental": false
     },
     {

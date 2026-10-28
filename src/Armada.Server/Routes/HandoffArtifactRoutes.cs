@@ -2,6 +2,7 @@ namespace Armada.Server.Routes
 {
     using System;
     using System.Globalization;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using WatsonWebserver;
     using WatsonWebserver.Core;
@@ -19,6 +20,7 @@ namespace Armada.Server.Routes
         #region Private-Members
 
         private readonly HandoffArtifactAccessService _Service;
+        private static readonly JsonSerializerOptions _BodyJsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         #endregion
 
@@ -68,6 +70,37 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Page number (default 1)", false, OpenApiSchemaMetadata.Integer()))
                 .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size (1-1000, default 25)", false, OpenApiSchemaMetadata.Integer()))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<HandoffArtifact>>("One page"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/missions/{id}/handoff-artifacts/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                ApiErrorResponse? denied = Deny(req, ctx, authz);
+                if (denied != null) return denied;
+                try
+                {
+                    EnumerationQuery page = EnumerationRequestReader.Read(req, _BodyJsonOptions);
+                    return await _Service.ListByMissionAsync(ctx, req.Parameters["id"], page.PageNumber, page.PageSize).ConfigureAwait(false);
+                }
+                catch (JsonException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid request body: " + ex.Message };
+                }
+                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
+                {
+                    return RouteErrorMapper.ToResponse(req, ex);
+                }
+            },
+            api => api
+                .WithTag("HandoffArtifacts")
+                .WithSummary("Enumerate a mission's handoff artifacts")
+                .WithDescription("One page of the handoff artifacts recorded for a mission, newest first. The JSON body (EnumerationQuery) carries PageNumber and PageSize (1-1000, default 10).")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<HandoffArtifact>>("One page"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

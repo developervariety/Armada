@@ -1082,6 +1082,20 @@ namespace Armada.Server
         private async Task AuthorizeRegisteredRouteAsync(HttpContextBase ctx)
         {
             if (ctx.Request.Method == WatsonWebserver.Core.HttpMethod.OPTIONS) return;
+
+            // Retired whole-collection routes answer 410 Gone with the paged replacement, before a parameter route such as
+            // GET /api/v1/signals/{id} could take the request (DEPRECATION.md, Removed).
+            Armada.Core.ApiSurface.RetiredRouteMatch? retired = Armada.Core.ApiSurface.RetiredSurface.Match(ctx.Request.Method.ToString(), ctx.Request.Url.RawWithoutQuery);
+            if (retired != null)
+            {
+                ApplyCorsHeaders(ctx);
+                ctx.Response.StatusCode = 410;
+                ctx.Response.ContentType = "application/json";
+                ApiErrorResponse gone = new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = Armada.Core.ApiSurface.RetiredSurface.GoneMessage(retired) };
+                await ctx.Response.Send(_App.Serializer.SerializeJson(gone, false)).ConfigureAwait(false);
+                return;
+            }
+
             string? template = ResolveRegisteredRouteTemplate(ctx);
             if (template == null) return;
 

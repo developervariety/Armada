@@ -52,7 +52,7 @@ namespace Test.Shared.Suites.E2E
                 AssertStatusCode(HttpStatusCode.BadRequest, response);
             }));
 
-            cases.Add(CaseAsync("legacy_list_unchanged", "Without parameters the full list keeps its shape", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("legacy_list_unchanged", "Without parameters the route returns the first bounded page, not every job", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
                 HttpResponseMessage response = await fx.AuthClient.GetAsync("/api/v1/jobs").ConfigureAwait(false);
@@ -61,6 +61,11 @@ namespace Test.Shared.Suites.E2E
                 List<JsonPropertyShape> top = JsonShape.TopLevel(body);
                 AssertEqual(System.Text.Json.JsonTokenType.StartArray, top.Find(p => p.Name == "Objects")?.ValueToken, "Objects array (PascalCase)");
                 AssertEqual(System.Text.Json.JsonTokenType.Number, top.Find(p => p.Name == "TotalRecords")?.ValueToken, "TotalRecords number (PascalCase)");
+                EnumerationResult<Job> page = JsonHelper.Deserialize<EnumerationResult<Job>>(body);
+                AssertEqual(1, page.PageNumber, "first page");
+                AssertEqual(100, page.PageSize, "bounded default page size");
+                AssertTrue(page.Objects.Count <= 100, "never more than one page of jobs");
+                AssertTrue(page.TotalRecords >= page.Objects.Count, "total counts every job");
             }));
 
             return new TestSuiteDescriptor(suiteId: SuiteId, displayName: "Job API", cases: cases);

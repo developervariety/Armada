@@ -567,7 +567,7 @@ and 4 manage profiles.
 | `watch` | Yes | target options | Polls REST. Bell and notification settings come from this machine's settings. |
 | `log` | Yes | target options | Reads `GET /api/v1/missions/{id}/log` or `/captains/{id}/log` instead of local files; `--follow` polls every second. |
 | `diff` | Yes | target options | |
-| `inbox` | Yes | target options | |
+| `inbox` | Yes | target options | Pages through `POST /api/v1/inbox/enumerate`. |
 | `health` | Yes | target options | `--evaluate` runs on the Admiral host. |
 | `doctor` | Yes | target options | Checks reachability, transport, and the credential on the remote; skips this machine's settings, database, and runtimes. |
 | `mission list`, `create`, `show`, `cancel`, `restart`, `retry` | Yes | target options | `show` tails the log through REST. |

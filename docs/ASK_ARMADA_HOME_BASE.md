@@ -91,7 +91,7 @@ untouched).
    as an `Executed` proposal so the thread still shows what ran.
 5. The read-only allowlist is explicit and lives in one place (`AskToolPolicy`, in
    `src/Armada.Core/Services/Ask/AskToolPolicy.cs`). It names each tool individually (no wildcards): `status`,
-   `enumerate`, `inbox`, `voyage_status`, `mission_status`, `fleet_action_run_status`, `vessel_health`,
+   `enumerate` (which also serves the inbox and CLI permission requests and rules), `voyage_status`, `mission_status`, `fleet_action_run_status`, `vessel_health`,
    `papercut_summary`, `token_usage_summary`, `search_memory`, `evaluate_autoland`, and specific `get_*` and
    `list_*` readers (for example `get_vessel`, `get_mission_diff`, `get_captain_log`, `list_objectives`). The
    `mcp__armada__` prefix Claude Code adds is ignored. Everything not on the list, including any new tool until
@@ -147,7 +147,7 @@ without telemetry.
   Job) id, `cancel_voyage` / `cancel_mission` / `cancel_fleet_action_run` -> refreshes the existing tracked
   item.
 - **Needs You.** Pending, unexpired proposals in the caller's own threads also appear in the inbox
-  (`GET /api/v1/inbox`, MCP `inbox`) as kind `ask_proposal` ("Ask approval: <summary>", linking to
+  (`POST /api/v1/inbox/enumerate`, MCP `enumerate` with `entityType` `inbox`) as kind `ask_proposal` ("Ask approval: <summary>", linking to
   `/ask/<threadId>`), so the dashboard's Needs You page (`/inbox`) and the TUI's Needs You and Approvals
   center show them. Only the thread owner sees them; admins are not shown other users' proposals.
 

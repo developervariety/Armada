@@ -92,7 +92,7 @@ namespace Test.Shared.Suites.E2E
                 string openApi = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 using (JsonDocument document = JsonDocument.Parse(openApi))
                 {
-                    JsonElement harbors = document.RootElement.GetProperty("paths").GetProperty("/api/v1/harbors").GetProperty("get");
+                    JsonElement harbors = document.RootElement.GetProperty("paths").GetProperty("/api/v1/harbors/enumerate").GetProperty("post");
                     AssertStartsWith(ExperimentalSurface.Marker, harbors.GetProperty("summary").GetString() ?? "", "harbor route summary");
                     AssertTrue(harbors.GetProperty("tags").EnumerateArray().Any(t => t.GetString() == ExperimentalSurface.Tag), "harbor route carries the Experimental tag");
                     JsonElement fleets = document.RootElement.GetProperty("paths").GetProperty("/api/v1/fleets").GetProperty("get");
