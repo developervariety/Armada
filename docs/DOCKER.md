@@ -296,6 +296,104 @@ Both scripts prompt for confirmation, stop containers, and delete local SQLite d
 
 ---
 
+## Non-root Containers
+
+The default `armada-server` and `armada-proxy` images run as root. Each Dockerfile also defines a `runtime-nonroot` stage that runs the process as an unprivileged account. The default stage, `runtime`, is the last stage of each Dockerfile, so a build without `--target` produces the root image with the same user, paths and volumes as before. The dashboard image is unchanged.
+
+The `runtime-nonroot` stage takes two build arguments, `ARMADA_UID` and `ARMADA_GID` (both default to `1654`, the .NET base image's `app` user). It reuses an account that already holds the UID, or creates `armada`, and sets the account's home directory to `/home/armada` (mode `0700`). `/home/armada` and `/app/data` belong to that account. The application files under `/app` stay owned by root and are read-only to the account. UID and GID `0` fail the build.
+
+### Opting in
+
+Each stack has a compose override that selects the stage, passes the build arguments, and sets `user:` to the same UID and GID:
+
+```bash
+cd docker/armada
+docker compose -f compose.yaml -f compose.nonroot.yaml up -d --build
+
+cd ../proxy
+docker compose -f compose.yaml -f compose.nonroot.yaml up -d --build
+```
+
+`ARMADA_UID` and `ARMADA_GID` in the environment (or an `.env` file next to the compose file) select another account. The build argument and the runtime `user:` must be the same, because the image prepares the home directory for the build-time UID.
+
+### State ownership
+
+A container that runs as UID `N` can write only files that UID `N` (or its group) owns. Every directory the container writes must belong to the chosen UID before the first non-root start:
+
+| Stack | Paths |
+|-------|-------|
+| Server | `docker/armada/db`, `docker/armada/logs`, and any other bind mount or named volume under `/app/data` (docks, repositories, backups, code index) |
+| Server | A volume or bind mount at `/home/armada` that holds CLI homes (`.claude`, `.codex`, `.gemini`, `.config`), Harbor runner state, `.ssh` and `.gitconfig` |
+| Proxy | `docker/proxy/data`, `docker/proxy/logs` |
+
+Migrate an existing deployment with the container stopped, after a backup:
+
+```bash
+cd docker/armada
+docker compose down
+tar -czf armada-state-backup.tar.gz db logs
+sudo chown -R 1654:1654 db logs
+
+# A named volume: run the same chown through a throwaway container.
+docker run --rm -v <volume-name>:/state alpine chown -R 1654:1654 /state
+```
+
+Replace `1654:1654` with the chosen `ARMADA_UID:ARMADA_GID`. Mounted configuration files (`armada.json`, `proxysettings.json`) only need to be readable by that UID. SSH keys mounted for git must be readable by the account and must keep mode `0600`; mount them at `/home/armada/.ssh`, and a git configuration at `/home/armada/.gitconfig`, because the non-root account has no access to `/root`.
+
+### What breaks when ownership is wrong
+
+- The Admiral cannot write its database, logs, docks or repositories. It fails at start, or fails the first mission that needs the path, with `Permission denied` or a SQLite `unable to open database file` error.
+- Agent CLIs (Claude Code, Codex, Gemini, Cursor, OpenCode, Mux) read credentials and write session state under `$HOME`. A CLI home that the account cannot read shows as a logged-out CLI; one it cannot write fails at the first session. Credentials stored under `/root` in a root deployment are not visible to the non-root account and must be copied to `/home/armada` with the new ownership.
+- Harbor and runner tools, `dotnet`, `npm`, `git` and `gh` write caches and configuration under `$HOME`. An unwritable home fails those tools.
+- Git refuses a repository whose owner differs from the running user (`detected dubious ownership`) unless the directory is listed as safe.
+- The proxy cannot write its login rate-limit state or its logs under `/app/data`.
+
+### Verifying
+
+On a Linux host with Docker:
+
+```bash
+docker compose -f compose.yaml -f compose.nonroot.yaml up -d --build
+docker compose exec armada-server id
+docker compose exec armada-server sh -c 'touch /app/data/db/.probe && rm /app/data/db/.probe && echo "HOME=$HOME" && test -w "$HOME" && echo home-writable'
+docker compose logs --tail 50 armada-server
+curl -fsS http://localhost:7890/api/v1/status/health
+```
+
+`id` reports the chosen UID and GID, the write probe succeeds, and the log shows no `Permission denied`. Run `docker compose exec armada-server <cli> --version` for each agent CLI the deployment uses, and sign each CLI in again as that user when its credentials were not copied.
+
+### Rolling back
+
+Run the stack without the override file:
+
+```bash
+docker compose -f compose.yaml up -d --build
+```
+
+The default image runs as root, and root can read and write files owned by any UID, so no ownership change is needed. Files that the non-root run created stay owned by the non-root UID. Move credentials from `/home/armada` back to `/root` if the root deployment uses CLI sign-ins.
+
+### Pinning base images
+
+The Dockerfiles default to the floating base tags. The base images are build arguments, so a build can pin an exact patch tag or a digest without editing a file:
+
+| Image | Build argument | Default |
+|-------|----------------|---------|
+| Server build and runtime | `SDK_IMAGE` | `mcr.microsoft.com/dotnet/sdk:10.0` |
+| Proxy build | `SDK_IMAGE` | `mcr.microsoft.com/dotnet/sdk:10.0` |
+| Proxy runtime | `RUNTIME_IMAGE` | `mcr.microsoft.com/dotnet/runtime:10.0` |
+| Proxy dashboard build | `NODE_IMAGE` | `node:20-alpine` |
+
+```bash
+docker build -f src/Armada.Proxy/Dockerfile \
+  --build-arg SDK_IMAGE=mcr.microsoft.com/dotnet/sdk@sha256:<digest> \
+  --build-arg RUNTIME_IMAGE=mcr.microsoft.com/dotnet/runtime@sha256:<digest> \
+  -t armada-proxy .
+```
+
+In compose, set the same names under `build.args`.
+
+---
+
 ## Building Images from Source
 
 Build scripts are split by platform under `scripts/windows/`, `scripts/linux/`, and `scripts/macos/`. Shared shell implementations live under `scripts/common/`. They build multi-platform images (amd64 + arm64) and push to Docker Hub.

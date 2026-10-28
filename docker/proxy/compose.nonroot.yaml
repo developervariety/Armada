@@ -1,0 +1,13 @@
+# Opt-in non-root override for docker/proxy/compose.yaml. Combine the two files:
+#   docker compose -f compose.yaml -f compose.nonroot.yaml up -d --build
+# Without this file the proxy runs as root. ARMADA_UID and ARMADA_GID choose the
+# account (default 1654). The ./data and ./logs directories must be owned by that
+# UID and GID (docs/DOCKER.md, Non-root containers).
+services:
+  armada-proxy:
+    build:
+      target: runtime-nonroot
+      args:
+        ARMADA_UID: ${ARMADA_UID:-1654}
+        ARMADA_GID: ${ARMADA_GID:-1654}
+    user: "${ARMADA_UID:-1654}:${ARMADA_GID:-1654}"

@@ -25,6 +25,13 @@ upstream integrations and excludes changes already present at that baseline.
 - The jobs page filters by `Status` (a comma-separated list), `VesselId` and a submission-time range, and carries `UnreadableJournalRecords`, so a job journal record the Admiral cannot read is never missing without a count. The jobs and inbox routes keep the global-administrator requirement of their whole-list routes. The whole-list routes are unchanged.
 - The Dashboard reads these routes: the Jobs page shows one page at a time with a pager, and the Needs You, Endpoints, Captain and Planning pages read every page of their list.
 
+### Non-root container profile
+
+- Add an opt-in non-root variant of the Admiral server and proxy images. Each Dockerfile defines a `runtime-nonroot` stage that runs as `ARMADA_UID:ARMADA_GID` (default `1654`), owns `/home/armada` and `/app/data`, and sets `HOME` for agent CLIs and tools. The default `runtime` stage stays last, so a build without `--target` produces the same root image, user, paths and volumes.
+- `docker/armada/compose.nonroot.yaml` and `docker/proxy/compose.nonroot.yaml` select the stage, pass the build arguments, and set `user:`. Combine one with its `compose.yaml` to opt in; omit it to roll back.
+- The base images are build arguments (`SDK_IMAGE`, `RUNTIME_IMAGE`, `NODE_IMAGE`) whose defaults are the existing floating tags, so a build can pin an exact patch tag or digest.
+- [Running Armada with Docker](docs/DOCKER.md) documents the opt-in, the state-volume ownership migration, what breaks when ownership is wrong, verification and rollback.
+
 ### Harbor host metrics
 
 - A Harbor heartbeat may include a host sample: CPU percent, memory, the drive that holds the runner state, and counts of live jobs and live captain processes. An older Harbor omits the sample. The Admiral stores nothing for that heartbeat and the host read reports `no-data`.

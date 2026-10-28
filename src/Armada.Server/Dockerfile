@@ -1,3 +1,8 @@
+# Base images. The defaults are the floating tags. Pass an exact patch tag or a digest to pin a build:
+#   --build-arg SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:<patch>-noble
+# The runtime stage runs on the SDK image so .NET vessel gates can honor repository global.json files.
+ARG SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0
+
 # --- Mux runtime stage ---
 # Build the Mux runtime (jchristn/Mux, .NET) from source and stage it to a fixed
 # tool path. This is the CLI agent Armada drives via `mux print` -- NOT the
@@ -22,7 +27,7 @@
 # Change MUX_REF (an exact commit) to pick up a new Mux revision, and move
 # VOLTAIC_REF to the Voltaic release that revision references; the layer is
 # cached until an argument or the patch changes.
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS mux
+FROM ${SDK_IMAGE} AS mux
 ARG MUX_REF=ff0e00b0b878d025958bd0696a4e8dbb0920e18a
 ARG VOLTAIC_REF=ef7717c1e86a3c23c34423fae86804f728ce5e68
 ARG VOLTAIC_BASE_VERSION=0.7.1
@@ -63,7 +68,7 @@ RUN set -eu \
     && rm -rf /tmp/Voltaic /tmp/voltaic-pkg /tmp/voltaic-mcp-http-client.patch /tmp/Mux /tmp/mux-pkg /root/.nuget/packages /tmp/NuGetScratch
 
 # --- Build stage ---
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM ${SDK_IMAGE} AS build
 WORKDIR /src
 
 # Restore first (layer cache) — restore individual projects, not the sln
@@ -91,7 +96,11 @@ RUN dotnet publish src/Armada.Server -c Release -f net10.0 -o /app --no-restore 
 # Captains run repository checks inside mission docks. Use the SDK image so
 # .NET vessel gates can honor repo global.json files instead of failing after
 # the agent has completed.
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS runtime
+#
+# runtime-base holds the whole image. The final stage, runtime, adds nothing, so a
+# build without --target produces the root image. runtime-nonroot is the opt-in
+# variant (see the stage below); stage order keeps runtime last.
+FROM ${SDK_IMAGE} AS runtime-base
 WORKDIR /app
 
 # CLI_REFRESH busts this layer so @latest actually re-pulls. Pass
@@ -154,3 +163,33 @@ RUN ln -sf /opt/mux/mux /usr/local/bin/mux
 EXPOSE 7890 7891
 
 ENTRYPOINT ["dotnet", "Armada.Server.dll"]
+
+# --- Non-root runtime stage (opt-in: --target runtime-nonroot) ---
+# Runs the Admiral as ARMADA_UID:ARMADA_GID instead of root. The account owns its
+# home directory (CLI homes, credentials, tool caches, ~/.ssh and ~/.gitconfig
+# mounts) and /app/data (settings, database, logs, docks, repositories). The
+# application files under /app stay root-owned and read-only to the account.
+# The container UID must equal ARMADA_UID at run time, and bind-mounted or named
+# state volumes must be owned by it (docs/DOCKER.md, Non-root containers).
+# An existing account at ARMADA_UID (for example the base image's app user) is
+# reused and moved to the home directory below; ARMADA_UID 0 is rejected.
+FROM runtime-base AS runtime-nonroot
+ARG ARMADA_UID=1654
+ARG ARMADA_GID=1654
+RUN set -eu \
+    && if [ "${ARMADA_UID}" = "0" ] || [ "${ARMADA_GID}" = "0" ]; then echo "ARMADA_UID and ARMADA_GID must not be 0" >&2; exit 1; fi \
+    && if ! getent group "${ARMADA_GID}" >/dev/null; then groupadd --gid "${ARMADA_GID}" armada; fi \
+    && if getent passwd "${ARMADA_UID}" >/dev/null; then \
+         usermod --home /home/armada "$(getent passwd "${ARMADA_UID}" | cut -d: -f1)"; \
+       else \
+         useradd --no-log-init --uid "${ARMADA_UID}" --gid "${ARMADA_GID}" --no-create-home --home-dir /home/armada --shell /bin/bash armada; \
+       fi \
+    && mkdir -p /home/armada /app/data/db /app/data/logs /app/data/docks /app/data/repos \
+    && chmod 0700 /home/armada \
+    && chown -R "${ARMADA_UID}:${ARMADA_GID}" /home/armada /app/data
+ENV HOME=/home/armada
+USER ${ARMADA_UID}:${ARMADA_GID}
+
+# --- Default runtime stage (root) ---
+# Last stage, so a build without --target selects it. Its content is runtime-base unchanged.
+FROM runtime-base AS runtime
