@@ -2601,6 +2601,22 @@
       "experimental": false
     },
     {
+      "method": "POST",
+      "route": "/api/v1/memories/enumerate",
+      "auth": "Authenticated",
+      "resource": "Memory:Read",
+      "requestType": "MemoryEnumerateRequest",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<Memory>"
+      },
+      "tags": [
+        "Memories"
+      ],
+      "summary": "Enumerate memories",
+      "experimental": false
+    },
+    {
       "method": "DELETE",
       "route": "/api/v1/memories/{id}",
       "auth": "Authenticated",

@@ -5,9 +5,9 @@ import { useAuth } from '../context/AuthContext';
 import { resolveCreateScope } from '../lib/scoping';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listMemories, deleteMemory, createMemory, listVessels } from '../api/client';
+import { enumerateMemories, deleteMemory, createMemory, listVessels } from '../api/client';
 import { listAll } from '../api/paging';
-import type { Memory, MemoryType, Vessel } from '../types/models';
+import type { Memory, MemoryEnumerateQuery, MemorySortField, MemoryType, ScopeEnum, Vessel } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import PageHeader from '../components/shared/PageHeader';
@@ -22,6 +22,11 @@ const TYPES = MEMORY_TYPES;
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'vessel' | 'type' | 'topic' | 'summary' | 'salience' | 'visibility' | 'updated';
+
+/** Server sort column for each sortable header. */
+const SORT_FIELDS: Record<SortField, MemorySortField> = {
+  vessel: 'Vessel', type: 'Type', topic: 'Topic', summary: 'Summary', salience: 'Salience', visibility: 'Visibility', updated: 'Updated',
+};
 
 const MEMORY_TYPE_TIPS: Record<string, string> = {
   Episodic: 'Episodic: what happened and when, such as events, actions taken and key decisions.',
@@ -77,7 +82,7 @@ export default function Memories() {
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [confirm, setConfirm] = useState<{ open: boolean; id: string }>({ open: false, id: '' });
   const [vessels, setVessels] = useState<Vessel[]>([]);
-  // Client-side sort and column filters over the loaded page (the memory list endpoint has no ordering).
+  // Sort and column filters are sent to POST /api/v1/memories/enumerate; the server filters, sorts and pages.
   const [sortField, setSortField] = useState<SortField>('updated');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [colFilters, setColFilters] = useState({ vessel: '', topic: '', summary: '', salience: '', visibility: '' });
@@ -85,10 +90,21 @@ export default function Memories() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const filters: Record<string, string> = {};
-      if (typeFilter) filters.type = typeFilter;
-      if (search.trim()) filters.search = search.trim();
-      const result = await listMemories({ pageNumber, pageSize, filters });
+      const query: MemoryEnumerateQuery = {
+        pageNumber,
+        pageSize,
+        sortBy: SORT_FIELDS[sortField],
+        order: sortDir === 'asc' ? 'CreatedAscending' : 'CreatedDescending',
+      };
+      if (typeFilter) query.type = typeFilter;
+      if (search.trim()) query.search = search.trim();
+      if (colFilters.vessel.trim()) query.vesselName = colFilters.vessel.trim();
+      if (colFilters.topic.trim()) query.topicContains = colFilters.topic.trim();
+      if (colFilters.summary.trim()) query.summaryContains = colFilters.summary.trim();
+      if (colFilters.visibility) query.scope = colFilters.visibility as ScopeEnum;
+      const minSalience = colFilters.salience.trim() === '' ? NaN : Number(colFilters.salience);
+      if (!Number.isNaN(minSalience)) query.minSalience = minSalience;
+      const result = await enumerateMemories(query);
       setMemories(result.objects ?? []);
       setTotalPages(result.totalPages ?? 1);
       setTotalRecords(result.totalRecords ?? 0);
@@ -97,7 +113,7 @@ export default function Memories() {
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize, typeFilter, search, pushToast, t]);
+  }, [pageNumber, pageSize, sortField, sortDir, typeFilter, search, colFilters, pushToast, t]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -123,49 +139,15 @@ export default function Memories() {
 
   const memorySummary = (m: Memory) => m.summary || m.content;
 
-  const filtered = useMemo(() => {
-    const has = (value: string | null | undefined, needle: string) => !needle.trim() || (value ?? '').toLowerCase().includes(needle.trim().toLowerCase());
-    const minSalience = colFilters.salience.trim() === '' ? null : Number(colFilters.salience);
-    return memories.filter(m => {
-      const vesselId = memoryVesselId(m);
-      return (!colFilters.vessel.trim() || (vesselId !== null && has(vesselName(vesselId), colFilters.vessel)))
-        && has(m.topic, colFilters.topic)
-        && has(memorySummary(m), colFilters.summary)
-        && (colFilters.visibility === '' || m.scope === colFilters.visibility)
-        && (minSalience === null || Number.isNaN(minSalience) || m.salience >= minSalience);
-    });
-  }, [memories, colFilters, vesselName]);
-
-  const sorted = useMemo(() => {
-    const arr = [...filtered];
-    arr.sort((a, b) => {
-      let va: string | number = '';
-      let vb: string | number = '';
-      switch (sortField) {
-        case 'vessel': {
-          const ia = memoryVesselId(a);
-          const ib = memoryVesselId(b);
-          va = ia ? vesselName(ia).toLowerCase() : '';
-          vb = ib ? vesselName(ib).toLowerCase() : '';
-          break;
-        }
-        case 'type': va = a.type.toLowerCase(); vb = b.type.toLowerCase(); break;
-        case 'topic': va = (a.topic ?? '').toLowerCase(); vb = (b.topic ?? '').toLowerCase(); break;
-        case 'summary': va = (memorySummary(a) ?? '').toLowerCase(); vb = (memorySummary(b) ?? '').toLowerCase(); break;
-        case 'salience': va = a.salience; vb = b.salience; break;
-        case 'visibility': va = a.scope ?? ''; vb = b.scope ?? ''; break;
-        case 'updated': va = a.lastUpdateUtc ?? ''; vb = b.lastUpdateUtc ?? ''; break;
-      }
-      if (va < vb) return sortDir === 'asc' ? -1 : 1;
-      if (va > vb) return sortDir === 'asc' ? 1 : -1;
-      return 0;
-    });
-    return arr;
-  }, [filtered, sortField, sortDir, vesselName]);
-
   function handleSort(field: SortField) {
     if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortField(field); setSortDir('asc'); }
+    setPageNumber(1);
+  }
+
+  function setColFilter(key: keyof typeof colFilters, value: string) {
+    setColFilters(f => ({ ...f, [key]: value }));
+    setPageNumber(1);
   }
 
   const sort: DataTableSort = { field: sortField, dir: sortDir, onSort: (f) => handleSort(f as SortField) };
@@ -173,8 +155,8 @@ export default function Memories() {
   const columns: DataTableColumn<Memory>[] = [
     {
       key: 'vessel', label: t('Vessel'), sortKey: 'vessel', headerTitle: t('Repository this memory is about, or that the work came from. Click a name to open that vessel; hover for its ID. A dash means it applies to no single vessel.'), cellClassName: 'text-dim', interactive: true,
-      clearFilter: () => setColFilters(f => ({ ...f, vessel: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by vessel')} title={t('Show only memories on this page whose vessel name contains this text. Not case sensitive.')} value={colFilters.vessel} onChange={e => setColFilters(f => ({ ...f, vessel: e.target.value }))} placeholder={t('Search...')} />,
+      clearFilter: () => setColFilter('vessel', ''),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by vessel')} title={t('Show only memories whose vessel name contains this text. Not case sensitive.')} value={colFilters.vessel} onChange={e => setColFilter('vessel', e.target.value)} placeholder={t('Search...')} />,
       render: (m) => {
         const vesselId = memoryVesselId(m);
         return vesselId ? (
@@ -203,28 +185,28 @@ export default function Memories() {
     },
     {
       key: 'topic', label: t('Topic'), sortKey: 'topic', headerTitle: t('Group within the type that related memories share, for example code-style or deployment. A dash means none.'), cellClassName: 'text-dim',
-      clearFilter: () => setColFilters(f => ({ ...f, topic: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by topic')} title={t('Show only memories on this page whose topic contains this text. Not case sensitive.')} value={colFilters.topic} onChange={e => setColFilters(f => ({ ...f, topic: e.target.value }))} placeholder={t('Search...')} />,
+      clearFilter: () => setColFilter('topic', ''),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by topic')} title={t('Show only memories whose topic contains this text. Not case sensitive.')} value={colFilters.topic} onChange={e => setColFilter('topic', e.target.value)} placeholder={t('Search...')} />,
       render: (m) => m.topic || '-',
     },
     {
       // One line; the full summary (or content) is in the tooltip.
       key: 'summary', label: t('Summary'), required: true, sortKey: 'summary', headerTitle: t('One-line summary of the memory (or its content when there is no summary). Hover for the full text; click a row for every field.'), cellClassName: 'truncate-cell', cellTitle: memorySummary,
-      clearFilter: () => setColFilters(f => ({ ...f, summary: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Filter by summary')} title={t('Show only memories on this page whose summary (or content) contains this text. Not case sensitive.')} value={colFilters.summary} onChange={e => setColFilters(f => ({ ...f, summary: e.target.value }))} placeholder={t('Search...')} />,
+      clearFilter: () => setColFilter('summary', ''),
+      filter: <input type="text" className="col-filter" aria-label={t('Filter by summary')} title={t('Show only memories whose summary (or content) contains this text. Not case sensitive.')} value={colFilters.summary} onChange={e => setColFilter('summary', e.target.value)} placeholder={t('Search...')} />,
       render: (m) => <span className="truncate-text">{memorySummary(m)}</span>,
     },
     {
       key: 'salience', label: t('Salience'), sortKey: 'salience', headerTitle: t('Importance from 0.00 to 1.00 (default 0.50). Higher memories are recalled first when agents search memory.'), cellClassName: 'text-dim',
-      clearFilter: () => setColFilters(f => ({ ...f, salience: '' })),
-      filter: <input type="number" min={0} max={1} step={0.05} className="col-filter" aria-label={t('Minimum salience')} title={t('Show only memories on this page with at least this salience.')} value={colFilters.salience} onChange={e => setColFilters(f => ({ ...f, salience: e.target.value }))} placeholder={t('Min')} />,
+      clearFilter: () => setColFilter('salience', ''),
+      filter: <input type="number" min={0} max={1} step={0.05} className="col-filter" aria-label={t('Minimum salience')} title={t('Show only memories with at least this salience.')} value={colFilters.salience} onChange={e => setColFilter('salience', e.target.value)} placeholder={t('Min')} />,
       render: (m) => m.salience.toFixed(2),
     },
     {
       key: 'visibility', label: t('Visibility'), sortKey: 'visibility', headerTitle: t('Tenant-wide memories are recalled for everyone in the tenant; personal ones only for their owner.'),
-      clearFilter: () => setColFilters(f => ({ ...f, visibility: '' })),
+      clearFilter: () => setColFilter('visibility', ''),
       filter: (
-        <select className="col-filter" aria-label={t('Filter by visibility')} title={t('Show only tenant-wide or only personal memories on this page.')} value={colFilters.visibility} onChange={e => setColFilters(f => ({ ...f, visibility: e.target.value }))}>
+        <select className="col-filter" aria-label={t('Filter by visibility')} title={t('Show only tenant-wide or only personal memories.')} value={colFilters.visibility} onChange={e => setColFilter('visibility', e.target.value)}>
           <option value="">{t('All')}</option>
           <option value="TenantWide">{t('Tenant-wide')}</option>
           <option value="UserSpecific">{t('Personal')}</option>
@@ -292,7 +274,7 @@ export default function Memories() {
       <DataTable
         tableKey="memories"
         columns={columns}
-        rows={sorted}
+        rows={memories}
         sort={sort}
         rowKey={(m) => m.id}
         onRowClick={(m) => setJsonData({ open: true, title: `${t('Memory')}: ${m.id}`, data: m })}

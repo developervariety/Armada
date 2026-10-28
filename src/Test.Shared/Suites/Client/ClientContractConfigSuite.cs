@@ -109,6 +109,14 @@ namespace Test.Shared.Suites.Client
                 AssertEqual(memory.Content, (await c.GetMemoryAsync(createdMemory.Id))?.Content, "get memory");
                 createdMemory.Summary = "updated";
                 AssertEqual("updated", (await c.UpdateMemoryAsync(createdMemory.Id, createdMemory))?.Summary, "update memory");
+                MemoryEnumerateRequest memoryQuery = new MemoryEnumerateRequest();
+                memoryQuery.Search = "Contract memory " + s;
+                memoryQuery.SortBy = MemorySortEnum.Updated;
+                memoryQuery.PageSize = 5;
+                EnumerationResult<Memory> enumerated = (await c.EnumerateMemoriesAsync(memoryQuery))!;
+                AssertEqual(1L, enumerated.TotalRecords, "enumerate memories total");
+                AssertEqual(createdMemory.Id, enumerated.Objects.Single().Id, "enumerate memories match");
+                AssertNotNull(await c.EnumerateMemoriesAsync(), "enumerate memories default");
                 await c.DeleteMemoryAsync(createdMemory.Id);
 
                 Playbook playbook = (await c.CreatePlaybookAsync(new Playbook { FileName = "contract-" + s + ".md", Content = "# Steps" }))!;

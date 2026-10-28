@@ -840,7 +840,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `runbook_executions` (aliases `runbook-executions`, `runbookexecution`) | `search` (current MCP enumeration is primarily paginated browse) |
 | `project_profiles` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
 | `skills` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
-| `memories` | `search` (plus paginated browse) |
+| `memories` | `search` (content, topic, tags), `vesselId` (vessel or source vessel), `voyageId`, `missionId`, `createdAfter`, `createdBefore`, `order`. Filtered, sorted and paged in the database within the caller's visibility. Without `order`, salience descending then newest first; with `order`, by created time. |
 | `jobs` | (paginated browse only) |
 | `model_endpoints` | `createdAfter`, `createdBefore` (current MCP enumeration is primarily paginated browse) |
 | `vessel_import_batch` (aliases `vessel_import_batches`, `vessel-import-batch`, `import_batches`) | `status` (Discovered/Importing/Completed/CompletedWithFailures/Failed/Discovering), `createdAfter`, `createdBefore`, `order`. Scoped to the caller's tenant. Items are not included; read a batch with items through `GET /api/v1/vessels/import/batches/{id}`. |
