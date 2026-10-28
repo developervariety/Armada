@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System.Collections.Concurrent;
     using System.Diagnostics;
     using System.Globalization;
+    using System.Text.Json.Serialization;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -75,6 +76,7 @@ namespace Armada.Core.Services
         /// </summary>
         private readonly ConcurrentDictionary<string, byte> _ActiveIntegrationBranches = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
+        [JsonConverter(typeof(JsonStringEnumConverter))]
         private enum MergeBranchResultEnum
         {
             Merged,
