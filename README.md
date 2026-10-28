@@ -84,6 +84,13 @@ explain the fork behavior and link to its subsystem guides.
 | UI and local releases | Shared table controls on Voyages only; staged Dashboard installation with rollback and fresh-install failure checks. |
 | Administrator storage inventory | Adapted: a cached, read-only, bounded scan of the data directory by category plus database size and table metadata on all four providers, a manual refresh, a bounded growth history kept in one JSON file, `GET /api/v1/storage`, `POST /api/v1/storage/refresh` and a Dashboard Storage page, all global-administrator only. Harbor runners do not report storage. See [Storage Inventory](docs/STORAGE_INVENTORY.md). Disk lifecycle cleanup is a separate feature. |
 | Architect plans | Version 2 and 3 JSON contracts with an explicit integration barrier that waits for all accepted branches to land. |
+| Default credentials | Adapted: a non-loopback start refuses while the seeded admin password is active, unless `ARMADA_INITIAL_ADMIN_PASSWORD` replaces it or an explicit setting allows it with a warning. The known `default` bearer token is retired once the password changes. New tenants get a supplied or generated admin password, and a self-service password change needs the current password. See [upgrading](docs/UPGRADING.md#seeded-default-credentials). |
+| Login and proxy hardening | Credential logins lock an account or client address after repeated failures and return `429`. The remote proxy refuses its built-in password, persists its lockouts, requires a session for its instance list and marks its cookie `Secure` behind HTTPS. |
+| Runtime and script reliability | Refinement sessions release only their own turn, a remote MCP session that returns 404 is replayed once, worktree and conflict reads are NUL-delimited, POSIX publish scripts forward their framework options, and Codex tool inventory runs on the host that executes the captain. |
+| Judge restart context | Adapted: a restarted Judge whose last run ended `FAIL` or `NEEDS_REVISION` receives a capped, historical excerpt of that review to re-check against the current commit; the complete output stays in the mission's preserved runs. |
+| Operational visibility | Harbor host metrics in a bounded in-memory ring, an advisory per-vessel repository health report that never blocks dispatch, and pending Ask proposals in the Needs You inbox. |
+| Paged lists and typed errors | Additive: paged `POST .../enumerate` routes for jobs, the inbox, model endpoints and planning sessions beside the unchanged whole-list routes, with caller scope applied before paging. HTTP 501, 503 and 504 bodies and WebSocket `command.error` frames add a machine-readable code; existing `Error` values and statuses are unchanged. |
+| Non-root containers | Opt-in only: a `runtime-nonroot` image stage and a compose override for the server and proxy. The default images stay root, and base images keep their floating tags. See [Docker](docs/DOCKER.md). |
 
 ### Upstream features not imported
 
@@ -97,6 +104,10 @@ explain the fork behavior and link to its subsystem guides.
 | Upstream routing, blocked-stage and recovery replacements | Keep fork Smart Routing, exact-commit verification, incidents and bounded rescue rules. |
 | Upstream retention and bulk permanent deletion | Keep the fork archive and retention rules. |
 | Cloud model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) | Not ported. |
+| Ask pane interface refinements | Deferred. |
+| MCP tier field, typed mission and model-validation reporting, request-history filter | Deferred. |
+| Upstream's other developer conveniences (workflow-profile suggestions, bulk checkout history, token heatmap, proxy-build and endpoint options, SDK and Harbor desktop) | Deferred. |
+| Removal of whole-list routes and a deprecation registry | Not adopted; the whole-list routes stay beside the paged routes. |
 
 This table records selected integration decisions. It is not an inventory of
 every later upstream change. A capability present in source can also be disabled
