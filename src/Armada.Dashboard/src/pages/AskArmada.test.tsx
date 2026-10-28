@@ -984,3 +984,85 @@ describe('AskArmada mark read and unread', () => {
     await waitFor(() => expect(enumerateAskThreads).toHaveBeenCalled());
   });
 });
+
+describe('AskArmada conversation cards survive navigating away and back', () => {
+  function chipNamed(name: string): HTMLElement[] {
+    return Array.from(document.querySelectorAll<HTMLElement>('details.chat-tool')).filter((d) => d.querySelector('.chat-tool-name')?.textContent === name);
+  }
+
+  it('a turn still running restores its tool calls (expandable), text, and thinking, without duplicates when it completes', async () => {
+    vi.mocked(sendAskMessage).mockResolvedValue({ messageId: 'amg_20', turnId: 'turn_live' });
+    const first = renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    const input = screen.getByRole('combobox', { name: 'Message' });
+    fireEvent.change(input, { target: { value: 'How is it going?' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(sendAskMessage).toHaveBeenCalled());
+    emit('ask.tool', { threadId: 'ath_1', turnId: 'turn_live', phase: 'started', id: 'c9', name: 'mcp__armada__status', arguments: '{"verbose":true}' });
+    emit('ask.tool', { threadId: 'ath_1', turnId: 'turn_live', phase: 'completed', id: 'c9', name: 'mcp__armada__status', ok: true, result: '{"health":"ok"}', elapsedMs: 40 });
+    emit('ask.chunk', { threadId: 'ath_1', turnId: 'turn_live', delta: 'Two of four ' });
+    expect(chipNamed('mcp__armada__status')).toHaveLength(1);
+    first.unmount();
+
+    // Back on the page while the turn is still running: the reply is not persisted yet, the detail carries its progress.
+    const user: AskMessage = { id: 'amg_20', threadId: 'ath_1', sequence: 9, role: 'User', kind: 'Text', contentText: 'How is it going?' };
+    const reservedReply: AskMessage = { id: 'amg_21', threadId: 'ath_1', sequence: 10, role: 'Assistant', kind: 'Text', contentText: '', toolCalls: [] };
+    const liveCall = { id: 'atc_9', callId: 'c9', toolName: 'mcp__armada__status', argumentsText: '{"verbose":true}', resultText: '{"health":"ok"}', ok: true, elapsedMs: 40 };
+    vi.mocked(enumerateAskMessages).mockResolvedValue({ messages: [...messages, user, reservedReply], hasMore: false });
+    vi.mocked(getAskThread).mockResolvedValue({
+      ...detail,
+      thread: { ...threads[0], activeTurnId: 'turn_live' },
+      activeTurn: { turnId: 'turn_live', messageId: 'amg_21', text: 'Two of four ', thinkingText: 'Counting missions.', toolCalls: [liveCall] },
+    });
+    renderAt('/ask');
+    await waitFor(() => expect(currentPath()).toBe('/ask/ath_1'));
+    await waitFor(() => expect(chipNamed('mcp__armada__status')).toHaveLength(1));
+    const chip = chipNamed('mcp__armada__status')[0];
+    expect(chip).toHaveClass('chat-tool-success');
+    fireEvent.click(chip.querySelector('summary')!);
+    expect(chip).toHaveAttribute('open');
+    expect(chip.querySelector('.chat-tool-detail')!.textContent).toContain('"verbose": true');
+    expect(chip.querySelector('.chat-tool-detail')!.textContent).toContain('"health": "ok"');
+    expect(screen.getByText('Two of four')).toBeInTheDocument();
+    expect(screen.getByText('Counting missions.')).toBeInTheDocument();
+    // The other cards are back too.
+    expect(screen.getByText('enumerate')).toBeInTheDocument();
+    expect(screen.getByText('Dispatch voyage "Billing fix"')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Voyage: Billing fix voyage' })).toBeInTheDocument();
+
+    // A tool event the page sees after returning updates the same card; the persisted reply then replaces the stream.
+    emit('ask.tool', { threadId: 'ath_1', turnId: 'turn_live', phase: 'completed', id: 'c9', name: 'mcp__armada__status', ok: true, result: '{"health":"ok"}', elapsedMs: 40 });
+    expect(chipNamed('mcp__armada__status')).toHaveLength(1);
+    const finalReply: AskMessage = { ...reservedReply, contentText: 'Two of four missions are done.', toolCalls: [liveCall] };
+    vi.mocked(enumerateAskMessages).mockResolvedValue({ messages: [...messages, user, finalReply], hasMore: false });
+    emit('ask.message', { threadId: 'ath_1', message: finalReply });
+    emit('ask.turn', { threadId: 'ath_1', turnId: 'turn_live', state: 'completed', messageId: 'amg_21' });
+    expect(await screen.findByText('Two of four missions are done.')).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector('.is-streaming')).toBeNull());
+    expect(chipNamed('mcp__armada__status')).toHaveLength(1);
+  });
+
+  it('switching to another conversation and back shows the persisted tool call, confirm, and work cards again', async () => {
+    const other: AskMessage[] = [{ id: 'amg_90', threadId: 'ath_2', sequence: 1, role: 'User', kind: 'Text', contentText: 'Sweep the dependencies' }];
+    vi.mocked(getAskThread).mockImplementation(async (id: string) => (id === 'ath_2' ? { thread: threads[1], trackedWork: [], pendingProposals: [] } : detail));
+    vi.mocked(enumerateAskMessages).mockImplementation(async (id: string) => ({ messages: id === 'ath_2' ? other : messages, hasMore: false }));
+    renderAt('/ask/ath_1');
+    await screen.findByText('Fix the billing retry bug');
+    expect(chipNamed('enumerate')).toHaveLength(1);
+
+    fireEvent.click(within(threadRows()[1]).getByText('Dependency sweep'));
+    await screen.findByText('Sweep the dependencies');
+    expect(chipNamed('enumerate')).toHaveLength(0);
+
+    fireEvent.click(within(threadRows()[0]).getByText('Billing fix'));
+    await screen.findByText('Fix the billing retry bug');
+    expect(chipNamed('enumerate')).toHaveLength(1);
+    const chip = chipNamed('enumerate')[0];
+    fireEvent.click(chip.querySelector('summary')!);
+    expect(chip).toHaveAttribute('open');
+    expect(screen.getAllByText('Dispatch voyage "Billing fix"')).toHaveLength(1);
+    expect(screen.getByText('Approval needed')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Voyage: Billing fix voyage' })).toBeInTheDocument();
+    expect(screen.getByText('Captain runtime crashed.')).toBeInTheDocument();
+  });
+});

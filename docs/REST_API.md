@@ -4145,7 +4145,12 @@ for the next turn, or null without a captain), `SummaryText`, `SummaryUtc`, `Pin
 `CreatedUtc`, `LastUpdateUtc`.
 
 `AskThreadDetail`: `{ Thread, TrackedWork: AskTrackedWork[] (each with Snapshot), PendingProposals: AskActionProposal[],
-PendingCliPermissions: CliPermissionRequest[] (pending requests of the thread's captain, newest first) }`.
+PendingCliPermissions: CliPermissionRequest[] (pending requests of the thread's captain, newest first),
+ActiveTurn: AskTurnProgress | null }`. `ActiveTurn` is set only while a captain turn runs (its `TurnId` equals the thread's
+`ActiveTurnId`): `{ TurnId, MessageId (the reserved reply), Text, ThinkingText, ToolCalls: AskMessageToolCall[], StartedUtc }`
+with what the turn has streamed so far (a call still running has a null `Ok` and no `ResultText`). The reply and its tool
+calls are persisted only when the turn ends, so a client that opens the thread mid-turn restores the live reply from it.
+A turn that is stopped or fails keeps the tool calls it already made on its `Error` message.
 
 `AskMessage`: `Id` (amg_), `ThreadId`, `Sequence` (per-thread, strictly increasing), `Role` (`User`, `Assistant`,
 `System`), `Kind` (`Text`, `ActionProposal`, `ActionResult`, `WorkUpdate`, `Summary`, `Error`, `CliPermission`,

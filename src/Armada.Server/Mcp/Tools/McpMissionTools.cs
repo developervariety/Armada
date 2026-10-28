@@ -440,7 +440,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)McpToolError.NotFound("Mission not found");
                     bool success = await landingService.RetryLandingAsync(request.MissionId).ConfigureAwait(false);
                     Mission? mission = await database.Missions.ReadAsync(request.MissionId).ConfigureAwait(false);
-                    return (object)new { Success = success, Mission = mission };
+                    return (object)new { Success = success, Reason = success ? null : (String.IsNullOrWhiteSpace(mission?.FailureReason) ? "Landing retry did not complete; mission status: " + mission?.Status : mission.FailureReason), Mission = mission };
                 });
 
             register(

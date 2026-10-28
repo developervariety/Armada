@@ -1177,7 +1177,7 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(MissionStatusEnum.InProgress, apiTest!.Status, "Test stage should start after worker completion");
 
                     Captain? testCaptain = await testDb.Driver.Captains.ReadAsync(apiTest.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "test complete";
+                    missionService.OnGetMissionOutput = _ => "test complete\n[ARMADA:RESULT] COMPLETE";
                     await missionService.HandleCompletionAsync(testCaptain!, apiTest.Id).ConfigureAwait(false);
 
                     apiTest = await testDb.Driver.Missions.ReadAsync(apiTest.Id).ConfigureAwait(false);
@@ -1676,7 +1676,7 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(MissionStatusEnum.Pending, backendWorker!.Status, "Dependent worker should still wait while upstream review is running");
 
                     Captain? activeTestCaptain = await testDb.Driver.Captains.ReadAsync(coreTest.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "core tests complete";
+                    missionService.OnGetMissionOutput = _ => "core tests complete\n[ARMADA:RESULT] COMPLETE";
                     await missionService.HandleCompletionAsync(activeTestCaptain!, coreTest.Id).ConfigureAwait(false);
 
                     coreJudge = await testDb.Driver.Missions.ReadAsync(coreJudge.Id).ConfigureAwait(false);

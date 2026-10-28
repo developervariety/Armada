@@ -1981,7 +1981,23 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('vessels', 'lint_command') IS NULL ALTER TABLE vessels ADD lint_command NVARCHAR(MAX) NULL;",
                     @"IF COL_LENGTH('vessels', 'audit_command') IS NULL ALTER TABLE vessels ADD audit_command NVARCHAR(MAX) NULL;"),
                 new SchemaMigration(100, "Add abbreviated_unit_test_command to workflow_profiles so a profile can carry a quick unit-test command next to the full one",
-                    @"IF COL_LENGTH('workflow_profiles', 'abbreviated_unit_test_command') IS NULL ALTER TABLE workflow_profiles ADD abbreviated_unit_test_command NVARCHAR(MAX) NULL;")
+                    @"IF COL_LENGTH('workflow_profiles', 'abbreviated_unit_test_command') IS NULL ALTER TABLE workflow_profiles ADD abbreviated_unit_test_command NVARCHAR(MAX) NULL;"),
+                new SchemaMigration(101, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"IF COL_LENGTH('fleet_actions', 'command_windows') IS NULL ALTER TABLE fleet_actions ADD command_windows NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_actions', 'output_parser') IS NULL ALTER TABLE fleet_actions ADD output_parser NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_actions', 'scan_source_action_key') IS NULL ALTER TABLE fleet_actions ADD scan_source_action_key NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_actions', 'required_tools_json') IS NULL ALTER TABLE fleet_actions ADD required_tools_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_actions', 'requires_network') IS NULL ALTER TABLE fleet_actions ADD requires_network BIT NOT NULL DEFAULT 0;",
+                    @"IF COL_LENGTH('fleet_actions', 'inputs_json') IS NULL ALTER TABLE fleet_actions ADD inputs_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_action_runs', 'command_windows') IS NULL ALTER TABLE fleet_action_runs ADD command_windows NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_action_runs', 'output_parser') IS NULL ALTER TABLE fleet_action_runs ADD output_parser NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_action_runs', 'scan_source_action_key') IS NULL ALTER TABLE fleet_action_runs ADD scan_source_action_key NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_action_runs', 'required_tools_json') IS NULL ALTER TABLE fleet_action_runs ADD required_tools_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_action_runs', 'requires_network') IS NULL ALTER TABLE fleet_action_runs ADD requires_network BIT NOT NULL DEFAULT 0;",
+                    @"IF COL_LENGTH('fleet_action_runs', 'inputs_json') IS NULL ALTER TABLE fleet_action_runs ADD inputs_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_action_runs', 'input_values_json') IS NULL ALTER TABLE fleet_action_runs ADD input_values_json NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('fleet_action_runs', 'findings_count') IS NULL ALTER TABLE fleet_action_runs ADD findings_count INT NOT NULL DEFAULT 0;",
+                    @"IF COL_LENGTH('fleet_action_run_targets', 'scan_summary') IS NULL ALTER TABLE fleet_action_run_targets ADD scan_summary NVARCHAR(MAX) NULL;")
 
 
             };

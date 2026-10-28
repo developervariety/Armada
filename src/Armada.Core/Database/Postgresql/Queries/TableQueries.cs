@@ -2018,7 +2018,23 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS lint_command TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN IF NOT EXISTS audit_command TEXT;"),
                 new SchemaMigration(100, "Add abbreviated_unit_test_command to workflow_profiles so a profile can carry a quick unit-test command next to the full one",
-                    @"ALTER TABLE workflow_profiles ADD COLUMN IF NOT EXISTS abbreviated_unit_test_command TEXT;")
+                    @"ALTER TABLE workflow_profiles ADD COLUMN IF NOT EXISTS abbreviated_unit_test_command TEXT;"),
+                new SchemaMigration(101, "Add fleet action runtime inputs, parser and preflight snapshots and findings counts",
+                    @"ALTER TABLE fleet_actions ADD COLUMN IF NOT EXISTS command_windows TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN IF NOT EXISTS output_parser TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN IF NOT EXISTS scan_source_action_key TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN IF NOT EXISTS required_tools_json TEXT NULL;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN IF NOT EXISTS requires_network BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE fleet_actions ADD COLUMN IF NOT EXISTS inputs_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS command_windows TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS output_parser TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS scan_source_action_key TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS required_tools_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS requires_network BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS inputs_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS input_values_json TEXT NULL;",
+                    @"ALTER TABLE fleet_action_runs ADD COLUMN IF NOT EXISTS findings_count INT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE fleet_action_run_targets ADD COLUMN IF NOT EXISTS scan_summary TEXT NULL;")
 
 
             };

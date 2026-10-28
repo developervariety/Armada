@@ -3135,9 +3135,31 @@ export interface VesselImportErrorDetail {
 
 export type FleetActionKind = 'Command' | 'Mission';
 export type FleetActionRunStatus = 'Pending' | 'Running' | 'Completed' | 'CompletedWithFailures' | 'Cancelled' | 'Failed';
-export type FleetActionTargetStatus = 'Pending' | 'Skipped' | 'Running' | 'Succeeded' | 'Failed' | 'Cancelled' | 'TimedOut';
+export type FleetActionTargetStatus = 'Pending' | 'Skipped' | 'Running' | 'Succeeded' | 'Failed' | 'Cancelled' | 'TimedOut' | 'Findings';
 
+export interface FleetActionInput {
+  name: string;
+  type: 'string' | 'semver' | 'enum';
+  required: boolean;
+  default?: string | null;
+  allowedValues: string[];
+  description?: string | null;
+}
+export interface FleetActionInputRequest {
+  Name: string;
+  Type: 'string' | 'semver' | 'enum';
+  Required?: boolean;
+  Default?: string | null;
+  AllowedValues?: string[];
+  Description?: string | null;
+}
 export interface FleetAction {
+  inputs?: FleetActionInput[];
+  requiredTools?: string[];
+  requiresNetwork?: boolean;
+  commandWindows?: string | null;
+  outputParser?: string | null;
+  scanSourceActionKey?: string | null;
   id: string;
   tenantId: string | null;
   userId: string | null;
@@ -3160,6 +3182,12 @@ export interface FleetAction {
 
 /** Create/update body. PascalCase keys because the server binds them as-is. */
 export interface FleetActionUpsertRequest {
+  Inputs?: FleetActionInputRequest[];
+  RequiredTools?: string[];
+  RequiresNetwork?: boolean;
+  CommandWindows?: string | null;
+  OutputParser?: string | null;
+  ScanSourceActionKey?: string | null;
   Name?: string;
   Description?: string | null;
   Kind?: FleetActionKind;
@@ -3180,6 +3208,7 @@ export interface FleetActionRunOverrides {
 }
 
 export interface FleetActionRunRequest {
+  InputValues?: Record<string, string>;
   VesselIds: string[];
   Concurrency?: number | null;
   Overrides?: FleetActionRunOverrides | null;
@@ -3196,6 +3225,14 @@ export interface FleetActionRunStartResult {
 }
 
 export interface FleetActionRun {
+  inputs?: FleetActionInput[];
+  findingsCount?: number;
+  requiredTools?: string[];
+  requiresNetwork?: boolean;
+  commandWindows?: string | null;
+  outputParser?: string | null;
+  scanSourceActionKey?: string | null;
+  inputValues?: Record<string, string>;
   approvalOptions?: RunApprovalOptions | null;
   id: string;
   tenantId: string | null;
@@ -3223,6 +3260,7 @@ export interface FleetActionRun {
 }
 
 export interface FleetActionRunTargetSummary {
+  scanSummary?: string | null;
   id: string;
   runId: string | null;
   vesselId: string;
@@ -3244,6 +3282,7 @@ export interface FleetActionRunTargetSummary {
 }
 
 export interface FleetActionRunTarget {
+  scanSummary?: string | null;
   id: string;
   tenantId: string | null;
   runId: string | null;
@@ -3283,6 +3322,8 @@ export interface VesselImportSettingsData {
 }
 
 export interface FleetActionSettingsData {
+  offline?: boolean;
+  offlineHarborIds?: string[];
   maxConcurrency: number;
   defaultTimeoutSeconds: number;
   maxOutputBytes: number;
@@ -3490,12 +3531,26 @@ export interface AskMessage {
   isLocal?: boolean;
 }
 
+/** What the captain turn still running in a thread has streamed so far (the reply is persisted only when it ends). */
+export interface AskTurnProgress {
+  turnId: string;
+  /** The reply message reserved for the turn. */
+  messageId?: string | null;
+  text?: string | null;
+  thinkingText?: string | null;
+  /** Tool calls so far; a call still running has a null `ok` and no result. */
+  toolCalls?: AskToolCall[] | null;
+  startedUtc?: string;
+}
+
 export interface AskThreadDetail {
   thread: AskThread;
   trackedWork?: AskTrackedWork[] | null;
   pendingProposals?: AskActionProposal[] | null;
   /** Pending CLI permission requests of this thread's captain turns. */
   pendingCliPermissions?: CliPermissionRequest[] | null;
+  /** The running turn's streamed reply, tool calls, and thinking so far; null or absent when no turn is running. */
+  activeTurn?: AskTurnProgress | null;
 }
 
 export interface AskMessagePage {

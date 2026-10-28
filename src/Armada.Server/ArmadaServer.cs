@@ -497,6 +497,7 @@ namespace Armada.Server
             missionService.DockHosts = dockHosts;
             missionService.ResolveDockPlacementAsync = _AgentLifecycle.ResolveDockPlacementAsync;
             _MissionLanding.DockHosts = dockHosts;
+            _LandingService.DockHosts = dockHosts;
 
             // Evaluate (probe-only model probes): each probe runs through the captain's own runtime as a Harbor job,
             // under the evaluation budget and concurrency limits. Nothing it records changes routing or captain settings.
@@ -729,6 +730,7 @@ namespace Armada.Server
             _AskTracker = new Armada.Server.Ask.AskWorkTracker(_Database, _AskThreads, _Settings, _Logging);
             _AskThreads.OnUserEvent = (tenantId, userId, eventType, payload) => _WebSocketHub.SendToUser(tenantId, userId, eventType, payload);
             _AskThreads.ActiveTurnResolver = _AskTurns.ActiveTurnId;
+            _AskThreads.ActiveTurnProgressResolver = _AskTurns.ActiveTurnProgress;
             _AskActions.OnWorkLinked = _AskTracker.OnWorkLinkedAsync;
             _AskActions.OnProposalApproved = _AskTurns.StartFollowUpAsync;
             _AskTracker.Narrate = _AskTurns.NarrateAsync;

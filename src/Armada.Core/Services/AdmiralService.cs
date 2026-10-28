@@ -1837,8 +1837,13 @@ namespace Armada.Core.Services
                         List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
                         List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
                         List<Mission> failedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false);
+                        // Unlanded work keeps its worktree so retry_landing can land it.
+                        List<Mission> landingFailedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false);
+                        List<Mission> workProducedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
                         bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id) ||
                                                    reviewMissions.Any(m => m.DockId == dock.Id) ||
+                                                   landingFailedMissions.Any(m => m.DockId == dock.Id) ||
+                                                   workProducedMissions.Any(m => m.DockId == dock.Id) ||
                                                    failedMissions.Any(m => m.DockId == dock.Id && m.FailureKind == MissionFailureKindEnum.StallRecoveryExhausted);
                         if (preservedForMission)
                         {
