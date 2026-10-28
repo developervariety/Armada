@@ -707,6 +707,8 @@ namespace Armada.Core.Services
                 }
             }, token).ConfigureAwait(false);
 
+            await RunHealthPhaseAsync("missing merge handoff recovery", () => FlagMissingMergeHandoffsAsync(DateTime.UtcNow, token), token).ConfigureAwait(false);
+
             // Check for completed voyages
             await RunHealthPhaseAsync("voyage completion", async () =>
             {
@@ -1925,6 +1927,41 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "error recovering overdue reviews: " + ex.ToString());
+            }
+        }
+
+        // A restart or an exception after WorkProduced was persisted can lose the landing callback.
+        // Flag rather than retry: the dock may already be reclaimed or the branch may need review.
+        private async Task FlagMissingMergeHandoffsAsync(DateTime utcNow, CancellationToken token)
+        {
+            List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            foreach (Mission mission in produced)
+            {
+                if (utcNow - mission.LastUpdateUtc < TimeSpan.FromMinutes(5)
+                    || _Missions.IsCompletionInFlight(mission.Id)
+                    || MissionModeContract.IsReadOnly(mission.Mode) || mission.RequiresReview) continue;
+                Vessel? vessel = String.IsNullOrEmpty(mission.VesselId) ? null : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                Voyage? voyage = String.IsNullOrEmpty(mission.VoyageId) ? null : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+                if ((voyage?.LandingMode ?? vessel?.LandingMode ?? _Settings.LandingMode ?? LandingModeEnum.MergeAndPush) != LandingModeEnum.MergeQueue) continue;
+                if (voyage != null && (await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false))
+                    .Any(m => m.DependsOnMissionId == mission.Id)) continue;
+                EnumerationResult<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(new EnumerationQuery { MissionId = mission.Id, PageSize = 1 }, token).ConfigureAwait(false);
+                if (entries.Objects.Count > 0) continue;
+                EnumerationResult<ArmadaEvent> checks = await _Database.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = mission.Id, EventType = StageCheckEvents.EventType, PageSize = 1,
+                    Order = EnumerationOrderEnum.CreatedDescending
+                }, token).ConfigureAwait(false);
+                StageCheckResult? check = StageCheckEvents.Read(checks.Objects.FirstOrDefault());
+                if (check == null || check.IsBlocking) continue;
+                DateTime version = mission.LastUpdateUtc;
+                mission.Status = MissionStatusEnum.LandingFailed;
+                mission.FailureReason = "Stage check was nonblocking, but no merge queue entry was recorded within five minutes. Inspect the preserved branch and enqueue landing manually.";
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                if (await _Database.Missions.TryUpdateIfUnchangedAsync(mission, version, new[] { MissionStatusEnum.WorkProduced }, token).ConfigureAwait(false))
+                    await EmitEventAsync("mission.landing_handoff_missing", mission.FailureReason,
+                        entityType: "mission", entityId: mission.Id, missionId: mission.Id, vesselId: mission.VesselId,
+                        voyageId: mission.VoyageId, tenantId: mission.TenantId, userId: mission.UserId, token: token).ConfigureAwait(false);
             }
         }
 

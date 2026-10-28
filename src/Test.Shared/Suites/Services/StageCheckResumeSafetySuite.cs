@@ -172,6 +172,114 @@ namespace Test.Shared.Suites.Services
                 finally { TestTemp.TryDelete(worktree); TestTemp.TryDelete(settings.LogDirectory); }
             }));
 
+            foreach (string handoff in new[] { "enqueue", "throw", "silent" })
+            {
+                cases.Add(Case("passed_check_completion_" + handoff, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    DatabaseDriver db = testDb.Driver;
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings();
+                    StubGitService git = new StubGitService();
+                    DockService docks = new DockService(logging, db, settings, git);
+                    CaptainService captains = new CaptainService(logging, db, settings, git, docks);
+                    MissionService missions = new MissionService(logging, db, settings, docks, captains);
+                    MergeQueueService queue = new MergeQueueService(logging, db, settings, git);
+                    string worktree = TestTemp.NewDirectory("passed_handoff");
+                    try
+                    {
+                        Vessel vessel = await db.Vessels.CreateAsync(new Vessel("passed-handoff", "https://example.invalid/repo.git") { LandingMode = LandingModeEnum.MergeQueue }).ConfigureAwait(false);
+                        Dock dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { WorktreePath = worktree, Active = true }).ConfigureAwait(false);
+                        Captain captain = await db.Captains.CreateAsync(new Captain("passed", AgentRuntimeEnum.Mux)).ConfigureAwait(false);
+                        Mission mission = await db.Missions.CreateAsync(new Mission("passed")
+                        {
+                            VesselId = vessel.Id, CaptainId = captain.Id, DockId = dock.Id, Status = MissionStatusEnum.InProgress,
+                            BranchName = "work", DiffSnapshot = "diff --git a/work.txt b/work.txt\n+work", CommitHash = "abc123"
+                        }).ConfigureAwait(false);
+                        await db.Events.CreateAsync(StageCheckEvents.Build(mission, captain,
+                            JsonSerializer.Deserialize<StageCheckResult>("{\"Status\":\"Passed\"}")!)).ConfigureAwait(false);
+                        int calls = 0;
+                        missions.OnMissionComplete = async (m, _) =>
+                        {
+                            calls++;
+                            if (handoff == "throw") throw new InvalidOperationException("enqueue unavailable");
+                            if (handoff == "silent") return;
+                            await queue.EnqueueAsync(new MergeEntry { MissionId = m.Id, VesselId = vessel.Id, BranchName = "work", TargetBranch = "main" }).ConfigureAwait(false);
+                        };
+                        await missions.HandleCompletionAsync(captain, mission.Id).ConfigureAwait(false);
+                        await missions.HandleCompletionAsync(captain, mission.Id).ConfigureAwait(false);
+                        AssertEqual(1, calls, "completion hands off exactly once");
+                        Mission stored = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(handoff != "enqueue" ? MissionStatusEnum.LandingFailed : MissionStatusEnum.WorkProduced, stored.Status);
+                        AssertEqual(handoff != "enqueue" ? 0 : 1, (await db.MergeEntries.EnumerateAsync(new EnumerationQuery { MissionId = mission.Id })).Objects.Count);
+                        if (handoff == "throw") AssertContains("enqueue unavailable", stored.FailureReason ?? "");
+                    }
+                    finally { TestTemp.TryDelete(worktree); }
+                }));
+            }
+
+            foreach (string scenario in new[] { "missing", "queued", "fresh", "manual", "blocked", "override", "default", "skipped", "review", "readonly", "dependent", "unchecked", "full" })
+            {
+                cases.Add(Case("passed_check_merge_handoff_" + scenario, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    DatabaseDriver db = testDb.Driver;
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings { LandingMode = LandingModeEnum.MergeQueue };
+                    StubGitService git = new StubGitService();
+                    DockService docks = new DockService(logging, db, settings, git);
+                    CaptainService captains = new CaptainService(logging, db, settings, git, docks);
+                    MissionService missions = new MissionService(logging, db, settings, docks, captains);
+                    AdmiralService admiral = new AdmiralService(logging, db, settings, captains, missions, new VoyageService(logging, db), docks);
+                    Vessel vessel = await db.Vessels.CreateAsync(new Vessel("handoff-" + scenario, "https://example.invalid/repo.git")
+                    {
+                        LandingMode = scenario == "manual" ? LandingModeEnum.None : scenario == "default" ? null : LandingModeEnum.MergeQueue
+                    }).ConfigureAwait(false);
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("handoff")
+                    {
+                        LandingMode = scenario == "override" ? LandingModeEnum.None : null
+                    }).ConfigureAwait(false);
+                    Mission mission = await db.Missions.CreateAsync(new Mission("handoff")
+                    {
+                        VesselId = vessel.Id, VoyageId = voyage.Id, Status = MissionStatusEnum.WorkProduced,
+                        LastUpdateUtc = scenario == "fresh" ? DateTime.UtcNow : DateTime.UtcNow.AddMinutes(-10)
+                    }).ConfigureAwait(false);
+                    if (scenario == "review" || scenario == "readonly")
+                    {
+                        mission.RequiresReview = scenario == "review";
+                        if (scenario == "readonly") mission.Mode = MissionModeEnum.Research;
+                        await db.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    }
+                    if (scenario == "dependent") await db.Missions.CreateAsync(new Mission("next")
+                    {
+                        VoyageId = voyage.Id, DependsOnMissionId = mission.Id, Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+                    Captain captain = new Captain("check", AgentRuntimeEnum.Mux);
+                    StageCheckResult check = JsonSerializer.Deserialize<StageCheckResult>(scenario == "blocked"
+                        ? "{\"Status\":\"Failed\"}" : scenario == "skipped" ? "{}" : "{\"Status\":\"Passed\"}")!;
+                    if (scenario == "full") check = new StageCheckResult
+                    {
+                        Status = StageCheckStatusEnum.Passed, CheckedUtc = DateTime.UtcNow, DurationMs = 100,
+                        Commands = new List<string> { "dotnet build" }
+                    };
+                    if (scenario != "unchecked") await db.Events.CreateAsync(StageCheckEvents.Build(mission, captain, check)).ConfigureAwait(false);
+                    if (scenario == "queued") await db.MergeEntries.CreateAsync(new MergeEntry
+                    {
+                        MissionId = mission.Id, VesselId = vessel.Id, BranchName = "work", TargetBranch = "main"
+                    }).ConfigureAwait(false);
+                    for (int i = 0; i < 2; i++)
+                        await (Task)typeof(AdmiralService).GetMethod("FlagMissingMergeHandoffsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+                            .Invoke(admiral, new object[] { scenario == "fresh" ? DateTime.UtcNow : DateTime.UtcNow.AddMinutes(10), CancellationToken.None })!;
+                    bool flagged = scenario == "missing" || scenario == "default" || scenario == "skipped" || scenario == "full";
+                    Mission stored = (await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(flagged ? MissionStatusEnum.LandingFailed : MissionStatusEnum.WorkProduced, stored.Status, scenario);
+                    AssertEqual(flagged ? 1 : 0, (await db.Events.EnumerateByMissionAsync(mission.Id).ConfigureAwait(false))
+                        .Count(e => e.EventType == "mission.landing_handoff_missing"), "one persistent flag, no repeated notifications");
+                }));
+            }
+
             cases.Add(Case("unknown_orphan_exit_preserves_unlanded_work", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
