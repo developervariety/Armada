@@ -1972,7 +1972,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                         last_update_utc DATETIME2 NOT NULL
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_mission_created') CREATE INDEX idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
-                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_tenant_created') CREATE INDEX idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);")
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_tenant_created') CREATE INDEX idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);"),
+                new SchemaMigration(98, "Add contract_repair_kind to stage_outcomes so a deterministic contract repair shows on the stage outcome as well as in the mission.contract_repaired event",
+                    @"IF COL_LENGTH('stage_outcomes','contract_repair_kind') IS NULL ALTER TABLE stage_outcomes ADD contract_repair_kind NVARCHAR(64) NULL;")
 
 
             };

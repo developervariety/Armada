@@ -581,8 +581,11 @@ Measure first, then change handoffs and contracts, then prompts, then add profil
    (new commits, or non-scratch changes the leftover-work commit commits); with nothing there it stays unfinished work.
    A single Judge verdict in a nearby form and a single valid plan outside an `armada-plan` fence are appended in
    canonical form below the original output; ambiguous or duplicated verdicts and two plan blocks are refused. Each
-   repair is recorded as a `mission.contract_repaired` event (`ContractRepairRecord` payload with the repair kind);
-   `StageOutcome` has no column for it yet, so adding one needs a migration.
+   repair is recorded as a `mission.contract_repaired` event (`ContractRepairRecord` payload with the repair kind),
+   and the attempt's stage outcome carries it too: `StageOutcome.ContractRepairKind` (column `contract_repair_kind`,
+   migration 98) holds the latest repair recorded since the attempt started, or null when none was needed. When one
+   attempt needs two repairs (a leftover-work commit and a completion-line repair) the outcome keeps the last and each
+   repair still has its own event.
 4. Measure each change on the battery, separately from prompt changes.
 
 ### Phase 4: prompts

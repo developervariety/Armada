@@ -179,6 +179,7 @@ namespace Test.Shared.Suites.Services
                     await GitAsync(repo, "add", "-A").ConfigureAwait(false);
                     await GitAsync(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "captain commit").ConfigureAwait(false);
 
+                    DateTime attemptStarted = DateTime.UtcNow.AddSeconds(-1);
                     await h.Missions.HandleCompletionAsync(s.Captain, s.Mission.Id).ConfigureAwait(false);
 
                     Mission after = (await testDb.Driver.Missions.ReadAsync(s.Mission.Id).ConfigureAwait(false))!;
@@ -197,6 +198,12 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(s.Captain.Id, repairs[0].CaptainId);
                     AssertEqual("Worker", repairs[0].Persona);
                     AssertContains(after.CommitHash!, repairs[0].Detail!);
+
+                    StageOutcome? outcome = await RecordOutcomeAsync(testDb, s.Captain, s.Mission.Id, attemptStarted).ConfigureAwait(false);
+                    AssertNotNull(outcome, "stage outcome recorded");
+                    AssertEqual(ContractRepairKindEnum.CompletionLineMissing, outcome!.ContractRepairKind, "the repair is on the stage outcome");
+                    StageOutcome? stored = await testDb.Driver.StageOutcomes.ReadAsync(outcome.Id).ConfigureAwait(false);
+                    AssertEqual(ContractRepairKindEnum.CompletionLineMissing, stored!.ContractRepairKind, "and stored with it");
                 }).ConfigureAwait(false);
             }));
 
@@ -258,7 +265,11 @@ namespace Test.Shared.Suites.Services
                     await GitAsync(repo, "add", "-A").ConfigureAwait(false);
                     await GitAsync(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "captain commit").ConfigureAwait(false);
 
+                    DateTime attemptStarted = DateTime.UtcNow.AddSeconds(-1);
                     await h.Missions.HandleCompletionAsync(s.Captain, s.Mission.Id).ConfigureAwait(false);
+                    StageOutcome? outcome = await RecordOutcomeAsync(testDb, s.Captain, s.Mission.Id, attemptStarted).ConfigureAwait(false);
+                    AssertNotNull(outcome, "stage outcome recorded");
+                    AssertNull(outcome!.ContractRepairKind, "no repair on the stage outcome");
 
                     Mission after = (await testDb.Driver.Missions.ReadAsync(s.Mission.Id).ConfigureAwait(false))!;
                     AssertEqual(MissionStatusEnum.WorkProduced, after.Status);
@@ -336,18 +347,23 @@ namespace Test.Shared.Suites.Services
                         h.Missions.OnGetMissionOutput = _ => output;
                         Scenario s = await Scenario.CreateAsync(testDb, h, repo, "Judge").ConfigureAwait(false);
 
+                        DateTime attemptStarted = DateTime.UtcNow.AddSeconds(-1);
                         await h.Missions.HandleCompletionAsync(s.Captain, s.Mission.Id).ConfigureAwait(false);
+                        StageOutcome? outcome = await RecordOutcomeAsync(testDb, s.Captain, s.Mission.Id, attemptStarted).ConfigureAwait(false);
+                        AssertNotNull(outcome, "stage outcome recorded");
 
                         List<ContractRepairRecord> repairs = await RepairsAsync(testDb, s.Mission.Id).ConfigureAwait(false);
                         if (ambiguous)
                         {
                             AssertEqual(0, repairs.Count, "two verdicts are never repaired");
+                            AssertNull(outcome!.ContractRepairKind, "no repair on the stage outcome");
                         }
                         else
                         {
                             AssertEqual(1, repairs.Count);
                             AssertEqual(ContractRepairKindEnum.VerdictNonCanonical, repairs[0].RepairKind);
                             AssertContains("**[ARMADA:VERDICT] NEEDS_REVISION**", repairs[0].Detail!);
+                            AssertEqual(ContractRepairKindEnum.VerdictNonCanonical, outcome!.ContractRepairKind, "the repair is on the stage outcome");
                         }
                     }).ConfigureAwait(false);
                 }
@@ -408,6 +424,21 @@ namespace Test.Shared.Suites.Services
             foreach (ArmadaEvent evt in events.Where(e => e.EventType == ContractRepair.EventType))
                 records.Add(JsonSerializer.Deserialize<ContractRepairRecord>(evt.Payload!)!);
             return records;
+        }
+
+        private static async Task<StageOutcome?> RecordOutcomeAsync(TestDatabase testDb, Captain captain, string missionId, DateTime startedUtc)
+        {
+            StageOutcomeService service = new StageOutcomeService(testDb.Driver, CreateLogging());
+            StageAttemptCapture capture = new StageAttemptCapture
+            {
+                Claimed = true,
+                MissionId = missionId,
+                Captain = captain,
+                ExitCode = 0,
+                StartedUtc = startedUtc,
+                EndedUtc = DateTime.UtcNow
+            };
+            return await service.RecordAttemptAsync(capture).ConfigureAwait(false);
         }
 
         private static async Task WithRepoAsync(Func<string, Task> body)
