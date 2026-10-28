@@ -50,7 +50,7 @@ Proxy settings live under `ArmadaProxy`:
   "ArmadaProxy": {
     "hostname": "localhost",
     "port": 7893,
-    "password": "armadaadmin",
+    "password": "change-this-shared-secret",
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
     "handshakeTimeoutSeconds": 15,
@@ -63,7 +63,9 @@ Proxy settings live under `ArmadaProxy`:
 
 Important settings:
 
-- `password`: shared secret used by both the Armada tunnel handshake and proxy browser login
+- `password`: shared secret used by both the Armada tunnel handshake and proxy browser login. The proxy refuses to start with the built-in default or a blank value; the `ARMADA_PROXY_PASSWORD` environment variable overrides the file
+- `loginMaxFailures`, `loginFailureWindowSeconds`, `loginLockoutSeconds`: failed-login lockout, kept across restarts (see [PROXY_API.md](PROXY_API.md))
+- `secureCookie` and `trustForwardedHeaders`: set them when the proxy is served over HTTPS or sits behind a reverse proxy
 - `requireEnrollmentToken` and `enrollmentTokens`: optional extra admission control for instances
 - `staleAfterSeconds`: when a connected instance is treated as stale without activity
 - `requestTimeoutSeconds`: timeout for live tunnel request/response relay calls
@@ -79,7 +81,7 @@ Armada outbound tunnel settings live under `remoteControl` in the Armada server 
     "tunnelUrl": "ws://localhost:7893/tunnel",
     "instanceId": null,
     "enrollmentToken": null,
-    "password": "armadaadmin",
+    "password": "change-this-shared-secret",
     "connectTimeoutSeconds": 15,
     "heartbeatIntervalSeconds": 30,
     "reconnectBaseDelaySeconds": 5,

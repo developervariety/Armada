@@ -139,11 +139,14 @@ services:
       - "7893:7893"
     environment:
       - ARMADA_PROXY_SETTINGS_FILE=/config/proxysettings.json
+      - ARMADA_PROXY_PASSWORD=${ARMADA_PROXY_PASSWORD:?set ARMADA_PROXY_PASSWORD to the shared secret}
     volumes:
       - ./proxysettings.json:/config/proxysettings.json:ro
       - ./data:/app/data
       - ./logs:/app/data/logs
 ```
+
+The proxy refuses to start with the built-in shared password, so the stack requires `ARMADA_PROXY_PASSWORD`. Set the same value as `remoteControl.password` on each Armada instance.
 
 ### Volumes
 

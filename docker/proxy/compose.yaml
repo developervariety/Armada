@@ -7,6 +7,7 @@ services:
       - "7893:7893"
     environment:
       - ARMADA_PROXY_SETTINGS_FILE=/config/proxysettings.json
+      - ARMADA_PROXY_PASSWORD=${ARMADA_PROXY_PASSWORD:?set ARMADA_PROXY_PASSWORD to the shared secret}
     volumes:
       - ./proxysettings.json:/config/proxysettings.json:ro
       - ./data:/app/data

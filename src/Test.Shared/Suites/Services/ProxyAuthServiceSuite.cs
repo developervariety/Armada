@@ -5,6 +5,7 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
+    using Armada.Proxy.Enums;
     using Armada.Proxy.Services;
     using Armada.Proxy.Settings;
     using Test.Shared.Infrastructure;
@@ -153,6 +154,45 @@ namespace Test.Shared.Suites.Services
                 AssertNull(expiresUtc);
             }));
 
+            cases.Add(Case("create_challenge_bounds_outstanding_challenges_per_address_and_in_total", "CreateChallenge BoundsOutstandingChallengesPerAddressAndInTotal", TestTags.Negative, () =>
+            {
+                DateTime nowUtc = new DateTime(2026, 4, 3, 12, 0, 0, DateTimeKind.Utc);
+                ProxySettings settings = new ProxySettings { Password = "proxy-password" };
+                ProxyAuthService service = new ProxyAuthService(settings, () => nowUtc)
+                {
+                    MaxPendingChallengesPerAddress = 2,
+                    MaxPendingChallenges = 3
+                };
+
+                service.CreateChallenge("10.0.0.1");
+                service.CreateChallenge("10.0.0.1");
+                ProxyChallengeLimitException perAddress = Refusal(() => service.CreateChallenge("10.0.0.1"));
+                AssertEqual(ProxyChallengeRefusalEnum.AddressLimit, perAddress.Refusal, "A third challenge for one address is refused as an address limit");
+                AssertTrue(perAddress.RetryAfterSeconds >= 1, "The refusal says when a slot frees up");
+
+                service.CreateChallenge("10.0.0.2");
+                ProxyChallengeLimitException global = Refusal(() => service.CreateChallenge("10.0.0.3"));
+                AssertEqual(ProxyChallengeRefusalEnum.GlobalLimit, global.Refusal, "A challenge past the total is refused as a global limit");
+                AssertEqual(3, service.PendingChallengeCount, "Refused requests store nothing");
+
+                nowUtc = nowUtc.AddSeconds(Math.Max(30, settings.HandshakeTimeoutSeconds) + 1);
+                AssertEqual(0, service.PendingChallengeCount, "Expired challenges leave the store");
+                service.CreateChallenge("10.0.0.1");
+                AssertEqual(1, service.PendingChallengeCount, "Expiry frees the slots");
+            }));
+
+            cases.Add(Case("try_login_consumes_the_challenge_and_frees_its_slot", "TryLogin ConsumesTheChallengeAndFreesItsSlot", TestTags.Positive, () =>
+            {
+                ProxySettings settings = new ProxySettings { Password = "proxy-password" };
+                ProxyAuthService service = new ProxyAuthService(settings) { MaxPendingChallengesPerAddress = 1 };
+
+                ProxyAuthService.ProxyAuthChallenge challenge = service.CreateChallenge("10.0.0.1");
+                AssertThrows<ProxyChallengeLimitException>(() => service.CreateChallenge("10.0.0.1"));
+                string proof = RemoteTunnelAuth.ComputeBrowserLoginProof(settings.Password, challenge.Nonce);
+                AssertTrue(service.TryLogin(challenge.Nonce, proof, out ProxyAuthService.ProxyBrowserSession? _, out string? error), error ?? "Login should succeed");
+                service.CreateChallenge("10.0.0.1");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.ProxyAuthService",
                 displayName: "Proxy Auth Service",
@@ -162,6 +202,20 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private static ProxyChallengeLimitException Refusal(Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (ProxyChallengeLimitException refusal)
+            {
+                return refusal;
+            }
+
+            throw new Exception("Assertion failed: expected the challenge to be refused.");
+        }
 
         private static TestCaseDescriptor Case(string caseId, string displayName, string tag, Action body)
         {

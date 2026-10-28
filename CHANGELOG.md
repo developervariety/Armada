@@ -35,6 +35,15 @@ upstream integrations and excludes changes already present at that baseline.
 
 - `POST /api/v1/authenticate` throttles email and password logins per account and per client address. Repeated failures lock the key with exponential backoff and return `429` with `Retry-After`, even for the correct password. The `loginRateLimit` settings tune the limits. Token refresh, bearer and API key headers, and mission and Ask session tokens are not limited. See [Login Rate Limiting](docs/REST_API.md#login-rate-limiting).
 
+### Proxy authentication hardening
+
+- The proxy refuses to start while its shared password is blank or the built-in default. `ARMADA_PROXY_PASSWORD` sets the password and overrides the settings file; `allowDefaultPassword` permits the default for a throwaway local test. The proxy Docker stack requires `ARMADA_PROXY_PASSWORD`.
+- Failed browser logins and failed tunnel handshakes are limited per client address. A client that reaches `loginMaxFailures` inside `loginFailureWindowSeconds` is locked out for `loginLockoutSeconds` with `429` and `Retry-After`. Active lockouts persist across proxy restarts.
+- Login challenges are bounded to 16 per client address and 4096 in total; past a bound the proxy returns `429` or `503` with `Retry-After` and a typed refusal.
+- `GET /proxy-api/v1/instances` requires a proxy session.
+- The session cookie is marked `Secure` when `secureCookie` is set or a trusted forwarded scheme is `https`. A login with `"setCookie": false` sets no cookie; the native `X-Armada-Proxy-Session` header continues to work. Every `/proxy-api/v1` response carries `Cache-Control: no-store`.
+- `X-Forwarded-For`, `Forwarded` and `X-Forwarded-Proto` are ignored unless `trustForwardedHeaders` is set, so a client cannot choose the address its failures are counted against. The requester address the proxy relays to an Armada instance is the socket peer address unless the setting is on.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

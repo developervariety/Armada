@@ -45,7 +45,7 @@ Armada stores remote tunnel configuration in `settings.json`:
     "tunnelUrl": null,
     "instanceId": null,
     "enrollmentToken": null,
-    "password": "armadaadmin",
+    "password": "change-this-shared-secret",
     "connectTimeoutSeconds": 15,
     "heartbeatIntervalSeconds": 30,
     "reconnectBaseDelaySeconds": 5,
@@ -84,7 +84,7 @@ Armada stores remote tunnel configuration in `settings.json`:
     ],
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
-    "password": "armadaadmin",
+    "password": "change-this-shared-secret",
     "handshakeTimeoutSeconds": 15,
     "staleAfterSeconds": 90,
     "requestTimeoutSeconds": 20,
@@ -102,7 +102,13 @@ Armada stores remote tunnel configuration in `settings.json`:
 - `syslogServers`
 - `requireEnrollmentToken`
 - `enrollmentTokens`
-- `password`
+- `password` (the proxy refuses to start with the built-in default or a blank value; `ARMADA_PROXY_PASSWORD` overrides the file)
+- `allowDefaultPassword`
+- `secureCookie`
+- `trustForwardedHeaders`
+- `loginMaxFailures`
+- `loginFailureWindowSeconds`
+- `loginLockoutSeconds`
 - `handshakeTimeoutSeconds`
 - `staleAfterSeconds`
 - `requestTimeoutSeconds`

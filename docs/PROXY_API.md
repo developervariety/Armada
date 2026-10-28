@@ -36,7 +36,7 @@ Configuration is loaded from the `ArmadaProxy` section:
     "port": 7893,
     "requireEnrollmentToken": false,
     "enrollmentTokens": [],
-    "password": "armadaadmin",
+    "password": "change-this-shared-secret",
     "handshakeTimeoutSeconds": 15,
     "staleAfterSeconds": 90,
     "requestTimeoutSeconds": 20,
@@ -44,6 +44,18 @@ Configuration is loaded from the `ArmadaProxy` section:
   }
 }
 ```
+
+The proxy refuses to start while the shared password is blank or the built-in default (`armadaadmin`). Set `password` in the settings file or the `ARMADA_PROXY_PASSWORD` environment variable, which overrides the file. For a throwaway local test only, `allowDefaultPassword` (or `ARMADA_PROXY_ALLOW_DEFAULT_PASSWORD=true`) lets the proxy start with the default and logs a warning.
+
+Login hardening settings, all under `ArmadaProxy`:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `loginMaxFailures` | `10` | Failed browser logins or tunnel handshakes from one client address inside the window that trigger a lockout (1 to 1000) |
+| `loginFailureWindowSeconds` | `900` | Window over which failures are counted (10 to 86400) |
+| `loginLockoutSeconds` | `900` | Lockout length (1 to 86400) |
+| `secureCookie` | `false` | Always mark the session cookie `Secure`; set it when the proxy is served over HTTPS |
+| `trustForwardedHeaders` | `false` | Trust `X-Forwarded-For`, `Forwarded` and `X-Forwarded-Proto` for the client address and scheme; set it only behind a reverse proxy that overwrites them |
 
 ## Browser Model
 
@@ -65,15 +77,17 @@ The proxy session is separate from the Armada application session. After opening
 The proxy browser session is primarily cookie-backed:
 
 - cookie name: `armada_proxy_session`
-- attributes: `Path=/; HttpOnly; SameSite=Lax`
+- attributes: `Path=/; HttpOnly; SameSite=Lax`, plus `Secure` when `secureCookie` is set or a trusted `X-Forwarded-Proto` says `https`
 
-For non-browser callers, the proxy still accepts `X-Armada-Proxy-Session`.
+For non-browser callers, the proxy accepts `X-Armada-Proxy-Session`. A login that sends `"setCookie": false` receives no cookie, so a native client keeps the session only where it stores the returned token.
+
+Every `/proxy-api/v1` response carries `Cache-Control: no-store`, so no cache keeps a nonce, a session token or the instance list.
 
 The browser never sends the raw shared password. It first requests a nonce and then submits a derived proof:
 
 ### `GET /proxy-api/v1/auth/challenge`
 
-Returns a one-time login challenge:
+Returns a one-time login challenge. The proxy holds at most 16 unused, unexpired challenges per client address and 4096 in total. Past the per-address bound the response is `429`; past the total it is `503`. Both carry `Retry-After` and a body with `error` and `refusal` (`AddressLimit` or `GlobalLimit`):
 
 ```json
 {
@@ -103,7 +117,9 @@ Response:
 }
 ```
 
-The response body still includes the token for compatibility, but browser callers normally rely on the `Set-Cookie` header instead.
+The response body includes the token for native clients that send it in `X-Armada-Proxy-Session`; browser callers normally rely on the `Set-Cookie` header instead. Send `"setCookie": false` to receive no cookie.
+
+Failed logins and failed tunnel handshakes are counted per client address. The client address is the socket peer address unless `trustForwardedHeaders` is set. A client that reaches `loginMaxFailures` failures inside `loginFailureWindowSeconds` is locked out for `loginLockoutSeconds`: login and tunnel handshake return `429` with `Retry-After`, even with the right password. Active lockouts are written to `proxy-lockouts.json` in the proxy data directory and survive a restart; failure counts below the limit are in memory only. A successful login clears the client's count.
 
 ### `POST /proxy-api/v1/auth/logout`
 

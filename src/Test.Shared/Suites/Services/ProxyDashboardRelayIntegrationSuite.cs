@@ -17,6 +17,7 @@ namespace Test.Shared.Suites.Services
     using Armada.Core;
     using Armada.Core.Models;
     using Armada.Proxy;
+    using Armada.Proxy.Services;
     using Armada.Proxy.Settings;
     using SyslogLogging;
     using Test.Shared.Infrastructure;
@@ -257,6 +258,207 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("proxy_instance_list_requires_a_proxy_session", "ProxyInstanceListRequiresAProxySession", TestTags.Negative, async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    HttpResponseMessage anonymous = await harness.Browser.GetAsync("/proxy-api/v1/instances").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "The instance list is private to signed-in callers");
+                    AssertFalse((await anonymous.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("smoke-instance", StringComparison.Ordinal), "The refusal does not name any deployment");
+
+                    HttpResponseMessage unknownSession = await harness.SendAsync(HttpMethod.Get, "/proxy-api/v1/instances", Constants.ProxySessionTokenHeader, "not-a-session").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Unauthorized, unknownSession.StatusCode, "An unknown session header is refused too");
+
+                    await harness.LoginAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                    HttpResponseMessage signedIn = await harness.Browser.GetAsync("/proxy-api/v1/instances").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, signedIn.StatusCode, "A signed-in session sees the list");
+                }
+                finally
+                {
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }));
+
+            cases.Add(CaseAsync("proxy_login_locks_out_a_client_by_socket_address_not_forwarded_header", "ProxyLoginLocksOutAClientBySocketAddressNotForwardedHeader", TestTags.Negative, async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync(configure: settings => settings.LoginMaxFailures = 3).WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        HttpResponseMessage failed = await harness.LoginAttemptAsync(proof: "0000", forwardedFor: "203.0.113." + attempt).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Unauthorized, failed.StatusCode, "A wrong proof is refused as unauthorized until the limit");
+                    }
+
+                    HttpResponseMessage locked = await harness.LoginAttemptAsync(forwardedFor: "203.0.113.200").ConfigureAwait(false);
+                    AssertEqual((HttpStatusCode)429, locked.StatusCode, "The client is locked out even with a valid proof, and changing X-Forwarded-For does not escape it");
+                    AssertTrue(locked.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryAfter) && Int32.TryParse(retryAfter!.First(), out int seconds) && seconds >= 1, "The lockout carries Retry-After in seconds");
+                    AssertFalse(locked.Headers.Contains("Set-Cookie"), "A locked-out login sets no session");
+                    AssertEqual(HttpStatusCode.Unauthorized, (await harness.Browser.GetAsync("/proxy-api/v1/instances").ConfigureAwait(false)).StatusCode, "No session was created");
+                }
+                finally
+                {
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }));
+
+            cases.Add(CaseAsync("proxy_login_lockout_survives_a_proxy_restart", "ProxyLoginLockoutSurvivesAProxyRestart", TestTags.Negative, async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync(configure: settings => settings.LoginMaxFailures = 2).WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                ArmadaProxyServer? restarted = null;
+                try
+                {
+                    await harness.LoginAttemptAsync(proof: "0000").ConfigureAwait(false);
+                    await harness.LoginAttemptAsync(proof: "0000").ConfigureAwait(false);
+                    AssertEqual((HttpStatusCode)429, (await harness.LoginAttemptAsync().ConfigureAwait(false)).StatusCode, "The client is locked out");
+
+                    harness.Proxy.Stop();
+                    restarted = new ArmadaProxyServer(CreateLogging(), harness.Settings, quiet: true);
+                    await restarted.StartAsync().ConfigureAwait(false);
+
+                    AssertEqual((HttpStatusCode)429, (await harness.LoginAttemptAsync().ConfigureAwait(false)).StatusCode, "The lockout still applies after the proxy restarts");
+                }
+                finally
+                {
+                    restarted?.Dispose();
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }));
+
+            cases.Add(CaseAsync("proxy_tunnel_handshake_failures_lock_out_the_client", "ProxyTunnelHandshakeFailuresLockOutTheClient", TestTags.Negative, async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync(configure: settings => settings.LoginMaxFailures = 2).WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    for (int attempt = 0; attempt < 2; attempt++)
+                    {
+                        await using FakeTunnelClient intruder = new FakeTunnelClient(harness.Port, "wrong-password", "intruder-" + attempt);
+                        await AssertThrowsAsync<Exception>(() => intruder.ConnectAsync(), "A wrong shared password is rejected").ConfigureAwait(false);
+                    }
+
+                    await using FakeTunnelClient legitimate = new FakeTunnelClient(harness.Port, harness.SharedPassword, "late-instance");
+                    string refusal = String.Empty;
+                    try
+                    {
+                        await legitimate.ConnectAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        refusal = ex.Message;
+                    }
+
+                    AssertContains("Too many failed tunnel handshakes", refusal, "A locked-out address cannot register a tunnel, even with the right password");
+                }
+                finally
+                {
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }));
+
+            cases.Add(CaseAsync("proxy_login_cookie_follows_the_cookie_policy", "ProxyLoginCookieFollowsTheCookiePolicy", TestTags.Positive, async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    HttpResponseMessage browser = await harness.LoginAttemptAsync(forwardedProto: "https").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, browser.StatusCode, "Login succeeds");
+                    string cookie = browser.Headers.GetValues("Set-Cookie").Single();
+                    AssertContains("HttpOnly", cookie, "The session cookie is HttpOnly");
+                    AssertContains("SameSite=Lax", cookie, "The session cookie is SameSite=Lax");
+                    AssertFalse(cookie.Contains("Secure", StringComparison.OrdinalIgnoreCase), "An untrusted X-Forwarded-Proto does not mark the cookie Secure");
+
+                    HttpResponseMessage native = await harness.LoginAttemptAsync(setCookie: false).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, native.StatusCode, "Native login succeeds");
+                    AssertFalse(native.Headers.Contains("Set-Cookie"), "A native login sets no cookie");
+                    using JsonDocument nativeBody = JsonDocument.Parse(await native.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    string token = nativeBody.RootElement.GetProperty("token").GetString() ?? String.Empty;
+                    HttpResponseMessage viaHeader = await harness.SendAsync(HttpMethod.Get, "/proxy-api/v1/instances", Constants.ProxySessionTokenHeader, token).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, viaHeader.StatusCode, "The native session header authenticates");
+                }
+                finally
+                {
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+
+                ProxyTestHarness secure = await ProxyTestHarness.StartAsync(configure: settings => settings.SecureCookie = true).WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    HttpResponseMessage login = await secure.LoginAttemptAsync().ConfigureAwait(false);
+                    AssertContains("Secure", login.Headers.GetValues("Set-Cookie").Single(), "SecureCookie marks the session cookie Secure");
+                    HttpResponseMessage logout = await secure.Browser.PostAsync("/proxy-api/v1/auth/logout", new StringContent("{}", Encoding.UTF8, "application/json")).ConfigureAwait(false);
+                    string cleared = logout.Headers.GetValues("Set-Cookie").Single();
+                    AssertContains("Max-Age=0", cleared, "Logout clears the cookie");
+                    AssertContains("Secure", cleared, "The clearing cookie carries the same Secure attribute");
+                }
+                finally
+                {
+                    await secure.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+
+                ProxyTestHarness trusted = await ProxyTestHarness.StartAsync(configure: settings => settings.TrustForwardedHeaders = true).WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    HttpResponseMessage login = await trusted.LoginAttemptAsync(forwardedProto: "https").ConfigureAwait(false);
+                    AssertContains("Secure", login.Headers.GetValues("Set-Cookie").Single(), "A trusted X-Forwarded-Proto of https marks the cookie Secure");
+                }
+                finally
+                {
+                    await trusted.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }));
+
+            cases.Add(CaseAsync("proxy_auth_responses_are_not_cacheable", "ProxyAuthResponsesAreNotCacheable", TestTags.Positive, async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    HttpResponseMessage challenge = await harness.Browser.GetAsync("/proxy-api/v1/auth/challenge").ConfigureAwait(false);
+                    AssertTrue(challenge.Headers.CacheControl?.NoStore == true, "The challenge response is no-store");
+
+                    HttpResponseMessage failed = await harness.LoginAttemptAsync(proof: "0000").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Unauthorized, failed.StatusCode);
+                    AssertTrue(failed.Headers.CacheControl?.NoStore == true, "A refused login response is no-store");
+
+                    HttpResponseMessage login = await harness.LoginAttemptAsync().ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, login.StatusCode);
+                    AssertTrue(login.Headers.CacheControl?.NoStore == true, "A login response carrying the session token is no-store");
+
+                    HttpResponseMessage instances = await harness.Browser.GetAsync("/proxy-api/v1/instances").ConfigureAwait(false);
+                    AssertTrue(instances.Headers.CacheControl?.NoStore == true, "The private instance list is no-store");
+
+                    HttpResponseMessage logout = await harness.Browser.PostAsync("/proxy-api/v1/auth/logout", new StringContent("{}", Encoding.UTF8, "application/json")).ConfigureAwait(false);
+                    AssertTrue(logout.Headers.CacheControl?.NoStore == true, "The logout response is no-store");
+                }
+                finally
+                {
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }));
+
+            cases.Add(CaseAsync("proxy_challenge_requests_are_bounded_per_address", "ProxyChallengeRequestsAreBoundedPerAddress", TestTags.Negative, async () =>
+            {
+                ProxyTestHarness harness = await ProxyTestHarness.StartAsync().WaitAsync(TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                try
+                {
+                    for (int issued = 0; issued < ProxyAuthService.DefaultMaxPendingChallengesPerAddress; issued++)
+                    {
+                        HttpResponseMessage ok = await harness.Browser.GetAsync("/proxy-api/v1/auth/challenge").ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.OK, ok.StatusCode, "Challenges are issued up to the per-address bound");
+                    }
+
+                    HttpResponseMessage refused = await harness.Browser.GetAsync("/proxy-api/v1/auth/challenge").ConfigureAwait(false);
+                    AssertEqual((HttpStatusCode)429, refused.StatusCode, "A request past the bound is refused");
+                    AssertTrue(refused.Headers.Contains("Retry-After"), "The refusal carries Retry-After");
+                    using JsonDocument body = JsonDocument.Parse(await refused.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    AssertEqual("AddressLimit", body.RootElement.GetProperty("refusal").GetString(), "The refusal names the limit that applied");
+                }
+                finally
+                {
+                    await harness.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Proxy Dashboard Relay Integration",
@@ -363,8 +565,10 @@ namespace Test.Shared.Suites.Services
                 HttpClientHandler handler,
                 Uri baseUri,
                 LoggingModule logging,
-                string dataDirectory)
+                string dataDirectory,
+                ProxySettings settings)
             {
+                Settings = settings;
                 Proxy = proxy;
                 Tunnel = tunnel;
                 Browser = browser;
@@ -374,13 +578,19 @@ namespace Test.Shared.Suites.Services
                 _DataDirectory = dataDirectory;
             }
 
+            public ProxySettings Settings { get; }
+
+            public int Port => _BaseUri.Port;
+
+            public string SharedPassword => "proxy-smoke-password";
+
             public ArmadaProxyServer Proxy { get; }
 
             public FakeTunnelClient Tunnel { get; }
 
             public HttpClient Browser { get; }
 
-            public static async Task<ProxyTestHarness> StartAsync(IEnumerable<string>? tunnelCapabilities = null)
+            public static async Task<ProxyTestHarness> StartAsync(IEnumerable<string>? tunnelCapabilities = null, Action<ProxySettings>? configure = null)
             {
                 EnsureStaticProxyAssets();
 
@@ -397,6 +607,7 @@ namespace Test.Shared.Suites.Services
                     DataDirectory = dataDirectory,
                     LogDirectory = Path.Combine(dataDirectory, "logs")
                 };
+                configure?.Invoke(settings);
                 settings.InitializeDirectories();
 
                 LoggingModule logging = CreateLogging();
@@ -420,7 +631,7 @@ namespace Test.Shared.Suites.Services
                     Timeout = TimeSpan.FromSeconds(15)
                 };
 
-                return new ProxyTestHarness(proxy, tunnel, browser, handler, baseUri, logging, dataDirectory);
+                return new ProxyTestHarness(proxy, tunnel, browser, handler, baseUri, logging, dataDirectory, settings);
             }
 
             public async Task LoginAsync()
@@ -461,6 +672,36 @@ namespace Test.Shared.Suites.Services
                 }
 
                 return JsonDocument.Parse(content);
+            }
+
+            public Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, string headerName, string headerValue)
+            {
+                HttpRequestMessage request = new HttpRequestMessage(method, path);
+                request.Headers.TryAddWithoutValidation(headerName, headerValue);
+                return Browser.SendAsync(request);
+            }
+
+            /// <summary>
+            /// One browser login: fetch a challenge, then post the proof (valid unless <paramref name="proof"/> is given).
+            /// </summary>
+            public async Task<HttpResponseMessage> LoginAttemptAsync(string? proof = null, bool? setCookie = null, string? forwardedFor = null, string? forwardedProto = null)
+            {
+                using JsonDocument challenge = await GetJsonAsync("/proxy-api/v1/auth/challenge").ConfigureAwait(false);
+                string nonce = challenge.RootElement.GetProperty("nonce").GetString() ?? String.Empty;
+                Dictionary<string, object?> payload = new Dictionary<string, object?>
+                {
+                    ["nonce"] = nonce,
+                    ["proofSha256"] = proof ?? RemoteTunnelAuth.ComputeBrowserLoginProof(SharedPassword, nonce)
+                };
+                if (setCookie != null) payload["setCookie"] = setCookie;
+
+                HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "/proxy-api/v1/auth/login")
+                {
+                    Content = CreateJsonContent(payload)
+                };
+                if (forwardedFor != null) request.Headers.TryAddWithoutValidation("X-Forwarded-For", forwardedFor);
+                if (forwardedProto != null) request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", forwardedProto);
+                return await Browser.SendAsync(request).ConfigureAwait(false);
             }
 
             public Task<HttpResponseMessage> PostJsonAsync(string path, object payload)
