@@ -744,6 +744,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Credential-login throttling and lockout: failed email and password logins per account and per client
+        /// address (429 with Retry-After while locked out).
+        /// </summary>
+        public LoginRateLimitSettings LoginRateLimit
+        {
+            get => _LoginRateLimit;
+            set => _LoginRateLimit = value ?? new LoginRateLimitSettings();
+        }
+
+        /// <summary>
         /// Optional: configuration for admiral-side event-driven orchestrator wakes via Claude Code
         /// Routines /fire API. Null or absent means the feature is disabled; admiral runs as today.
         /// </summary>
@@ -1108,6 +1118,7 @@ namespace Armada.Core.Settings
         private string? _AiMemoryRoot = null;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
+        private LoginRateLimitSettings _LoginRateLimit = new LoginRateLimitSettings();
         private HarborSettings _Harbor = new HarborSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();

@@ -12,6 +12,7 @@
   - [Bearer Token (Recommended)](#bearer-token-recommended)
   - [Encrypted Session Token](#encrypted-session-token)
   - [API Key (Deprecated)](#api-key-deprecated)
+  - [Login Rate Limiting](#login-rate-limiting)
   - [Authorization Tiers](#authorization-tiers)
   - [Authorization Matrix](#authorization-matrix)
 - [Pagination](#pagination)
@@ -99,6 +100,34 @@ accepts both formats and compares derived values in constant time. Upgrades
 change only the password column and require the stored hash to match the value
 read, so concurrent account changes are preserved. Bearer tokens and session
 tokens use their existing authentication paths.
+
+### Login Rate Limiting
+
+`POST /api/v1/authenticate` throttles email and password logins. Failed credential
+logins are counted in memory (counters reset when the Admiral restarts) per account
+(tenant and email, case-insensitive) and per client address, and a key that reaches
+its limit is locked out with exponential backoff. The `loginRateLimit` settings
+configure it:
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `loginRateLimit.enabled` | `true` | Turn credential-login throttling on or off |
+| `loginRateLimit.maxFailuresPerAccount` | `10` | Failed logins for one account within the window before the account is locked |
+| `loginRateLimit.maxFailuresPerAddress` | `50` | Failed logins from one client address within the window before the address is locked |
+| `loginRateLimit.windowMinutes` | `15` | Window over which failures are counted |
+| `loginRateLimit.lockoutMinutes` | `15` | First lockout; each further lockout of the same key doubles it |
+| `loginRateLimit.maxLockoutMinutes` | `1440` | Cap on a doubled lockout |
+
+While an account or address is locked, a credential login returns `429` with a
+`Retry-After` header (whole seconds), even when the password is right. A successful
+login clears the account counter. The tracked-key store is bounded, so a flood of
+distinct accounts cannot grow memory without limit. Only the email and password path
+is limited: token refresh with `X-Token`, `Authorization` bearer tokens, the
+`X-Api-Key` header, and mission and Ask session tokens are not counted and are not
+refused by a lockout. The client address is the TCP peer address and
+`X-Forwarded-For` is not trusted, so behind a reverse proxy every client shares the
+proxy's address; raise `maxFailuresPerAddress` there. An attacker who knows an
+account name can lock that account for the lockout period.
 
 ### Authorization Tiers
 
@@ -460,6 +489,7 @@ Authenticate with email and password to receive an encrypted session token. This
 **Errors:**
 - `400 Bad Request` - Missing required fields (TenantId, Email, Password)
 - `401 Unauthorized` - Invalid credentials or inactive tenant/user
+- `429 Too Many Requests` - The account or client address is locked out after repeated failed credential logins; `Retry-After` gives the seconds to wait (see [Login Rate Limiting](#login-rate-limiting))
 
 ---
 

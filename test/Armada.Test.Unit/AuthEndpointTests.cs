@@ -328,6 +328,144 @@ namespace Armada.Test.Unit
             });
 
             // ================================================================
+            // Credential login throttling
+            // ================================================================
+
+            await RunTest("Credential login locks an account after repeated failures and refuses even the right password", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                using (HttpClient anonymous = new HttpClient { BaseAddress = harness.Rest.BaseAddress, Timeout = TimeSpan.FromSeconds(20) })
+                {
+                    harness.Settings.LoginRateLimit.MaxFailuresPerAccount = 3;
+                    await harness.Driver.Users.CreateAsync(new UserMaster(Constants.DefaultTenantId, "locked@example.com", "right-password")).ConfigureAwait(false);
+                    await harness.Driver.Users.CreateAsync(new UserMaster(Constants.DefaultTenantId, "bystander@example.com", "bystander-password")).ConfigureAwait(false);
+
+                    HttpResponseMessage first = await PostCredentialsAsync(anonymous, "locked@example.com", "right-password").ConfigureAwait(false);
+                    AssertEqual(200, (int)first.StatusCode, "correct credentials sign in before any failure");
+                    string sessionToken = JsonSerializer.Deserialize<AuthenticateResult>(await first.Content.ReadAsStringAsync().ConfigureAwait(false), _CaseInsensitive)!.Token!;
+
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        HttpResponseMessage failed = await PostCredentialsAsync(anonymous, "Locked@Example.com", "wrong-password").ConfigureAwait(false);
+                        AssertEqual(401, (int)failed.StatusCode, "a wrong password is refused as unauthorized until the limit");
+                    }
+
+                    HttpResponseMessage locked = await PostCredentialsAsync(anonymous, "locked@example.com", "right-password").ConfigureAwait(false);
+                    AssertEqual(429, (int)locked.StatusCode, "the locked account is refused even with the right password");
+                    AssertTrue(locked.Headers.TryGetValues("Retry-After", out IEnumerable<string>? retryAfter)
+                        && Int32.TryParse(retryAfter!.First(), out int seconds) && seconds >= 1, "the refusal carries a Retry-After in whole seconds");
+                    AssertFalse(JsonSerializer.Deserialize<AuthenticateResult>(await locked.Content.ReadAsStringAsync().ConfigureAwait(false), _CaseInsensitive)!.Success);
+
+                    HttpResponseMessage bystander = await PostCredentialsAsync(anonymous, "bystander@example.com", "bystander-password").ConfigureAwait(false);
+                    AssertEqual(200, (int)bystander.StatusCode, "another account on the same address is not locked by the first account's failures");
+
+                    SurfaceReply refreshed = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate", sessionToken: sessionToken).ConfigureAwait(false);
+                    AssertEqual(200, refreshed.Status, "token refresh is unaffected by the lockout");
+                    SurfaceReply apiKey = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate").ConfigureAwait(false);
+                    AssertEqual(200, apiKey.Status, "API key header authentication is unaffected by the lockout");
+                }
+            });
+
+            await RunTest("Credential login locks a client address that fails across many accounts", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                using (HttpClient anonymous = new HttpClient { BaseAddress = harness.Rest.BaseAddress, Timeout = TimeSpan.FromSeconds(20) })
+                {
+                    harness.Settings.LoginRateLimit.MaxFailuresPerAccount = 100;
+                    harness.Settings.LoginRateLimit.MaxFailuresPerAddress = 3;
+                    await harness.Driver.Users.CreateAsync(new UserMaster(Constants.DefaultTenantId, "spray-target@example.com", "right-password")).ConfigureAwait(false);
+
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        HttpResponseMessage failed = await PostCredentialsAsync(anonymous, "nobody" + attempt + "@example.com", "guess").ConfigureAwait(false);
+                        AssertEqual(401, (int)failed.StatusCode, "guesses against distinct accounts are refused as unauthorized until the limit");
+                    }
+
+                    HttpResponseMessage locked = await PostCredentialsAsync(anonymous, "spray-target@example.com", "right-password").ConfigureAwait(false);
+                    AssertEqual(429, (int)locked.StatusCode, "the locked client address is refused even for an account it never failed against");
+                    AssertTrue(locked.Headers.Contains("Retry-After"), "the address lockout carries Retry-After");
+
+                    SurfaceReply apiKey = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate").ConfigureAwait(false);
+                    AssertEqual(200, apiKey.Status, "API key header authentication is unaffected by an address lockout");
+                }
+            });
+
+            await RunTest("Login rate limiter lockout ends on the clock, doubles on repeat, and resets after a quiet period", () =>
+            {
+                DateTime now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+                LoginRateLimitSettings settings = new LoginRateLimitSettings { MaxFailuresPerAccount = 2, LockoutMinutes = 10, MaxLockoutMinutes = 30, WindowMinutes = 5 };
+                LoginRateLimiter limiter = new LoginRateLimiter(settings, () => now);
+
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", "10.0.0.1");
+                AssertNull(limiter.CheckPasswordLogin("ten_a", "a@example.com", "10.0.0.1"), "one failure does not lock");
+                limiter.RecordPasswordFailure("ten_a", "A@Example.com", "10.0.0.1");
+                TimeSpan? first = limiter.CheckPasswordLogin("ten_a", "a@example.com", "10.0.0.2");
+                AssertNotNull(first, "the limit locks the account, whatever the case of the email and whatever the address");
+                AssertEqual(TimeSpan.FromMinutes(10), first!.Value, "first lockout length");
+
+                now = now.AddMinutes(10).AddSeconds(1);
+                AssertNull(limiter.CheckPasswordLogin("ten_a", "a@example.com", "10.0.0.2"), "the lockout ends when the clock passes it");
+
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", "10.0.0.1");
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", "10.0.0.1");
+                AssertEqual(TimeSpan.FromMinutes(20), limiter.CheckPasswordLogin("ten_a", "a@example.com", null)!.Value, "a repeat lockout doubles");
+
+                now = now.AddMinutes(20).AddSeconds(1);
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", "10.0.0.1");
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", "10.0.0.1");
+                AssertEqual(TimeSpan.FromMinutes(30), limiter.CheckPasswordLogin("ten_a", "a@example.com", null)!.Value, "doubling stops at the maximum lockout");
+
+                now = now.AddMinutes(30).AddMinutes(31);
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", "10.0.0.1");
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", "10.0.0.1");
+                AssertEqual(TimeSpan.FromMinutes(10), limiter.CheckPasswordLogin("ten_a", "a@example.com", null)!.Value, "a key quiet for longer than the maximum lockout starts over");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Login rate limiter counts failures inside the window only and clears an account on success", () =>
+            {
+                DateTime now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+                LoginRateLimitSettings settings = new LoginRateLimitSettings { MaxFailuresPerAccount = 3, WindowMinutes = 5, LockoutMinutes = 10 };
+                LoginRateLimiter limiter = new LoginRateLimiter(settings, () => now);
+
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", null);
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", null);
+                now = now.AddMinutes(6);
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", null);
+                AssertNull(limiter.CheckPasswordLogin("ten_a", "a@example.com", null), "failures older than the window are not counted");
+
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", null);
+                limiter.RecordPasswordSuccess("ten_a", "a@example.com");
+                limiter.RecordPasswordFailure("ten_a", "a@example.com", null);
+                AssertNull(limiter.CheckPasswordLogin("ten_a", "a@example.com", null), "a successful login clears the account counter");
+
+                settings.Enabled = false;
+                for (int i = 0; i < 20; i++) limiter.RecordPasswordFailure("ten_b", "b@example.com", "10.0.0.9");
+                AssertNull(limiter.CheckPasswordLogin("ten_b", "b@example.com", "10.0.0.9"), "a disabled limiter never locks");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Login rate limiter bounds its key store and keeps active lockouts", () =>
+            {
+                DateTime now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+                LoginRateLimitSettings settings = new LoginRateLimitSettings { MaxFailuresPerAccount = 1, MaxFailuresPerAddress = 100000, LockoutMinutes = 60 };
+                LoginRateLimiter limiter = new LoginRateLimiter(settings, () => now);
+
+                limiter.RecordPasswordFailure("ten_a", "victim@example.com", null);
+                AssertNotNull(limiter.CheckPasswordLogin("ten_a", "victim@example.com", null), "the account is locked");
+                settings.MaxFailuresPerAccount = 1000;
+                for (int i = 0; i < LoginRateLimiter.MaxTrackedKeys + 500; i++)
+                {
+                    now = now.AddMilliseconds(1);
+                    limiter.RecordPasswordFailure("ten_a", "flood" + i + "@example.com", null);
+                }
+
+                AssertTrue(limiter.TrackedKeyCount <= LoginRateLimiter.MaxTrackedKeys, "a flood of distinct accounts cannot grow the store past its bound");
+                AssertNotNull(limiter.CheckPasswordLogin("ten_a", "victim@example.com", null), "eviction never lifts an active lockout");
+                return Task.CompletedTask;
+            });
+
+            // ================================================================
             // SessionTokenService
             // ================================================================
 
@@ -666,6 +804,15 @@ namespace Armada.Test.Unit
         }
 
         #region Private-Helpers
+
+        private static readonly JsonSerializerOptions _CaseInsensitive = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+        private static Task<HttpResponseMessage> PostCredentialsAsync(HttpClient client, string email, string password)
+        {
+            return client.PostAsync("/api/v1/authenticate", new StringContent(
+                JsonSerializer.Serialize(new { TenantId = Constants.DefaultTenantId, Email = email, Password = password }),
+                Encoding.UTF8, "application/json"));
+        }
 
         private static string EncryptLegacyForTest(byte[] key, string plaintext)
         {

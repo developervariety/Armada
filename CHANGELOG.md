@@ -31,6 +31,10 @@ upstream integrations and excludes changes already present at that baseline.
 - A user who changes their own password through `PUT /api/v1/users/{id}` supplies `CurrentPassword`; a missing value returns `400` and a wrong value `403`. An administrator's reset of another user, and requests that use the configured `ApiKey`, are unchanged.
 - The Dashboard Users modal asks for the current password when a user edits their own record and shows the server's refusal message. The tenant form takes an optional admin password and shows a generated one once, with a copy button, in a dialog that discards it on close. A banner links to the password change while `PasswordChangeRequired` is true and never blocks the session.
 
+### Application login attempt limits
+
+- `POST /api/v1/authenticate` throttles email and password logins per account and per client address. Repeated failures lock the key with exponential backoff and return `429` with `Retry-After`, even for the correct password. The `loginRateLimit` settings tune the limits. Token refresh, bearer and API key headers, and mission and Ask session tokens are not limited. See [Login Rate Limiting](docs/REST_API.md#login-rate-limiting).
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

@@ -24,6 +24,7 @@ namespace Armada.Server.Routes
         private readonly ArmadaSettings _settings;
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly DefaultCredentialService? _defaults;
+        private readonly LoginRateLimiter _rateLimiter;
 
         /// <summary>
         /// Instantiate.
@@ -34,13 +35,15 @@ namespace Armada.Server.Routes
         /// <param name="settings">Application settings.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="defaults">Default credential service; when supplied, a password change retires the seeded bearer token.</param>
+        /// <param name="rateLimiter">Credential-login rate limiter; null builds one from <c>settings.LoginRateLimit</c>.</param>
         public AuthRoutes(
             ISessionTokenService sessionTokenService,
             IAuthenticationService authenticationService,
             DatabaseDriver database,
             ArmadaSettings settings,
             JsonSerializerOptions jsonOptions,
-            DefaultCredentialService? defaults = null)
+            DefaultCredentialService? defaults = null,
+            LoginRateLimiter? rateLimiter = null)
         {
             _sessionTokenService = sessionTokenService;
             _authenticationService = authenticationService;
@@ -48,6 +51,7 @@ namespace Armada.Server.Routes
             _settings = settings;
             _jsonOptions = jsonOptions;
             _defaults = defaults;
+            _rateLimiter = rateLimiter ?? new LoginRateLimiter(settings.LoginRateLimit);
         }
 
         /// <summary>
@@ -93,14 +97,28 @@ namespace Armada.Server.Routes
                 // Try email/password
                 if (authReq != null && !string.IsNullOrEmpty(authReq.TenantId) && !string.IsNullOrEmpty(authReq.Email) && !string.IsNullOrEmpty(authReq.Password))
                 {
+                    // Only guessable credentials are throttled: a locked account or client address is refused even with
+                    // the right password, so a lockout cannot be bypassed by continuing to guess.
+                    string? address = ClientAddress(req.Http);
+                    TimeSpan? retryAfter = _rateLimiter.CheckPasswordLogin(authReq.TenantId, authReq.Email, address);
+                    if (retryAfter != null)
+                    {
+                        req.Http.Response.StatusCode = 429;
+                        req.Http.Response.Headers.Add("Retry-After", LoginRateLimiter.ToRetryAfterSeconds(retryAfter.Value));
+                        return (object)new AuthenticateResult { Success = false };
+                    }
+
                     AuthContext credCtx = await _authenticationService.AuthenticateWithCredentialsAsync(authReq.TenantId, authReq.Email, authReq.Password).ConfigureAwait(false);
                     if (credCtx.IsAuthenticated)
                     {
+                        _rateLimiter.RecordPasswordSuccess(authReq.TenantId, authReq.Email);
                         AuthenticateResult result = _sessionTokenService.CreateToken(credCtx.TenantId!, credCtx.UserId!);
                         UserMaster? credUser = await _database.Users.ReadByIdAsync(credCtx.UserId!).ConfigureAwait(false);
                         result.PasswordChangeRequired = credUser != null && credUser.UsesDefaultPassword();
                         return (object)result;
                     }
+
+                    _rateLimiter.RecordPasswordFailure(authReq.TenantId, authReq.Email, address);
                 }
 
                 req.Http.Response.StatusCode = 401;
@@ -262,6 +280,17 @@ namespace Armada.Server.Routes
                 };
             },
             api => api.WithTag("Authentication").WithSummary("Self-register a new user"));
+        }
+
+        /// <summary>
+        /// Client address of a request as seen by the listener; forwarding headers are not trusted.
+        /// </summary>
+        /// <param name="ctx">HTTP context.</param>
+        /// <returns>Address, or null.</returns>
+        public static string? ClientAddress(HttpContextBase ctx)
+        {
+            string? address = ctx?.Request?.Source?.IpAddress?.ToString();
+            return String.IsNullOrEmpty(address) ? null : address;
         }
     }
 }
