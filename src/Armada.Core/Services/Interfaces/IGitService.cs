@@ -9,6 +9,18 @@ namespace Armada.Core.Services.Interfaces
     /// </summary>
     public interface IGitService
     {
+        /// <summary>Refuse publication when the candidate inherits unpublished commits from a mapped developer checkout.</summary>
+        Task ValidatePublishedAncestryAsync(string worktreePath, string checkoutPath, string targetBranch, string commitHash, CancellationToken token = default)
+            => Task.CompletedTask;
+
+        /// <summary>Publish exactly a verified commit, without merging or modifying a developer checkout.</summary>
+        Task PushVerifiedCommitAsync(string worktreePath, string commitHash, string targetBranch, CancellationToken token = default)
+            => throw new NotSupportedException("This git service cannot publish a verified commit.");
+
+        /// <summary>Fast-forward a clean target checkout to exactly the verified commit; never create a new merge.</summary>
+        Task FastForwardVerifiedCommitAsync(string targetWorkDir, string sourceRepoPath, string commitHash, string targetBranch, CancellationToken token = default)
+            => throw new NotSupportedException("This git service cannot fast-forward a verified commit.");
+
         /// <summary>
         /// Clone a repository as a bare repo.
         /// </summary>

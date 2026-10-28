@@ -14,6 +14,12 @@ namespace Test.Shared.Infrastructure
     /// </summary>
     public class StubGitService : IGitService
     {
+        public Task PushVerifiedCommitAsync(string worktreePath, string commitHash, string targetBranch, CancellationToken token = default)
+            => PushBranchAsync(worktreePath, token: token);
+
+        public Task FastForwardVerifiedCommitAsync(string targetWorkDir, string sourceRepoPath, string commitHash, string targetBranch, CancellationToken token = default)
+            => MergeBranchLocalAsync(targetWorkDir, sourceRepoPath, "main", targetBranch, token: token);
+
         // Call tracking
         public List<string> CloneCalls { get; } = new List<string>();
         public List<string> WorktreeCalls { get; } = new List<string>();
@@ -89,7 +95,8 @@ namespace Test.Shared.Infrastructure
             OperationCalls.Add("remove-worktree:" + worktreePath);
             return Task.CompletedTask;
         }
-        public Task FetchAsync(string repoPath, CancellationToken token = default) => Task.CompletedTask;
+        public Func<Task>? OnFetch { get; set; }
+        public Task FetchAsync(string repoPath, CancellationToken token = default) => OnFetch?.Invoke() ?? Task.CompletedTask;
 
         public Task PushBranchAsync(string worktreePath, string remoteName = "origin", CancellationToken token = default)
         {
@@ -222,8 +229,9 @@ namespace Test.Shared.Infrastructure
             return Task.FromResult(true);
         }
 
+        public GitWorkingTreeStatus WorkingTreeStatusResult { get; set; } = new();
         public Task<GitWorkingTreeStatus> GetWorkingTreeStatusAsync(string repoPath, CancellationToken token = default)
-            => Task.FromResult(new GitWorkingTreeStatus());
+            => Task.FromResult(WorkingTreeStatusResult);
 
         public Task<string?> GetCurrentBranchAsync(string repoPath, CancellationToken token = default)
             => Task.FromResult<string?>("main");

@@ -111,7 +111,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("retry_landing_harbor_dock_not_checked_locally", "RetryLanding does not treat a Harbor dock path as missing on the Admiral host", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("retry_landing_harbor_dock_not_checked_locally", "RetryLanding never falls back to the Admiral for a disconnected Harbor dock", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -147,8 +147,9 @@ namespace Test.Shared.Suites.Services
                         await db.Missions.UpdateAsync(m);
                     };
 
-                    AssertTrue(await landing.RetryLandingAsync(mission.Id), "Harbor dock retry should reach the landing handler");
-                    AssertEqual(dock.Id, landedDock?.Id);
+                    AssertFalse(await landing.RetryLandingAsync(mission.Id), "No local-host fallback is permitted");
+                    AssertNull(landedDock);
+                    AssertContains("Harbor host is unavailable", (await db.Missions.ReadAsync(mission.Id))!.FailureReason!);
                 }
             }));
 

@@ -69,6 +69,52 @@ namespace Armada.Core.Services
 
         #region Public-Methods
 
+        /// <inheritdoc />
+        public async Task ValidatePublishedAncestryAsync(string worktreePath, string checkoutPath, string targetBranch, string commitHash, CancellationToken token = default)
+        {
+            if (!await BranchExistsAsync(checkoutPath, targetBranch, token).ConfigureAwait(false)) return;
+            // Fetch only the mapped target into FETCH_HEAD. Neither the checkout nor its branches are changed.
+            await RunGitAsync(worktreePath, token, "fetch", "--no-tags", checkoutPath, "refs/heads/" + targetBranch).ConfigureAwait(false);
+            GitProcessResult shared = await ExecuteProcessAsync(worktreePath, "git", _NoMatch, token,
+                "merge-base", commitHash, "FETCH_HEAD").ConfigureAwait(false);
+            if (shared.ExitCode == 1) return; // Disjoint histories cannot contribute unpublished ancestors.
+            if (!shared.Succeeded) throw new InvalidOperationException("Cannot establish the candidate's ancestry against the developer checkout.");
+            bool? published = await IsAncestorAsync(worktreePath, shared.StandardOutput.Trim(), "refs/remotes/origin/" + targetBranch, token).ConfigureAwait(false);
+            if (published != true)
+                throw new GitUnpublishedCommitsException("Not published: the candidate includes checkout commits that are not on origin/" + targetBranch
+                    + ". Publish or reconcile those commits explicitly, then retry landing. The mission branch is preserved.");
+        }
+
+        /// <inheritdoc />
+        public async Task PushVerifiedCommitAsync(string worktreePath, string commitHash, string targetBranch, CancellationToken token = default)
+        {
+            if (await GetHeadCommitHashAsync(worktreePath, token).ConfigureAwait(false) != commitHash)
+                throw new InvalidOperationException("The verified landing commit changed before push; rerun verification.");
+            // An ordinary push refuses a concurrently advanced, divergent target. No force push and no new merge.
+            await RunGitAsync(worktreePath, token, "push", "origin", commitHash + ":refs/heads/" + targetBranch).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task FastForwardVerifiedCommitAsync(string targetWorkDir, string sourceRepoPath, string commitHash, string targetBranch, CancellationToken token = default)
+        {
+            if (!(await GetWorkingTreeStatusAsync(targetWorkDir, token).ConfigureAwait(false)).IsClean)
+                throw new GitDirtyCheckoutException(targetWorkDir, "Checkout has changes; verified work is preserved.");
+            string? original = await GetCurrentBranchAsync(targetWorkDir, token).ConfigureAwait(false);
+            if (String.IsNullOrEmpty(original)) throw new InvalidOperationException("Cannot land into a detached target checkout.");
+            await RunGitAsync(targetWorkDir, token, "fetch", sourceRepoPath, commitHash).ConfigureAwait(false);
+            try
+            {
+                if (original != targetBranch) await RunGitAsync(targetWorkDir, token, "checkout", targetBranch).ConfigureAwait(false);
+                await RunGitAsync(targetWorkDir, token, "merge", "--ff-only", commitHash).ConfigureAwait(false);
+                if (await GetHeadCommitHashAsync(targetWorkDir, token).ConfigureAwait(false) != commitHash)
+                    throw new InvalidOperationException("Target contains newer work; verified landing did not update it.");
+            }
+            finally
+            {
+                if (original != targetBranch) await RunGitAsync(targetWorkDir, token, "checkout", original).ConfigureAwait(false);
+            }
+        }
+
         /// <summary>
         /// Clone a repository as a bare repo.
         /// </summary>

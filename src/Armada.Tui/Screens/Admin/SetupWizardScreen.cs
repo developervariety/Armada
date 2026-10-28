@@ -391,7 +391,7 @@ namespace Armada.Tui.Screens.Admin
             [""] = "Uses the Admiral-wide landing settings.",
             ["None"] = "Finished work stays on a branch for you to review. Choose Local Merge to land it automatically.",
             ["LocalMerge"] = "Finished work is merged into the working directory. Nothing is pushed.",
-            ["MergeAndPush"] = "Finished work is merged into the working directory and pushed to its origin remote, so the checkout needs one.",
+            ["MergeAndPush"] = "Finished work is integrated and verified in its dock, then pushed to the target branch. Your checkout is left untouched if it has changes.",
             ["PullRequest"] = "Finished work is pushed and opened as a pull request (needs the GitHub CLI).",
             ["MergeQueue"] = "Finished work is queued; processing the merge queue tests and merges it.",
         };
@@ -664,11 +664,9 @@ namespace Armada.Tui.Screens.Admin
             }
 
             string landing = LandingMode.Value ?? "";
-            if ((landing == "LocalMerge" || landing == "MergeAndPush") && WorkingDirectory.Value.Trim().Length == 0)
+            if (landing == "LocalMerge" && WorkingDirectory.Value.Trim().Length == 0)
             {
-                SetResult(SetupWizardResultKindEnum.Error, landing == "MergeAndPush"
-                    ? L("Merge and Push needs a working directory to merge into.")
-                    : L("Local Merge needs a working directory to merge into."));
+                SetResult(SetupWizardResultKindEnum.Error, L("Local Merge needs a working directory to merge into."));
                 return;
             }
 

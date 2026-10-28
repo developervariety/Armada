@@ -6,6 +6,14 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Handoff and landing integrity
+
+- Final landing verifies the integrated commit on the owning host and publishes that exact SHA. Failed, timed-out, unavailable or mutating checks refuse publication; merge-queue passes and explicit skips now have durable receipts with commit, command, exit code and timestamps. Armada additionally runs focused integration suites even with a smoke-only workflow profile.
+- MergeAndPush publishes from the isolated dock and leaves dirty or divergent developer checkouts untouched. LocalMerge only fast-forwards to the verified commit. Harbor-only landing retries no longer require an Admiral-side clone, and disconnected Harbors cannot fall back to local execution.
+- Conditional landing and merge-queue status writes preserve concurrent cancellation/newer attempts. Queue reconciliation records the verified integration SHA before publication for restart recovery.
+- Cancellation and deletion preserve tenant-scoped mission archives with failure, branch, commit, dock, stage attempts and recent diagnostics. Cascade cleanup retains archives; the receipt explicitly distinguishes stopping recovery from verified resolution.
+- Health reports include the running binary's embedded build version and source commit. Updated landing-mode guidance and translations describe isolated publication.
+
 ### Added
 
 - Workflow profiles carry two unit-test commands: `UnitTestCommand` (full suite) and the new `AbbreviatedUnitTestCommand` (a fast subset). The abbreviated one runs for the new `AbbreviatedUnitTest` check type (the operator choosing directly) and in post-stage checks when `[ARMADA:UNIT-TESTS] abbreviated` appears in the mission description or, failing that, the stage persona's prompt (for example a customized Test Engineer prompt template); `[ARMADA:UNIT-TESTS] full` forces the full suite, and with no directive the full command runs. An unset abbreviated command falls back to the full one. Migration 100 adds `abbreviated_unit_test_command` on every database. The dashboard, TUI and mobile workflow-profile forms show both fields with tooltips explaining how each is chosen, and `StageCheckResult` records the `UnitTestScope` used.
