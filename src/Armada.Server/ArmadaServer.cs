@@ -180,8 +180,8 @@ namespace Armada.Server
         private TypedDecisionEvalService? _TypedDecisionEval = null;
         private HttpClient _TypedDecisionHttpClient = null!;
         // The context retrieval service over the built context index (manifest chunks plus bodies).
-        // Built in-process at MCP registration from AI-Memory and the docs tree; feeds the
-        // read-only captain context fetch tool. Additive; touches no loader and no brief.
+        // Built in-process at MCP registration from AI-Memory and the docs tree; feeds the guidance
+        // part of armada_search_context and the slimmed brief.
         private Armada.Core.Context.ContextRetrievalService? _ContextRetrieval;
         private PapercutMergeAdapter _PapercutMergeAdapter = null!;
         // D13 owner_digest scheduled runner. Constructed only with the live typed-decision client and
@@ -1179,7 +1179,7 @@ namespace Armada.Server
         /// layer ranks. Building in-process, rather than reading the manifest file the startup
         /// generator writes, keeps the tool independent of file write ordering; both derive from the
         /// same generator, so they agree. Fully guarded: any failure logs a warning and returns null,
-        /// and the fetch tool is then simply not registered.
+        /// and recall then names the rules source as not configured.
         /// </summary>
         private Armada.Core.Context.ContextRetrievalService? BuildContextRetrievalService()
         {
@@ -2211,7 +2211,6 @@ namespace Armada.Server
                 dispatchStalenessAdapter: _DispatchStalenessAdapter,
                 changeQualityFollowUpRouter: _FollowUpRouter,
                 contextRetrieval: _ContextRetrieval,
-                contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 missionService: _MissionService,
                 missionOperations: _MissionOperations,
                 askActions: _AskActions,

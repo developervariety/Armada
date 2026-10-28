@@ -29,7 +29,7 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Compatibility recall tools and a new registration share one durable mission budget", async () =>
+            await RunTest("Unified recall, native listing and a new registration share one durable mission budget", async () =>
             {
                 using (TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -38,29 +38,24 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission mission = await db.Driver.Missions.CreateAsync(new Mission("Recall", "Inspect") { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId, VesselId = vessel.Id, Status = MissionStatusEnum.InProgress }).ConfigureAwait(false);
                     ArmadaSettings settings = new ArmadaSettings();
                     settings.CodeIndex.Enabled = true;
-                    settings.ContextRetrieval.MaxCallsPerMission = 3;
-                    settings.CodeIndex.CaptainSearchMaxCallsPerMission = 3;
+                    settings.ContextRetrieval.MaxCallsPerMission = 2;
+                    settings.CodeIndex.CaptainSearchMaxCallsPerMission = 2;
                     Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
                     RegisterToolDelegate register = (name, description, schema, handler) => handlers[name] = handler;
                     ContextRecallBudget budget = new ContextRecallBudget(db.Driver, settings);
                     ContextSearchService search = new ContextSearchService(db.Driver, Guidance(vessel.Name));
                     McpContextSearchTools.Register(register, search, settings.ContextRetrieval, db.Driver, budget);
-                    McpContextTools.Register(register, Guidance(vessel.Name), db.Driver, settings, sharedBudget: budget);
                     McpMemoryTools.Register(register, db.Driver, settings: settings, sharedBudget: budget);
-                    LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
-                    McpMissionCodeSearchTools.Register(register, new CodeIndexService(logging, db.Driver, settings, new GitService(logging)), db.Driver, settings, sharedBudget: budget);
                     AuthContext caller = Caller(); caller.MissionId = mission.Id;
                     using (McpCallerContext.Begin(caller))
                     {
                         JsonElement args = JsonSerializer.SerializeToElement(new { query = "checksum", includeCode = false });
                         AssertTrue(await handlers[McpContextSearchTools.ToolName](args).ConfigureAwait(false) is ContextSearchResponse, "Canonical recall spends the first call");
-                        AssertContains("\"Available\":true", JsonSerializer.Serialize(await handlers[McpContextTools.FetchContextToolName](args).ConfigureAwait(false)), "Compatibility guidance spends the second call");
                         JsonElement listing = JsonSerializer.SerializeToElement(new { search = "checksum" });
-                        AssertContains(fact.Id, JsonSerializer.Serialize(await handlers["search_memory"](listing).ConfigureAwait(false)), "Compatibility native listing spends the third call");
+                        AssertContains(fact.Id, JsonSerializer.Serialize(await handlers["search_memory"](listing).ConfigureAwait(false)), "Native listing spends the second call");
                         McpContextSearchTools.Register(register, search, settings.ContextRetrieval, db.Driver, new ContextRecallBudget(db.Driver, settings));
                         AssertContains("budget", JsonSerializer.Serialize(await handlers[McpContextSearchTools.ToolName](args).ConfigureAwait(false)), "A new service registration cannot reset usage");
-                        JsonElement code = JsonSerializer.SerializeToElement(new { query = "checksum", missionId = mission.Id });
-                        AssertContains("budget", JsonSerializer.Serialize(await handlers[McpMissionCodeSearchTools.ToolName](code).ConfigureAwait(false)), "The code alias cannot bypass the common counter");
+                        AssertContains("budget", JsonSerializer.Serialize(await handlers["search_memory"](listing).ConfigureAwait(false)), "Native listing cannot bypass the common counter");
                     }
                 }
             });

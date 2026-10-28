@@ -8,13 +8,13 @@ namespace Armada.Server.Mcp
     using Armada.Core.Services;
     using Armada.Core.Settings;
 
-    /// <summary>One durable mission budget for unified recall and its compatibility tools.</summary>
+    /// <summary>One durable mission budget shared by every recall tool.</summary>
     public sealed class ContextRecallBudget
     {
         private readonly DatabaseDriver _Database;
         private readonly ArmadaSettings _Settings;
 
-        /// <summary>Maximum shared calls, retaining the legacy code limit as a conservative cap.</summary>
+        /// <summary>Maximum shared calls; while code indexing is enabled the code-index caller cap is a conservative ceiling.</summary>
         public int Maximum => _Settings.CodeIndex.Enabled
             ? Math.Min(_Settings.ContextRetrieval.MaxCallsPerMission, _Settings.CodeIndex.CaptainSearchMaxCallsPerMission)
             : _Settings.ContextRetrieval.MaxCallsPerMission;

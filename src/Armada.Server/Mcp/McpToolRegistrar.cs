@@ -110,7 +110,6 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.TypedDispatchStalenessAdapter? dispatchStalenessAdapter = null,
             Armada.Core.Services.Interfaces.IFollowUpRouter? changeQualityFollowUpRouter = null,
             Armada.Core.Context.ContextRetrievalService? contextRetrieval = null,
-            Func<string?>? contextParticipantKeyProvider = null,
             Armada.Core.Services.Interfaces.IMissionService? missionService = null,
             CaptainAdministrationService? captainAdministration = null,
             MissionOperations? missionOperations = null,
@@ -140,7 +139,7 @@ namespace Armada.Server.Mcp
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, statusTransitions, missionOperations, longRunningJobs);
 
             // The mission change summary resolves its mission, vessel and both commits from the caller and recorded
-            // mission evidence, so it sits in the caller-scoped catalogue beside the mission code search.
+            // mission evidence, so it sits in the caller-scoped catalogue beside unified recall.
             McpMissionChangeSummaryTools.Register(register, database, effectiveSettings, git, logging);
             if (captainAdministration == null)
             {
@@ -189,9 +188,6 @@ namespace Armada.Server.Mcp
             ContextRecallBudget contextRecallBudget = new ContextRecallBudget(database, effectiveSettings);
             McpMemoryTools.Register(register, database, logging, effectiveSettings, contextRecallBudget);
 
-            // The captain-facing context fetch tool sits in the mission-scoped catalogue beside
-            // the memory tools. Its handler reports when this host has no built context index.
-            McpContextTools.Register(register, contextRetrieval, database, effectiveSettings, logging, contextParticipantKeyProvider, contextRecallBudget);
             McpContextSearchTools.Register(register,
                 new ContextSearchService(database, contextRetrieval, effectiveSettings.CodeIndex.Enabled ? codeIndexService : null, logging,
                     logging != null ? new ContextSemanticResolver(database, effectiveSettings.ContextRetrieval, logging) : null),
@@ -244,10 +240,6 @@ namespace Armada.Server.Mcp
             if (codeIndexService != null)
             {
                 McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);
-
-                // The captain-facing code search sits in the mission-scoped catalogue. It resolves the
-                // vessel from the calling mission, so a captain reaches its own vessel's index only.
-                McpMissionCodeSearchTools.Register(register, codeIndexService, database, effectiveSettings, logging, contextRecallBudget);
             }
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
             if (logging != null) McpTraceTools.Register(register, new TraceRecorder(database, logging));

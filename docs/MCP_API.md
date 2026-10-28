@@ -795,7 +795,7 @@ What a caller may use:
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
 | Mission captain (a mission session token), whatever its owner's role | The caller-scoped tools below, plus the read-only voyage tools `armada_enumerate`, `armada_mission_status`, `armada_get_mission_log`, `armada_voyage_status`, `armada_mission_output` and `get_objective`. An administrator owner's mission still reaches no operator tool, and its model is sent only these definitions with each request |
-| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_fetch_context`, `armada_search_context`, `armada_mission_code_search`, `armada_mission_change_summary`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -1165,8 +1165,8 @@ index. It calls an embedding endpoint only when `contextRetrieval.semanticEndpoi
 pins a local one, and `Sources` then carries a `semantic` entry. A source can be unavailable; inspect `Sources`
 before treating an empty result as proof of absence. Existing context fetch
 settings control the kill switch, per-mission calls and optional byte cap.
-Mission recall shares one durable counter with `armada_fetch_context`,
-`armada_mission_code_search` and mission-token `search_memory` calls. The limit
+Mission recall shares one durable counter with mission-token `search_memory`
+calls. The limit
 is the lower of `contextRetrieval.maxCallsPerMission` and, while code indexing
 is enabled, `codeIndex.captainSearchMaxCallsPerMission`. Restart, service
 registration and normal mission updates cannot reset the counter. A supplied
@@ -1370,37 +1370,6 @@ is named there and in the decision state, and when no repository search ran the
 answer says so in `note`, so "nothing found" is never read as a verified
 absence. The tool edits nothing and never blocks. It is caller-scoped like the other captain tools, and it is
 dormant (returns unavailable) until the `prior_art` decision is enabled.
-
-### armada_mission_code_search
-
-Search the code index of the calling mission's own vessel. Args: `missionId`
-(required), `query` (required), optional `limit`, `pathPrefix`, `language`, and
-`includeContent`. The tool resolves the vessel from the mission and takes no
-vessel or fleet argument, so a captain reaches only its own vessel's index. A
-captain credential always searches the mission it was issued to: a `missionId`
-naming another mission is ignored (the answer says so in `Warnings`), even when
-the credential's owner is an administrator, and the call is charged to the
-credential's own mission. The credential's own mission must have its tenant and
-owner (`mission_not_found` otherwise). A caller without a mission credential
-uses the supplied `missionId`; an administrator may name any mission, and any
-other caller is refused a mission outside its tenant (`mission_not_found`). The
-tool refuses a mission that has finished (`mission_not_active`), never returns
-reference-only records, and clamps `limit` to
-`codeIndex.captainSearchMaxResults`. Each result carries
-`Score`, `Path`, `StartLine`, `EndLine`, `Language`, `Excerpt`, and `Content`
-when asked.
-
-The index covers the vessel's default branch, not the dock branch. When the
-index is `Missing` or `Error` no search runs and the answer is unavailable with
-`index_missing` or `index_error`, so an empty result never stands in for "the
-code is absent". The answer's `Readiness` names the remedy: a vessel is indexed
-for the first time only by `armada_index_update`, which an operator runs. The
-first such answer for a vessel in an hour records `code_index.search_unavailable`
-with the vessel and the remedy, so an unindexed vessel is visible to operators. A `Stale` or lexical-only index still searches and says so in
-`Warnings`. The tool changes no source record and spends the shared durable
-mission recall budget (reason `budget` when spent). It is
-caller-scoped like the other captain tools. The operator tools
-`armada_code_search` and `armada_fleet_code_search` stay outside mission scope.
 
 ### armada_mission_change_summary
 

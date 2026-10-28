@@ -3,21 +3,21 @@ namespace Armada.Core.Settings
     using System;
 
     /// <summary>
-    /// Configuration for the captain-facing context fetch tool (<c>armada_fetch_context</c>) and the
-    /// flagged brief-slimming path. The fetch tool is read-only and informative: it returns
-    /// already-sanitized AI-Memory and docs leaf text for a query and has no side effect on any Armada
-    /// source record. These settings also govern unified context recall and its compatibility tools.
-    /// One durable mission counter bounds their combined calls, with the legacy code-search maximum
-    /// acting as a conservative cap while code indexing is enabled. They also set a per-call leaf
-    /// byte budget and can turn recall off without a code change. The brief-slimming flag replaces the full
-    /// read-every-file AI-Memory brief section with the always-on core plus the mission's retrieved
-    /// leaves; it defaults OFF so brief generation is unchanged until it is deliberately enabled.
+    /// Configuration for captain context recall (<c>armada_search_context</c> and mission-token
+    /// <c>search_memory</c>) and the flagged brief-slimming path. Recall is read-only: it returns
+    /// already-sanitized AI-Memory and docs text, native facts and indexed code, and has no side effect
+    /// on any Armada source record. One durable mission counter bounds the combined recall calls, with
+    /// the code-index caller cap acting as a conservative ceiling while code indexing is enabled. These
+    /// settings also set a per-call byte budget and can turn recall off without a code change. The
+    /// brief-slimming flag replaces the full read-every-file AI-Memory brief section with the always-on
+    /// core plus the mission's retrieved leaves; it defaults OFF so brief generation is unchanged until
+    /// it is deliberately enabled.
     /// </summary>
     public class ContextRetrievalSettings
     {
         /// <summary>
-        /// Whether captains may call the context fetch tool. Default true: the tool is read-only,
-        /// makes no external egress, and returns only sanitized memory text, so it ships enabled.
+        /// Whether captains may call context recall, and whether the slimmed brief points them at it.
+        /// Default true: recall is read-only, makes no hosted egress, and returns only sanitized text.
         /// </summary>
         public bool FetchToolEnabled { get; set; } = true;
 
@@ -42,9 +42,9 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// The leaf byte budget one fetch call may return. Core and matching-domain must-retrieve
-        /// leaves are exempt from this budget in the retrieval layer, but the fetch tool returns only
-        /// leaves (core already ships in the brief), so this bounds one call's returned bytes.
+        /// The optional-result byte budget one recall call may return. Required core and matching-domain
+        /// must-retrieve guidance is exempt and always returned whole, so this bounds only the ranked
+        /// results of one call.
         /// </summary>
         public int MaxLeafBytesPerCall
         {
@@ -53,9 +53,9 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// The maximum combined recall calls one mission may make across unified and compatibility
-        /// tools. The code-search maximum also caps this while code indexing is enabled. Usage is
-        /// stored atomically on the mission and survives restart.
+        /// The maximum combined recall calls one mission may make across <c>armada_search_context</c>
+        /// and mission-token <c>search_memory</c>. The code-index caller cap also caps this while code
+        /// indexing is enabled. Usage is stored atomically on the mission and survives restart.
         /// </summary>
         public int MaxCallsPerMission
         {

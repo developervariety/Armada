@@ -23,6 +23,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The default Docker stack (`docker/armada/compose.yaml`) sets `ARMADA_DATA_DIR=/app/data` and mounts `docker/armada/armada.json` at `/app/data/settings.json`, the file the Admiral reads. The settings, the SQLite database and the logs are in the mounted host directories, and the `rest.hostname` of `0.0.0.0` in that file applies.
 
+### Captain recall tools
+
+- Captain recall is `armada_search_context` for guidance, native facts and indexed code, plus mission-token `search_memory` for record management. `armada_fetch_context` and `armada_mission_code_search` are removed from the MCP catalog and the mission tool scope; the slimmed brief, the built-in personas and the Linter duplication check already name `armada_search_context`. The `codeIndex.captainSearchMaxResults` setting is removed; an existing settings file that still carries it loads unchanged.
+
 ### Recall scope
 
 - Let `armada_search_context`, `search_memory` and the other recall tools resolve a mission or vessel stored without an owner, which belongs to the default user. A captain on such a mission received `not_found` instead of recall.

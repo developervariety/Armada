@@ -46,7 +46,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "search_memory",
-                "Compatibility native-record listing with substring filters and paging. Prefer armada_search_context for task recall across guidance, facts and code. Returns the highest salience first, then the newest. Mission credentials use their owned vessel and the shared recall budget.",
+                "Native-record listing for record management, with substring filters and paging. Prefer armada_search_context for task recall across guidance, facts and code. Returns the highest salience first, then the newest. Mission credentials use their owned vessel and the shared recall budget.",
                 new
                 {
                     type = "object",

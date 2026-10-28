@@ -9,7 +9,7 @@ namespace Armada.Core.Context
     /// <summary>
     /// Renders a <see cref="ContextRetrievalResult"/> into the AI-Memory part of a captain brief: the
     /// always-on core rules, the mission's relevant leaves (matching-domain safety leaves first), and a
-    /// one-line pointer to the on-demand fetch tool.
+    /// pointer to the on-demand recall tool.
     ///
     /// The memory itself is delivered as files in the dock, not inline in the instruction file. Inline,
     /// the memory alone outgrew what a runtime reads in one call, and a total size cap on the
@@ -33,7 +33,7 @@ namespace Armada.Core.Context
     {
         #region Public-Members
 
-        /// <summary>The captain-facing on-demand fetch tool named in the section pointer.</summary>
+        /// <summary>The captain-facing on-demand recall tool named in the section pointer.</summary>
         public const string FetchToolName = ContextSearchService.ToolName;
 
         /// <summary>Dock-relative folder the memory files are written to.</summary>

@@ -1,7 +1,7 @@
 # Context Index
 
 The admiral generates a **context index** at startup and uses it for scoped
-retrieval through `armada_fetch_context`. Optional brief slimming uses the same
+retrieval through `armada_search_context`. Optional brief slimming uses the same
 retrieval service and defaults to off. With slimming off, briefs instruct
 captains to read the configured memory files.
 
@@ -220,13 +220,12 @@ stays BM25: `not_configured`, `endpoint_unavailable`, `endpoint_not_local`,
 `TimeoutMs` bounds each call. Without the pin, search makes no embedding call.
 
 `ContextRetrieval.FetchToolEnabled` governs captain recall through the shared
-query and compatibility tools. `MaxLeafBytesPerCall` caps optional query text.
+query and mission-token `search_memory`. `MaxLeafBytesPerCall` caps optional query text.
 Required guidance is outside the optional byte cap. `Sources` reports the
 actual search mode and the code index freshness even when there are no hits.
 
-One durable counter on each mission bounds calls across `armada_search_context`,
-`armada_fetch_context`, `armada_mission_code_search` and mission-token calls to
-`search_memory`. The effective maximum is `ContextRetrieval.MaxCallsPerMission`,
+One durable counter on each mission bounds calls across `armada_search_context`
+and mission-token calls to `search_memory`. The effective maximum is `ContextRetrieval.MaxCallsPerMission`,
 also capped by `CodeIndex.CaptainSearchMaxCallsPerMission` while code indexing is
 enabled. This retains the existing code limit as a conservative installation
 cap. An atomic owner-scoped transaction spends each call. Concurrent calls
@@ -234,27 +233,23 @@ cannot exceed the maximum. Restarts and normal mission updates cannot reset
 usage. A terminal mission cannot spend calls. Operator calls without a mission
 have no mission counter. A missing budget store fails the call.
 
-### Recall consumers and compatibility
+### Recall consumers
 
 | Consumer | Retrieval contract |
 | --- | --- |
 | Built-in working personas, Recorder and Linter | Use `armada_search_context`; native results identify records for `get_memory` before reconciliation. The Linter states the lexical-search limit. |
 | Generated slimmed brief | Names the shared query for additional guidance, facts and code. Delivered required files remain complete. |
-| `armada_fetch_context` | Compatibility guidance-only response with exact topic preference. Uses the shared scope check and mission budget. |
 | `search_memory` and native REST memory listing | Retain substring, type/topic filtering, paging and salience order for record management. Mission-token MCP calls use the credential's owned vessel and shared budget. |
-| `armada_mission_code_search` | Compatibility code response with path/language filters and configured semantic behavior. Uses the shared scope check and budget. It can still call the configured embedding provider. |
 | Operator code, graph and fleet tools | Retain structural and graph contracts over the same existing code index. No second index is created for the shared query. |
 | Native memory writes | Keep key/upsert, version-conflict, ownership and provenance rules in `MemoryService`. |
 | External guidance and historical evidence | Guidance remains a loaded, approved source snapshot. Native result evidence points to its source; archive storage and retention keep their own contracts. |
 
 Only exact shipped prompt passages are upgraded inside operator-edited built-in
 templates; other text is preserved. Unknown custom wording remains unchanged.
-Compatibility tool names remain available for those clients. Tool removal
-requires a verified client and template cutover. Import/rebuild proof and scale
-measurements remain separate work. Authoring authority stays with the existing
+Authoring authority stays with the existing
 source owners.
 
-## Retrieval and the `armada_fetch_context` tool
+## Retrieval and captain recall
 
 `ContextRetrievalService` is the retrieval layer over the built index. It takes
 a request — free query text and/or explicit topics, the requesting persona, the
@@ -284,18 +279,16 @@ widen the leaf set — it may only add or re-order, never drop a floor leaf and
 never touch core. Any error fails safe: every core chunk plus a conservative
 leaf superset, never zero core, and never an exception into the caller.
 
-`armada_fetch_context` is the captain-facing tool over the service. It is
-mission-scoped, read-only, and informative: a captain gives a `query` and/or a
-`topic` and its `missionId`, and the tool returns the relevant leaf bodies for
-that query (the core already ships inline in the brief, so the tool returns only
-leaves and the vessel's must-retrieve safety leaves). It resolves the caller's
-vessel and persona from the mission, so the leaf set is scoped without the
-captain naming them. It is bounded by a per-mission call budget from the
-`contextRetrieval` settings; when the budget is spent it returns a clear budget
-message. It writes nothing to any Armada record and has no side effect — it
-logs only the query length and a short hash, never the raw query — so authority
-never travels with the tool. It is enabled by default because it makes no
-external call and returns only already-sanitized memory and docs text.
+`armada_search_context` is the captain-facing tool over the service. It is
+mission-scoped, read-only, and informative: a captain gives a `query`, and the
+tool returns the matching guidance (with the vessel's must-retrieve safety
+leaves as required guidance), native facts, and indexed code. The mission token
+fixes the caller's vessel and persona, so the result is scoped without the
+captain naming them. The shared per-mission counter above bounds it; when the
+budget is spent it returns a clear budget message. It writes nothing to any
+Armada record — it logs only the query length and a short hash, never the raw
+query — so authority never travels with the tool. It is enabled by default
+because it makes no hosted call and returns only already-sanitized text.
 
 The service is built in-process at startup by reusing the index generator, so
 it and the written manifest derive from the same source and agree.
@@ -321,7 +314,7 @@ section instead, behind `contextRetrieval.briefSlimmingEnabled`:
   (core rules, then safety leaves and the leaves that apply), then **Reference**
   (leaves the `memory_relevance` typed decision judged not to apply to the
   mission's work; still delivered in full). The section ends with a one-line
-  pointer to `armada_fetch_context` for anything else by topic. It never tells
+  pointer to `armada_search_context` for anything else by topic. It never tells
   the captain to read every file under `shared/`, and it names only the
   dock-local `_briefing/memory/` folder, never the configured memory root, which
   is a host path that does not resolve inside a dock. A chunk that holds only its

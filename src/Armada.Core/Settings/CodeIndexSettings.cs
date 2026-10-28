@@ -589,7 +589,7 @@ namespace Armada.Core.Settings
         public bool StructuralChunking { get; set; } = true;
 
         /// <summary>
-        /// Compatibility cap on combined mission recall calls while code indexing is enabled.
+        /// Cap on combined mission recall calls while code indexing is enabled.
         /// The effective maximum is the lower of this and <c>ContextRetrieval.MaxCallsPerMission</c>.
         /// Clamped to [1 .. 500]. Default 40.
         /// </summary>
@@ -604,20 +604,6 @@ namespace Armada.Core.Settings
             }
         }
 
-        /// <summary>
-        /// Maximum results one <c>armada_mission_code_search</c> call returns.
-        /// Clamped to [1 .. 25]. Default 10.
-        /// </summary>
-        public int CaptainSearchMaxResults
-        {
-            get => _CaptainSearchMaxResults;
-            set
-            {
-                if (value < 1) value = 1;
-                if (value > 25) value = 25;
-                _CaptainSearchMaxResults = value;
-            }
-        }
 
         /// <summary>
         /// Default cosine similarity at or above which two chunks are reported as a duplicate pair.
@@ -689,7 +675,6 @@ namespace Armada.Core.Settings
         private long _MaxReadContextTotalBytes = 16 * 1024 * 1024;
         private int _MaxReadContextFileCount = 200;
         private int _CaptainSearchMaxCallsPerMission = 40;
-        private int _CaptainSearchMaxResults = 10;
         private double _DuplicateSimilarityThreshold = 0.92;
         private int _DuplicateMinLines = 6;
 

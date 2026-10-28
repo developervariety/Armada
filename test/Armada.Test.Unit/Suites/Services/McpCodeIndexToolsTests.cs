@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server;
@@ -1038,230 +1039,17 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Mission code search is in mission scope and the operator search tools are not", () =>
+            await RunTest("Unified recall is in mission scope and the operator search tools are not", () =>
             {
                 AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
-                AssertTrue(McpToolAccessPolicy.IsAllowed(captain, McpMissionCodeSearchTools.ToolName), "a mission caller may use the mission code search");
+                AssertTrue(McpToolAccessPolicy.IsAllowed(captain, McpContextSearchTools.ToolName), "a mission caller may use unified recall");
+                AssertFalse(McpToolAccessPolicy.IsAllowed(captain, "armada_fetch_context"), "the removed guidance tool is not reachable");
+                AssertFalse(McpToolAccessPolicy.IsAllowed(captain, "armada_mission_code_search"), "the removed code tool is not reachable");
                 AssertFalse(McpToolAccessPolicy.IsAllowed(captain, "armada_code_search"), "vessel-argument search stays operator-only");
                 AssertFalse(McpToolAccessPolicy.IsAllowed(captain, "armada_fleet_code_search"), "fleet search stays operator-only");
             });
 
-            await RunTest("Mission code search searches only the mission's own vessel", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
-                    string ownVesselId = await harness.SeedVesselAsync("OwnVessel").ConfigureAwait(false);
-                    string otherVesselId = await harness.SeedVesselAsync("OtherVessel").ConfigureAwait(false);
-                    string missionId = await harness.SeedMissionAsync(ownVesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-
-                    // A vesselId argument naming another vessel is not part of the schema and is ignored.
-                    string json = await harness.CallAsync(new { missionId, query = "needle", vesselId = otherVesselId }).ConfigureAwait(false);
-
-                    AssertContains("\"Available\":true", json);
-                    AssertNotNull(service.LastSearchRequest);
-                    AssertEqual(ownVesselId, service.LastSearchRequest!.VesselId);
-                    AssertEqual(ownVesselId, service.LastStatusVesselId);
-                    AssertFalse(service.LastSearchRequest.IncludeReferenceOnly, "captains never see reference-only records");
-                }
-            });
-
-            await RunTest("Mission code search refuses a mission from another tenant without searching", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
-                    string vesselId = await harness.SeedVesselAsync("TenantVessel").ConfigureAwait(false);
-                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-
-                    AuthContext outsider = AuthContext.Authenticated("ten_other", "usr_other", false, false, "Bearer");
-                    string json = await harness.CallAsync(new { missionId, query = "needle" }, outsider).ConfigureAwait(false);
-
-                    AssertContains("\"UnavailableReason\":\"mission_not_found\"", json);
-                    AssertNull(service.LastSearchRequest, "no search runs for another tenant's mission");
-                }
-            });
-
-            await RunTest("Mission code search refuses a finished mission without searching", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
-                    string vesselId = await harness.SeedVesselAsync("DoneVessel").ConfigureAwait(false);
-                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.Complete).ConfigureAwait(false);
-
-                    string json = await harness.CallAsync(new { missionId, query = "needle" }).ConfigureAwait(false);
-
-                    AssertContains("\"UnavailableReason\":\"mission_not_active\"", json);
-                    AssertNull(service.LastSearchRequest);
-                }
-            });
-
-            await RunTest("Mission code search binds a captain credential to its own mission instead of a supplied same-tenant mission and charges only its own budget", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service, maxCalls: 1);
-                    string ownVesselId = await harness.SeedVesselAsync("CaptainOwnVessel").ConfigureAwait(false);
-                    string otherVesselId = await harness.SeedVesselAsync("SameTenantOtherVessel").ConfigureAwait(false);
-                    string ownMissionId = await harness.SeedMissionAsync(ownVesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-                    string otherMissionId = await harness.SeedMissionAsync(otherVesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-                    AuthContext captain = CaptainCredential(ownMissionId, false);
-
-                    string json = await harness.CallAsync(new { missionId = otherMissionId, query = "needle" }, captain).ConfigureAwait(false);
-                    AssertContains("\"Available\":true", json);
-                    AssertEqual(ownVesselId, service.LastStatusVesselId, "the captain's own vessel is the one read");
-                    AssertEqual(ownVesselId, service.LastSearchRequest!.VesselId, "the captain's own vessel is the one searched");
-                    AssertContains("was ignored", json, "the answer says the supplied mission was ignored");
-                    AssertFalse(json.Contains(otherVesselId, StringComparison.Ordinal), "nothing names the other mission's vessel");
-
-                    string operatorJson = await harness.CallAsync(new { missionId = otherMissionId, query = "operator" }).ConfigureAwait(false);
-                    AssertContains("\"Available\":true", operatorJson, "the other mission's budget was not spent by the captain's call");
-                    AssertEqual(otherVesselId, service.LastSearchRequest!.VesselId, "a caller without a mission credential keeps the supplied mission");
-
-                    string spent = await harness.CallAsync(new { missionId = otherMissionId, query = "again" }, captain).ConfigureAwait(false);
-                    AssertContains("\"UnavailableReason\":\"budget\"", spent, "the captain's call was charged to its own mission");
-                    AssertEqual("operator", service.LastSearchRequest!.Query, "the over-budget call runs no search");
-                }
-            });
-
-            await RunTest("Mission code search keeps a captain credential on its own mission when it supplies a cross-tenant mission", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
-                    string ownVesselId = await harness.SeedVesselAsync("CrossTenantOwnVessel").ConfigureAwait(false);
-                    string foreignVesselId = await harness.SeedVesselAsync("CrossTenantForeignVessel").ConfigureAwait(false);
-                    string ownMissionId = await harness.SeedMissionAsync(ownVesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-                    string foreignMissionId = await harness.SeedMissionAsync(foreignVesselId, MissionStatusEnum.InProgress, "ten_foreign", "usr_foreign").ConfigureAwait(false);
-
-                    string json = await harness.CallAsync(new { missionId = foreignMissionId, query = "needle" }, CaptainCredential(ownMissionId, false)).ConfigureAwait(false);
-
-                    AssertContains("\"Available\":true", json);
-                    AssertEqual(ownVesselId, service.LastSearchRequest!.VesselId, "the captain's own vessel is searched, never the foreign one");
-                    AssertEqual(ownVesselId, service.LastStatusVesselId);
-                    AssertFalse(json.Contains(foreignVesselId, StringComparison.Ordinal), "nothing names the foreign mission's vessel");
-                }
-            });
-
-            await RunTest("Mission code search keeps an administrator-owned captain credential inside its own mission scope", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
-                    string ownVesselId = await harness.SeedVesselAsync("AdminCaptainOwnVessel").ConfigureAwait(false);
-                    string foreignVesselId = await harness.SeedVesselAsync("AdminCaptainForeignVessel").ConfigureAwait(false);
-                    string ownMissionId = await harness.SeedMissionAsync(ownVesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-                    string foreignMissionId = await harness.SeedMissionAsync(foreignVesselId, MissionStatusEnum.InProgress, "ten_foreign", "usr_foreign").ConfigureAwait(false);
-
-                    string json = await harness.CallAsync(new { missionId = foreignMissionId, query = "needle" }, CaptainCredential(ownMissionId, true)).ConfigureAwait(false);
-                    AssertContains("\"Available\":true", json);
-                    AssertEqual(ownVesselId, service.LastSearchRequest!.VesselId, "an administrator owner does not widen the captain's search");
-
-                    RecordingCodeIndexService refusedService = new RecordingCodeIndexService();
-                    MissionSearchHarness refusedHarness = MissionSearchHarness.Create(testDb, refusedService);
-                    string refused = await refusedHarness.CallAsync(new { missionId = foreignMissionId, query = "needle" }, CaptainCredential(foreignMissionId, true)).ConfigureAwait(false);
-                    AssertContains("\"UnavailableReason\":\"mission_not_found\"", refused, "a captain credential whose mission belongs to another owner reads nothing");
-                    AssertNull(refusedService.LastStatusVesselId, "no index status is read for another owner's mission");
-                    AssertNull(refusedService.LastSearchRequest, "no search runs for another owner's mission");
-
-                    RecordingCodeIndexService operatorService = new RecordingCodeIndexService();
-                    MissionSearchHarness operatorHarness = MissionSearchHarness.Create(testDb, operatorService);
-                    AuthContext administrator = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "Bearer");
-                    string operatorJson = await operatorHarness.CallAsync(new { missionId = foreignMissionId, query = "needle" }, administrator).ConfigureAwait(false);
-                    AssertContains("\"Available\":true", operatorJson, "an administrator without a mission credential keeps the operator policy");
-                    AssertEqual(foreignVesselId, operatorService.LastSearchRequest!.VesselId);
-                }
-            });
-
-            await RunTest("Mission code search runs a captain credential on its own mission whether the id is supplied or omitted", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
-                    string ownVesselId = await harness.SeedVesselAsync("ValidOwnVessel").ConfigureAwait(false);
-                    string ownMissionId = await harness.SeedMissionAsync(ownVesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-                    AuthContext captain = CaptainCredential(ownMissionId, false);
-
-                    string supplied = await harness.CallAsync(new { missionId = ownMissionId, query = "needle" }, captain).ConfigureAwait(false);
-                    AssertContains("\"Available\":true", supplied);
-                    AssertContains("\"CallsUsed\":1", supplied);
-                    AssertFalse(supplied.Contains("was ignored", StringComparison.Ordinal), "the captain's own id is not reported as ignored");
-                    AssertEqual(ownVesselId, service.LastSearchRequest!.VesselId);
-
-                    string omitted = await harness.CallAsync(new { query = "needle" }, captain).ConfigureAwait(false);
-                    AssertContains("\"Available\":true", omitted, "the credential's mission is used when the id is omitted");
-                    AssertContains("\"CallsUsed\":2", omitted, "both calls are charged to the captain's own mission");
-                }
-            });
-
-            await RunTest("Mission code search on a missing index says no search ran instead of returning no results", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    service.StatusFreshness = "Missing";
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
-                    string vesselId = await harness.SeedVesselAsync("UnindexedVessel").ConfigureAwait(false);
-                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-
-                    string json = await harness.CallAsync(new { missionId, query = "needle" }).ConfigureAwait(false);
-
-                    AssertContains("\"Available\":false", json);
-                    AssertContains("\"UnavailableReason\":\"index_missing\"", json);
-                    AssertFalse(json.Contains("\"Results\"", StringComparison.Ordinal), "a missing index returns no result list at all");
-                    AssertNull(service.LastSearchRequest, "no search runs against a missing index");
-                }
-            });
-
-            await RunTest("Mission code search warns when the index is stale or lexical only", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    service.StatusFreshness = "Stale";
-                    service.StatusUseSemanticSearch = false;
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
-                    string vesselId = await harness.SeedVesselAsync("StaleVessel").ConfigureAwait(false);
-                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-
-                    string json = await harness.CallAsync(new { missionId, query = "needle" }).ConfigureAwait(false);
-
-                    AssertContains("\"Available\":true", json);
-                    AssertContains("The index is Stale", json);
-                    AssertContains("lexical only", json);
-                }
-            });
-
-            await RunTest("Mission code search clamps the limit and enforces the per-mission budget", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    RecordingCodeIndexService service = new RecordingCodeIndexService();
-                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service, maxCalls: 2, maxResults: 3);
-                    string vesselId = await harness.SeedVesselAsync("BudgetVessel").ConfigureAwait(false);
-                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
-
-                    string first = await harness.CallAsync(new { missionId, query = "a", limit = 50 }).ConfigureAwait(false);
-                    AssertEqual(3, service.LastSearchRequest!.Limit, "the limit is clamped to the captain maximum");
-                    string second = await harness.CallAsync(new { missionId, query = "b" }).ConfigureAwait(false);
-                    string third = await harness.CallAsync(new { missionId, query = "c" }).ConfigureAwait(false);
-
-                    AssertContains("\"Available\":true", first);
-                    AssertContains("\"Available\":true", second);
-                    AssertContains("\"UnavailableReason\":\"budget\"", third);
-                    AssertEqual("b", service.LastSearchRequest.Query, "the over-budget call runs no search");
-                }
-            });
-
-            await RunTest("Mission code search on a never-indexed vessel creates no index and calls no embedding provider", async () =>
+            await RunTest("Unified recall on a never-indexed vessel creates no index and calls no embedding provider", async () =>
             {
                 string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada-mission-search-noindex-" + Guid.NewGuid().ToString("N"));
                 string repo = System.IO.Path.Combine(root, "repo");
@@ -1301,33 +1089,26 @@ namespace Armada.Test.Unit.Suites.Services
                         mission.Status = MissionStatusEnum.InProgress;
                         mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
 
-                        McpMissionCodeSearchTools.ResetBudgetForTests();
                         Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
-                        McpMissionCodeSearchTools.Register((name, _, _, handler) => { handlers[name] = handler; }, codeIndex, testDb.Driver, settings);
+                        McpContextSearchTools.Register((name, _, _, handler) => { handlers[name] = handler; },
+                            new ContextSearchService(testDb.Driver, null, codeIndex, logging, null), settings.ContextRetrieval, testDb.Driver,
+                            new ContextRecallBudget(testDb.Driver, settings));
 
-                        string json;
-                        using (McpCallerContext.Begin(AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer")))
+                        ContextSearchResponse response;
+                        AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
+                        captain.MissionId = mission.Id;
+                        using (McpCallerContext.Begin(captain))
                         {
-                            object result = await handlers[McpMissionCodeSearchTools.ToolName](
-                                JsonSerializer.SerializeToElement(new { missionId = mission.Id, query = "Needle" })).ConfigureAwait(false);
-                            json = JsonSerializer.Serialize(result);
+                            response = (ContextSearchResponse)await handlers[McpContextSearchTools.ToolName](
+                                JsonSerializer.SerializeToElement(new { query = "Needle" })).ConfigureAwait(false);
                         }
 
-                        AssertFalse(System.IO.Directory.Exists(System.IO.Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id)), "mission code search must not index a never-indexed vessel");
-                        AssertEqual(0, embeddingClient.CallCount, "mission code search on a never-indexed vessel must send nothing to the embedding provider");
-                        AssertContains("\"Available\":false", json);
-                        AssertContains("\"UnavailableReason\":\"index_missing\"", json);
-                        AssertContains("armada_index_update for vessel " + vessel.Id, json, "The answer names the operator remedy");
-                        AssertContains("no duplicate check was made", json, "The answer never reads as a verified absence");
-
-                        using (McpCallerContext.Begin(AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer")))
-                        {
-                            await handlers[McpMissionCodeSearchTools.ToolName](
-                                JsonSerializer.SerializeToElement(new { missionId = mission.Id, query = "Needle again" })).ConfigureAwait(false);
-                        }
-                        List<ArmadaEvent> unavailable = await testDb.Driver.Events.EnumerateByTypeAsync("code_index.search_unavailable").ConfigureAwait(false);
-                        AssertEqual(1, unavailable.Count, "An unindexed vessel is recorded once, not once per call");
-                        AssertEqual(vessel.Id, unavailable[0].VesselId);
+                        AssertFalse(System.IO.Directory.Exists(System.IO.Path.Combine(settings.CodeIndex.IndexDirectory, vessel.Id)), "recall must not index a never-indexed vessel");
+                        AssertEqual(0, embeddingClient.CallCount, "recall on a never-indexed vessel must send nothing to the embedding provider");
+                        ContextSearchStatus code = response.Sources.Single(source => source.Source == "code");
+                        AssertFalse(code.Available, "The code source is named unavailable, never read as an empty result");
+                        AssertEqual("not_indexed", code.Reason);
+                        AssertFalse(response.Results.Any(item => item.Source == ContextSearchSourceEnum.Code), "No code result is invented");
                     }
                 }
                 finally
@@ -1335,14 +1116,6 @@ namespace Armada.Test.Unit.Suites.Services
                     try { if (System.IO.Directory.Exists(root)) System.IO.Directory.Delete(root, true); } catch { }
                 }
             });
-        }
-
-        // A captain's launch-configured credential: the default owner, scoped to one mission.
-        private static AuthContext CaptainCredential(string missionId, bool ownerIsAdmin)
-        {
-            AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, ownerIsAdmin, ownerIsAdmin, "Bearer");
-            captain.MissionId = missionId;
-            return captain;
         }
 
         private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterHandlers(RecordingCodeIndexService service)
@@ -1443,75 +1216,6 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Interlocked.Increment(ref _CallCount);
                 return Task.FromResult(new[] { 1F, 0F });
-            }
-        }
-
-        private sealed class MissionSearchHarness
-        {
-            private readonly TestDatabase _TestDb;
-
-            private readonly Dictionary<string, Func<JsonElement?, Task<object>>> _Handlers =
-                new Dictionary<string, Func<JsonElement?, Task<object>>>();
-
-            private MissionSearchHarness(TestDatabase testDb)
-            {
-                _TestDb = testDb;
-            }
-
-            public static MissionSearchHarness Create(TestDatabase testDb, RecordingCodeIndexService service, int maxCalls = 40, int maxResults = 10)
-            {
-                McpMissionCodeSearchTools.ResetBudgetForTests();
-                ArmadaSettings settings = new ArmadaSettings();
-                settings.CodeIndex.CaptainSearchMaxCallsPerMission = maxCalls;
-                settings.CodeIndex.CaptainSearchMaxResults = maxResults;
-                MissionSearchHarness harness = new MissionSearchHarness(testDb);
-                McpMissionCodeSearchTools.Register(
-                    (name, _, _, handler) => { harness._Handlers[name] = handler; },
-                    service,
-                    testDb.Driver,
-                    settings);
-                return harness;
-            }
-
-            public async Task<string> SeedVesselAsync(string name)
-            {
-                Vessel vessel = await _TestDb.Driver.Vessels.CreateAsync(
-                    new Vessel(name, "https://github.com/test/" + name + ".git") { TenantId = Constants.DefaultTenantId, UserId = Constants.DefaultUserId }).ConfigureAwait(false);
-                return vessel.Id;
-            }
-
-            public async Task<string> SeedMissionAsync(string vesselId, MissionStatusEnum status, string? tenantId = null, string? userId = null)
-            {
-                if (tenantId != null && !await _TestDb.Driver.Tenants.ExistsAsync(tenantId).ConfigureAwait(false))
-                {
-                    await _TestDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = tenantId, Name = tenantId }).ConfigureAwait(false);
-                    if (userId != null)
-                    {
-                        UserMaster owner = new UserMaster(tenantId, userId + "@example.com", "pass");
-                        owner.Id = userId;
-                        await _TestDb.Driver.Users.CreateAsync(owner).ConfigureAwait(false);
-                    }
-                }
-
-                Mission mission = new Mission();
-                mission.TenantId = tenantId ?? Constants.DefaultTenantId;
-                mission.UserId = userId ?? Constants.DefaultUserId;
-                mission.VesselId = vesselId;
-                mission.Title = "code search mission";
-                mission.Status = status;
-                Mission created = await _TestDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
-                return created.Id;
-            }
-
-            public async Task<string> CallAsync(object args, AuthContext? caller = null)
-            {
-                JsonElement element = JsonSerializer.SerializeToElement(args);
-                AuthContext effectiveCaller = caller ?? AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
-                using (McpCallerContext.Begin(effectiveCaller))
-                {
-                    object result = await _Handlers[McpMissionCodeSearchTools.ToolName](element).ConfigureAwait(false);
-                    return JsonSerializer.Serialize(result);
-                }
             }
         }
 

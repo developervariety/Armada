@@ -689,7 +689,7 @@ deployment names a different candidate, or when the environment's
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_index_status`, `armada_code_search`, `armada_mission_code_search` (captain-facing, own vessel only), `armada_context_pack`, `armada_fleet_code_search`, `armada_fleet_context_pack`, `armada_graph_search_symbols`, `armada_graph_get_callers`, `armada_graph_get_callees`, `armada_graph_get_impact`, `armada_graph_suggest_affected_tests`, `armada_graph_get_node`, `armada_graph_get_files`, `armada_graph_explore` |
+| Read | `armada_index_status`, `armada_code_search`, `armada_context_pack`, `armada_fleet_code_search`, `armada_fleet_context_pack`, `armada_graph_search_symbols`, `armada_graph_get_callers`, `armada_graph_get_callees`, `armada_graph_get_impact`, `armada_graph_suggest_affected_tests`, `armada_graph_get_node`, `armada_graph_get_files`, `armada_graph_explore` |
 | Execute | `armada_index_update`, `armada_code_duplicates` (background job; operator-only) |
 
 ### 8.17 AgentWake
@@ -1033,7 +1033,7 @@ count in code. See `docs/MCP_API.md` and `docs/TYPED_DECISIONS.md`.
 
 | Risk | Tools | Contract |
 | --- | --- | --- |
-| Read | `armada_fetch_context` | Mission-scoped context retrieval; see [Context Index](CONTEXT_INDEX.md). |
+| Read | `armada_search_context` | Mission-scoped recall over guidance, native facts and indexed code; see [Context Index](CONTEXT_INDEX.md). |
 | Execute | `armada_typed_decision_eval` | Run synthetic cases through production adapters and the live provider; records evaluation evidence. Global administrator only. |
 | Write | `armada_change_quality_gate` | Read a focused diff and route actionable weaknesses to a Triaged objective. Operator tool; it does not land work. |
 | Read | `armada_harbor_jobs`, `armada_harbor_job` | Read jobs visible under runner-owner authority, while Harbor is enabled. |

@@ -74,12 +74,12 @@ The deterministic Slop Check (`SlopDiffClassifier`) is unaffected.
 
 The Linter template carries a `## Duplication Check` section. For each method the
 mission adds or substantially rewrites, the Linter calls
-`armada_mission_code_search` with its mission id and the new code body, reads
-every strong result, and reports a confirmed duplicate under `## Residual Issues`
+`armada_search_context` with identifiers and a representative code excerpt,
+reads every strong Code result, and reports a confirmed duplicate under `## Residual Issues`
 as `[consistency | should_fix] DRY: <new path:line> duplicates <existing
 path:line> - <shared behavior>`. It never fixes a duplicate, because moving
-shared logic changes files outside the diff. When the tool is absent or
-unavailable, or warns that the index is stale or lexical only, the Linter says so
+shared logic changes files outside the diff. The unified query searches code
+lexically, so the Linter always states that limit, and any absent or stale index,
 instead of reporting no duplication. The section is added to the embedded default
 and, by an append-if-missing upgrader, to an existing built-in row, so an
 operator edit is kept. The finding headings are unchanged.

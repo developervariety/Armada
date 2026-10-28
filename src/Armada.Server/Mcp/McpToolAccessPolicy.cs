@@ -72,17 +72,6 @@ namespace Armada.Server.Mcp
             "armada_corpus_prelabel",
             "armada_run_custom_decision",
 
-            // The captain-facing context fetch tool. It is read-only and informative: it returns
-            // sanitized memory and docs leaf text, writes no record, and is budgeted per mission, so a
-            // mission caller may reach it like the memory tools.
-            "armada_fetch_context",
-
-            // The captain-facing code search. It takes no vessel or fleet argument: it resolves the
-            // vessel from the calling mission, refuses a mission outside the caller's tenant or no longer
-            // active, writes no record, and is budgeted per mission. The operator search tools
-            // (armada_code_search, armada_fleet_code_search) stay outside mission scope.
-            "armada_mission_code_search",
-
             // The mission change summary. It takes no vessel, path, URL or commit argument: the mission comes from
             // the caller (a mission credential reads only its own), and the vessel and both commits come from that
             // mission's recorded evidence. It is read-only, bounded, and budgeted per mission credential.

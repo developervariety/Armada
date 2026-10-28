@@ -826,7 +826,7 @@ namespace Armada.Core.Settings
 
         /// <summary>
         /// Shared captain context recall policy: enabled state, optional text byte budget and durable
-        /// mission call maximum across canonical and compatibility tools. Recall changes no source content.
+        /// mission call maximum across every recall tool. Recall changes no source content.
         /// </summary>
         public ContextRetrievalSettings ContextRetrieval
         {
