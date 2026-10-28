@@ -482,7 +482,7 @@ namespace Armada.Server.Mcp.Tools
                     if ((newStatus == MissionStatusEnum.WorkProduced || newStatus == MissionStatusEnum.Complete)
                         && !MissionModeContract.IsReadOnly(mission.Mode))
                     {
-                        try { return (object)await ManualMissionHandoff.LandAsync(database, admiral, mission).ConfigureAwait(false); }
+                        try { return (object)await ManualMissionHandoff.LandAsync(database, admiral, mission, newStatus, git, settings).ConfigureAwait(false); }
                         catch (InvalidOperationException ex) { return (object)McpToolError.Conflict(ex.Message); }
                     }
 
