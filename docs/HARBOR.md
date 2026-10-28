@@ -94,6 +94,13 @@ PascalCase and case-sensitive: a camelCase key is ignored and replaced with the 
 | `HeartbeatIntervalMs` | Heartbeat interval in milliseconds; `0` disables heartbeats. Default 15000. |
 | `AccessKey` / `Secret` | `AccessKey` is an Armada credential (a bearer token from Server > Credentials, or the local API key); the Harbor registers under that credential's tenant and user. Leave it empty only for a Harbor on the same machine as a localhost-bound Admiral; a Harbor connecting from another host is refused without one. `Secret` is sent as `x-secret-key` but not used for authentication today, and is never logged. |
 
+To increase capacity, open Harbor **Settings > General > Jobs at once**, change the limit (1–64),
+and **Save**. Saving reconnects the link to advertise the new `MaxConcurrentJobs`. Change the setting
+on the Harbor itself: a server-side capacity edit can be overwritten by the next Harbor handshake.
+Ask turns and other interactive work consume slots as well as missions, so idle captains do not
+necessarily mean free slots. Check **Running now** to see what occupies this computer. Queued missions
+wait for capacity; a failed interactive request must be retried once a slot is available.
+
 A Harbor does not have to be pre-registered: it self-registers on its first handshake. Pre-registering is
 useful when you want to reserve a name and capacity, or set routing preferences, before the host connects. A Harbor id
 that is already registered to a different tenant or user is refused.
