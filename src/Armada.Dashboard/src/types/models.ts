@@ -1058,7 +1058,7 @@ export interface CaptainChatMetrics {
   timeToFirstTextMs?: number | null;
   /** Cache-read input tokens (a subset of promptTokens), when reported. */
   cachedTokens?: number | null;
-  /** Cost of the turn in US dollars, when the runtime reports it (Claude Code, OpenCode). */
+  /** Cost of the turn in US dollars, when the runtime reports it (Claude Code, OpenCode, pi). */
   costUsd?: number | null;
   /** True when completionTokens is an estimate from the reply length rather than the runtime's own count. */
   tokensEstimated?: boolean | null;

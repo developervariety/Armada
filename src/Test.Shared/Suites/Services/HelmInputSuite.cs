@@ -12,6 +12,7 @@ namespace Test.Shared.Suites.Services
     using Armada.Core.Services;
     using Armada.Helm.Commands;
     using Armada.Helm.Infrastructure;
+    using Armada.Runtimes;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
     using static Test.Shared.Infrastructure.Asserts;
@@ -42,6 +43,8 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("pi_mcp_install_target", "armada mcp install offers pi only when detected, writes mcpServers.armada into ~/.pi/agent/mcp.json (or $PI_CODING_AGENT_DIR) and keeps existing entries", TestTags.Positive, PiMcpInstallAsync));
+
             cases.Add(Case("runtime_names_map_to_every_runtime", "Runtime names and aliases map to every AgentRuntimeEnum value", TestTags.Positive, () =>
             {
                 Dictionary<string, AgentRuntimeEnum> expected = new Dictionary<string, AgentRuntimeEnum>(StringComparer.Ordinal)
@@ -55,6 +58,9 @@ namespace Test.Shared.Suites.Services
                     ["mux"] = AgentRuntimeEnum.Mux,
                     ["opencode"] = AgentRuntimeEnum.OpenCode,
                     ["open-code"] = AgentRuntimeEnum.OpenCode,
+                    ["pi"] = AgentRuntimeEnum.Pi,
+                    ["Pi"] = AgentRuntimeEnum.Pi,
+                    ["pi-coding-agent"] = AgentRuntimeEnum.Pi,
                     ["api"] = AgentRuntimeEnum.ApiEndpoint,
                     ["ApiEndpoint"] = AgentRuntimeEnum.ApiEndpoint,
                     ["custom"] = AgentRuntimeEnum.Custom,
@@ -279,6 +285,60 @@ namespace Test.Shared.Suites.Services
             }
 
             throw new AssertionException("frontmatter is not closed");
+        }
+
+        private static async Task PiMcpInstallAsync()
+        {
+            string root = TestTemp.NewDirectory("pi-mcp-install");
+            string? previous = Environment.GetEnvironmentVariable("PI_CODING_AGENT_DIR");
+            try
+            {
+                Environment.SetEnvironmentVariable("PI_CODING_AGENT_DIR", null);
+                McpConfigHelper.McpInstallPaths paths = new McpConfigHelper.McpInstallPaths(Path.Combine(root, "home"), Path.Combine(root, "project"), Path.Combine(root, "home", ".mux"));
+                string url = "https://armada.example.com:7891/mcp";
+                string token = "secret-bearer-pi";
+                AssertFalse(McpConfigHelper.BuildRemoteTargets(url, token, paths, false, false).Exists(t => t.Kind == McpClientKindEnum.Pi), "pi is not listed unless detected");
+                McpConfigHelper.ConfigTarget target = McpConfigHelper.BuildRemoteTargets(url, token, paths, false, false, true).Single(t => t.Kind == McpClientKindEnum.Pi);
+                string expectedPath = Path.Combine(paths.HomeDirectory, ".pi", "agent", "mcp.json");
+                AssertEqual(expectedPath, target.FilePath);
+                AssertFalse(McpConfigHelper.BuildManualSnippet(target).Contains(token), "the snippet hides the token");
+
+                Directory.CreateDirectory(Path.GetDirectoryName(expectedPath)!);
+                File.WriteAllText(expectedPath, "{ \"mcpServers\": { \"docs\": { \"url\": \"https://docs.example.com/mcp\" } }, \"autoEnableCodemode\": false }");
+                await McpConfigHelper.InstallTargetAsync(target).ConfigureAwait(false);
+                PiMcpConfigFile written = JsonHelper.Deserialize<PiMcpConfigFile>(File.ReadAllText(expectedPath));
+                AssertEqual("https://docs.example.com/mcp", written.McpServers!["docs"].Url, "existing entries are kept");
+                AssertEqual("http", written.McpServers["armada"].Type);
+                AssertEqual(url, written.McpServers["armada"].Url);
+                AssertEqual("Bearer " + token, written.McpServers["armada"].Headers!["Authorization"]);
+                AssertContains("autoEnableCodemode", File.ReadAllText(expectedPath), "other settings are kept");
+
+                McpConfigHelper.ConfigTarget local = McpConfigHelper.BuildTargets(7891, "localhost", true).Single(t => t.Kind == McpClientKindEnum.Pi);
+                AssertEqual("http", local.ArmadaConfig!["type"]!.GetValue<string>());
+                AssertEqual("http://localhost:7891/mcp", local.ArmadaConfig!["url"]!.GetValue<string>());
+                AssertFalse(McpConfigHelper.BuildTargets(7891, "localhost", false).Exists(t => t.Kind == McpClientKindEnum.Pi), "not listed when pi is not on PATH");
+
+                string agentDirectory = Path.Combine(root, "pi-agent");
+                Environment.SetEnvironmentVariable("PI_CODING_AGENT_DIR", agentDirectory);
+                AssertEqual(Path.Combine(agentDirectory, "mcp.json"), McpConfigHelper.GetPiConfigPath(paths.HomeDirectory), "PI_CODING_AGENT_DIR wins");
+                AssertEqual(Path.Combine(agentDirectory, "mcp.json"), PiRuntime.GetHostMcpConfigPath(), "the runtime reads the same file");
+
+                if (!OperatingSystem.IsWindows())
+                {
+                    string fake = Path.Combine(root, "pi");
+                    File.WriteAllText(fake, "#!/bin/sh\necho 'usage: pi digits'\n");
+                    File.SetUnixFileMode(fake, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                    AssertFalse(McpConfigHelper.IsPiExecutable(fake), "another 'pi' is not pi");
+                    File.WriteAllText(fake, "#!/bin/sh\necho 'pi - AI coding assistant with read, bash, edit, write tools'\n");
+                    AssertTrue(McpConfigHelper.IsPiExecutable(fake), "the pi coding agent");
+                    AssertFalse(McpConfigHelper.IsPiExecutable(null));
+                }
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("PI_CODING_AGENT_DIR", previous);
+                try { Directory.Delete(root, true); } catch { }
+            }
         }
 
         private static TestCaseDescriptor Case(string caseId, string displayName, string tag, Action body)

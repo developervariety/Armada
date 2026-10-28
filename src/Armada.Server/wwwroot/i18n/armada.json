@@ -3673,7 +3673,6 @@
         "Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint's model.": "Modelo opcional que se pasa a mux como --model y reemplaza el modelo guardado en el endpoint de mux (por ejemplo gpt-oss:20b). Pon el nombre del endpoint en Mux Endpoint, no aquí. En blanco usa el modelo del endpoint.",
         "Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint's model.": "Nombre de modelo opcional que reemplaza el modelo definido en el endpoint de inferencia elegido, por ejemplo gpt-5.4-mini. Elige el endpoint en Inference Endpoint. En blanco usa el modelo del endpoint.",
         "Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.": "Nombre visible de este capitán, mostrado en listas, registros y asignaciones de misiones, por ejemplo claude-1 o codex-reviewer. Obligatorio.",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "El programa de agente que ejecuta este capitán. Los runtimes de CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) deben estar instalados donde se ejecutan los capitanes; API Endpoint llama directamente a un endpoint de modelo configurado. Obligatorio.",
         "Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.": "Obligatorio para capitanes API Endpoint: el endpoint de inferencia (proveedor, URL y modelo) al que este capitán envía sus solicitudes. Añade o edita endpoints en Configuration > Endpoints.",
         "How much the model reasons before answering, mapped to the runtime's own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.": "Cuánto razona el modelo antes de responder, asignado al control propio del runtime (presupuesto de pensamiento de Claude Code, esfuerzo de razonamiento de Codex, Mux --effort). Más alto es más lento y cuesta más. Runtime default no envía nada.",
         "Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).": "Clase de coste y capacidad que usa el despacho para asignar misiones a capitanes: Economy para trabajo rutinario, Standard para trabajo general, Premium para trabajo complejo. Auto la deduce del nombre del modelo (Standard si es desconocido).",
@@ -6114,7 +6113,8 @@
         "Show only tenant-wide or only personal memories.": "Mostrar solo las memorias de todo el inquilino o solo las personales.",
         "Tags": "Etiquetas",
         "Tenant-wide": "Todo el inquilino",
-        "Visibility": "Visibilidad"
+        "Visibility": "Visibilidad",
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "El programa de agente que ejecuta este capitán. Los runtimes de CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) deben estar instalados donde se ejecutan los capitanes; API Endpoint llama directamente a un endpoint de modelo configurado. Obligatorio."
       },
       "sections": {
         "OPERATIONS": "OPERACIONES",
@@ -8723,7 +8723,6 @@
         "Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint's model.": "以 --model 传给 mux 的可选模型，覆盖 mux 端点上保存的模型（例如 gpt-oss:20b）。端点名称应填在“Mux 端点”中，而非此处。留空则使用端点的模型。",
         "Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint's model.": "覆盖所选推理端点上所设模型的可选模型名称，例如 gpt-5.4-mini。端点请在“推理端点”中选择。留空则使用端点的模型。",
         "Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.": "此船长的显示名称，显示在列表、日志和任务分配中，例如 claude-1 或 codex-reviewer。必填。",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "此船长运行的代理程序。CLI 运行时（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode）必须安装在船长运行的位置；API Endpoint 直接调用已配置的模型端点。必填。",
         "Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.": "API Endpoint 船长必填：此船长发送请求的推理端点（提供商、URL 和模型）。可在“配置 > 端点”下添加或编辑端点。",
         "How much the model reasons before answering, mapped to the runtime's own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.": "模型在回答前进行推理的程度，映射到运行时自身的控制项（Claude Code 思考预算、Codex 推理强度、Mux --effort）。越高越慢，成本也越高。运行时默认值不发送任何设置。",
         "Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).": "派发用于将任务匹配给船长的成本和能力类别：Economy 用于常规工作，Standard 用于一般工作，Premium 用于复杂工作。Auto 根据模型名称推测（未知时为 Standard）。",
@@ -11165,7 +11164,8 @@
         "Show only tenant-wide or only personal memories.": "仅显示租户范围或仅显示个人记忆。",
         "Tags": "标签",
         "Tenant-wide": "租户范围",
-        "Visibility": "可见性"
+        "Visibility": "可见性",
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "此船长运行的代理程序。CLI 运行时（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必须安装在船长运行的位置；API Endpoint 直接调用已配置的模型端点。必填。"
       },
       "sections": {
         "OPERATIONS": "操作",
@@ -13737,7 +13737,6 @@
         "Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint's model.": "以 --model 傳給 mux 的模型（選填），覆寫 mux 端點上儲存的模型（例如 gpt-oss:20b）。端點名稱請填在 Mux Endpoint，而非此處。留白則使用端點的模型。",
         "Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint's model.": "覆寫所選推論端點上設定之模型的模型名稱（選填），例如 gpt-5.4-mini。請在 Inference Endpoint 中選擇端點。留白則使用端點的模型。",
         "Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.": "此船長的顯示名稱，會顯示在清單、記錄與任務指派中，例如 claude-1 或 codex-reviewer。必填。",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "此船長執行的代理程式。CLI 執行環境（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode）必須安裝在船長執行的位置；API Endpoint 則直接呼叫已設定的模型端點。必填。",
         "Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.": "API Endpoint 船長必填：此船長傳送要求的推論端點（供應商、URL 與模型）。可在 Configuration > Endpoints 下新增或編輯端點。",
         "How much the model reasons before answering, mapped to the runtime's own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.": "模型在回答前推理的程度，對應到執行環境本身的控制項（Claude Code 思考預算、Codex 推理強度、Mux --effort）。越高越慢且成本越高。Runtime default 不傳送任何值。",
         "Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).": "派送用來將任務配對給船長的成本與能力類別：Economy 用於例行工作，Standard 用於一般工作，Premium 用於複雜工作。Auto 會從模型名稱推測（無法判斷時為 Standard）。",
@@ -16179,7 +16178,8 @@
         "Show only tenant-wide or only personal memories.": "僅顯示租用戶範圍或僅顯示個人記憶。",
         "Tags": "標籤",
         "Tenant-wide": "租用戶範圍",
-        "Visibility": "可見性"
+        "Visibility": "可見性",
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "此船長執行的代理程式。CLI 執行環境（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必須安裝在船長執行的位置；API Endpoint 則直接呼叫已設定的模型端點。必填。"
       },
       "sections": {}
     },
@@ -18711,7 +18711,6 @@
         "Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint's model.": "以 --model 傳俾 mux 嘅模型（選填），覆寫 mux 端點儲存嘅模型（例如 gpt-oss:20b）。端點名稱要填喺 Mux 端點，唔係呢度。留空就用端點嘅模型。",
         "Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint's model.": "覆寫所揀推論端點設定嘅模型名稱（選填），例如 gpt-5.4-mini。喺推論端點揀端點。留空就用端點嘅模型。",
         "Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.": "呢個船長嘅顯示名稱，會喺清單、記錄同任務分配顯示，例如 claude-1 或者 codex-reviewer。必填。",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "呢個船長執行嘅代理程式。CLI 執行環境（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode）必須安裝喺船長執行嘅地方；API Endpoint 會直接呼叫已設定嘅模型端點。必填。",
         "Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.": "API Endpoint 船長必填：呢個船長傳送請求嘅推論端點（供應商、URL 同模型）。喺設定 > 端點新增或者編輯端點。",
         "How much the model reasons before answering, mapped to the runtime's own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.": "模型回答之前推理幾多，對應到執行環境自己嘅控制（Claude Code 思考預算、Codex 推理力度、Mux --effort）。越高越慢、成本越高。執行環境預設乜都唔會傳送。",
         "Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).": "派送用嚟將任務配對船長嘅成本同能力類別：Economy 用於日常工作，Standard 用於一般工作，Premium 用於複雜工作。自動會由模型名稱推測（唔知就用 Standard）。",
@@ -21153,7 +21152,8 @@
         "Show only tenant-wide or only personal memories.": "只顯示租戶範圍或者只顯示個人記憶。",
         "Tags": "標籤",
         "Tenant-wide": "租戶範圍",
-        "Visibility": "可見性"
+        "Visibility": "可見性",
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "呢個船長執行嘅代理程式。CLI 執行環境（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）必須安裝喺船長執行嘅地方；API Endpoint 會直接呼叫已設定嘅模型端點。必填。"
       },
       "sections": {}
     },
@@ -23701,7 +23701,6 @@
         "Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint's model.": "--model として mux に渡す任意のモデルで、mux エンドポイントに保存されたモデルを上書きします（例: gpt-oss:20b）。エンドポイント名はここではなく Mux Endpoint に入力してください。空欄の場合はエンドポイントのモデルを使用します。",
         "Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint's model.": "選択した推論エンドポイントに設定されたモデルを上書きする任意のモデル名です（例: gpt-5.4-mini）。エンドポイントは Inference Endpoint で選択してください。空欄の場合はエンドポイントのモデルを使用します。",
         "Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.": "このキャプテンの表示名で、一覧、ログ、ミッションの割り当てに表示されます（例: claude-1 や codex-reviewer）。必須です。",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "このキャプテンが実行するエージェントプログラムです。CLI ランタイム（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode）はキャプテンを実行する場所にインストールされている必要があります。API Endpoint は構成済みのモデルエンドポイントを直接呼び出します。必須です。",
         "Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.": "API Endpoint キャプテンでは必須: このキャプテンがリクエストを送る推論エンドポイント（プロバイダー、URL、モデル）です。エンドポイントは構成 > エンドポイントで追加または編集します。",
         "How much the model reasons before answering, mapped to the runtime's own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.": "モデルが回答前にどれだけ推論するかで、ランタイム固有の制御（Claude Code の thinking budget、Codex の reasoning effort、Mux の --effort）に対応します。高いほど遅く、コストも増えます。Runtime default は何も送信しません。",
         "Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).": "ディスパッチがミッションとキャプテンを照合するのに使うコストと能力の区分です: 定型作業は Economy、一般的な作業は Standard、複雑な作業は Premium。Auto はモデル名から推測します（不明な場合は Standard）。",
@@ -26143,7 +26142,8 @@
         "Show only tenant-wide or only personal memories.": "テナント全体のメモリのみ、または個人のメモリのみを表示します。",
         "Tags": "タグ",
         "Tenant-wide": "テナント全体",
-        "Visibility": "公開範囲"
+        "Visibility": "公開範囲",
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "このキャプテンが実行するエージェントプログラムです。CLI ランタイム（Claude Code、Codex、Gemini、Cursor、Mux、OpenCode、pi）はキャプテンを実行する場所にインストールされている必要があります。API Endpoint は構成済みのモデルエンドポイントを直接呼び出します。必須です。"
       },
       "sections": {}
     },
@@ -28682,7 +28682,6 @@
         "Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint's model.": "Optionales Modell, an mux als --model übergeben, das das auf dem mux-Endpunkt gespeicherte Modell überschreibt (z. B. gpt-oss:20b). Den Endpunktnamen unter Mux Endpoint eintragen, nicht hier. Leer verwendet das Modell des Endpunkts.",
         "Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint's model.": "Optionaler Modellname, der das auf dem gewählten Inferenz-Endpunkt gesetzte Modell überschreibt, z. B. gpt-5.4-mini. Den Endpunkt unter Inference Endpoint wählen. Leer verwendet das Modell des Endpunkts.",
         "Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.": "Anzeigename dieses Captains in Listen, Logs und Missionszuweisungen, z. B. claude-1 oder codex-reviewer. Erforderlich.",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Das Agent-Programm, das dieser Captain ausführt. CLI-Laufzeiten (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) müssen dort installiert sein, wo Captains laufen; API Endpoint ruft direkt einen konfigurierten Modell-Endpunkt auf. Erforderlich.",
         "Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.": "Erforderlich für Captains mit API Endpoint: der Inferenz-Endpunkt (Anbieter, URL und Modell), an den dieser Captain seine Anfragen sendet. Endpunkte unter Konfiguration > Endpunkte hinzufügen oder bearbeiten.",
         "How much the model reasons before answering, mapped to the runtime's own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.": "Wie viel das Modell vor der Antwort nachdenkt, abgebildet auf die eigene Steuerung der Laufzeit (Thinking-Budget bei Claude Code, Reasoning Effort bei Codex, Mux --effort). Höher ist langsamer und teurer. Runtime default sendet nichts.",
         "Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).": "Kosten- und Fähigkeitsklasse, anhand derer der Dispatch Missionen Captains zuordnet: Economy für Routinearbeit, Standard für allgemeine Arbeit, Premium für komplexe Arbeit. Auto leitet sie aus dem Modellnamen ab (Standard, falls unbekannt).",
@@ -31124,7 +31123,8 @@
         "Show only tenant-wide or only personal memories.": "Nur mandantenweite oder nur persönliche Erinnerungen anzeigen.",
         "Tags": "Tags",
         "Tenant-wide": "Mandantenweit",
-        "Visibility": "Sichtbarkeit"
+        "Visibility": "Sichtbarkeit",
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Das Agent-Programm, das dieser Captain ausführt. CLI-Laufzeiten (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) müssen dort installiert sein, wo Captains laufen; API Endpoint ruft direkt einen konfigurierten Modell-Endpunkt auf. Erforderlich."
       },
       "sections": {}
     },
@@ -33663,7 +33663,6 @@
         "Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint's model.": "Modèle facultatif transmis à mux via --model, qui remplace le modèle enregistré sur le point de terminaison mux (par exemple gpt-oss:20b). Indiquez le nom du point de terminaison dans Point de terminaison Mux, pas ici. Vide utilise le modèle du point de terminaison.",
         "Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint's model.": "Nom de modèle facultatif qui remplace le modèle défini sur le point de terminaison d'inférence choisi, par exemple gpt-5.4-mini. Choisissez le point de terminaison dans Point de terminaison d'inférence. Vide utilise le modèle du point de terminaison.",
         "Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.": "Nom d'affichage de ce capitaine, visible dans les listes, les journaux et les affectations de missions, par exemple claude-1 ou codex-reviewer. Obligatoire.",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Le programme d'agent exécuté par ce capitaine. Les environnements d'exécution CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) doivent être installés là où les capitaines s'exécutent ; API Endpoint appelle directement un point de terminaison de modèle configuré. Obligatoire.",
         "Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.": "Obligatoire pour les capitaines API Endpoint : le point de terminaison d'inférence (fournisseur, URL et modèle) auquel ce capitaine envoie ses requêtes. Ajoutez ou modifiez les points de terminaison sous Configuration > Points de terminaison.",
         "How much the model reasons before answering, mapped to the runtime's own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.": "Niveau de raisonnement du modèle avant de répondre, associé au réglage propre à l'environnement d'exécution (budget de réflexion de Claude Code, effort de raisonnement de Codex, --effort de Mux). Plus élevé est plus lent et plus coûteux. Valeur par défaut de l'environnement : rien n'est envoyé.",
         "Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).": "Classe de coût et de capacité utilisée par l'envoi pour associer les missions aux capitaines : Economy pour le travail de routine, Standard pour le travail général, Premium pour le travail complexe. Auto la déduit du nom du modèle (Standard si inconnu).",
@@ -36105,7 +36104,8 @@
         "Show only tenant-wide or only personal memories.": "Afficher uniquement les mémoires de tout le locataire ou uniquement les mémoires personnelles.",
         "Tags": "Tags",
         "Tenant-wide": "Tout le locataire",
-        "Visibility": "Visibilité"
+        "Visibility": "Visibilité",
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Le programme d'agent exécuté par ce capitaine. Les environnements d'exécution CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) doivent être installés là où les capitaines s'exécutent ; API Endpoint appelle directement un point de terminaison de modèle configuré. Obligatoire."
       },
       "sections": {}
     },
@@ -38644,7 +38644,6 @@
         "Optional model passed to mux as --model, overriding the model saved on the mux endpoint (for example gpt-oss:20b). Put the endpoint name in Mux Endpoint, not here. Blank uses the endpoint's model.": "Modello facoltativo passato a mux come --model, che sovrascrive il modello salvato sull'endpoint mux (ad esempio gpt-oss:20b). Inserisci il nome dell'endpoint in Mux Endpoint, non qui. Se vuoto usa il modello dell'endpoint.",
         "Optional model name that overrides the model set on the chosen inference endpoint, for example gpt-5.4-mini. Choose the endpoint in Inference Endpoint. Blank uses the endpoint's model.": "Nome del modello facoltativo che sovrascrive il modello impostato sull'endpoint di inferenza scelto, ad esempio gpt-5.4-mini. Scegli l'endpoint in Inference Endpoint. Se vuoto usa il modello dell'endpoint.",
         "Display name for this captain, shown in lists, logs and mission assignments, for example claude-1 or codex-reviewer. Required.": "Nome visualizzato di questo capitano, mostrato negli elenchi, nei log e nelle assegnazioni delle missioni, ad esempio claude-1 o codex-reviewer. Obbligatorio.",
-        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Il programma agente eseguito da questo capitano. I runtime CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) devono essere installati dove vengono eseguiti i capitani; API Endpoint chiama direttamente un endpoint di modello configurato. Obbligatorio.",
         "Required for API Endpoint captains: the inference endpoint (provider, URL and model) this captain sends its requests to. Add or edit endpoints under Configuration > Endpoints.": "Obbligatorio per i capitani API Endpoint: l'endpoint di inferenza (provider, URL e modello) a cui questo capitano invia le richieste. Aggiungi o modifica gli endpoint in Configurazione > Endpoint.",
         "How much the model reasons before answering, mapped to the runtime's own control (Claude Code thinking budget, Codex reasoning effort, Mux --effort). Higher is slower and costs more. Runtime default sends nothing.": "Quanto ragiona il modello prima di rispondere, mappato al controllo proprio del runtime (budget di thinking di Claude Code, reasoning effort di Codex, --effort di Mux). Più alto è più lento e costa di più. Runtime default non invia nulla.",
         "Cost and capability class dispatch uses to match missions to captains: Economy for routine work, Standard for general work, Premium for complex work. Auto guesses it from the model name (Standard if unknown).": "Classe di costo e capacità usata dall'invio per abbinare missioni e capitani: Economy per il lavoro di routine, Standard per il lavoro generico, Premium per il lavoro complesso. Auto la deduce dal nome del modello (Standard se sconosciuto).",
@@ -41086,7 +41085,8 @@
         "Show only tenant-wide or only personal memories.": "Mostra solo le memorie dell'intero tenant o solo quelle personali.",
         "Tags": "Tag",
         "Tenant-wide": "Intero tenant",
-        "Visibility": "Visibilità"
+        "Visibility": "Visibilità",
+        "The agent program this captain runs. CLI runtimes (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) must be installed where captains run; API Endpoint calls a configured model endpoint directly. Required.": "Il programma agente eseguito da questo capitano. I runtime CLI (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi) devono essere installati dove vengono eseguiti i capitani; API Endpoint chiama direttamente un endpoint di modello configurato. Obbligatorio."
       },
       "sections": {}
     }

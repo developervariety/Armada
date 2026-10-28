@@ -313,7 +313,7 @@ To register Armada with Claude Code manually, add it as an HTTP MCP server:
 claude mcp add --transport http --scope user armada http://localhost:7891/mcp
 ```
 
-Drop `--scope user` to add it for the current project only. While the Admiral listens on localhost (the default), no token or header is required; if you changed `mcpPort`, substitute your port. When the Admiral listens on any other address (for example in Docker), every MCP call needs a credential: add `--header "Authorization: Bearer <token>"` (or `X-Api-Key`). `armada mcp install --server <url> --token <token>` (or `--profile <name>`) writes the remote URL and the header for Claude Code, Gemini CLI, Cursor, Mux, and OpenCode, and configures Codex to read the token from `ARMADA_TOKEN`; without a remote target it writes the local, credential-less entries. See [REMOTE_SERVER.md](REMOTE_SERVER.md#mcp-clients-claude-code-codex-gemini-cli-cursor-mux-opencode).
+Drop `--scope user` to add it for the current project only. While the Admiral listens on localhost (the default), no token or header is required; if you changed `mcpPort`, substitute your port. When the Admiral listens on any other address (for example in Docker), every MCP call needs a credential: add `--header "Authorization: Bearer <token>"` (or `X-Api-Key`). `armada mcp install --server <url> --token <token>` (or `--profile <name>`) writes the remote URL and the header for Claude Code, Gemini CLI, Cursor, Mux, OpenCode, and pi, and configures Codex to read the token from `ARMADA_TOKEN`; without a remote target it writes the local, credential-less entries. See [REMOTE_SERVER.md](REMOTE_SERVER.md#mcp-clients-claude-code-codex-gemini-cli-cursor-mux-opencode).
 
 **Enterprise-managed Claude Code.** If the add is rejected with `Cannot add MCP server 'armada': not allowed by enterprise policy`, your organization's Claude Code managed settings restrict which MCP servers may be added (via `allowedMcpServers` / `managed-mcp.json`). This is enforced by IT and **cannot** be overridden by a user, a project `.mcp.json`, or `--mcp-config`. Ask your Claude Code administrator to allow the Armada endpoint by adding it to `allowedMcpServers` in the managed settings - on Windows `C:\Program Files\ClaudeCode\managed-settings.json` (or, higher priority, the Claude.ai admin console at Admin Settings > Claude Code > Managed settings):
 
@@ -384,7 +384,9 @@ When the Admiral launches a captain for a mission it mints a **mission-scoped se
 `Mcp.MissionScopedTokens`, default true) and binds the captain's Armada MCP connection to it, sent as `X-Token`:
 
 - Claude Code, Codex, OpenCode and Mux captains get the same per-invocation binding as Ask turns (see below); no client
-  file is written into the repository worktree. With `IsolateCaptainLaunch` on, the isolation plan carries the token
+  file is written into the repository worktree. pi captains get a `.pi/mcp.json` in the worktree (header
+  `X-Token: ${ARMADA_MCP_TOKEN}`, the token only in the environment), excluded from git through the worktree's
+  `info/exclude` and deleted after the run. With `IsolateCaptainLaunch` on, the isolation plan carries the token
   for every CLI runtime (Gemini and Cursor included).
 - API-endpoint captains receive `ARMADA_MCP_URL` / `ARMADA_MCP_TOKEN`.
 - Harbor launches carry the token in `HarborLaunchRequest.McpSessionToken`; the Harbor binds it against the MCP URL the
@@ -3292,7 +3294,7 @@ Register a new captain (AI agent).
   "type": "object",
   "properties": {
     "name": { "type": "string", "description": "Captain display name" },
-    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, Custom" },
+    "runtime": { "type": "string", "description": "Agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, Pi, ApiEndpoint, Custom" },
     "model": { "type": "string", "description": "Optional model override for this captain. When omitted, the runtime chooses automatically" },
     "modelEndpointId": { "type": "string", "description": "Managed inference endpoint ID (mep_ prefix) for an ApiEndpoint captain; persona priorities with runtime ApiEndpoint and this endpoint select it" },
     "reasoningEffort": { "type": "string", "description": "Reasoning effort: Off, Minimal, Low, Medium, or High. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort). Ignored by runtimes without a control." },
@@ -3317,7 +3319,7 @@ Register a new captain (AI agent).
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `name` | string | Yes | Captain display name |
-| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, or `Custom` |
+| `runtime` | string | No | Agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, `Pi`, or `Custom` |
 | `model` | string | No | Optional model override. When omitted, the runtime chooses automatically |
 | `reasoningEffort` | string | No | Reasoning effort: `Off`, `Minimal`, `Low`, `Medium`, or `High`. Translated to each runtime's native control at launch |
 | `tier` | string | No | Capability tier for dispatch routing: `Economy`, `Standard`, or `Premium`. Empty/null auto-classifies from the model name |
@@ -3332,7 +3334,7 @@ Register a new captain (AI agent).
 | `muxMaxTokens` | integer | No | Optional Mux max tokens override (Mux runtime only) |
 | `muxSystemPromptPath` | string | No | Optional Mux system prompt file path (Mux runtime only) |
 | `muxApprovalPolicy` | string | No | Optional Mux approval policy override (Mux runtime only) |
-| `autoApprove` | boolean | No | Whether the CLI captain runs with its auto-approve or permission-bypass flag (default `true`). `false` runs it without auto-approve where the runtime supports it (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, Mux deny) |
+| `autoApprove` | boolean | No | Whether the CLI captain runs with its auto-approve or permission-bypass flag (default `true`). `false` runs it without auto-approve where the runtime supports it (Claude Code acceptEdits, Codex workspace-write sandbox, Gemini auto_edit, Cursor without --force, OpenCode without --auto, pi --exclude-tools bash, Mux deny) |
 
 **Response:** [Captain](#captain) object. Invalid or unavailable models are returned as MCP tool errors. A taken name returns `{ "Error": "A captain named '...' already exists.", "ErrorCode": "Conflict", "Code": "DuplicateEntity" }`. The Mux options apply only when `runtime` is `Mux`.
 
@@ -3390,7 +3392,7 @@ Update a captain's properties (name, runtime, model, tier, personas, Mux options
   "properties": {
     "captainId": { "type": "string", "description": "Captain ID (cpt_ prefix)" },
     "name": { "type": "string", "description": "New display name" },
-    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, ApiEndpoint, Custom" },
+    "runtime": { "type": "string", "description": "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, Pi, ApiEndpoint, Custom" },
     "model": { "type": "string", "description": "New optional model override for this captain" },
     "modelEndpointId": { "type": "string", "description": "Managed inference endpoint ID (mep_ prefix) for an ApiEndpoint captain; empty string clears it, omitting it keeps it" },
     "reasoningEffort": { "type": "string", "description": "Reasoning effort: Off, Minimal, Low, Medium, or High. Empty string clears it. Translated per runtime (Claude thinking budget, Codex reasoning effort, Mux --effort)." },
@@ -3416,7 +3418,7 @@ Update a captain's properties (name, runtime, model, tier, personas, Mux options
 |---|---|---|---|
 | `captainId` | string | Yes | Captain ID (prefix `cpt_`) |
 | `name` | string | No | New display name |
-| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, or `Custom` |
+| `runtime` | string | No | New agent runtime: `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, `Pi`, or `Custom` |
 | `model` | string | No | New optional model override. When omitted, the existing value is preserved |
 | `reasoningEffort` | string | No | Reasoning effort: `Off`, `Minimal`, `Low`, `Medium`, or `High`. Empty string clears it |
 | `tier` | string | No | Capability tier: `Economy`, `Standard`, or `Premium`. Empty string clears it (auto-classify from model) |
@@ -5128,7 +5130,7 @@ Create a custom persona.
     "promptTemplateName": { "type": "string", "description": "Name of the prompt template to use for this persona" },
     "defaultCaptainId": { "type": "string", "description": "Optional default (preferred) captain id (cpt_ prefix) for this persona" },
     "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide" },
-    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
+    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "Pi", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
     "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
     "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
   },
@@ -5192,7 +5194,7 @@ Update persona properties.
     "promptTemplateName": { "type": "string", "description": "New prompt template name" },
     "defaultCaptainId": { "type": "string", "description": "Default (preferred) captain id (cpt_ prefix); an empty string clears it, and omitting it keeps it" },
     "scope": { "type": "string", "enum": ["TenantWide", "UserSpecific"], "description": "Ownership: UserSpecific (only you) or TenantWide" },
-    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
+    "captainPriorities": { "type": "array", "items": { "type": "object", "properties": { "runtime": { "type": "string", "enum": ["ClaudeCode", "Codex", "Gemini", "Cursor", "Mux", "OpenCode", "Pi", "ApiEndpoint", "Custom"] }, "model": { "type": "string", "minLength": 1, "maxLength": 1024 }, "endpoint": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "Mux endpoint name (runtime Mux) or exact managed inference endpoint ID (runtime ApiEndpoint; matches captain ModelEndpointId)" }, "minimumTier": { "type": "string", "enum": ["Economy", "Standard", "Premium"] } } } },
     "priorityAvailability": { "type": "string", "enum": ["FallThrough", "WaitForFirstPriority"] },
     "priorityExhaustion": { "type": "string", "enum": ["Wait", "UseEligibleCaptain"] }
   },
@@ -6389,6 +6391,7 @@ Returned by `health_check_model_endpoints`.
 | `Cursor` | Cursor agent CLI |
 | `Mux` | Mux CLI |
 | `OpenCode` | OpenCode CLI (OpenAI-compatible providers) |
+| `Pi` | pi coding agent CLI (pi.dev; many providers) |
 | `Custom` | Custom agent runtime |
 
 ---

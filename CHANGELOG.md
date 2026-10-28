@@ -18,6 +18,15 @@ All notable changes to Armada are documented in this file.
 - New `POST /api/v1/workflow-profiles/delete/multiple` (TenantAdmin) returns `DeleteMultipleResult`, skipping missing, foreign or non-editable ids.
 - .NET client: `EnumerateWorkflowProfilesAsync` and `DeleteWorkflowProfilesBatchAsync`; dashboard client: `enumerateWorkflowProfiles` and `deleteWorkflowProfilesBatch`.
 
+### pi runtime
+
+- New captain runtime `Pi` for the pi coding agent (pi.dev, verified with pi 1.4.0 on macOS). Captains launch `pi -p --mode json --no-session` with the prompt on stdin, `--model provider/id`, and reasoning effort mapped 1:1 to `--thinking off|minimal|low|medium|high`. `AgentRuntimeEnum.Pi` is appended last (runtimes are stored by name; no migration). The CLI, settings and MCP accept `pi`, `Pi` and `pi-coding-agent`.
+- pi exits 0 in JSON mode even when the provider fails, so Armada reads the stream: a run fails unless it reached `agent_end` with a normal stop (`error`, `aborted`, `length`, or no `agent_end` give a nonzero exit code). Provider errors are classified from the terminal records by their leading HTTP status (a retry that recovers is not reported). Token usage and cost come from each assistant `message_end`; mission output, Ask turns and planning sessions show readable text, thinking and tool calls, never raw JSON.
+- pi missions write their instructions to `AGENTS.override.md` (pi reads it before `AGENTS.md` and `CLAUDE.md`), carrying the repository's `AGENTS.md` into it.
+- Armada MCP binding: a launch with a scoped session token writes a git-excluded `.pi/mcp.json` into the working directory (the token only as `${ARMADA_MCP_TOKEN}` from the environment, Armada tools exposed through pi's tool search) and passes `--approve` so pi loads it; the file is removed, or a repository's own file restored, before the exit is reported. `--approve` also loads the repository's `.pi/extensions` and `.pi/settings.json`, the same trust as running its code with bash.
+- Permissions: Bypass keeps pi's default (pi never prompts); Refuse and `AutoApprove=false` add `--exclude-tools bash`; ApproveInArmada falls back to Refuse with `RuntimeUnsupported` until an Armada pi extension exists.
+- Harbors detect pi on PATH and confirm it with the first line of `pi --help`. `armada mcp install` configures `~/.pi/agent/mcp.json` (or `$PI_CODING_AGENT_DIR/mcp.json`) when pi is installed. The TUI, dashboard and docs (`docs/INSTRUCTIONS_FOR_PI.md`, `docs/PI_AS_ORCHESTRATOR.md`) list pi. Windows behavior is unverified.
+
 ### Fixed
 
 - Allow bounded quiet tool waits for Claude Code, Codex, Mux and API captains using `ToolWaitHardLimitMinutes` (default 60). Retain docks after failed stall recovery so uncommitted work survives, and remind personas to announce long commands and defer full suites to post-stage checks.

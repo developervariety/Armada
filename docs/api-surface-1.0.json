@@ -19583,7 +19583,7 @@
     },
     {
       "key": "agents[].runtime",
-      "type": "enum AgentRuntimeEnum (ClaudeCode|Codex|Gemini|Cursor|Mux|OpenCode|ApiEndpoint|Custom)",
+      "type": "enum AgentRuntimeEnum (ClaudeCode|Codex|Gemini|Cursor|Mux|OpenCode|ApiEndpoint|Custom|Pi)",
       "default": "\"ClaudeCode\"",
       "experimental": false,
       "enumName": "AgentRuntimeEnum",
@@ -19595,7 +19595,8 @@
         "Mux",
         "OpenCode",
         "ApiEndpoint",
-        "Custom"
+        "Custom",
+        "Pi"
       ]
     },
     {

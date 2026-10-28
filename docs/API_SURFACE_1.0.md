@@ -842,7 +842,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `agents[].command` | string | `"claude"` |  |
 | `agents[].environment` | map<string,string> | `{}` |  |
 | `agents[].maxConcurrent` | int | `0` |  |
-| `agents[].runtime` | enum AgentRuntimeEnum (ClaudeCode\|Codex\|Gemini\|Cursor\|Mux\|OpenCode\|ApiEndpoint\|Custom) | `"ClaudeCode"` |  |
+| `agents[].runtime` | enum AgentRuntimeEnum (ClaudeCode\|Codex\|Gemini\|Cursor\|Mux\|OpenCode\|ApiEndpoint\|Custom\|Pi) | `"ClaudeCode"` |  |
 | `agents[].supportsResume` | bool | `false` |  |
 | `allowDefaultCredentialsOnNetwork` | bool | `false` |  |
 | `allowSelfRegistration` | bool | `false` |  |

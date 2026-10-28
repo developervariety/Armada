@@ -4165,8 +4165,8 @@ the Admiral host or on a Harbor: `TimeToFirstTokenMs` (first output of any kind:
 `TotalTokens`, `CostUsd`, `TokensEstimated` (true when `CompletionTokens` is estimated from the reply because the
 runtime reported no usage), `TokensPerSecond` (completion tokens over the streaming window), `ToolCallCount`, and
 `ToolTimeMs`. Token counts and cost are null unless the runtime reports them: Claude Code (stream-json `result`: input,
-output, cache, cost), Codex (`turn.completed` usage: input, cached, output), and OpenCode (`step_finish`: tokens and
-cost). Durations are measured on the monotonic clock.
+output, cache, cost), Codex (`turn.completed` usage: input, cached, output), OpenCode (`step_finish`: tokens and
+cost), and pi (each assistant `message_end` usage: input, output, cache, cost). Durations are measured on the monotonic clock.
 
 `AskMessagePage`: `{ Messages, HasMore }`. Without `BeforeSequence` the newest page is returned; messages are in ascending
 sequence within the page; pass the oldest loaded `Sequence` as `BeforeSequence` for older pages. `PageSize` 1-200
@@ -9714,6 +9714,7 @@ Ownership scope for Category B configuration entities (see [Data Scoping](#data-
 | `Cursor` | Cursor agent CLI |
 | `Mux` | Mux CLI |
 | `OpenCode` | OpenCode CLI (OpenAI-compatible providers) |
+| `Pi` | pi coding agent CLI (pi.dev; many providers) |
 | `Custom` | Custom agent runtime |
 
 ---
