@@ -6246,6 +6246,41 @@
       "experimental": false
     },
     {
+      "method": "GET",
+      "route": "/api/v1/vessels/{id}/cleanup",
+      "auth": "Authenticated",
+      "resource": "Vessel:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "VesselCleanupInventory",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "Vessel cleanup inventory",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/vessels/{id}/cleanup",
+      "auth": "TenantAdmin",
+      "resource": "Vessel:Delete",
+      "requestType": "VesselCleanupRequest",
+      "requestRequired": true,
+      "responses": {
+        "200": "VesselCleanupResult",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "Clean up vessel resources",
+      "experimental": false
+    },
+    {
       "method": "PATCH",
       "route": "/api/v1/vessels/{id}/context",
       "auth": "TenantAdmin",

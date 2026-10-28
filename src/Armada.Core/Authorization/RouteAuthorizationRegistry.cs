@@ -494,6 +494,8 @@ namespace Armada.Core.Authorization
             Add("POST", "/api/v1/vessels/{id}/branches/merge", "Vessel", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("GET", "/api/v1/vessels/{id}/readiness", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("GET", "/api/v1/vessels/{id}/landing-preview", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("GET", "/api/v1/vessels/{id}/cleanup", "Vessel", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("POST", "/api/v1/vessels/{id}/cleanup", "Vessel", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
             Add("POST", "/api/v1/vessels/{id}/build-context", "Vessel", ResourceOperationEnum.Execute, PermissionLevel.TenantAdmin);
             Add("DELETE", "/api/v1/vessels/{id}", "Vessel", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);
             Add("POST", "/api/v1/vessels/delete/multiple", "Vessel", ResourceOperationEnum.Delete, PermissionLevel.TenantAdmin);

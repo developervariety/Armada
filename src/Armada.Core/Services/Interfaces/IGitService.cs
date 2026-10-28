@@ -259,6 +259,17 @@ namespace Armada.Core.Services.Interfaces
         Task<bool> IsWorktreeRegisteredAsync(string repoPath, string worktreePath, CancellationToken token = default);
 
         /// <summary>
+        /// List the worktrees registered in a repository (git worktree list --porcelain), including the main entry.
+        /// </summary>
+        /// <param name="repoPath">Repository path (bare repo or worktree).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The registered worktrees, or null when this git service cannot list them.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when repoPath is null or empty.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when git fails.</exception>
+        Task<IReadOnlyList<GitWorktreeEntry>?> ListWorktreeEntriesAsync(string repoPath, CancellationToken token = default)
+            => Task.FromResult<IReadOnlyList<GitWorktreeEntry>?>(null);
+
+        /// <summary>
         /// Advance a local branch to include a produced commit without rewinding newer work. Divergent work is
         /// preserved under refs/armada/stage-commits/&lt;commit&gt; and the update is refused. Unlike <c>git branch -f</c>, this uses
         /// <c>git update-ref</c>, which tolerates a branch that is currently checked out (or detached) in a
