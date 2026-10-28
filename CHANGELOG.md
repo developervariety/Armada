@@ -43,6 +43,8 @@ All notable changes to Armada are documented in this file.
 
 - Record failed landing callbacks as LandingFailed; periodically flag verified merge-queue missions missing a queue entry after five minutes for manual recovery.
 
+- Manual handoff (REST and MCP `transition_mission_status` to Complete) no longer requires an active dock when there is nothing to land: a WorkProduced or LandingFailed mission whose recorded commit and branch are already contained in the vessel's target branch (proved with `git merge-base --is-ancestor` on the Admiral-side repository) moves straight to Complete, clears its stale failure reason, records `mission.completed`, and lets its voyage complete. Missions that may still hold unlanded commits, or whose repository cannot be checked, keep the active-dock error unchanged.
+
 - Show queued/running stage verification, ignore stale exit results, land manual handoffs through the normal pipeline, treat infrastructure checks as unverified, share and limit check execution, preserve concurrent CHANGELOG entries, integrate current landing targets, and deduplicate rescues while resolving their originals.
 
 ### Rework prompts built from the handoff artifact

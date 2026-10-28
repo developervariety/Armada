@@ -626,7 +626,7 @@ namespace Armada.Server.Routes
                 if ((newStatus == MissionStatusEnum.WorkProduced || newStatus == MissionStatusEnum.Complete)
                     && !MissionModeContract.IsReadOnly(mission.Mode))
                 {
-                    try { return (object)await ManualMissionHandoff.LandAsync(_database, _admiral, mission).ConfigureAwait(false); }
+                    try { return (object)await ManualMissionHandoff.LandAsync(_database, _admiral, mission, newStatus, _git, _settings).ConfigureAwait(false); }
                     catch (InvalidOperationException ex)
                     { req.Http.Response.StatusCode = 409; return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = ex.Message }; }
                 }
