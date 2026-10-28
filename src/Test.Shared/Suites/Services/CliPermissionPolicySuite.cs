@@ -316,6 +316,20 @@ namespace Test.Shared.Suites.Services
                 AssertFalse(openCode.Args(refuse).Contains("--auto"), "OpenCode Refuse has no --auto");
                 AssertTrue(openCode.Args(bypass).Contains("--auto"), "OpenCode Bypass is --auto");
 
+                InspectablePi pi = new InspectablePi(Logging());
+                AssertFalse(CliPermissionLaunch.Apply(pi, CliPermissionPolicyEnum.ApproveInArmada, 600), "pi has no prompt hook until the Phase 5 extension");
+                List<string> piRefuse = pi.Args(refuse);
+                int excluded = piRefuse.IndexOf("--exclude-tools");
+                AssertTrue(excluded >= 0 && piRefuse[excluded + 1] == "bash", "pi Refuse is --exclude-tools bash: " + String.Join(" ", piRefuse));
+                AssertFalse(pi.Args(bypass).Contains("--exclude-tools"), "pi Bypass keeps every tool (pi never prompts)");
+
+                ArmadaSettings askSettings = new ArmadaSettings();
+                askSettings.Permissions.AskDefaultPolicy = CliPermissionPolicyEnum.ApproveInArmada;
+                CliPermissionResolution piAsk = CliPermissionPolicyResolver.ResolveForAsk(askSettings, new AskThread(), new Captain("p") { Runtime = AgentRuntimeEnum.Pi }, true);
+                AssertEqual(CliPermissionPolicyEnum.Refuse, piAsk.Effective, "pi ApproveInArmada runs as Refuse");
+                AssertEqual(CliPermissionFallbackReasonEnum.RuntimeUnsupported, piAsk.FallbackReason);
+                AssertContains("no permission prompt hook", piAsk.Note ?? String.Empty, "the user-visible note explains the fallback");
+
                 InspectableMux mux = new InspectableMux(Logging());
                 Captain muxRefuse = CaptainRuntimeOptions.WithEffectiveAutoApprove(new Captain("m") { Runtime = AgentRuntimeEnum.Mux }, false);
                 List<string> muxRefuseArgs = mux.Args(muxRefuse);
@@ -464,6 +478,13 @@ namespace Test.Shared.Suites.Services
         private sealed class InspectableOpenCode : OpenCodeRuntime
         {
             public InspectableOpenCode(LoggingModule logging) : base(logging) { }
+
+            public List<string> Args(Captain captain) => BuildArguments(Path.GetTempPath(), "p", null, null, captain);
+        }
+
+        private sealed class InspectablePi : PiRuntime
+        {
+            public InspectablePi(LoggingModule logging) : base(logging) { }
 
             public List<string> Args(Captain captain) => BuildArguments(Path.GetTempPath(), "p", null, null, captain);
         }

@@ -94,6 +94,18 @@ namespace Armada.Runtimes
             return evt.TextDelta;
         }
 
+        /// <summary>
+        /// The host user's pi MCP configuration file: <c>$PI_CODING_AGENT_DIR/mcp.json</c> when that variable is set,
+        /// otherwise <c>~/.pi/agent/mcp.json</c>.
+        /// </summary>
+        /// <returns>The path (the file may not exist).</returns>
+        public static string GetHostMcpConfigPath()
+        {
+            string? agentDirectory = Environment.GetEnvironmentVariable("PI_CODING_AGENT_DIR");
+            if (!String.IsNullOrWhiteSpace(agentDirectory)) return System.IO.Path.Combine(agentDirectory!, "mcp.json");
+            return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".pi", "agent", "mcp.json");
+        }
+
         #endregion
 
         #region Private-Methods
@@ -164,6 +176,23 @@ namespace Armada.Runtimes
             string? thinking = ReasoningEffortTranslator.ToPiThinkingLevel(captain?.ReasoningEffort);
             bool refuseShell = !(AutoApprove && CaptainRuntimeOptions.GetAutoApprove(captain));
             return PiCommandBuilder.BuildRunArguments(workingDirectory, prompt, model, thinking, refuseShell, false);
+        }
+
+        /// <summary>
+        /// Read the host user's pi MCP configuration (<c>$PI_CODING_AGENT_DIR/mcp.json</c>, else <c>~/.pi/agent/mcp.json</c>)
+        /// so the launch's project <c>.pi/mcp.json</c> can redefine the user's own Armada entries under the same names, and
+        /// any <c>.pi/mcp.json</c> already in the working directory so its servers are kept and the file is restored after
+        /// the launch. Nothing is modified here.
+        /// </summary>
+        /// <param name="request">The plan request to populate.</param>
+        protected override void PopulateHostMcpConfiguration(CaptainThreadMcpPlanRequest request)
+        {
+            List<string> documents = new List<string>();
+            string? host = TryReadHostFile(GetHostMcpConfigPath());
+            if (!String.IsNullOrWhiteSpace(host)) documents.Add(host!);
+            request.HostPiMcpConfigDocuments = documents;
+            if (!String.IsNullOrWhiteSpace(request.WorkingDirectory))
+                request.ExistingPiProjectMcpJson = TryReadHostFile(System.IO.Path.Combine(request.WorkingDirectory, PiProjectMcpConfig.RelativePath));
         }
 
         /// <summary>
