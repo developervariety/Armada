@@ -266,12 +266,6 @@ export default function WorkflowProfiles() {
   // Name, ID and description used to stack in one cell, and "Default" sat under the scope badge; each is on one line now.
   const columns: DataTableColumn<WorkflowProfile>[] = [
     {
-      key: 'name', label: t('Profile'), required: true, headerTitle: t('Workflow profile name. A profile holds the commands Armada runs to lint, build, test, package and deploy a project.'),
-      clearFilter: () => setColFilters(f => ({ ...f, name: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('Profile')} title={t('Show only profiles whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
-      render: (profile) => <strong>{profile.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique workflow profile ID (wfp_ prefix), used when a vessel or check run names a profile directly. Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (profile) => (
         <span className="id-display">
@@ -279,6 +273,12 @@ export default function WorkflowProfiles() {
           <CopyButton text={profile.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Profile'), required: true, headerTitle: t('Workflow profile name. A profile holds the commands Armada runs to lint, build, test, package and deploy a project.'),
+      clearFilter: () => setColFilters(f => ({ ...f, name: '' })),
+      filter: <input type="text" className="col-filter" aria-label={t('Profile')} title={t('Show only profiles whose name contains this text.')} value={colFilters.name} onChange={e => setColFilters(f => ({ ...f, name: e.target.value }))} placeholder={t('Filter...')} />,
+      render: (profile) => <strong>{profile.name}</strong>,
     },
     {
       key: 'description', label: t('Description'), headerTitle: t('What this profile is for. Hover a value for the full text.'), defaultHidden: true, cellClassName: 'text-dim truncate-cell',
@@ -414,11 +414,11 @@ export default function WorkflowProfiles() {
             <label title={t(PACKAGECOMMAND_TIP)}>{t('Package Command')}
               <textarea rows={2} title={t(PACKAGECOMMAND_TIP)} value={createForm.packageCommand} onChange={(event) => setCreateForm((current) => ({ ...current, packageCommand: event.target.value }))} />
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }} title={t(DEFAULT_TIP)}>
+            <label className="checkbox-row" title={t(DEFAULT_TIP)}>
               <input type="checkbox" title={t(DEFAULT_TIP)} checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
               <span>{t('Default for this scope')}</span>
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }} title={t(ACTIVE_TIP)}>
+            <label className="checkbox-row" title={t(ACTIVE_TIP)}>
               <input type="checkbox" title={t(ACTIVE_TIP)} checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
               <span>{t('Active')}</span>
             </label>

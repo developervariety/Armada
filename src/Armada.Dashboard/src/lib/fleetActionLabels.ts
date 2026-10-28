@@ -77,6 +77,10 @@ export const TEMPLATE_VARIABLES: Array<{ name: string; description: string }> = 
   { name: 'vessel.defaultBranch', description: 'The vessel default branch' },
   { name: 'vessel.workingDirectory', description: 'The vessel working directory, or empty' },
   { name: 'vessel.buildCommand', description: 'The definition-of-done build command, or empty (vessels without one are skipped)' },
+  { name: 'vessel.ecosystems', description: 'Detected ecosystems, comma-separated, or empty; rendered on the server' },
+  { name: 'vessel.testCommand', description: 'The resolved test command (vessel override, repo script, then ecosystem default); rendered on the server' },
+  { name: 'vessel.lintCommand', description: 'The resolved lint command (vessel override, repo script, then ecosystem default); rendered on the server' },
+  { name: 'vessel.auditCommand', description: 'The resolved audit command (vessel override, repo script, ecosystem default, then osv-scanner); rendered on the server' },
   { name: 'health.summary', description: 'Failing, warning, and unknown health findings; rendered on the server' },
 ];
 

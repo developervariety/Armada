@@ -27,6 +27,14 @@ All notable changes to Armada are documented in this file.
 
 - `StageOutcome.ContractRepairKind` (nullable; `CompletionLineMissing`, `CompletionLineMalformed`, `CommitMissingRecoveredFromRepo`, `VerdictNonCanonical` or `PlanBlockNonCanonical`) records the contract repair Armada applied to the attempt, read from the latest `mission.contract_repaired` event written since the attempt started. Migration 98 adds the `contract_repair_kind` column to `stage_outcomes` on SQLite, PostgreSQL, SQL Server and MySQL; existing rows read as null. The field is returned by the stage outcome REST routes and the `get_stage_outcome` / `list_stage_outcomes` MCP tools. The `mission.contract_repaired` event is still emitted for every repair.
 
+### Ecosystem detection, command catalog and vessel command overrides
+
+- `VesselEcosystemDetector` detects a vessel's ecosystems (.NET, Maven, Gradle, Node, Python, Ruby, Go, Rust, PHP, C/C++, Swift, Dart, Elixir, Container) from marker files at the top level and one level down, with the package manager the lockfile selects (npm/pnpm/yarn/bun, uv/poetry/pip, Gradle or Maven wrapper) and the relative root.
+- `EcosystemCommandCatalog` gives a default command per ecosystem and intent (Build, Test, Lint, Audit, Outdated, Licenses, Secrets) with POSIX and Windows variants, required tools, network need and an audit parser id, or an explicit NotSupported; osv-scanner is the universal audit fallback and gitleaks the secrets scan.
+- `EcosystemCommandResolver` resolves an intent to the vessel override, then a repo script (package.json scripts, Makefile/justfile target, composer scripts, Gradle wrapper), then the catalog default, and reports the source.
+- Vessels gain nullable `TestCommand`, `LintCommand` and `AuditCommand` overrides (schema migration 99 on all four providers), exposed through REST, MCP `add_vessel`/`update_vessel`, the .NET client, the dashboard vessel form and the Postman collection.
+- Fleet action templates accept `{{vessel.ecosystems}}`, `{{vessel.testCommand}}`, `{{vessel.lintCommand}}` and `{{vessel.auditCommand}}`; existing variables are unchanged.
+
 ## v1.2.0 (2026-10-27)
 
 v1.2.0 is about model evaluation: knowing how well each model does the work it is given, and handing work to it in a

@@ -1974,7 +1974,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_mission_created') CREATE INDEX idx_handoff_artifacts_mission_created ON handoff_artifacts(mission_id, created_utc);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_handoff_artifacts_tenant_created') CREATE INDEX idx_handoff_artifacts_tenant_created ON handoff_artifacts(tenant_id, created_utc);"),
                 new SchemaMigration(98, "Add contract_repair_kind to stage_outcomes so a deterministic contract repair shows on the stage outcome as well as in the mission.contract_repaired event",
-                    @"IF COL_LENGTH('stage_outcomes','contract_repair_kind') IS NULL ALTER TABLE stage_outcomes ADD contract_repair_kind NVARCHAR(64) NULL;")
+                    @"IF COL_LENGTH('stage_outcomes','contract_repair_kind') IS NULL ALTER TABLE stage_outcomes ADD contract_repair_kind NVARCHAR(64) NULL;"),
+
+                new SchemaMigration(99, "Add test_command, lint_command and audit_command to vessels so a vessel can override the ecosystem default command for the test, lint and audit intents",
+                    @"IF COL_LENGTH('vessels', 'test_command') IS NULL ALTER TABLE vessels ADD test_command NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('vessels', 'lint_command') IS NULL ALTER TABLE vessels ADD lint_command NVARCHAR(MAX) NULL;",
+                    @"IF COL_LENGTH('vessels', 'audit_command') IS NULL ALTER TABLE vessels ADD audit_command NVARCHAR(MAX) NULL;")
 
 
             };
