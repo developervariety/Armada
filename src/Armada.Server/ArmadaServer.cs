@@ -18,6 +18,7 @@ namespace Armada.Server
     using Armada.Core.Models;
     using Armada.Core.Recovery;
     using Armada.Core.Services;
+    using Armada.Core.Storage;
     using Armada.Core.Services.Archive;
     using Armada.Core.Services.TypedDecisions;
     using Armada.Core.Services.Interfaces;
@@ -139,6 +140,7 @@ namespace Armada.Server
         private const int _TraceSweepEventsPerCycle = 5000;
         private DiskLifecycleService _DiskLifecycle = null!;
         private static readonly TimeSpan _DiskLifecycleProgressWindow = TimeSpan.FromMinutes(10);
+        private StorageInventoryService? _StorageInventory;
         private ArchiveExpiryService _ArchiveExpiry = null!;
         private ArmadaTelemetryHost? _TelemetryHost = null;
         private BranchCleanupSweepService _BranchCleanupSweep = null!;
@@ -1353,6 +1355,11 @@ namespace Armada.Server
                     _SettingsWatcher?.Dispose();
                     _SettingsWatcher = null;
                 });
+                RunStopStep("storage inventory stop", () =>
+                {
+                    _StorageInventory?.Dispose();
+                    _StorageInventory = null;
+                });
                 RunStopStep("saved mission action stop", StopFleetActionLoop);
                 _AgentLifecycle?.SetPreserveHarborJobsOnShutdown(true);
                 // Kill agent subprocesses so none survive as orphans after the Admiral exits.
@@ -1732,6 +1739,12 @@ namespace Armada.Server
             // Background jobs
             new Routes.JobRoutes(_LongRunningJobs)
                 .Register(_App, authenticate, _AuthorizationService);
+
+            // Storage inventory
+            _StorageInventory ??= new StorageInventoryService(_Settings, _Logging);
+            new StorageRoutes(_StorageInventory, _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+            _StorageInventory.Start();
 
             // Prompt templates
             new PromptTemplateRoutes(_Database, _PromptTemplateService, _JsonOptions)

@@ -406,6 +406,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new StalePauseRuleTests());
             runner.AddSuite(new StageBaseVerifierTests());
             runner.AddSuite(new DiskLifecycleTests());
+            runner.AddSuite(new StorageInventoryTests());
             runner.AddSuite(new ArchiveTests());
             runner.AddSuite(new CheckRunParsingServiceTests());
             runner.AddSuite(new MergeRefCandidateTests());

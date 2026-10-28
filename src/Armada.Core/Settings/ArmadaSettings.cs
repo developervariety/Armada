@@ -1049,6 +1049,16 @@ namespace Armada.Core.Settings
             set => _DiskLifecycle = value ?? new DiskLifecycleSettings();
         }
 
+        /// <summary>
+        /// Administrator storage inventory settings: the bounds and refresh interval of the read-only
+        /// scan of Armada's on-disk data and database.
+        /// </summary>
+        public StorageSettings Storage
+        {
+            get => _Storage;
+            set => _Storage = value ?? new StorageSettings();
+        }
+
         /// <summary>Allow-listed roots for global-administrator checkout discovery and import.</summary>
         public VesselImportSettings VesselImport
         {
@@ -1158,6 +1168,7 @@ namespace Armada.Core.Settings
         private VoyageCheckArmingSettings _VoyageCheckArming = new VoyageCheckArmingSettings();
         private IntegrationValidationSettings _IntegrationValidation = new IntegrationValidationSettings();
         private DiskLifecycleSettings _DiskLifecycle = new DiskLifecycleSettings();
+        private StorageSettings _Storage = new StorageSettings();
         private VesselImportSettings _VesselImport = new VesselImportSettings();
         private ArchiveSettings _Archive = new ArchiveSettings();
         private TelemetrySettings _Telemetry = new TelemetrySettings();
@@ -1339,6 +1350,8 @@ namespace Armada.Core.Settings
             // Read through the shared settings instance on every landing.
             IntegrationValidation = source.IntegrationValidation;
             DiskLifecycle = source.DiskLifecycle;
+            // The storage inventory service reads this section on every cycle, so it is copied in place.
+            Storage.CopyFrom(source.Storage);
             VesselImport.CopyFrom(source.VesselImport);
             // The archive sink is built from this section at each use.
             Archive = source.Archive;
