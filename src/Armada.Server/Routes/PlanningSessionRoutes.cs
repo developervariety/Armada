@@ -72,7 +72,7 @@ namespace Armada.Server.Routes
                 catch (NotSupportedException ex)
                 {
                     req.Http.Response.StatusCode = 501;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return ApiStatusErrorResponse.NotImplemented(ex.Message);
                 }
             },
             api => api
@@ -82,6 +82,7 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Paging", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<PlanningSession>>("One page of planning sessions"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("The operation is not supported on this server (Code NotImplemented)"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/planning-sessions", async (ApiRequest req) =>
