@@ -11,7 +11,10 @@ namespace Armada.Core.Database.Interfaces
         /// <summary>Read the stored vectors for the named sources under one model. Absent sources are omitted.</summary>
         Task<List<ContextEmbedding>> ReadAsync(string tenantId, string model, IReadOnlyCollection<string> sourceKeys, CancellationToken token = default);
 
-        /// <summary>Store a vector, replacing any earlier vector for the same tenant, source and model.</summary>
+        /// <summary>
+        /// Store a vector, replacing any earlier vector for the same tenant, source and model. When concurrent
+        /// writers store the same key, one row remains and no writer fails.
+        /// </summary>
         Task UpsertAsync(ContextEmbedding embedding, CancellationToken token = default);
 
         /// <summary>Delete every vector derived from one source, under every model. Returns the rows removed.</summary>

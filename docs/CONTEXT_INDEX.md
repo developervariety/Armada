@@ -207,8 +207,9 @@ can already see; access checks still run first. Vectors are stored in the
 model. A stored vector is reused only while its model, dimension and the
 SHA-256 of the embedded text all match. Otherwise it is embedded again. One
 query embeds at most 64 new candidates; the rest rank lexically until a later
-query embeds them. Deleting a native record deletes its vectors in the same
-transaction.
+query embeds them. When concurrent queries store a vector for the same key,
+one row remains and neither query fails. Deleting a native record deletes its
+vectors in the same transaction.
 
 The `semantic` entry in `Sources` reports the result. When it is available,
 `rules` and `memory` report `hybrid`. Otherwise it names the reason and search

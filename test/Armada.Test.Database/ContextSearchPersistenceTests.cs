@@ -173,6 +173,36 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyConcurrentEmbeddingUpsertsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("vector-race", token: token).ConfigureAwait(false);
+                for (int round = 0; round < 10; round++)
+                {
+                    string sourceKey = "context:race/" + round.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    foreach (string phase in new[] { "first", "replace" })
+                    {
+                        Task[] writers = Enumerable.Range(0, 8).Select(writer => _Driver.ContextEmbeddings.UpsertAsync(new ContextEmbedding
+                        {
+                            TenantId = tenant.Id, SourceKey = sourceKey, Model = "model-a",
+                            ContentSha256 = phase + writer.ToString(System.Globalization.CultureInfo.InvariantCulture), Vector = new float[] { writer + 1 }
+                        }, token)).ToArray();
+                        await Task.WhenAll(writers).ConfigureAwait(false);
+                        System.Collections.Generic.List<ContextEmbedding> stored = await _Driver.ContextEmbeddings.ReadAsync(tenant.Id, "model-a", new[] { sourceKey }, token).ConfigureAwait(false);
+                        DatabaseAssert.Equal(1, stored.Count, "Concurrent " + phase + " upserts of one key leave one row");
+                        DatabaseAssert.True(stored[0].ContentSha256.StartsWith(phase, StringComparison.Ordinal), "The remaining row is one of the concurrent " + phase + " writes");
+                    }
+                    await _Driver.ContextEmbeddings.DeleteSourceAsync(tenant.Id, sourceKey, token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
         internal async Task VerifyBudgetAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
