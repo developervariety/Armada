@@ -453,7 +453,9 @@ operation is cancelled. Past the limit is not the same as hung: a landing-retry
 job whose integration candidate is still running a Build or UnitTest check is
 kept, not reaped, because those checks serialize behind one host lock and a
 healthy landing can outlast the flat limit; once no such check is advancing, the
-job is reaped like any other. A terminal status is final: an operation that
+job is reaped like any other. A disk-lifecycle job is kept while its pass is
+running and has handled an item, written a bundle entry or finished an upload in
+the last ten minutes, so a long archive pass is not cancelled mid-upload. A terminal status is final: an operation that
 finishes after its job was reaped does not change the status in memory or in the
 journal.
 

@@ -60,6 +60,7 @@ namespace Armada.Core.Services
         private ArmadaSettings _Settings;
         private SiblingLeaseRegistry _Leases;
         private readonly SemaphoreSlim _PassGate = new SemaphoreSlim(1, 1);
+        private long _LastProgressTicks = 0;
         private DiskLifecycleReport? _CurrentReport;
         private Func<ArchiveSettings, IArchiveSink> _ArchiveSinkFactory = settings => new S3ArchiveSink(settings);
         private HistoryRetentionModeEnum _HistoryMode = HistoryRetentionModeEnum.Keep;
@@ -94,8 +95,11 @@ namespace Armada.Core.Services
             "node_modules"
         };
 
+        private const string _ArchiveBundlePrefix = "armada-archive-bundle-";
+
         private static readonly string[] _TempArtifactPrefixes = new string[]
         {
+            _ArchiveBundlePrefix,
             "armada-chk-",
             "armada_test_",
             "armada-code-index-",
@@ -157,6 +161,21 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// True while a pass is running and has handled an item, written a bundle entry or finished an
+        /// upload within the window. A background job that runs a pass past its stale limit is kept while
+        /// this holds, so a long archive pass is not cancelled mid-upload; a pass that stops advancing is not.
+        /// </summary>
+        /// <param name="window">How recent the last step must be.</param>
+        /// <returns>True when a pass is running and advanced within the window.</returns>
+        public bool IsPassAdvancing(TimeSpan window)
+        {
+            if (_PassGate.CurrentCount > 0) return false;
+            long last = Interlocked.Read(ref _LastProgressTicks);
+            if (last == 0) return false;
+            return DateTime.UtcNow.Ticks - last <= window.Ticks;
+        }
+
+        /// <summary>
         /// Test seam: invoked at the start of every pass while the pass holds the pass gate.
         /// </summary>
         internal Func<CancellationToken, Task>? OnPassStarted { get; set; }
@@ -206,6 +225,7 @@ namespace Armada.Core.Services
                 ScannedUtc = DateTime.UtcNow
             };
             _CurrentReport = report;
+            NoteProgress();
             report.FreeBytes = FreeBytesProbe(_Settings.LogDirectory);
             long lowSpaceBytes = (long)section.LowSpaceThresholdGb * 1024L * 1024L * 1024L;
             report.LowSpace = lowSpaceBytes > 0 && report.FreeBytes >= 0 && report.FreeBytes < lowSpaceBytes;
@@ -1435,6 +1455,7 @@ namespace Armada.Core.Services
 
             try
             {
+                string? modeFailure = null;
                 if (OperatingSystem.IsWindows())
                 {
                     foreach (string file in SafeEnumerateFiles(path, "*"))
@@ -1442,6 +1463,12 @@ namespace Armada.Core.Services
                         try { File.SetAttributes(file, FileAttributes.Normal); } catch { }
                     }
                 }
+                else
+                {
+                    // A read-only folder inside the item would refuse removal of its entries.
+                    modeFailure = MakeDirectoriesOwnerWritable(path);
+                }
+                if (modeFailure != null) _Logging.Warn(_Header + "could not make every folder writable before removing " + path + ": " + modeFailure);
                 Directory.Delete(path, true);
                 return true;
             }
@@ -1495,8 +1522,14 @@ namespace Armada.Core.Services
             return result.ExitCode ?? -1;
         }
 
+        private void NoteProgress()
+        {
+            Interlocked.Exchange(ref _LastProgressTicks, DateTime.UtcNow.Ticks);
+        }
+
         private void RecordAction(DiskLifecycleReport report, DiskLifecycleCategory category, string path, string disposition, string reason)
         {
+            NoteProgress();
             if (report.Actions.Count >= _MaxActionRecords)
             {
                 return;
@@ -1568,6 +1601,7 @@ namespace Armada.Core.Services
             }
 
             ArchivePutResult put = await pass.ArchiveFileAsync(ArchiveCategory(category), root, full, token).ConfigureAwait(false);
+            NoteProgress();
             if (put.FailureCode == ArchivePutResult.CapExceededCode)
             {
                 pass.SkipForCap();
@@ -1608,6 +1642,8 @@ namespace Armada.Core.Services
             List<string> payloadDirectories = skipPayload ? FindPayloadDirectories(full) : new List<string>();
             HashSet<string> payload = new HashSet<string>(payloadDirectories.Select(d => Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar), StringComparer.Ordinal);
             List<string> files = new List<string>();
+            List<string> denied = new List<string>();
+            long deniedBytes = 0;
             foreach (string file in SafeEnumerateFilesRecursive(full, "*"))
             {
                 string fileFull = Path.GetFullPath(file);
@@ -1615,18 +1651,30 @@ namespace Armada.Core.Services
                 if (IsSymlink(fileFull)) continue;
                 if (ArchiveDenyList.IsDenied(Path.GetRelativePath(root, fileFull), _Settings.Archive.DenyPatterns))
                 {
-                    category.ProtectedItems++;
-                    RecordAction(report, category, full, "kept", "holds " + Path.GetRelativePath(full, fileFull) + ", which matches the archive deny list");
-                    return;
+                    // A deny-listed file is never uploaded and never freed, but it does not hold the
+                    // rest of its folder: the other files are archived and freed around it.
+                    denied.Add(fileFull);
+                    deniedBytes += SafeGetFileBytes(fileFull);
+                    continue;
                 }
                 files.Add(fileFull);
             }
 
-            category.ReclaimableBytes += bytes;
+            if (denied.Count > 0 && files.Count == 0)
+            {
+                category.ProtectedItems++;
+                RecordAction(report, category, full, "kept", reason + "; holds only deny-listed files (" + Path.GetRelativePath(full, denied[0])
+                    + (denied.Count > 1 ? " and " + (denied.Count - 1) + " more" : "") + "), which are never uploaded and never freed");
+                return;
+            }
+
+            string deniedNote = denied.Count == 0 ? "" : "; " + denied.Count + " deny-listed files (" + Path.GetRelativePath(full, denied[0]) + (denied.Count > 1 ? ", ..." : "") + ") stay in place";
+            category.ReclaimableBytes += Math.Max(0, bytes - deniedBytes);
             category.ReclaimableItems++;
+            bool bundle = files.Count >= _Settings.DiskLifecycle.ArchiveBundleMinFiles;
             if (!delete)
             {
-                RecordAction(report, category, full, "dry-run-reclaim", reason + "; would archive " + files.Count + " files, then free");
+                RecordAction(report, category, full, "dry-run-reclaim", reason + "; would archive " + files.Count + " files" + (bundle ? " as one bundle" : "") + ", then free" + deniedNote);
                 return;
             }
 
@@ -1645,32 +1693,166 @@ namespace Armada.Core.Services
                 return;
             }
 
-            foreach (string file in files)
+            if (bundle)
             {
-                if (token.IsCancellationRequested) return;
-                ArchivePutResult put = await pass.ArchiveFileAsync(ArchiveCategory(category), root, file, token).ConfigureAwait(false);
-                if (put.FailureCode == ArchivePutResult.CapExceededCode)
+                ArchivePutResult put = await ArchiveFolderBundleAsync(pass, ArchiveCategory(category), root, full, files, token).ConfigureAwait(false);
+                if (!KeepFolderAfterPut(pass, category, report, full, reason, put, "the bundle of " + files.Count + " files")) return;
+            }
+            else
+            {
+                foreach (string file in files)
                 {
-                    pass.SkipForCap();
-                    RecordAction(report, category, full, "kept", reason + "; " + _ArchiveCapKeptReason);
-                    return;
-                }
-
-                if (!put.Verified)
-                {
-                    RecordAction(report, category, full, "skipped", "archive upload of " + Path.GetRelativePath(full, file) + " not verified (" + put.FailureCode + "); folder kept");
-                    return;
+                    if (token.IsCancellationRequested) return;
+                    ArchivePutResult put = await pass.ArchiveFileAsync(ArchiveCategory(category), root, file, token).ConfigureAwait(false);
+                    NoteProgress();
+                    if (!KeepFolderAfterPut(pass, category, report, full, reason, put, Path.GetRelativePath(full, file))) return;
                 }
             }
 
-            string? freeFailure = FreeHistoryDirectory(full);
+            string? freeFailure = denied.Count == 0 ? FreeHistoryDirectory(full) : FreeHistoryFolderAround(full, files, payloadDirectories, denied);
             if (freeFailure != null)
             {
                 pass.RecordFreeFailure(full, freeFailure);
                 RecordError(category.Category + ": " + files.Count + " files archived but the folder could not be freed: " + full + ": " + freeFailure);
             }
             RecordAction(report, category, full, freeFailure == null ? "reclaimed" : "skipped",
-                freeFailure == null ? reason + "; " + files.Count + " files archived, then freed" : files.Count + " files archived; directory removal failed: " + freeFailure);
+                freeFailure == null
+                    ? reason + "; " + files.Count + " files archived" + (bundle ? " as one bundle" : "") + ", then freed" + deniedNote
+                    : files.Count + " files archived; directory removal failed: " + freeFailure);
+        }
+
+        // True when an upload of a folder's content verified, so the folder may go on; otherwise the folder
+        // is kept, the outcome is recorded, and false is returned.
+        private bool KeepFolderAfterPut(HistoryArchivePass pass, DiskLifecycleCategory category, DiskLifecycleReport report, string full, string reason, ArchivePutResult put, string what)
+        {
+            if (put.FailureCode == ArchivePutResult.CapExceededCode)
+            {
+                pass.SkipForCap();
+                RecordAction(report, category, full, "kept", reason + "; " + _ArchiveCapKeptReason);
+                return false;
+            }
+
+            if (!put.Verified)
+            {
+                RecordAction(report, category, full, "skipped", "archive upload of " + what + " not verified (" + put.FailureCode + "); folder kept");
+                return false;
+            }
+
+            return true;
+        }
+
+        // Packs a folder's archivable files into one gzip-compressed tar under the system temp directory,
+        // uploads it as one object keyed by the folder's relative path plus ".tar.gz", and removes the
+        // temporary bundle whatever the outcome. Entry names are relative to the folder.
+        private async Task<ArchivePutResult> ArchiveFolderBundleAsync(HistoryArchivePass pass, string category, string root, string full, List<string> files, CancellationToken token)
+        {
+            string relative = Path.GetRelativePath(root, full).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + ".tar.gz";
+            string bundlePath = Path.Combine(Path.GetTempPath(), _ArchiveBundlePrefix + Guid.NewGuid().ToString("N") + ".tar.gz");
+            DateTime newest = DateTime.MinValue;
+            try
+            {
+                List<string> ordered = files.OrderBy(f => f, StringComparer.Ordinal).ToList();
+                using (FileStream output = new FileStream(bundlePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.Asynchronous))
+                {
+                    using (System.IO.Compression.GZipStream gzip = new System.IO.Compression.GZipStream(output, System.IO.Compression.CompressionLevel.Optimal))
+                    {
+                        using (System.Formats.Tar.TarWriter writer = new System.Formats.Tar.TarWriter(gzip, System.Formats.Tar.TarEntryFormat.Pax, leaveOpen: false))
+                        {
+                            foreach (string file in ordered)
+                            {
+                                token.ThrowIfCancellationRequested();
+                                DateTime written = File.GetLastWriteTimeUtc(file);
+                                if (written > newest) newest = written;
+                                string entryName = Path.GetRelativePath(full, file).Replace(Path.DirectorySeparatorChar, '/');
+                                await writer.WriteEntryAsync(file, entryName, token).ConfigureAwait(false);
+                                NoteProgress();
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                TryDeleteFile(bundlePath);
+                return ArchivePutResult.Failed(relative, "local_read_failed", "could not bundle " + full + ": " + ex.Message);
+            }
+            catch
+            {
+                TryDeleteFile(bundlePath);
+                throw;
+            }
+
+            try
+            {
+                ArchivePutResult put = await pass.ArchiveBundleAsync(category, relative, bundlePath, newest == DateTime.MinValue ? DateTime.UtcNow : newest, full, files.Count, token).ConfigureAwait(false);
+                NoteProgress();
+                return put;
+            }
+            finally
+            {
+                TryDeleteFile(bundlePath);
+            }
+        }
+
+        private void TryDeleteFile(string path)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                RecordError("temporary archive bundle could not be removed: " + path + ": " + ex.Message);
+            }
+        }
+
+        // Frees an archived folder that also holds deny-listed files: every archived file and payload
+        // folder goes, emptied folders go, and each deny-listed file stays where it is with its parents.
+        private string? FreeHistoryFolderAround(string full, List<string> archived, List<string> payloadDirectories, List<string> denied)
+        {
+            if (!IsPathAllowed(full)) return "refusing to remove a symlink or a path outside the allowed roots";
+            string? failure = OperatingSystem.IsWindows() ? null : MakeDirectoriesOwnerWritable(full);
+            foreach (string file in archived)
+            {
+                string? fileFailure = FreeHistoryFile(file);
+                if (fileFailure != null) return fileFailure;
+            }
+
+            foreach (string directory in payloadDirectories)
+            {
+                try
+                {
+                    if (Directory.Exists(directory)) Directory.Delete(directory, true);
+                }
+                catch (Exception ex)
+                {
+                    return ex.GetType().Name + ": " + ex.Message + (failure == null ? "" : "; could not make writable: " + failure);
+                }
+            }
+
+            List<string> directories;
+            try
+            {
+                directories = Directory.EnumerateDirectories(full, "*", RecursiveEnumeration()).OrderByDescending(d => d.Length).ToList();
+            }
+            catch (Exception ex)
+            {
+                return ex.GetType().Name + ": " + ex.Message;
+            }
+
+            foreach (string directory in directories)
+            {
+                try
+                {
+                    if (!IsSymlink(directory) && !Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory, false);
+                }
+                catch (Exception ex)
+                {
+                    return ex.GetType().Name + ": " + ex.Message;
+                }
+            }
+
+            return null;
         }
 
         // Frees a history file whose verified copy is in the archive. Returns null when the file is gone,

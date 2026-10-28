@@ -137,78 +137,24 @@ namespace Armada.Core.Services.Archive
         /// <returns>Verified result or a named failure.</returns>
         public async Task<ArchivePutResult> ArchiveFileAsync(string category, string root, string fullPath, CancellationToken token)
         {
-            Processed++;
-            DateTime lastWrite = File.GetLastWriteTimeUtc(fullPath);
-            string relative = Path.GetRelativePath(root, fullPath);
-            string key = ArchiveKeys.Raw(_Settings.KeyPrefix, category, lastWrite, relative);
-            ArchivePutResult result;
-            bool reused = false;
-            try
-            {
-                string sha256 = await HashFileAsync(fullPath, token).ConfigureAwait(false);
-                long bytes = new FileInfo(fullPath).Length;
-                ArchivePutResult stored = await _Sink.VerifyStoredAsync(key, bytes, sha256, token).ConfigureAwait(false);
-                if (stored.Verified)
-                {
-                    result = stored;
-                    reused = true;
-                }
-                else if (stored.FailureCode == ArchivePutResult.CapExceededCode)
-                {
-                    // The store refused the read-back for a cap; uploading would be one more capped
-                    // request, so stop here and let the pass short-circuit the rest of the run.
-                    result = stored;
-                }
-                else
-                {
-                    result = await _Sink.PutFileAsync(key, fullPath, sha256, token).ConfigureAwait(false);
-                }
-            }
-            catch (IOException ex)
-            {
-                result = ArchivePutResult.Failed(key, "local_read_failed", "could not read " + fullPath + ": " + ex.Message);
-            }
-            catch (UnauthorizedAccessException ex)
-            {
-                result = ArchivePutResult.Failed(key, "local_read_failed", "could not read " + fullPath + ": " + ex.Message);
-            }
-            catch (Exception ex) when (!(ex is OperationCanceledException))
-            {
-                result = ArchivePutResult.Failed(key, "upload_failed", ex.GetType().Name + ": " + ex.Message);
-            }
+            return await ArchiveAsAsync(category, Path.GetRelativePath(root, fullPath), fullPath, File.GetLastWriteTimeUtc(fullPath), fullPath, 0, token).ConfigureAwait(false);
+        }
 
-            if (result.FailureCode == ArchivePutResult.CapExceededCode)
-            {
-                CapReached = true;
-                CapReason ??= result.FailureMessage ?? "the object store download or transaction cap is exceeded";
-            }
-
-            if (result.Verified)
-            {
-                Uploaded++;
-                UploadedBytes += result.Bytes;
-                if (reused) Reused++;
-            }
-            else if (result.FailureCode != ArchivePutResult.CapExceededCode)
-            {
-                Failures.Add(new KeyValuePair<string, ArchivePutResult>(fullPath, result));
-            }
-
-            _Manifest.AppendLine(JsonSerializer.Serialize(new
-            {
-                path = fullPath,
-                category = category,
-                key = result.Key,
-                bytes = result.Bytes,
-                sha256 = result.Sha256,
-                lastWriteUtc = lastWrite,
-                verified = result.Verified,
-                alreadyStored = reused,
-                failureCode = result.FailureCode,
-                archivedUtc = DateTime.UtcNow
-            }));
-            _ManifestLines++;
-            return result;
+        /// <summary>
+        /// Upload one bundle that packs a history folder's files and verify it. The bundle counts as one
+        /// file against <see cref="MaxFiles"/>, and the manifest records the folder and how many files it holds.
+        /// </summary>
+        /// <param name="category">History category of the folder.</param>
+        /// <param name="relativeKeyPath">Key path of the bundle, relative to the category.</param>
+        /// <param name="bundlePath">Absolute path of the local bundle file.</param>
+        /// <param name="lastWriteUtc">Newest write among the packed files; it dates the key.</param>
+        /// <param name="folderPath">Absolute path of the folder the bundle packs, recorded in the manifest.</param>
+        /// <param name="fileCount">Number of files the bundle packs.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Verified result or a named failure.</returns>
+        public async Task<ArchivePutResult> ArchiveBundleAsync(string category, string relativeKeyPath, string bundlePath, DateTime lastWriteUtc, string folderPath, int fileCount, CancellationToken token)
+        {
+            return await ArchiveAsAsync(category, relativeKeyPath, bundlePath, lastWriteUtc, folderPath, fileCount, token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -261,6 +207,85 @@ namespace Armada.Core.Services.Archive
             {
                 return Convert.ToHexString(await SHA256.HashDataAsync(stream, token).ConfigureAwait(false)).ToLowerInvariant();
             }
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task<ArchivePutResult> ArchiveAsAsync(string category, string relative, string fullPath, DateTime lastWrite, string sourcePath, int bundledFiles, CancellationToken token)
+        {
+            Processed++;
+            string key = ArchiveKeys.Raw(_Settings.KeyPrefix, category, lastWrite, relative);
+            ArchivePutResult result;
+            bool reused = false;
+            try
+            {
+                string sha256 = await HashFileAsync(fullPath, token).ConfigureAwait(false);
+                long bytes = new FileInfo(fullPath).Length;
+                ArchivePutResult stored = await _Sink.VerifyStoredAsync(key, bytes, sha256, token).ConfigureAwait(false);
+                if (stored.Verified)
+                {
+                    result = stored;
+                    reused = true;
+                }
+                else if (stored.FailureCode == ArchivePutResult.CapExceededCode)
+                {
+                    // The store refused the read-back for a cap; uploading would be one more capped
+                    // request, so stop here and let the pass short-circuit the rest of the run.
+                    result = stored;
+                }
+                else
+                {
+                    result = await _Sink.PutFileAsync(key, fullPath, sha256, token).ConfigureAwait(false);
+                }
+            }
+            catch (IOException ex)
+            {
+                result = ArchivePutResult.Failed(key, "local_read_failed", "could not read " + fullPath + ": " + ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                result = ArchivePutResult.Failed(key, "local_read_failed", "could not read " + fullPath + ": " + ex.Message);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                result = ArchivePutResult.Failed(key, "upload_failed", ex.GetType().Name + ": " + ex.Message);
+            }
+
+            if (result.FailureCode == ArchivePutResult.CapExceededCode)
+            {
+                CapReached = true;
+                CapReason ??= result.FailureMessage ?? "the object store download or transaction cap is exceeded";
+            }
+
+            if (result.Verified)
+            {
+                Uploaded++;
+                UploadedBytes += result.Bytes;
+                if (reused) Reused++;
+            }
+            else if (result.FailureCode != ArchivePutResult.CapExceededCode)
+            {
+                Failures.Add(new KeyValuePair<string, ArchivePutResult>(sourcePath, result));
+            }
+
+            _Manifest.AppendLine(JsonSerializer.Serialize(new
+            {
+                path = sourcePath,
+                bundledFiles = bundledFiles,
+                category = category,
+                key = result.Key,
+                bytes = result.Bytes,
+                sha256 = result.Sha256,
+                lastWriteUtc = lastWrite,
+                verified = result.Verified,
+                alreadyStored = reused,
+                failureCode = result.FailureCode,
+                archivedUtc = DateTime.UtcNow
+            }));
+            _ManifestLines++;
+            return result;
         }
 
         #endregion

@@ -816,6 +816,123 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("An expired folder of at least the bundle size is archived as one verified tar.gz object that holds every archivable file", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string expired = CreateEvidenceFolder(Path.Combine(layout.Settings.LogDirectory, "operator-evidence"), "proof-big", DateTime.UtcNow.AddDays(-20));
+                    File.WriteAllText(Path.Combine(expired, "checkout", "src", "Extra.cs"), "class Extra { }");
+                    File.SetLastWriteTimeUtc(Path.Combine(expired, "checkout", "src", "Extra.cs"), DateTime.UtcNow.AddDays(-20));
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
+                    layout.Settings.DiskLifecycle.ArchiveBundleMinFiles = 3;
+                    layout.Settings.DiskLifecycle.ArchiveMaxFilesPerPass = 1;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertFalse(Directory.Exists(expired), "The bundled folder is freed");
+                    List<string> keys = sink.Objects.Keys.Where(k => k.StartsWith("armada/raw/operatorEvidence/", StringComparison.Ordinal)).ToList();
+                    AssertEqual(1, keys.Count, "The folder is one object: " + String.Join(", ", keys));
+                    AssertTrue(keys[0].EndsWith("/proof-big.tar.gz", StringComparison.Ordinal), "The object is keyed by the folder: " + keys[0]);
+                    List<string> entries = ReadBundleEntries(sink.Objects[keys[0]]);
+                    AssertEqual("checkout/src/Extra.cs|checkout/src/Program.cs|receipt.json", String.Join("|", entries.OrderBy(e => e, StringComparer.Ordinal)),
+                        "The bundle holds every archivable file by its path in the folder, and no clone or build output");
+                    AssertEqual(1, live.ArchivedItems, "The bundle counts as one archived object");
+                    AssertFalse(live.ArchiveCapped, "A bundle counts as one file against the pass bound");
+                    AssertFalse(Directory.EnumerateFiles(Path.GetTempPath(), "armada-archive-bundle-*").Any(f => File.GetCreationTimeUtc(f) >= live.ScannedUtc.AddSeconds(-1)),
+                        "The temporary bundle is removed");
+                    string manifest = System.Text.Encoding.UTF8.GetString(sink.Objects[live.ArchiveManifestKey!]);
+                    AssertContains("\"bundledFiles\":3", manifest, "The manifest records how many files the bundle holds");
+                    AssertContains(expired.Replace("\\", "\\\\"), manifest, "The manifest records the folder the bundle packs");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A deny-listed file keeps only itself: the rest of its folder is archived and freed, and the next pass keeps the file without an upload", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    string expired = CreateEvidenceFolder(Path.Combine(layout.Settings.LogDirectory, "operator-evidence"), "proof-denied", DateTime.UtcNow.AddDays(-20));
+                    string denied = Path.Combine(expired, "checkout", ".vscode", "settings.json");
+                    Directory.CreateDirectory(Path.GetDirectoryName(denied)!);
+                    File.WriteAllText(denied, "{ \"editor.tabSize\": 4 }");
+                    File.SetLastWriteTimeUtc(denied, DateTime.UtcNow.AddDays(-20));
+                    Directory.SetLastWriteTimeUtc(Path.GetDirectoryName(denied)!, DateTime.UtcNow.AddDays(-20));
+                    Directory.SetLastWriteTimeUtc(Path.Combine(expired, "checkout"), DateTime.UtcNow.AddDays(-20));
+                    Directory.SetLastWriteTimeUtc(expired, DateTime.UtcNow.AddDays(-20));
+                    FakeArchiveSink sink = new FakeArchiveSink();
+                    DiskLifecycleService service = CreateArchivingService(testDb, layout, sink);
+                    layout.Settings.DiskLifecycle.OperatorEvidenceRetentionDays = 14;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport first = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertTrue(File.Exists(denied), "The deny-listed file stays where it was");
+                    AssertFalse(File.Exists(Path.Combine(expired, "receipt.json")), "An archived file beside it is freed");
+                    AssertFalse(Directory.Exists(Path.Combine(expired, "checkout", "src")), "An emptied folder is removed");
+                    AssertFalse(Directory.Exists(Path.Combine(expired, "checkout", ".git")), "The clone is removed");
+                    AssertFalse(sink.Objects.Keys.Any(k => k.Contains("settings.json", StringComparison.Ordinal)), "The deny-listed file is not uploaded: " + String.Join(", ", sink.Objects.Keys));
+                    AssertTrue(sink.Objects.Keys.Any(k => k.EndsWith("/proof-denied/receipt.json", StringComparison.Ordinal)), "The rest of the folder is archived");
+                    AssertTrue(first.Actions.Any(a => a.Path == expired && a.Disposition == "reclaimed" && a.Reason.Contains("stay in place", StringComparison.Ordinal)),
+                        "The action says the deny-listed file stays");
+
+                    int puts = sink.Puts.Count;
+                    foreach (string directory in new[] { Path.GetDirectoryName(denied)!, Path.Combine(expired, "checkout"), expired })
+                        Directory.SetLastWriteTimeUtc(directory, DateTime.UtcNow.AddDays(-20));
+                    DiskLifecycleReport second = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertTrue(File.Exists(denied), "The next pass keeps the deny-listed file");
+                    AssertEqual(puts, sink.Puts.Count, "The next pass uploads nothing");
+                    AssertTrue(second.Actions.Any(a => a.Path == expired && a.Disposition == "kept" && a.Reason.Contains("only deny-listed files", StringComparison.Ordinal)),
+                        "The next pass reports the folder kept for its deny-listed file");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A pass reports it is advancing while it runs and not before or after", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+
+                try
+                {
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+                    bool duringPass = false;
+                    service.OnPassStarted = token =>
+                    {
+                        duringPass = service.IsPassAdvancing(TimeSpan.FromMinutes(10));
+                        return Task.CompletedTask;
+                    };
+
+                    AssertFalse(service.IsPassAdvancing(TimeSpan.FromMinutes(10)), "No pass is running before the first pass");
+                    await service.ScanAsync().ConfigureAwait(false);
+
+                    AssertTrue(duringPass, "A running pass that just started is advancing");
+                    AssertFalse(service.IsPassAdvancing(TimeSpan.FromMinutes(10)), "A finished pass is not advancing");
+                }
+                finally
+                {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Expired brief-file folders beside instruction snapshots are archived and freed, recent ones are kept", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1085,6 +1202,46 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally
                 {
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An idle evidence payload holding a read-only folder is removed", async () =>
+            {
+                // The owner bits mean nothing to a privileged process, so the scenario cannot arise there.
+                if (OperatingSystem.IsWindows() || Environment.IsPrivilegedProcess) return;
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Layout layout = CreateLayout();
+                UnixFileMode readOnlyDirectory = UnixFileMode.UserRead | UnixFileMode.UserExecute;
+
+                try
+                {
+                    string idle = CreateEvidenceFolder(Path.Combine(layout.Settings.LogDirectory, "operator-evidence"), "proof-ro-payload", DateTime.UtcNow.AddDays(-2));
+                    string locked = Path.Combine(idle, "checkout", "bin", "runtimes");
+                    Directory.CreateDirectory(locked);
+                    File.WriteAllText(Path.Combine(locked, "native.so"), "n");
+                    File.SetLastWriteTimeUtc(Path.Combine(locked, "native.so"), DateTime.UtcNow.AddDays(-2));
+                    Directory.SetLastWriteTimeUtc(locked, DateTime.UtcNow.AddDays(-2));
+                    Directory.SetLastWriteTimeUtc(Path.Combine(idle, "checkout", "bin"), DateTime.UtcNow.AddDays(-2));
+                    File.SetUnixFileMode(locked, readOnlyDirectory);
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, CreateLogging());
+                    service.FreeBytesProbe = _ => 500L * 1024 * 1024 * 1024;
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+
+                    DiskLifecycleReport live = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertFalse(Directory.Exists(Path.Combine(idle, "checkout", "bin")), "The build output is removed although it holds a read-only folder");
+                    AssertTrue(File.Exists(Path.Combine(idle, "receipt.json")), "The receipt stays");
+                    AssertFalse(live.Actions.Any(a => a.Disposition == "skipped" && a.Reason.Contains("removal failed", StringComparison.Ordinal)), "No removal is reported failed");
+                }
+                finally
+                {
+                    if (Directory.Exists(layout.Settings.DataDirectory))
+                    {
+                        foreach (string directory in Directory.EnumerateDirectories(layout.Settings.DataDirectory, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint }))
+                            File.SetUnixFileMode(directory, File.GetUnixFileMode(directory) | UnixFileMode.UserWrite | UnixFileMode.UserRead | UnixFileMode.UserExecute);
+                    }
                     Cleanup(layout);
                 }
             }).ConfigureAwait(false);
@@ -1628,6 +1785,26 @@ namespace Armada.Test.Unit.Suites.Services
                 Directory.SetLastWriteTimeUtc(directory, writtenUtc);
             Directory.SetLastWriteTimeUtc(folder, writtenUtc);
             return folder;
+        }
+
+        private static List<string> ReadBundleEntries(byte[] bundle)
+        {
+            List<string> entries = new List<string>();
+            using (MemoryStream compressed = new MemoryStream(bundle))
+            {
+                using (System.IO.Compression.GZipStream gzip = new System.IO.Compression.GZipStream(compressed, System.IO.Compression.CompressionMode.Decompress))
+                {
+                    using (System.Formats.Tar.TarReader reader = new System.Formats.Tar.TarReader(gzip))
+                    {
+                        System.Formats.Tar.TarEntry? entry;
+                        while ((entry = reader.GetNextEntry()) != null)
+                        {
+                            if (entry.EntryType == System.Formats.Tar.TarEntryType.RegularFile) entries.Add(entry.Name);
+                        }
+                    }
+                }
+            }
+            return entries;
         }
 
         private static DiskLifecycleService CreateArchivingService(TestDatabase testDb, Layout layout, FakeArchiveSink sink)

@@ -869,7 +869,9 @@ archive. While no archive is configured it is kept, unless
 `ArchiveFreeFailures`, `ArchiveCapped`, `ArchiveDeferredItems` and
 `ArchiveManifestKey`; a pass archives at most
 `diskLifecycle.archiveMaxFilesPerPass` files (default 1000) and defers the
-rest of the expired history to the next pass; a pass whose uploads fail
+rest of the expired history to the next pass, and archives an expired folder of
+at least `diskLifecycle.archiveBundleMinFiles` files (default 50) as one
+`.tar.gz` object that counts as one file; a pass whose uploads fail
 verification keeps each failed item, records a `disk_lifecycle.archive_failed`
 event and posts a board note, and an archived item that cannot be removed is
 named in `Errors`, recorded as a `disk_lifecycle.archive_free_failed` event and

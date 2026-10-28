@@ -170,6 +170,19 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Smallest number of files at which an expired history folder is archived as one compressed
+        /// bundle instead of one object per file. Each object costs an existence check, an upload and a
+        /// read-back, so a folder of thousands of small files archives far faster as one bundle. A
+        /// bundle counts as one file against <see cref="ArchiveMaxFilesPerPass"/>. Clamped to
+        /// 2-1000000. Defaults to 50.
+        /// </summary>
+        public int ArchiveBundleMinFiles
+        {
+            get => _ArchiveBundleMinFiles;
+            set => _ArchiveBundleMinFiles = Math.Max(2, Math.Min(1000000, value));
+        }
+
+        /// <summary>
         /// Free space, in GB, on the log volume below which a pass runs in low-space mode and uses
         /// <see cref="LowSpacePayloadRetentionHours"/> for operator-evidence payload. Zero turns
         /// low-space mode off. Defaults to 20.
@@ -227,6 +240,7 @@ namespace Armada.Core.Settings
         private int _OperatorEvidencePayloadRetentionHours = 24;
         private int _OperatorEvidenceRetentionDays = 0;
         private int _ArchiveMaxFilesPerPass = 1000;
+        private int _ArchiveBundleMinFiles = 50;
         private int _LowSpaceThresholdGb = 20;
         private int _LowSpacePayloadRetentionHours = 6;
         private List<DiskLifecycleRetentionRoot> _ExtraRetentionRoots = new List<DiskLifecycleRetentionRoot>();

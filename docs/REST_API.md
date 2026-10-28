@@ -4276,7 +4276,8 @@ finished reads `Lost` after the next start, with `job_lost_on_restart` in its
 operation; a job that stays `Accepted` or `Running` for 30 minutes with no sign
 its work is still advancing is reaped as `Failed`. A landing-retry job whose
 integration candidate is still running a check is kept until the check finishes,
-so a healthy landing is not failed on the flat limit.
+so a healthy landing is not failed on the flat limit. A disk-lifecycle job is
+kept while its pass has advanced in the last ten minutes.
 
 #### GET /api/v1/jobs
 

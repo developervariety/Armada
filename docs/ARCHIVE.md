@@ -36,8 +36,9 @@ Every key starts with `archive.keyPrefix`.
 | Key | Holds |
 | --- | --- |
 | `raw/<category>/<yyyy>/<MM>/<relative path>` | One archived file, dated by its last write. |
+| `raw/<category>/<yyyy>/<MM>/<relative folder>.tar.gz` | One expired history folder of at least `diskLifecycle.archiveBundleMinFiles` files, packed as a gzip-compressed tar whose entry names are relative to the folder; dated by the newest write among its files. |
 | `raw/db/<table>/<yyyy-MM-ddTHHmmssZ>-<run>-<NN>.jsonl.gz` | The rows one delete statement of one expiry run removed, one JSON object per line; `<NN>` numbers the statements of the run. |
-| `raw/manifests/<yyyy>/<MM>/<yyyy-MM-ddTHHmmssZ>-<run>.jsonl` | One run's manifest: path, size, SHA-256, key and time of each archived file. |
+| `raw/manifests/<yyyy>/<MM>/<yyyy-MM-ddTHHmmssZ>-<run>.jsonl` | One run's manifest: path, size, SHA-256, key and time of each archived file or bundle; a bundle's line names its folder and carries `bundledFiles`. |
 | `trace/<yyyy>/<MM>/<id>.json` | One trace record. |
 
 ## Contracts
@@ -124,7 +125,11 @@ from the archive with `IArchiveSink.GetBytesAsync`.
 ## Deny list
 
 A file whose name matches the deny list is never uploaded and never freed by a
-history pass; the report records it `kept`. The built-in list is `auth.json`,
+history pass; the report records it `kept`. Inside an expired history folder a
+deny-listed file keeps only itself: the folder's other files are archived and
+freed, emptied folders are removed, and the deny-listed file stays in place. A
+folder that holds nothing but deny-listed files is reported `kept` and is not
+uploaded. The built-in list is `auth.json`,
 `*credential*`, `*secret*`, `settings.json`, `settings.json.*`,
 `settings.*.json`, `settings-*.json`, `.env`, `.env.*`, `*.env`,
 `git-credentials`, `.git-credentials`, `mcp-auth-header`, `*.pem`, `*.key`,
@@ -174,7 +179,14 @@ A pass runs inside the admiral's health loop, so it archives at most
 `diskLifecycle.archiveMaxFilesPerPass` files (default 1000). Once it reaches
 that bound it starts no further history item: each one is counted reclaimable,
 recorded with the disposition `deferred`, and left for the next pass. A folder
-already started is finished. Operator evidence is archived before the other
+already started is finished. An expired history folder that holds at least
+`diskLifecycle.archiveBundleMinFiles` archivable files (default 50) is packed
+into one gzip-compressed tar in the system temp directory and archived as one
+object, which counts as one file against the bound; each object costs an
+existence check, an upload and a read-back, so a folder of thousands of small
+files archives in one round trip. The temporary bundle is removed whether or not
+the upload verifies, and a bundle left by a crash expires with the other Armada
+temp artifacts. Operator evidence is archived before the other
 history categories, so a backlog of small files cannot hold its few large
 folders back. The report sets `ArchiveCapped` and counts the
 deferred items in `ArchiveDeferredItems`, and the pass's report event says how

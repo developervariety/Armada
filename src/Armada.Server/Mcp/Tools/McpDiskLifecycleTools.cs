@@ -12,6 +12,9 @@ namespace Armada.Server.Mcp.Tools
     /// </summary>
     public static class McpDiskLifecycleTools
     {
+        /// <summary>Prefix of every disk-lifecycle job operation; the action name follows it.</summary>
+        public const string JobOperationPrefix = "disk_lifecycle_";
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -87,7 +90,7 @@ namespace Armada.Server.Mcp.Tools
                     if (jobs != null)
                     {
                         return (object)jobs.Start(
-                            "disk_lifecycle_" + action,
+                            JobOperationPrefix + action,
                             async (token) =>
                             {
                                 Armada.Core.Models.DiskLifecycleReport report = await operation(token).ConfigureAwait(false);

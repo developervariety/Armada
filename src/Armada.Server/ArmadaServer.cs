@@ -137,6 +137,7 @@ namespace Armada.Server
         private TraceRecorder _TraceRecorder = null!;
         private const int _TraceSweepEventsPerCycle = 5000;
         private DiskLifecycleService _DiskLifecycle = null!;
+        private static readonly TimeSpan _DiskLifecycleProgressWindow = TimeSpan.FromMinutes(10);
         private ArchiveExpiryService _ArchiveExpiry = null!;
         private ArmadaTelemetryHost? _TelemetryHost = null;
         private BranchCleanupSweepService _BranchCleanupSweep = null!;
@@ -2214,9 +2215,14 @@ namespace Armada.Server
         /// one host lock, which together can outlast the flat limit; while such a check is still Pending
         /// or Running the landing is advancing, so the job is kept. A landing with no such live check is
         /// treated as stuck and left to the reaper, so a dead or hung landing still reaches terminal.
+        /// A disk-lifecycle job is kept while a pass is running and has handled an item, written a bundle
+        /// entry or finished an upload within the last ten minutes, so a long archive pass is not
+        /// cancelled mid-upload; a pass that stops advancing is reaped.
         /// </summary>
         private async Task<bool> IsBackgroundJobMakingProgressAsync(LongRunningJob job, CancellationToken token)
         {
+            if (job.Operation.StartsWith(McpDiskLifecycleTools.JobOperationPrefix, StringComparison.Ordinal))
+                return _DiskLifecycle != null && _DiskLifecycle.IsPassAdvancing(_DiskLifecycleProgressWindow);
             if (!String.Equals(job.Operation, McpMissionTools.RetryLandingJobOperation, StringComparison.Ordinal)) return false;
             if (String.IsNullOrWhiteSpace(job.VesselId)) return false;
 
