@@ -414,11 +414,11 @@ export default function WorkflowProfiles() {
             <label title={t(PACKAGECOMMAND_TIP)}>{t('Package Command')}
               <textarea rows={2} title={t(PACKAGECOMMAND_TIP)} value={createForm.packageCommand} onChange={(event) => setCreateForm((current) => ({ ...current, packageCommand: event.target.value }))} />
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }} title={t(DEFAULT_TIP)}>
+            <label className="checkbox-row" title={t(DEFAULT_TIP)}>
               <input type="checkbox" title={t(DEFAULT_TIP)} checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
               <span>{t('Default for this scope')}</span>
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }} title={t(ACTIVE_TIP)}>
+            <label className="checkbox-row" title={t(ACTIVE_TIP)}>
               <input type="checkbox" title={t(ACTIVE_TIP)} checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
               <span>{t('Active')}</span>
             </label>
