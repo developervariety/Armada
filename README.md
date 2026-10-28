@@ -136,6 +136,12 @@ The fork names its override `AllowDefaultCredentialsOnNetwork`, reports the
 default-password state on `whoami` and `authenticate` without blocking the
 session, and keeps its strict MCP authentication and caller scopes.
 
+Both versions seed a new tenant's admin with an explicit or one-time generated
+password and require the current password for a self-service password change.
+The fork applies that rule to `PUT /api/v1/users/{id}` and
+`PUT /api/v1/account/password`. An administrative reset of another user, and a
+request that uses the configured `ApiKey`, do not need it.
+
 Both versions protect cancelled missions from stale full-row writes. The fork
 keeps explicit status-conditioned transitions and restart to `Pending`, and stops
 completion and handoff paths when they observe cancellation.

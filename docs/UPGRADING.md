@@ -101,6 +101,20 @@ listener binds.
   (an administrator resets them through the user update route) before the
   non-loopback start.
 
+- **Tenant creation.** `POST /api/v1/tenants` no longer seeds the tenant admin
+  with the default password. A client that creates a tenant and then signs in as
+  `admin@armada` with `password` must send `AdminPassword` in the request, or read
+  the generated `AdminPassword` from the response (returned once). Tenant admins
+  created earlier keep their passwords.
+- **Self-service password change.** `PUT /api/v1/users/{id}` for the caller's own
+  record requires `CurrentPassword` when the request changes the password.
+  Administrative resets of another user and requests that use the configured
+  `ApiKey` are unchanged. The Dashboard Users modal does not send
+  `CurrentPassword` yet, so its self password change returns an error; use
+  `PUT /api/v1/account/password` or reset the password as another administrator.
+  The Dashboard tenant form does not show the generated admin password either:
+  pass `AdminPassword` through the API, or reset the tenant admin password.
+
 Run the upgrade rehearsal on the restored copy with the production
 `rest.hostname` so this check runs before the cutover.
 

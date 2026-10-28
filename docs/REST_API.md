@@ -657,17 +657,33 @@ List all tenants (paginated). Global admin only.
 
 #### POST /api/v1/tenants
 
-Create a new tenant. Global admin only.
+Create a new tenant and seed its tenant admin `admin@armada`. Global admin only.
 
-**Request Body:** [TenantMetadata](#tenantmetadata)
+The seeded admin never receives a well-known password. Pass `AdminPassword` to set it (at least 8 characters, not the default password). Without it the server generates a random password and returns it once as `AdminPassword` in the creation response; later reads never return it. A generated or supplied password is never logged.
+
+**Request Body:** [TenantMetadata](#tenantmetadata) plus optional `AdminPassword`
 
 ```json
 {
-  "Name": "Acme Corp"
+  "Name": "Acme Corp",
+  "AdminPassword": "choose-a-password"
 }
 ```
 
-**Response:** `201 Created` - [TenantMetadata](#tenantmetadata)
+**Response:** `201 Created` - [TenantCreateResult](#tenantcreateresult)
+
+```json
+{
+  "Id": "ten_abc123",
+  "Name": "Acme Corp",
+  "Active": true,
+  "AdminEmail": "admin@armada",
+  "AdminPassword": "generated-once-only"
+}
+```
+
+**Errors:**
+- `400 Bad Request` - `AdminPassword` shorter than 8 characters or equal to the default password; no tenant is created
 
 ---
 
@@ -759,12 +775,15 @@ Update a user. Global admins can update any user. Tenant admins can update users
 `Id`, `TenantId`, `CreatedUtc`, `LastUpdateUtc`, and `IsProtected` are server-controlled and cannot be modified by API clients.
 If `Password` is supplied, the server hashes and stores the new password. If `Password` is omitted or empty, the current password is preserved.
 
+A user who changes their own password supplies `CurrentPassword`: without it the request returns `400 Bad Request`, and with a wrong value `403 Forbidden`; nothing changes in either case. This applies to every caller who is the target user, global administrators included (`PUT /api/v1/account/password` is the dedicated route). An administrator resetting another user's password, and the deployment's configured `ApiKey`, do not supply it.
+
 **Request Body:** user upsert payload
 
 ```json
 {
   "Email": "updated@example.com",
   "Password": "newpassword",
+  "CurrentPassword": "oldpassword",
   "FirstName": "Jane",
   "LastName": "Smith",
   "IsAdmin": false,
@@ -4395,6 +4414,17 @@ A tenant in the multi-tenant system.
 | `IsProtected` | bool | false | Protected tenants cannot be deleted directly |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
 | `LastUpdateUtc` | datetime | now | Last update timestamp (UTC) |
+
+---
+
+#### TenantCreateResult
+
+Response of `POST /api/v1/tenants`: a [TenantMetadata](#tenantmetadata) plus the seeded tenant admin's sign-in.
+
+| Field | Type | Description |
+|---|---|---|
+| `AdminEmail` | string | Email of the seeded tenant admin (`admin@armada`) |
+| `AdminPassword` | string or null | The generated initial password, shown only in this response. `null` when the request supplied `AdminPassword` |
 
 ---
 

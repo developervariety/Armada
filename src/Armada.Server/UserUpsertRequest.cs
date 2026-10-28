@@ -21,6 +21,12 @@ namespace Armada.Server
         public string? Password { get; set; }
 
         /// <summary>
+        /// The caller's current password. Required when a user changes their own password; an administrator
+        /// resetting another user's password does not supply it.
+        /// </summary>
+        public string? CurrentPassword { get; set; }
+
+        /// <summary>
         /// Optional pre-hashed password for backward compatibility.
         /// </summary>
         public string? PasswordSha256 { get; set; }

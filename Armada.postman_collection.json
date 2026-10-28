@@ -1004,7 +1004,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"Name\": \"Acme Corp\"\n}"
+							"raw": "{\n  \"Name\": \"Acme Corp\",\n  \"AdminPassword\": \"choose-a-password\"\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/tenants",
@@ -1017,7 +1017,7 @@
 								"tenants"
 							]
 						},
-						"description": "Create a new tenant. Global admin only. The server seeds a protected admin@armada user and default credential for the new tenant. The seeded user is tenant admin only."
+						"description": "Create a new tenant. Global admin only. The server seeds a protected admin@armada user and credential for the new tenant. The seeded user is tenant admin only. AdminPassword sets that user's password (at least 8 characters, not the default password); when omitted the server generates one and returns it once as AdminPassword in the response."
 					}
 				},
 				{

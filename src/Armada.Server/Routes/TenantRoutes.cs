@@ -88,13 +88,45 @@ namespace Armada.Server.Routes
                     return (object)new { Error = "Invalid request body" };
                 }
                 if (tenant == null) { req.Http.Response.StatusCode = 400; return (object)new { Error = "Invalid request body" }; }
+
+                // The seeded tenant admin never gets a well-known password: the creator supplies one, or the
+                // server generates a random one and returns it once in this response.
+                string? suppliedPassword = null;
+                try
+                {
+                    suppliedPassword = JsonSerializer.Deserialize<TenantCreateRequest>(body, _jsonOptions)?.AdminPassword;
+                }
+                catch (JsonException)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return (object)new { Error = "Invalid request body" };
+                }
+                if (!String.IsNullOrEmpty(suppliedPassword)
+                    && (suppliedPassword.Length < PasswordChangeRequest.MinimumLength
+                        || String.Equals(suppliedPassword, ArmadaConstants.DefaultUserPassword, StringComparison.Ordinal)))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return (object)new { Error = "AdminPassword must be at least " + PasswordChangeRequest.MinimumLength + " characters and must not be the default password" };
+                }
+                bool generated = String.IsNullOrEmpty(suppliedPassword);
+                string adminPassword = generated ? GenerateTenantAdminPassword() : suppliedPassword!;
+
                 tenant.IsProtected = false;
                 tenant = await _database.Tenants.CreateAsync(tenant).ConfigureAwait(false);
-                await SeedDefaultTenantAdminAsync(tenant).ConfigureAwait(false);
+                bool seeded = await SeedDefaultTenantAdminAsync(tenant, adminPassword).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
-                return (object)tenant;
+                TenantCreateResult result = TenantCreateResult.From(tenant);
+                if (seeded)
+                {
+                    result.AdminEmail = ArmadaConstants.DefaultUserEmail;
+                    result.AdminPassword = generated ? adminPassword : null;
+                }
+                return (object)result;
             },
-            api => api.WithTag("Tenants").WithSummary("Create tenant (admin only)"));
+            api => api
+                .WithTag("Tenants")
+                .WithSummary("Create tenant (admin only)")
+                .WithDescription("Creates a tenant and seeds its tenant admin admin@armada. Pass AdminPassword to set that account's password; otherwise a random password is generated and returned once as AdminPassword in the response."));
 
             app.Get("/api/v1/tenants/{id}", async (ApiRequest req) =>
             {
@@ -296,6 +328,26 @@ namespace Armada.Server.Routes
                 user.TenantId = existing.TenantId;
                 user.CreatedUtc = existing.CreatedUtc;
                 user.IsProtected = existing.IsProtected;
+
+                // A user changing their own password proves the current one, so a stolen session or bearer token
+                // cannot take over the account. An administrator resetting another user's password, and the
+                // deployment's API key, do not.
+                bool changesOwnPassword = String.Equals(existing.Id, ctx.UserId, StringComparison.Ordinal)
+                    && !String.Equals(ctx.AuthMethod, "ApiKey", StringComparison.Ordinal)
+                    && !String.Equals(user.PasswordSha256, existing.PasswordSha256, StringComparison.Ordinal);
+                if (changesOwnPassword)
+                {
+                    if (String.IsNullOrEmpty(userRequest.CurrentPassword))
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return (object)new { Error = "CurrentPassword is required to change your own password" };
+                    }
+                    if (!existing.VerifyPassword(userRequest.CurrentPassword))
+                    {
+                        req.Http.Response.StatusCode = 403;
+                        return (object)new { Error = "CurrentPassword is incorrect" };
+                    }
+                }
                 if (!ctx.IsAdmin)
                 {
                     user.IsAdmin = existing.IsAdmin;
@@ -461,12 +513,18 @@ namespace Armada.Server.Routes
             return UserManagementRule.CanManage(ctx, owner);
         }
 
-        private async Task SeedDefaultTenantAdminAsync(TenantMetadata tenant)
+        private static string GenerateTenantAdminPassword()
+        {
+            byte[] bytes = System.Security.Cryptography.RandomNumberGenerator.GetBytes(18);
+            return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        }
+
+        private async Task<bool> SeedDefaultTenantAdminAsync(TenantMetadata tenant, string password)
         {
             UserMaster? existing = await _database.Users.ReadByEmailAsync(tenant.Id, ArmadaConstants.DefaultUserEmail).ConfigureAwait(false);
-            if (existing != null) return;
+            if (existing != null) return false;
 
-            UserMaster user = new UserMaster(tenant.Id, ArmadaConstants.DefaultUserEmail, ArmadaConstants.DefaultUserPassword)
+            UserMaster user = new UserMaster(tenant.Id, ArmadaConstants.DefaultUserEmail, password)
             {
                 IsAdmin = false,
                 IsTenantAdmin = true,
@@ -482,6 +540,7 @@ namespace Armada.Server.Routes
             };
 
             await _database.Credentials.CreateAsync(credential).ConfigureAwait(false);
+            return true;
         }
 
         private static string? ResolvePasswordHash(UserUpsertRequest request, string? existingHash, bool requirePassword)

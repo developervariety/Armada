@@ -25,6 +25,11 @@ upstream integrations and excludes changes already present at that baseline.
 - Request history redacts `CurrentPassword`, `NewPassword` and `AdminPassword` fields, so password changes and generated tenant admin passwords are never stored.
 - The Docker stack passes `ARMADA_INITIAL_ADMIN_PASSWORD` to the server. The [upgrade guide](docs/UPGRADING.md#seeded-default-credentials) describes the effect on running installs.
 
+### Tenant initial passwords and self-service changes
+
+- `POST /api/v1/tenants` seeds the tenant admin `admin@armada` with the `AdminPassword` from the request, or with a random password returned once in the response. A new tenant admin never has the default password.
+- A user who changes their own password through `PUT /api/v1/users/{id}` supplies `CurrentPassword`; a missing value returns `400` and a wrong value `403`. An administrator's reset of another user, and requests that use the configured `ApiKey`, are unchanged.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the

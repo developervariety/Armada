@@ -81,7 +81,7 @@ namespace Armada.Test.Unit
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     DefaultCredentialService defaults = new DefaultCredentialService(testDb.Driver, CreateQuietLogging());
-                    foreach (string host in new[] { "0.0.0.0", "*", "10.1.2.3", "armada.example.test", "" })
+                    foreach (string host in new[] { "0.0.0.0", "*", "192.0.2.10", "armada.example.test", "" })
                     {
                         await AssertThrowsAsync<DefaultCredentialPolicyException>(
                             () => defaults.EnforceStartupPolicyAsync(host, false, null),
@@ -188,12 +188,7 @@ namespace Armada.Test.Unit
                 using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
                 {
                     JsonSerializerOptions json = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                    SurfaceReply login = await harness.RestAsync(HttpMethod.Post, "/api/v1/authenticate", new AuthenticateRequest
-                    {
-                        TenantId = Constants.DefaultTenantId,
-                        Email = Constants.DefaultUserEmail,
-                        Password = Constants.DefaultUserPassword
-                    }).ConfigureAwait(false);
+                    SurfaceReply login = await LoginAsync(harness, Constants.DefaultTenantId, Constants.DefaultUserEmail, Constants.DefaultUserPassword).ConfigureAwait(false);
                     AuthenticateResult session = JsonSerializer.Deserialize<AuthenticateResult>(login.Body, json)!;
                     AssertTrue(session.Success);
                     AssertTrue(session.PasswordChangeRequired, "login reports the default password until it changes");
@@ -223,6 +218,112 @@ namespace Armada.Test.Unit
                     AssertFalse(seeded.Active, "the password change deactivates the seeded bearer credential");
 
                     AssertEqual(401, await WhoAmIStatusWithBearerAsync(harness, Constants.DefaultBearerToken).ConfigureAwait(false), "the seeded bearer no longer authenticates over HTTP");
+                }
+            });
+
+            // ================================================================
+            // Tenant initial passwords and self-service password changes
+            // ================================================================
+
+            await RunTest("Tenant creation seeds the admin with a one-time generated password, never the default", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    JsonSerializerOptions json = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    List<TenantCreateResult> created = new List<TenantCreateResult>();
+                    foreach (string name in new[] { "Generated One", "Generated Two" })
+                    {
+                        SurfaceReply reply = await harness.RestAsync(HttpMethod.Post, "/api/v1/tenants", new { Name = name }).ConfigureAwait(false);
+                        AssertEqual(201, reply.Status, "tenant create succeeds");
+                        TenantCreateResult result = JsonSerializer.Deserialize<TenantCreateResult>(reply.Body, json)!;
+                        AssertEqual(401, (await LoginAsync(harness, result.Id, Constants.DefaultUserEmail, Constants.DefaultUserPassword).ConfigureAwait(false)).Status,
+                            "the known default password does not sign in to a new tenant");
+                        AssertEqual(Constants.DefaultUserEmail, result.AdminEmail, "response names the seeded admin");
+                        AssertFalse(String.IsNullOrEmpty(result.AdminPassword), "response carries the generated password once");
+                        AssertTrue(result.AdminPassword!.Length >= PasswordChangeRequest.MinimumLength, "generated password meets the minimum length");
+                        AssertNotEqual(Constants.DefaultUserPassword, result.AdminPassword, "generated password is not the default");
+                        created.Add(result);
+
+                        AssertEqual(200, (await LoginAsync(harness, result.Id, Constants.DefaultUserEmail, result.AdminPassword).ConfigureAwait(false)).Status,
+                            "the generated password signs in");
+
+                        SurfaceReply read = await harness.RestAsync(HttpMethod.Get, "/api/v1/tenants/" + result.Id).ConfigureAwait(false);
+                        AssertFalse(read.Body.Contains(result.AdminPassword, StringComparison.Ordinal), "later reads never return the generated password");
+                        UserMaster seeded = (await harness.Driver.Users.ReadByEmailAsync(result.Id, Constants.DefaultUserEmail).ConfigureAwait(false))!;
+                        AssertFalse(seeded.UsesDefaultPassword(), "the seeded admin does not use the default password");
+                    }
+                    AssertNotEqual(created[0].AdminPassword, created[1].AdminPassword, "each tenant gets its own password");
+                }
+            });
+
+            await RunTest("Tenant creation uses a supplied admin password and rejects a short or default one", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    JsonSerializerOptions json = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    SurfaceReply reply = await harness.RestAsync(HttpMethod.Post, "/api/v1/tenants", new { Name = "Chosen", AdminPassword = "chosen-pass-1" }).ConfigureAwait(false);
+                    AssertEqual(201, reply.Status);
+                    TenantCreateResult result = JsonSerializer.Deserialize<TenantCreateResult>(reply.Body, json)!;
+                    AssertNull(result.AdminPassword, "a supplied password is not echoed back");
+                    AssertFalse(reply.Body.Contains("chosen-pass-1", StringComparison.Ordinal), "the response never contains the supplied password");
+                    AssertEqual(200, (await LoginAsync(harness, result.Id, Constants.DefaultUserEmail, "chosen-pass-1").ConfigureAwait(false)).Status, "the supplied password signs in");
+
+                    int before = (await harness.Driver.Tenants.EnumerateAsync(new EnumerationQuery { PageSize = 100 }).ConfigureAwait(false)).Objects.Count;
+                    foreach (string weak in new[] { "short", Constants.DefaultUserPassword })
+                    {
+                        SurfaceReply refused = await harness.RestAsync(HttpMethod.Post, "/api/v1/tenants", new { Name = "Refused " + weak, AdminPassword = weak }).ConfigureAwait(false);
+                        AssertEqual(400, refused.Status, "weak admin password '" + weak + "' is refused");
+                    }
+                    int after = (await harness.Driver.Tenants.EnumerateAsync(new EnumerationQuery { PageSize = 100 }).ConfigureAwait(false)).Objects.Count;
+                    AssertEqual(before, after, "a refused request creates no tenant");
+                }
+            });
+
+            await RunTest("User update requires the current password for a self password change and not for an administrative reset", async () =>
+            {
+                using (SurfaceParityHarness harness = await SurfaceParityHarness.StartAsync().ConfigureAwait(false))
+                {
+                    JsonSerializerOptions json = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    UserMaster member = await harness.Driver.Users.CreateAsync(new UserMaster(Constants.DefaultTenantId, "member@example.com", "member-pass-1")).ConfigureAwait(false);
+                    UserMaster tenantAdmin = new UserMaster(Constants.DefaultTenantId, "lead@example.com", "lead-pass-12") { IsTenantAdmin = true };
+                    tenantAdmin = await harness.Driver.Users.CreateAsync(tenantAdmin).ConfigureAwait(false);
+                    string memberSession = await SessionAsync(harness, "member@example.com", "member-pass-1").ConfigureAwait(false);
+
+                    SurfaceReply missing = await harness.RestAsync(HttpMethod.Put, "/api/v1/users/" + member.Id,
+                        new { Email = member.Email, Password = "member-next-2" }, memberSession).ConfigureAwait(false);
+                    AssertEqual(400, missing.Status, "a self password change without the current password is refused");
+                    SurfaceReply wrong = await harness.RestAsync(HttpMethod.Put, "/api/v1/users/" + member.Id,
+                        new { Email = member.Email, Password = "member-next-2", CurrentPassword = "wrong-password" }, memberSession).ConfigureAwait(false);
+                    AssertEqual(403, wrong.Status, "a self password change with a wrong current password is refused");
+                    AssertTrue((await harness.Driver.Users.ReadByIdAsync(member.Id).ConfigureAwait(false))!.VerifyPassword("member-pass-1"), "refused changes leave the stored password alone");
+
+                    SurfaceReply profile = await harness.RestAsync(HttpMethod.Put, "/api/v1/users/" + member.Id,
+                        new { Email = member.Email, FirstName = "Member" }, memberSession).ConfigureAwait(false);
+                    AssertEqual(200, profile.Status, "a profile edit that keeps the password needs no current password");
+
+                    SurfaceReply changed = await harness.RestAsync(HttpMethod.Put, "/api/v1/users/" + member.Id,
+                        new { Email = member.Email, Password = "member-next-2", CurrentPassword = "member-pass-1" }, memberSession).ConfigureAwait(false);
+                    AssertEqual(200, changed.Status, "the correct current password allows the change");
+                    AssertEqual(200, (await LoginAsync(harness, Constants.DefaultTenantId, "member@example.com", "member-next-2").ConfigureAwait(false)).Status, "the new password signs in");
+                    AssertEqual(401, (await LoginAsync(harness, Constants.DefaultTenantId, "member@example.com", "member-pass-1").ConfigureAwait(false)).Status, "the old password no longer signs in");
+
+                    string leadSession = await SessionAsync(harness, "lead@example.com", "lead-pass-12").ConfigureAwait(false);
+                    SurfaceReply tenantAdminReset = await harness.RestAsync(HttpMethod.Put, "/api/v1/users/" + member.Id,
+                        new { Email = member.Email, Password = "member-reset-3" }, leadSession).ConfigureAwait(false);
+                    AssertEqual(200, tenantAdminReset.Status, "a tenant administrator resets another user's password without their current password");
+                    SurfaceReply tenantAdminSelf = await harness.RestAsync(HttpMethod.Put, "/api/v1/users/" + tenantAdmin.Id,
+                        new { Email = tenantAdmin.Email, IsTenantAdmin = true, Password = "lead-next-345" }, leadSession).ConfigureAwait(false);
+                    AssertEqual(400, tenantAdminSelf.Status, "an administrator changing their own password still proves the current one");
+
+                    SurfaceReply apiKeyReset = await harness.RestAsync(HttpMethod.Put, "/api/v1/users/" + member.Id,
+                        new { Email = member.Email, Password = "member-final-4" }).ConfigureAwait(false);
+                    AssertEqual(200, apiKeyReset.Status, "the deployment API key resets a password without the current one");
+                    SurfaceReply apiKeyDefault = await harness.RestAsync(HttpMethod.Put, "/api/v1/users/" + Constants.DefaultUserId,
+                        new { Email = Constants.DefaultUserEmail, IsAdmin = true, IsTenantAdmin = true, Password = "root-reset-pw5" }).ConfigureAwait(false);
+                    AssertEqual(200, apiKeyDefault.Status, "the deployment API key can reset the seeded admin it maps to");
+                    AssertTrue((await harness.Driver.Users.ReadByIdAsync(Constants.DefaultUserId).ConfigureAwait(false))!.VerifyPassword("root-reset-pw5"));
+                    Credential seeded = (await harness.Driver.Credentials.ReadByIdAsync(Constants.DefaultCredentialId).ConfigureAwait(false))!;
+                    AssertFalse(seeded.Active, "resetting the seeded admin's password retires the seeded bearer");
                 }
             });
 
@@ -585,6 +686,27 @@ namespace Armada.Test.Unit
                     return Convert.ToBase64String(output.ToArray());
                 }
             }
+        }
+
+        private static async Task<SurfaceReply> LoginAsync(SurfaceParityHarness harness, string tenantId, string email, string password)
+        {
+            // A client without the harness operator key, so only the presented email and password authenticate.
+            using (HttpClient anonymous = new HttpClient { BaseAddress = harness.Rest.BaseAddress })
+            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/authenticate"))
+            {
+                request.Content = new StringContent(
+                    JsonSerializer.Serialize(new AuthenticateRequest { TenantId = tenantId, Email = email, Password = password }),
+                    Encoding.UTF8, "application/json");
+                using (HttpResponseMessage response = await anonymous.SendAsync(request).ConfigureAwait(false))
+                    return new SurfaceReply("REST", (int)response.StatusCode, await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+            }
+        }
+
+        private static async Task<string> SessionAsync(SurfaceParityHarness harness, string email, string password)
+        {
+            SurfaceReply reply = await LoginAsync(harness, Constants.DefaultTenantId, email, password).ConfigureAwait(false);
+            JsonSerializerOptions json = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            return JsonSerializer.Deserialize<AuthenticateResult>(reply.Body, json)!.Token!;
         }
 
         private static async Task<int> WhoAmIStatusWithBearerAsync(SurfaceParityHarness harness, string bearer)
