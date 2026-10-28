@@ -90,7 +90,7 @@ PascalCase and case-sensitive: a camelCase key is ignored and replaced with the 
 | `Capabilities` | Runtimes and host tools advertised at handshake (e.g. `git`, `claude`). Default `["git"]`. Drives capability-based routing. |
 | `Appearance` | Window color scheme: `System` (default), `Light`, or `Dark`. |
 | `ShowActivityDetails` | Whether the main window's Activity log shows every request and result with request IDs and full paths (`true`) or the summary (`false`, the default). Set by the Activity log's **Show details** box. |
-| `MaxConcurrentJobs` | Maximum concurrent jobs this Harbor will accept, advertised at handshake. Default 4. |
+| `MaxConcurrentJobs` | Maximum concurrent jobs this Harbor will accept, advertised at handshake. Default 16. |
 | `HeartbeatIntervalMs` | Heartbeat interval in milliseconds; `0` disables heartbeats. Default 15000. |
 | `AccessKey` / `Secret` | `AccessKey` is an Armada credential (a bearer token from Server > Credentials, or the local API key); the Harbor registers under that credential's tenant and user. Leave it empty only for a Harbor on the same machine as a localhost-bound Admiral; a Harbor connecting from another host is refused without one. `Secret` is sent as `x-secret-key` but not used for authentication today, and is never logged. |
 
