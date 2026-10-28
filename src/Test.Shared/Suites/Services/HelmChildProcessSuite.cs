@@ -121,7 +121,7 @@ namespace Test.Shared.Suites.Services
             string marker = Path.Combine(root, "past-output");
             string server = Path.Combine(bin, "armada-server");
             File.WriteAllText(server, StandInServerScript(perl, port, pidFile, marker));
-            File.SetUnixFileMode(server, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            MakeExecutable(server);
             ArmadaSettings settings = new ArmadaSettings();
             settings.AdmiralPort = port;
             settings.DataDirectory = data;
@@ -166,7 +166,7 @@ namespace Test.Shared.Suites.Services
                 + "dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\\0' 'e' >&2\n"
                 + "echo stdout-done\n"
                 + "exit 3\n");
-            File.SetUnixFileMode(dotnet, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            MakeExecutable(dotnet);
             int port = TestPorts.Reserve(1)[0];
             ArmadaSettings settings = new ArmadaSettings();
             settings.AdmiralPort = port;
@@ -306,6 +306,13 @@ namespace Test.Shared.Suites.Services
             AssertTrue(!File.Exists(Path.Combine(appDirectory, "Armada.Server")), "The server apphost stays out of the CLI directory.");
         }
 
+        private static void MakeExecutable(string path)
+        {
+            // Every case is skipped on Windows; the guard also tells the platform analyzer so.
+            if (OperatingSystem.IsWindows()) return;
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
         private static string CopyHelmAppHost(string appDirectory)
         {
             // dotnet exec makes the running executable the real host, and that host is itself named dotnet.
@@ -314,7 +321,7 @@ namespace Test.Shared.Suites.Services
             if (source.Length == 0) return "";
             string destination = Path.Combine(appDirectory, "Armada.Helm");
             File.Copy(source, destination, true);
-            File.SetUnixFileMode(destination, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            MakeExecutable(destination);
             return destination;
         }
 
