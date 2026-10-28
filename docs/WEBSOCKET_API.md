@@ -1928,6 +1928,12 @@ Update an existing mission.
 
 Transition a mission to a new status. The transition must be valid according to the [Mission Status Transitions](#mission-status-transitions) rules.
 
+The same gates as `PUT /api/v1/missions/{id}/status` and the MCP `transition_mission_status` tool apply, each returning a `command.error` with code `Conflict`:
+
+- A mission at a `Review` gate cannot be moved to any status other than `Cancelled`; use `approve_mission_review` or `deny_mission_review`.
+- A manual `WorkProduced` or `Complete` is refused while the agent or its exit/stage-check handoff still owns the mission (`InProgress`, `Testing`, `Verifying`, or a process ID is set), and any transition other than `Cancelled` is refused while `Verifying`.
+- For a write mission (any mode except `Audit` and `Research`), `WorkProduced` and `Complete` land the branch through the normal landing handler instead of writing the status. This needs an active dock; when landing is unavailable or the branch head cannot be resolved, the status is left unchanged. The response carries the mission as landing left it.
+
 **Request:**
 
 ```json
