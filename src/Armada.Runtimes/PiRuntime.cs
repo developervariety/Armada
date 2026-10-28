@@ -142,13 +142,28 @@ namespace Armada.Runtimes
 
         /// <summary>
         /// The permission gate extension shipped with Armada (<c>Pi/armada-permission-gate.ts</c> next to the binaries),
-        /// or null when it is missing.
+        /// or in Contents/Resources/Pi for a macOS app bundle; null when it is missing.
         /// </summary>
         /// <returns>The absolute path, or null.</returns>
         public static string? FindPermissionGateExtension()
+            => FindPermissionGateExtension(AppContext.BaseDirectory);
+
+        /// <summary>Resolve the extension relative to an installed binary directory, including macOS app resources.</summary>
+        /// <param name="baseDirectory">The directory containing the running binaries.</param>
+        /// <returns>The absolute extension path, or null when absent.</returns>
+        public static string? FindPermissionGateExtension(string baseDirectory)
         {
-            string path = System.IO.Path.Combine(AppContext.BaseDirectory, "Pi", PermissionGateFileName);
-            return System.IO.File.Exists(path) ? path : null;
+            if (String.IsNullOrWhiteSpace(baseDirectory)) throw new ArgumentNullException(nameof(baseDirectory));
+            string path = System.IO.Path.Combine(baseDirectory, "Pi", PermissionGateFileName);
+            if (System.IO.File.Exists(path)) return path;
+            var directory = new System.IO.DirectoryInfo(baseDirectory);
+            if (directory.Name == "MacOS" && directory.Parent?.Name == "Contents"
+                && directory.Parent.Parent?.Name.EndsWith(".app", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                path = System.IO.Path.Combine(directory.Parent.FullName, "Resources", "Pi", PermissionGateFileName);
+                if (System.IO.File.Exists(path)) return path;
+            }
+            return null;
         }
 
         #endregion

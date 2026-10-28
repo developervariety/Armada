@@ -104,6 +104,30 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(Case("permission_gate_install_layouts", "Pi permission gate resolves portable and signed macOS bundle resource layouts", TestTags.Positive, () =>
+            {
+                string root = TestTemp.NewDirectory("pi_gate_layout");
+                string portable = Path.Combine(root, "portable");
+                Directory.CreateDirectory(Path.Combine(portable, "Pi"));
+                string portableGate = Path.Combine(portable, "Pi", PiRuntime.PermissionGateFileName);
+                File.WriteAllText(portableGate, "// portable extension");
+                AssertEqual(portableGate, PiRuntime.FindPermissionGateExtension(portable));
+                string contents = Path.Combine(root, "Armada Harbor.app", "Contents");
+                string macOs = Path.Combine(contents, "MacOS");
+                string resources = Path.Combine(contents, "Resources", "Pi");
+                Directory.CreateDirectory(macOs);
+                Directory.CreateDirectory(resources);
+                string bundledGate = Path.Combine(resources, PiRuntime.PermissionGateFileName);
+                File.WriteAllText(bundledGate, "// bundled extension");
+                AssertEqual(bundledGate, PiRuntime.FindPermissionGateExtension(macOs));
+                AssertFalse(Directory.Exists(Path.Combine(macOs, "Pi")), "Resource lookup does not require unsigned nested code.");
+                File.Delete(bundledGate);
+                AssertNull(PiRuntime.FindPermissionGateExtension(macOs), "Missing extension must still fail closed.");
+                string unrelated = Path.Combine(root, "unrelated", "MacOS");
+                Directory.CreateDirectory(unrelated);
+                AssertNull(PiRuntime.FindPermissionGateExtension(unrelated), "Only an app bundle uses the Resources fallback.");
+            }));
+
             cases.Add(Case("args_reject_blank", "Blank working directory or prompt throws", TestTags.Negative, () =>
             {
                 AssertThrows<ArgumentNullException>(() => PiCommandBuilder.BuildRunArguments("", "hi", null, null, false, false));

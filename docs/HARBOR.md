@@ -59,6 +59,12 @@ repositories and agent logins live:
 | Linux | `armada-harbor` `.deb` / `.rpm` | `armada-harbor --install-startup` (as yourself) |
 | Any, from source | `scripts/<os>/run-harbor.sh` (or `scripts\windows\run-harbor.bat`), which builds and runs `src/Armada.Harbor`; or `dotnet run --project src/Armada.Harbor` | -- |
 
+To load updated Harbor code on macOS, quit **Armada Harbor** from its menu-bar menu, replace the application in
+`/Applications` with the newly built app from the matching DMG (`osx-arm64` for Apple Silicon), and reopen it.
+For a source run, quit the old instance and run `./scripts/macos/run-harbor.sh` from the repository root instead.
+Closing the window or choosing **Reconnect** does not reload the executable. `update.sh` updates the Admiral and CLI;
+it does not replace or restart the Harbor app. Harbor's saved settings remain in `~/.armada-harbor/settings.json`.
+
 On macOS, Harbor is a menu bar app (`LSUIElement`): started from the login item it shows only its menu bar icon;
 opening its window (click the icon, or launch it from Applications) adds a Dock icon and app menu, and closing the
 window removes them again while the runner keeps working. Quit it from the menu bar icon. Until the release is signed

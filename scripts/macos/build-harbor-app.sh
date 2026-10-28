@@ -120,6 +120,8 @@ for DMG in "${IMAGES[@]}"; do
   expect_key "$PLIST" NSHighResolutionCapable "true"
   EXE="$(plist_get "$PLIST" CFBundleExecutable)"
   check "executable Contents/MacOS/$EXE" test -x "$APP/Contents/MacOS/$EXE"
+  check "pi permission gate in Contents/Resources" test -f "$APP/Contents/Resources/Pi/armada-permission-gate.ts"
+  check "no pi resource directory in Contents/MacOS" test ! -e "$APP/Contents/MacOS/Pi"
   if file "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null | grep -q "Mac OS X icon"; then
     pass "AppIcon.icns is an icns"
   else
