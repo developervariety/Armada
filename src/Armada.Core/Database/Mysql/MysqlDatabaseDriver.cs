@@ -1003,7 +1003,9 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(99, "Add test_command, lint_command and audit_command to vessels so a vessel can override the ecosystem default command for the test, lint and audit intents",
                     @"ALTER TABLE vessels ADD COLUMN test_command TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN lint_command TEXT;",
-                    @"ALTER TABLE vessels ADD COLUMN audit_command TEXT;")
+                    @"ALTER TABLE vessels ADD COLUMN audit_command TEXT;"),
+                new SchemaMigration(100, "Add abbreviated_unit_test_command to workflow_profiles so a profile can carry a quick unit-test command next to the full one",
+                    @"ALTER TABLE workflow_profiles ADD COLUMN abbreviated_unit_test_command LONGTEXT NULL;")
 
 
             };

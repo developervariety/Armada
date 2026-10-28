@@ -286,6 +286,7 @@ namespace Armada.Server.Routes
                 existing.LintCommand = NormalizeEmpty(incoming.LintCommand);
                 existing.BuildCommand = NormalizeEmpty(incoming.BuildCommand);
                 existing.UnitTestCommand = NormalizeEmpty(incoming.UnitTestCommand);
+                existing.AbbreviatedUnitTestCommand = NormalizeEmpty(incoming.AbbreviatedUnitTestCommand);
                 existing.IntegrationTestCommand = NormalizeEmpty(incoming.IntegrationTestCommand);
                 existing.E2ETestCommand = NormalizeEmpty(incoming.E2ETestCommand);
                 existing.MigrationCommand = NormalizeEmpty(incoming.MigrationCommand);

@@ -945,6 +945,7 @@ export interface WorkflowProfile {
   lintCommand: string | null;
   buildCommand: string | null;
   unitTestCommand: string | null;
+  abbreviatedUnitTestCommand: string | null;
   integrationTestCommand: string | null;
   e2eTestCommand: string | null;
   migrationCommand: string | null;
@@ -1403,6 +1404,7 @@ export type CheckRunType =
   | 'Lint'
   | 'Build'
   | 'UnitTest'
+  | 'AbbreviatedUnitTest'
   | 'IntegrationTest'
   | 'E2ETest'
   | 'Migration'
