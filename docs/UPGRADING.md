@@ -122,6 +122,24 @@ listener binds.
 Run the upgrade rehearsal on the restored copy with the production
 `rest.hostname` so this check runs before the cutover.
 
+## Login limits and the remote proxy
+
+- **Credential login limits.** `POST /api/v1/authenticate` locks an account or a
+  client address after repeated failed email and password logins and returns
+  `429` with `Retry-After`. The client address is the socket peer address, so
+  behind a reverse proxy every client shares the proxy's address limit. Raise
+  `loginRateLimit` values in settings for that layout. Bearer, API key and
+  session tokens are not limited.
+- **Proxy shared password.** The proxy refuses to start while its shared
+  password is blank or the built-in default. Set `password` in the proxy
+  settings file or `ARMADA_PROXY_PASSWORD` before the upgrade.
+  `allowDefaultPassword` is for a throwaway local test only.
+- **Proxy instance list and cookies.** `GET /proxy-api/v1/instances` requires a
+  proxy session. The session cookie carries `Secure` when `secureCookie` is set,
+  or when `trustForwardedHeaders` is set and the forwarded scheme is `https`.
+  Behind a reverse proxy that overwrites `X-Forwarded-*`, set
+  `trustForwardedHeaders` so the proxy limits and logs the real client address.
+
 ## Verify and roll back
 
 After an approved deployment, check health, product version and build commit;
