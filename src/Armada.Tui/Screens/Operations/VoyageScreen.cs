@@ -9,6 +9,7 @@ namespace Armada.Tui.Screens.Operations
     using Armada.Core.Models;
     using Armada.Tui.Routing;
     using Armada.Tui.Screens.Build;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Services;
     using Armada.Tui.Widgets;
     using TUIKit;
@@ -220,11 +221,11 @@ namespace Armada.Tui.Screens.Operations
             string name = Name();
             Confirm("Delete Voyage", Tr("Permanently delete this voyage and all its missions? This cannot be undone."), () =>
             {
-                Run((c, t) => c.PurgeVoyageAsync(VoyageId, t), () =>
+                DeleteProgress.RunVoid(Context, "Purging voyage", t => Context.Client.PurgeVoyageAsync(VoyageId, t), () =>
                 {
                     Toast(NotificationSeverityEnum.Warning, Tr("Voyage \"{{title}}\" deleted.", LocalizationArgs.Of("title", name)));
                     Context.Navigate("/missions?tab=voyages");
-                }, null, ex => ShowMessage(Tr("Delete failed: {{message}}", LocalizationArgs.Of("message", ex.Message))));
+                }, "Delete failed.");
             }, "Delete");
         }
 
