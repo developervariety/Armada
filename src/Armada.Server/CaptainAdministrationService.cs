@@ -40,11 +40,11 @@ namespace Armada.Server
 
         /// <summary>
         /// Validates a captain's runtime and model before a create, and before an update that changes them. It returns
-        /// null when the captain can serve, otherwise the reason. A reason that names a provider credit,
-        /// authentication or quota failure cannot be verified now, so the write is kept with a warning; any other
-        /// reason refuses the write. When null, no model validation runs.
+        /// null when the captain can serve, otherwise the failure. A failure whose message names a provider
+        /// credit, authentication or quota failure cannot be verified now, so the write is kept with a warning;
+        /// any other failure refuses the write and keeps that message. When null, no model validation runs.
         /// </summary>
-        public Func<Captain, CancellationToken, Task<string?>>? ValidateModel { get; set; } = null;
+        public Func<Captain, CancellationToken, Task<CaptainModelValidationFailure?>>? ValidateModel { get; set; } = null;
 
         #endregion
 
@@ -440,7 +440,7 @@ namespace Armada.Server
 
             ModelCheck check = await CheckModelAsync(captain, null, token).ConfigureAwait(false);
             if (check.Error != null)
-                return CaptainWriteResult.Refused(CaptainAdministrationOutcomeEnum.Failed, CaptainWriteResult.InvalidModelCode, check.Error);
+                return CaptainWriteResult.Refused(CaptainAdministrationOutcomeEnum.Failed, CaptainWriteResult.InvalidModelCode, check.Error, check.Failure);
 
             captain = await _Database.Captains.CreateAsync(captain, token).ConfigureAwait(false);
             return CaptainWriteResult.Written(captain, check.CannotVerifyReason);
@@ -471,7 +471,7 @@ namespace Armada.Server
 
             ModelCheck check = await CheckModelAsync(updated, existing, token).ConfigureAwait(false);
             if (check.Error != null)
-                return CaptainWriteResult.Refused(CaptainAdministrationOutcomeEnum.Failed, CaptainWriteResult.InvalidModelCode, check.Error);
+                return CaptainWriteResult.Refused(CaptainAdministrationOutcomeEnum.Failed, CaptainWriteResult.InvalidModelCode, check.Error, check.Failure);
 
             updated = await _Database.Captains.UpdateAsync(updated, token).ConfigureAwait(false);
             return CaptainWriteResult.Written(updated, check.CannotVerifyReason);
@@ -533,8 +533,9 @@ namespace Armada.Server
             if (ValidateModel == null) return check;
             if (existing != null && !ChangesValidatedFields(captain, existing)) return check;
 
-            string? error = await ValidateModel(captain, token).ConfigureAwait(false);
-            if (error == null) return check;
+            CaptainModelValidationFailure? failure = await ValidateModel(captain, token).ConfigureAwait(false);
+            if (failure == null) return check;
+            string error = failure.Message;
             bool cannotVerifyNow = ProviderQuotaLimitDetector.IsCreditAuthBenchSignal(error) || ProviderQuotaLimitDetector.IsQuotaLimitSignal(error);
             if (cannotVerifyNow)
             {
@@ -543,6 +544,7 @@ namespace Armada.Server
                 return check;
             }
             check.Error = error;
+            check.Failure = failure;
             return check;
         }
 
@@ -599,6 +601,7 @@ namespace Armada.Server
         private sealed class ModelCheck
         {
             public string? Error { get; set; }
+            public CaptainModelValidationFailure? Failure { get; set; }
             public string? CannotVerifyReason { get; set; }
         }
 

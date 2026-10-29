@@ -84,7 +84,7 @@ namespace Armada.Server.Routes
             {
                 captainAdministration = new CaptainAdministrationService(database, admiral.RecallCaptainAsync, logging);
                 captainAdministration.StopProcess = agentLifecycle.HandleStopAgentAsync;
-                captainAdministration.ValidateModel = agentLifecycle.ValidateCaptainModelAsync;
+                captainAdministration.ValidateModel = agentLifecycle.ValidateCaptainModelDetailedAsync;
                 captainAdministration.AttachSessionCoordinators(planningSessions, objectiveRefinementSessions);
             }
             _captainAdministration = captainAdministration;
@@ -196,7 +196,9 @@ namespace Armada.Server.Routes
                 {
                     bool conflict = created.Outcome == CaptainAdministrationOutcomeEnum.Busy;
                     req.Http.Response.StatusCode = conflict ? 409 : 400;
-                    return new ApiErrorResponse { Error = conflict ? ApiResultEnum.Conflict : ApiResultEnum.BadRequest, Message = created.Message };
+                    ApiErrorResponse createdError = new ApiErrorResponse { Error = conflict ? ApiResultEnum.Conflict : ApiResultEnum.BadRequest, Message = created.Message };
+                    if (created.ValidationFailure != null) createdError.Data = created.ValidationFailure;
+                    return createdError;
                 }
                 req.Http.Response.StatusCode = 201;
                 return created.Captain!;
@@ -296,7 +298,9 @@ namespace Armada.Server.Routes
                 if (!updated.Succeeded)
                 {
                     req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updated.Message };
+                    ApiErrorResponse updatedError = new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updated.Message };
+                    if (updated.ValidationFailure != null) updatedError.Data = updated.ValidationFailure;
+                    return updatedError;
                 }
                 return (object)updated.Captain!;
             },

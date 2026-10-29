@@ -14,8 +14,9 @@ import {
   getMissionLog,
   listAllCaptains,
   listAllVessels,
+  listAllVoyages,
 } from '../api/client';
-import type { MissionSummary, Vessel, Captain, MissionMode } from '../types/models';
+import type { MissionSummary, Vessel, Captain, MissionMode, Voyage } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import LoadingIndicator from '../components/shared/LoadingIndicator';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -49,6 +50,7 @@ export default function Missions() {
   const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
+  const [voyages, setVoyages] = useState<Voyage[]>([]);
   const [loading, setLoading] = useState(true);
   const { error, setError, loadFailed, loadSucceeded } = useLoadError();
   const { pushToast } = useNotifications();
@@ -100,8 +102,18 @@ export default function Missions() {
     return m;
   }, [captains]);
 
+  const voyageMap = useMemo(() => {
+    const m = new Map<string, string>();
+    voyages.forEach(v => {
+      const title = v.title?.trim();
+      if (title) m.set(v.id, title);
+    });
+    return m;
+  }, [voyages]);
+
   const vesselName = useCallback((id: string | null) => (id ? vesselMap.get(id) || id.substring(0, 8) : '-'), [vesselMap]);
   const captainName = useCallback((id: string | null) => (id ? captainMap.get(id) || id.substring(0, 8) : '-'), [captainMap]);
+  const voyageTitle = useCallback((id: string) => voyageMap.get(id) || id, [voyageMap]);
 
   const fullList = needsFullMissionList(colFilters, sortField);
 
@@ -135,6 +147,7 @@ export default function Missions() {
   useEffect(() => {
     listAllVessels().then(setVessels).catch(() => {});
     listAllCaptains().then(setCaptains).catch(() => {});
+    listAllVoyages().then(setVoyages).catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -464,7 +477,7 @@ export default function Missions() {
                     </td>
                     <td onClick={e => e.stopPropagation()}>
                       {m.voyageId ? (
-                          <a href="#" onClick={e => { e.preventDefault(); navigate(`/voyages/${m.voyageId}`); }}>{m.voyageId}</a>
+                          <a href="#" title={m.voyageId} onClick={e => { e.preventDefault(); navigate(`/voyages/${m.voyageId}`); }}>{voyageTitle(m.voyageId)}</a>
                       ) : '-'}
                     </td>
                     <td className="mono text-dim table-url-cell" title={m.branchName || ''}>

@@ -194,6 +194,7 @@ namespace Armada.Server.Mcp.Tools
                         voyageId = new { type = "string", description = "Optional voyage ID to associate with (vyg_ prefix)" },
                         persona = new { type = "string", description = "Persona for this mission (e.g. Worker, Architect, Judge, TestEngineer)" },
                         mode = new { type = "string", description = "Optional mission mode: Implementation (default), Audit, or Research. Implementation changes code and must commit. Audit and Research deliver a report: they receive a reduced instruction set and producing no commit is their success condition, not a failure. An unrecognized value is rejected." },
+                        tier = new { type = "string", description = "Optional minimum captain tier for this mission (Economy, Standard, or Premium). Only captains at or above it are assigned. Omit it to keep the default routing. An unrecognized value is rejected." },
                         dependsOnMissionId = new { type = "string", description = "Optional mission ID (msn_ prefix) this mission must wait for. The dependent mission stays Pending until the referenced mission reaches a completion state." },
                         selectedPlaybooks = new
                         {
@@ -237,6 +238,18 @@ namespace Armada.Server.Mcp.Tools
                             Error = "Unknown mission mode: " + request.Mode + ". Use Implementation, Audit, or Research, or omit mode to default to Implementation."
                         };
                     mission.Mode = Armada.Core.Enums.MissionModes.Parse(request.Mode);
+
+                    if (!String.IsNullOrWhiteSpace(request.Tier))
+                    {
+                        if (!Enum.TryParse<CaptainTierEnum>(request.Tier.Trim(), true, out CaptainTierEnum missionTier) || !Enum.IsDefined(missionTier))
+                        {
+                            return (object)new
+                            {
+                                Error = "Unknown captain tier: " + request.Tier + ". Use Economy, Standard, or Premium, or omit tier."
+                            };
+                        }
+                        mission.Tier = missionTier;
+                    }
 
                     if (!String.IsNullOrEmpty(request.DependsOnMissionId))
                     {

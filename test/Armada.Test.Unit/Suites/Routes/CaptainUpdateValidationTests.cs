@@ -112,6 +112,7 @@ namespace Armada.Test.Unit.Suites.Routes
 
                     AssertContains("\"content\"", resultJson, "Invalid model should return MCP tool error envelope on create");
                     AssertContains("bad-model", resultJson, "Create error should mention requested model");
+                    AssertContains("ModelRejected", resultJson, "The MCP error names the model-rejection reason");
 
                     Captain? created = await testDb.Driver.Captains.ReadByNameAsync("create-bad-model").ConfigureAwait(false);
                     AssertNull(created, "Rejected create must not persist the captain");
@@ -520,7 +521,10 @@ namespace Armada.Test.Unit.Suites.Routes
             administration.ValidateModel = (_, _) =>
             {
                 onValidate?.Invoke();
-                return Task.FromResult<string?>(validationError);
+                CaptainModelValidationFailure? failure = validationError == null
+                    ? null
+                    : CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ModelRejected, validationError);
+                return Task.FromResult(failure);
             };
             return administration;
         }

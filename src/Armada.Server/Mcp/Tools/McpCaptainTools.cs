@@ -54,7 +54,7 @@ namespace Armada.Server.Mcp.Tools
             if (captainAdministration == null && onStopCaptain != null)
                 administration.StopProcess = captain => onStopCaptain(captain.Id);
             if (captainAdministration == null && agentLifecycle != null)
-                administration.ValidateModel = agentLifecycle.ValidateCaptainModelAsync;
+                administration.ValidateModel = agentLifecycle.ValidateCaptainModelDetailedAsync;
 
             register(
                 "armada_get_captain",
@@ -141,7 +141,7 @@ namespace Armada.Server.Mcp.Tools
                         Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller),
                         Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller),
                         normalizeRuntimeOptions: false).ConfigureAwait(false);
-                    if (!created.Succeeded) return CreateToolErrorResponse(created.Message ?? "Captain was not created");
+                    if (!created.Succeeded) return CreateModelValidationError(created);
                     return (object)MaskCaptain(created.Captain!);
                 });
 
@@ -226,7 +226,7 @@ namespace Armada.Server.Mcp.Tools
                     // The shared captain update REST and WebSocket use: model validation when the runtime, model, endpoint
                     // or credentials change. The runtime options were built from the typed arguments above.
                     CaptainWriteResult updated = await administration.UpdateAsync(stored, captain, normalizeRuntimeOptions: false).ConfigureAwait(false);
-                    if (!updated.Succeeded) return CreateToolErrorResponse(updated.Message ?? "Captain was not updated");
+                    if (!updated.Succeeded) return CreateModelValidationError(updated);
                     if (updated.CannotVerifyReason != null)
                     {
                         return (object)new
@@ -467,6 +467,30 @@ namespace Armada.Server.Mcp.Tools
             }
             if (preferenceRank.HasValue) captain.PreferenceRank = preferenceRank.Value;
             return null;
+        }
+
+        /// <summary>
+        /// A refused captain write. A model check keeps the readable message and adds the reason code.
+        /// Other refusals stay a tool error with the message only.
+        /// </summary>
+        private static object CreateModelValidationError(CaptainWriteResult result)
+        {
+            string message = result.Message ?? "Captain was not written";
+            if (result.ValidationFailure == null) return CreateToolErrorResponse(message);
+            return new
+            {
+                Error = message,
+                Code = result.ValidationFailure.Reason.ToString(),
+                content = new[]
+                {
+                    new
+                    {
+                        type = "text",
+                        text = message
+                    }
+                },
+                isError = true
+            };
         }
 
         private static object CreateToolErrorResponse(string error)

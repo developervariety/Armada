@@ -1,10 +1,15 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import Memories from './Memories';
-import { listMemories } from '../api/client';
+import { listMemories, listVessels } from '../api/client';
 import { deferred } from '../test/routeRace';
 
-vi.mock('../api/client', () => ({ listMemories: vi.fn(), deleteMemory: vi.fn() }));
+vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
+  listMemories: vi.fn(),
+  deleteMemory: vi.fn(),
+  listVessels: vi.fn(),
+}));
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ isAdmin: false, isTenantAdmin: false, user: { user: { id: 'usr_1', tenantId: 'ten_a' } } }),
 }));
@@ -29,8 +34,17 @@ function memory(overrides: Record<string, unknown>) {
 
 const page = (objects: unknown[]) => ({ success: true, pageNumber: 1, pageSize: 25, totalPages: 1, totalRecords: objects.length, totalMs: 1, objects });
 
+function renderMemories() {
+  return render(
+    <MemoryRouter>
+      <Memories />
+    </MemoryRouter>,
+  );
+}
+
 describe('Memories page', () => {
   beforeEach(() => {
+    vi.mocked(listVessels).mockResolvedValue(page([{ id: 'vsl_named', name: 'North Wind' }]) as never);
     vi.mocked(listMemories).mockResolvedValue(page([
       memory({}),
       memory({ id: 'mem_2', scope: 'TenantWide', userId: 'usr_9', summary: 'Shared memory' }),
@@ -38,7 +52,7 @@ describe('Memories page', () => {
   });
 
   it('offers delete only on memories the viewer may change', async () => {
-    render(<Memories />);
+    renderMemories();
     await screen.findByText('Own memory');
     expect(screen.getAllByText('Delete')).toHaveLength(1);
     expect(screen.getAllByText('Personal')).toHaveLength(1);
@@ -46,14 +60,14 @@ describe('Memories page', () => {
   });
 
   it('sends the type filter as the server query parameter', async () => {
-    render(<Memories />);
+    renderMemories();
     await screen.findByText('Own memory');
     fireEvent.change(screen.getByLabelText('Filter by type'), { target: { value: 'Procedural' } });
     await waitFor(() => expect(listMemories).toHaveBeenLastCalledWith({ pageNumber: 1, pageSize: 25, filters: { type: 'Procedural' } }));
   });
 
   it('sends one search request with the final text after the user stops typing', async () => {
-    render(<Memories />);
+    renderMemories();
     await screen.findByText('Own memory');
     vi.mocked(listMemories).mockClear();
     vi.useFakeTimers();
@@ -73,6 +87,16 @@ describe('Memories page', () => {
     }
   });
 
+  it('shows the vessel name and falls back to the id', async () => {
+    vi.mocked(listMemories).mockResolvedValue(page([
+      memory({ id: 'mem_named', summary: 'Named vessel', vesselId: 'vsl_named' }),
+      memory({ id: 'mem_bare', summary: 'Bare vessel', vesselId: 'vsl_missing' }),
+    ]) as never);
+    renderMemories();
+    expect(await screen.findByRole('link', { name: 'North Wind' })).toHaveAttribute('href', '/vessels/vsl_named');
+    expect(screen.getByRole('link', { name: 'vsl_missing' })).toHaveAttribute('href', '/vessels/vsl_missing');
+  });
+
   it('shows the newest search result when an earlier search responds last', async () => {
     const earlier = deferred<unknown>();
     const later = deferred<unknown>();
@@ -82,7 +106,7 @@ describe('Memories page', () => {
       if (term === 'build') return later.promise;
       return page([memory({})]);
     }) as never);
-    render(<Memories />);
+    renderMemories();
     await screen.findByText('Own memory');
 
     const input = screen.getByPlaceholderText('Search content, topic, tags...');

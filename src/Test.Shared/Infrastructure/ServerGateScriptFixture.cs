@@ -212,10 +212,10 @@ namespace Test.Shared.Infrastructure
             Task<string>? secondErrors = null;
             try
             {
-                DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+                MonotonicDeadline deadline = MonotonicDeadline.After(TimeSpan.FromSeconds(15));
                 while (!File.Exists(Path.Combine(root, "build-ready")))
                 {
-                    if (first.HasExited || DateTime.UtcNow >= deadline)
+                    if (first.HasExited || deadline.Passed)
                         throw new InvalidOperationException("first gate did not reach its build barrier");
                     await Task.Delay(20).ConfigureAwait(false);
                 }

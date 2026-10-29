@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Missions from './Missions';
-import { listCaptains, listMissionSummaries, listVessels } from '../api/client';
+import { listCaptains, listMissionSummaries, listVessels, listVoyages } from '../api/client';
 import { deferred } from '../test/routeRace';
 
 vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
@@ -17,6 +17,7 @@ vi.mock('../api/client', async () => (await import('../test/clientMock')).withAl
   getMissionLog: vi.fn(),
   listVessels: vi.fn(),
   listCaptains: vi.fn(),
+  listVoyages: vi.fn(),
 }));
 
 vi.mock('../context/LocaleContext', () => {
@@ -59,6 +60,7 @@ describe('Missions list', () => {
     localStorage.clear();
     vi.mocked(listVessels).mockResolvedValue({ objects: [] } as never);
     vi.mocked(listCaptains).mockResolvedValue({ objects: [] } as never);
+    vi.mocked(listVoyages).mockResolvedValue({ objects: [] } as never);
     vi.mocked(listMissionSummaries).mockImplementation(async (params) => {
       const pageNumber = params?.pageNumber ?? 1;
       if ((params?.pageSize ?? 0) < 1000) {
@@ -80,7 +82,7 @@ describe('Missions list', () => {
     expect(values).toContain('PullRequestOpen');
   });
 
-  it('pages on the server in creation order and does not fetch voyages', async () => {
+  it('pages on the server in creation order', async () => {
     renderMissions();
     expect(await screen.findByText('Refresh docs')).toBeInTheDocument();
     expect(listMissionSummaries).toHaveBeenCalledWith(expect.objectContaining({
@@ -88,6 +90,22 @@ describe('Missions list', () => {
       pageSize: 25,
       filters: { order: 'CreatedDescending' },
     }));
+  });
+
+  it('links the voyage title and falls back to the voyage id', async () => {
+    vi.mocked(listVoyages).mockResolvedValue({
+      objects: [{ id: 'vyg_named', title: 'Decoder voyage' }, { id: 'vyg_blank', title: '  ' }],
+    } as never);
+    const linked = { ...summary('msn_linked', 'Linked mission', '2026-09-15T10:00:00Z'), voyageId: 'vyg_named' };
+    const blank = { ...summary('msn_blank', 'Untitled voyage', '2026-09-14T10:00:00Z'), voyageId: 'vyg_blank' };
+    vi.mocked(listMissionSummaries).mockResolvedValue({
+      success: true, pageNumber: 1, pageSize: 25, totalPages: 1, totalRecords: 2, totalMs: 1,
+      objects: [linked, blank],
+    } as never);
+
+    renderMissions();
+    expect(await screen.findByRole('link', { name: 'Decoder voyage' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'vyg_blank' })).toBeInTheDocument();
   });
 
   it('finds a title match outside the current server page', async () => {

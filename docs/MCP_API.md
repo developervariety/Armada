@@ -1687,6 +1687,19 @@ Nothing is written. Change captain state with `armada_stop_captain`,
 `armada_create_captain` with a `name` another captain already has returns the tool
 error `A captain with that name already exists.` and creates nothing.
 
+A model check that fails returns the same readable message as before and a `Code`
+that names the reason (`EndpointRequired`, `EndpointNotFound`, `EndpointNotInference`,
+`EndpointDisabled`, `ProviderDisabled`, `RuntimeUnavailable`, `ModelRejected`,
+`TimedOut`, `InvalidRuntimeOptions`, `NamedEndpointRequired`,
+`UnsupportedContractVersion` or `EndpointProbeFailed`). REST returns that object as
+`Data` on the `400` and keeps `Message`. A provider credit or quota failure still
+keeps the captain.
+
+`armada_create_mission` accepts an optional `tier` of `Economy`, `Standard` or
+`Premium`. The mission then admits only captains at or above that tier. Omit `tier`
+and the mission keeps the default routing. Any other value returns
+`Unknown captain tier` and creates nothing. The match ignores case.
+
 ## Vessel Writes
 
 `armada_add_vessel` and `armada_update_vessel` accept `gitHubTokenOverride`, the

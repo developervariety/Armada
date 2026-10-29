@@ -2476,8 +2476,11 @@ Paginated enumeration of captains with optional filtering and sorting.
 Register a new captain (AI agent). REST, WebSocket `create_captain` and MCP `armada_create_captain` run one shared
 create: a name another captain has is refused (`409`), runtime options are kept only for a Mux captain, and the runtime
 and model are validated first. A validation failure refuses the create (`400`, for example an `ApiEndpoint` captain with
-no `ModelEndpointId`); a provider credit, authentication or quota failure cannot be verified now, so the captain is kept
-and a warning is logged.
+no `ModelEndpointId`). The body keeps `Error` `BadRequest` and the readable `Message`, and `Data` carries `Reason` and
+`Message` again. `Reason` is `EndpointRequired`, `EndpointNotFound`, `EndpointNotInference`, `EndpointDisabled`,
+`ProviderDisabled`, `RuntimeUnavailable`, `ModelRejected`, `TimedOut`, `InvalidRuntimeOptions`, `NamedEndpointRequired`,
+`UnsupportedContractVersion` or `EndpointProbeFailed`. A provider credit, authentication or quota failure cannot be verified now, so the captain is kept
+and a warning is logged. An update that fails the same check returns the same `400` body.
 
 **Request Body:** [Captain](#captain)
 

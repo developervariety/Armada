@@ -7,6 +7,30 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Mission captain tier
+
+- `armada_create_mission` accepts an optional `tier` (`Economy`, `Standard` or `Premium`). Only captains at or above that tier are assigned. Omitting it keeps the default routing. An unrecognized value is rejected and creates nothing. See [Captain Writes](docs/MCP_API.md#captain-writes).
+
+### Captain model validation
+
+- A captain create or update that fails model validation returns a reason code with the existing message. REST puts the reason on `Data`. MCP and WebSocket return it beside the message. Status codes are unchanged. See [POST /api/v1/captains](docs/REST_API.md#post-apiv1captains).
+
+### Hosted cloud providers
+
+- An API captain's provider is hosted unless it is operator-hosted (`Ollama` or `OpenAICompatible`). A provider this build does not name needs `apiCaptainCloudProviders` before an API captain can use it.
+
+### Setup wizard
+
+- When the setup mission fails or its landing fails, the wizard shows the failure reason and a link to the mission.
+
+### Dashboard
+
+- A refresh spins only its icon. The workflow-profile checkboxes use one row each. Mission lists and mission detail show the linked voyage title, and fall back to the voyage id. The Memory page shows the vessel name, and falls back to the vessel id.
+
+### Test waits
+
+- Shared test waits that poll until a deadline use a monotonic clock, so a wall-clock jump does not shorten the wait. The budgets are unchanged.
+
 ### Added
 
 - Operators can explicitly replay a failed six-stage Research voyage with atomic prior-attempt archives, pinned source, scoped historical output and stale-attempt write guards. Ordinary restart eligibility and recovery budgets stay unchanged.

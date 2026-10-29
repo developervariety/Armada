@@ -441,9 +441,9 @@ namespace Test.Shared.Infrastructure
 
         private async Task WaitForReadyAsync()
         {
-            DateTime deadline = DateTime.UtcNow.AddSeconds(30);
+            MonotonicDeadline deadline = MonotonicDeadline.After(TimeSpan.FromSeconds(30));
             Exception? last = null;
-            while (DateTime.UtcNow < deadline)
+            while (!deadline.Passed)
             {
                 try
                 {

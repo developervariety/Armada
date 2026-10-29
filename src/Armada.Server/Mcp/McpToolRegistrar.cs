@@ -147,7 +147,7 @@ namespace Armada.Server.Mcp
                 if (agentLifecycle != null)
                 {
                     captainAdministration.StopProcess = agentLifecycle.HandleStopAgentAsync;
-                    captainAdministration.ValidateModel = agentLifecycle.ValidateCaptainModelAsync;
+                    captainAdministration.ValidateModel = agentLifecycle.ValidateCaptainModelDetailedAsync;
                 }
                 captainAdministration.AttachSessionCoordinators(planningSessionCoordinator, objectiveRefinementCoordinator);
             }

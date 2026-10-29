@@ -539,17 +539,38 @@ namespace Armada.Server
         /// <param name="captain">Captain to validate.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Null if valid, otherwise an error message.</returns>
-        public Task<string?> ValidateCaptainModelAsync(Captain captain, CancellationToken token = default)
+        public async Task<string?> ValidateCaptainModelAsync(Captain captain, CancellationToken token = default)
+        {
+            CaptainModelValidationFailure? failure = await ValidateCaptainModelDetailedAsync(captain, token).ConfigureAwait(false);
+            return failure?.Message;
+        }
+
+        /// <summary>
+        /// Validate a captain's runtime and model. Returns null when the captain can serve. A provider credit
+        /// or quota signal is returned as null here, the same as <see cref="ValidateCaptainModelAsync"/>, so a
+        /// write can keep the captain. Any other failure carries the existing message and a reason.
+        /// </summary>
+        /// <param name="captain">Captain to validate.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Null when valid, otherwise the failure.</returns>
+        public async Task<CaptainModelValidationFailure?> ValidateCaptainModelDetailedAsync(Captain captain, CancellationToken token = default)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
-                return ValidateApiEndpointCaptainAsync(captain, token);
+                return await ValidateApiEndpointCaptainAsync(captain, token).ConfigureAwait(false);
             if (captain.Runtime == AgentRuntimeEnum.Mux)
-            {
-                return ValidateMuxCaptainBypassingQuotaAsync(captain, token);
-            }
+                return BypassQuota(await ValidateMuxCaptainAsync(captain, token).ConfigureAwait(false));
+            return BypassQuota(await ValidateModelCoreAsync(captain.Runtime, captain.Model, captain, token).ConfigureAwait(false));
+        }
 
-            return ValidateModelBypassingQuotaAsync(captain.Runtime, captain.Model, captain, token);
+        /// <summary>
+        /// A provider quota signal cannot be verified now, so it is not a refusal.
+        /// </summary>
+        private static CaptainModelValidationFailure? BypassQuota(CaptainModelValidationFailure? failure)
+        {
+            if (failure != null && ProviderQuotaLimitDetector.IsQuotaLimitSignal(failure.Message))
+                return null;
+            return failure;
         }
 
         /// <summary>
@@ -559,30 +580,29 @@ namespace Armada.Server
         /// <param name="captain">Captain to validate.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Null when valid, otherwise a safe validation message.</returns>
-        private async Task<string?> ValidateApiEndpointCaptainAsync(Captain captain, CancellationToken token)
+        private async Task<CaptainModelValidationFailure?> ValidateApiEndpointCaptainAsync(Captain captain, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(captain.ModelEndpointId))
-                return "An API-endpoint captain must reference an inference model endpoint.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointRequired, "An API-endpoint captain must reference an inference model endpoint.");
             if (String.IsNullOrWhiteSpace(captain.TenantId))
-                return "An API-endpoint captain must belong to a tenant.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointRequired, "An API-endpoint captain must belong to a tenant.");
             if (!String.IsNullOrWhiteSpace(captain.ApiKey) || !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
-                return "API-endpoint captain credentials must be configured on the model endpoint.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.InvalidRuntimeOptions, "API-endpoint captain credentials must be configured on the model endpoint.");
 
             ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(captain.TenantId!, captain.ModelEndpointId!, token).ConfigureAwait(false);
-            return ValidateApiEndpointAdmission(captain, endpoint, _Settings.ApiCaptainCloudProviders);
+            return ValidateApiEndpointAdmissionFailure(captain, endpoint, _Settings.ApiCaptainCloudProviders);
         }
 
         /// <summary>
         /// Whether a provider is a hosted cloud service that needs explicit operator opt-in for API captains.
-        /// Ollama and OpenAI-compatible endpoints are operator-hosted and need no opt-in.
+        /// Only an operator-hosted provider is local. A provider this build does not name is hosted.
         /// </summary>
         /// <param name="provider">Endpoint provider.</param>
-        /// <returns>True for hosted cloud inference providers.</returns>
+        /// <returns>True when the provider needs the hosted-cloud opt-in.</returns>
         public static bool IsHostedCloudProvider(ModelProviderEnum provider)
         {
-            return provider == ModelProviderEnum.OpenAI
-                || provider == ModelProviderEnum.Anthropic
-                || provider == ModelProviderEnum.Gemini;
+            return provider != ModelProviderEnum.Ollama
+                && provider != ModelProviderEnum.OpenAICompatible;
         }
 
         /// <summary>
@@ -596,54 +616,40 @@ namespace Armada.Server
         /// <returns>Null when admitted, otherwise a safe admission error.</returns>
         public static string? ValidateApiEndpointAdmission(Captain captain, ModelEndpoint? endpoint, IReadOnlyCollection<ModelProviderEnum>? enabledCloudProviders)
         {
+            return ValidateApiEndpointAdmissionFailure(captain, endpoint, enabledCloudProviders)?.Message;
+        }
+
+        /// <summary>
+        /// The admission rule with a reason. <see cref="ValidateApiEndpointAdmission"/> returns the same message.
+        /// </summary>
+        public static CaptainModelValidationFailure? ValidateApiEndpointAdmissionFailure(Captain captain, ModelEndpoint? endpoint, IReadOnlyCollection<ModelProviderEnum>? enabledCloudProviders)
+        {
             if (captain == null)
-                return "The captain is required.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ModelRejected, "The captain is required.");
             if (captain.Runtime != AgentRuntimeEnum.ApiEndpoint)
-                return "The captain runtime is not an API endpoint.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ModelRejected, "The captain runtime is not an API endpoint.");
             if (String.IsNullOrWhiteSpace(captain.ModelEndpointId) || String.IsNullOrWhiteSpace(captain.TenantId))
-                return "An API-endpoint captain must reference an authorized tenant-owned model endpoint.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointRequired, "An API-endpoint captain must reference an authorized tenant-owned model endpoint.");
             if (!String.IsNullOrWhiteSpace(captain.ApiKey) || !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
-                return "API-endpoint captain credentials must be configured on the model endpoint.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.InvalidRuntimeOptions, "API-endpoint captain credentials must be configured on the model endpoint.");
             if (endpoint == null
                 || !String.Equals(endpoint.Id, captain.ModelEndpointId, StringComparison.Ordinal)
                 || !String.Equals(endpoint.TenantId, captain.TenantId, StringComparison.Ordinal))
-                return "The referenced model endpoint is not available to this captain.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointNotFound, "The referenced model endpoint is not available to this captain.");
             if (IsHostedCloudProvider(endpoint.Provider)
                 && (enabledCloudProviders == null || !enabledCloudProviders.Contains(endpoint.Provider)))
-                return "The " + endpoint.Provider + " provider is disabled for API captains. List it in apiCaptainCloudProviders to enable it.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ProviderDisabled, "The " + endpoint.Provider + " provider is disabled for API captains. List it in apiCaptainCloudProviders to enable it.");
             if (endpoint.Scope == ScopeEnum.UserSpecific
                 && !String.Equals(endpoint.UserId, captain.UserId, StringComparison.Ordinal))
-                return "The referenced model endpoint is not available to this captain.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointNotFound, "The referenced model endpoint is not available to this captain.");
             if (endpoint.Kind != ModelEndpointKindEnum.Inference)
-                return "An API-endpoint captain requires an inference model endpoint.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointNotInference, "An API-endpoint captain requires an inference model endpoint.");
             if (!endpoint.Enabled)
-                return "The referenced model endpoint is disabled.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointDisabled, "The referenced model endpoint is disabled.");
             if (!String.IsNullOrWhiteSpace(captain.Model)
                 && !String.Equals(captain.Model, endpoint.Model, StringComparison.Ordinal))
-                return "The captain model must match the configured model endpoint model.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ModelRejected, "The captain model must match the configured model endpoint model.");
             return null;
-        }
-
-        private async Task<string?> ValidateMuxCaptainBypassingQuotaAsync(Captain captain, CancellationToken token)
-        {
-            string? error = await ValidateMuxCaptainAsync(captain, token).ConfigureAwait(false);
-            if (error != null && ProviderQuotaLimitDetector.IsQuotaLimitSignal(error))
-            {
-                return null;
-            }
-
-            return error;
-        }
-
-        private async Task<string?> ValidateModelBypassingQuotaAsync(AgentRuntimeEnum runtimeType, string? model, Captain? captain, CancellationToken token)
-        {
-            string? error = await ValidateModelAsync(runtimeType, model, captain, token).ConfigureAwait(false);
-            if (error != null && ProviderQuotaLimitDetector.IsQuotaLimitSignal(error))
-            {
-                return null;
-            }
-
-            return error;
         }
 
         /// <summary>
@@ -657,6 +663,12 @@ namespace Armada.Server
         /// <param name="token">Cancellation token.</param>
         /// <returns>Null if valid, otherwise an error message.</returns>
         public async Task<string?> ValidateModelAsync(AgentRuntimeEnum runtimeType, string? model, Captain? captain = null, CancellationToken token = default)
+        {
+            CaptainModelValidationFailure? failure = await ValidateModelCoreAsync(runtimeType, model, captain, token).ConfigureAwait(false);
+            return failure?.Message;
+        }
+
+        private async Task<CaptainModelValidationFailure?> ValidateModelCoreAsync(AgentRuntimeEnum runtimeType, string? model, Captain? captain, CancellationToken token)
         {
             if (String.IsNullOrEmpty(model))
                 return null;
@@ -673,7 +685,7 @@ namespace Armada.Server
             {
                 try { Directory.Delete(validationDirectory, true); }
                 catch (Exception deleteEx) { _Logging.Warn(_Header + "could not delete model-validation directory " + validationDirectory + ": " + deleteEx.Message); }
-                return "Unable to create runtime " + runtimeType + " for model validation: " + ex.Message;
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.RuntimeUnavailable, "Unable to create runtime " + runtimeType + " for model validation: " + ex.Message);
             }
 
             object outputLock = new object();
@@ -734,10 +746,10 @@ namespace Armada.Server
 
                     if (!String.IsNullOrEmpty(details))
                     {
-                        return "Model '" + model + "' failed validation for runtime " + runtimeType + ": " + details;
+                        return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ModelRejected, "Model '" + model + "' failed validation for runtime " + runtimeType + ": " + details);
                     }
 
-                    return "Model '" + model + "' failed validation for runtime " + runtimeType + " with exit code " + exitCode.Value + ".";
+                    return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ModelRejected, "Model '" + model + "' failed validation for runtime " + runtimeType + " with exit code " + exitCode.Value + ".");
                 }
 
                 token.ThrowIfCancellationRequested();
@@ -757,7 +769,7 @@ namespace Armada.Server
                     timeoutMessage += " " + timeoutDetails;
                 }
 
-                return timeoutMessage;
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.TimedOut, timeoutMessage);
             }
             catch (OperationCanceledException)
             {
@@ -765,7 +777,7 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
-                return "Model '" + model + "' failed validation for runtime " + runtimeType + ": " + ex.Message;
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.ModelRejected, "Model '" + model + "' failed validation for runtime " + runtimeType + ": " + ex.Message);
             }
             finally
             {
@@ -2859,7 +2871,7 @@ namespace Armada.Server
             }
         }
 
-        private async Task<string?> ValidateMuxCaptainAsync(Captain captain, CancellationToken token)
+        private async Task<CaptainModelValidationFailure?> ValidateMuxCaptainAsync(Captain captain, CancellationToken token)
         {
             MuxCaptainOptions? options;
             try
@@ -2868,7 +2880,7 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
-                return "Mux runtime options are invalid JSON: " + ex.Message;
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.InvalidRuntimeOptions, "Mux runtime options are invalid JSON: " + ex.Message);
             }
 
             if (options == null)
@@ -2877,15 +2889,15 @@ namespace Armada.Server
             }
 
             if (String.IsNullOrWhiteSpace(options.Endpoint))
-                return "Mux validation requires a named endpoint.";
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.NamedEndpointRequired, "Mux validation requires a named endpoint.");
 
             try
             {
                 MuxProbeResult probe = await _MuxCli.ProbeAsync(captain, token).ConfigureAwait(false);
                 if (probe.ContractVersion != 1)
                 {
-                    return "Mux returned structured output contract version " + probe.ContractVersion +
-                        ", but Armada currently supports version 1.";
+                    return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.UnsupportedContractVersion, "Mux returned structured output contract version " + probe.ContractVersion +
+                        ", but Armada currently supports version 1.");
                 }
 
                 if (!probe.Success)
@@ -2893,7 +2905,7 @@ namespace Armada.Server
                     string error = !String.IsNullOrWhiteSpace(probe.ErrorMessage)
                         ? probe.ErrorMessage
                         : "Mux probe failed with error code " + (String.IsNullOrWhiteSpace(probe.ErrorCode) ? "unknown" : probe.ErrorCode) + ".";
-                    return "Mux CLI failed validation: " + error;
+                    return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointProbeFailed, "Mux CLI failed validation: " + error);
                 }
 
                 return null;
@@ -2904,7 +2916,7 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
-                return "Mux CLI failed validation: " + ex.Message;
+                return CaptainModelValidationFailure.Create(CaptainModelValidationFailureEnum.EndpointProbeFailed, "Mux CLI failed validation: " + ex.Message);
             }
         }
 
