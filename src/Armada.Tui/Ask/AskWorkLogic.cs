@@ -5,6 +5,7 @@ namespace Armada.Tui.Ask
     using System.Linq;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Tui.Routing;
 
     /// <summary>
     /// Live work card rules shared with the dashboard (<c>lib/askWork.ts</c>): terminal and failed child statuses,
@@ -177,7 +178,7 @@ namespace Armada.Tui.Ask
                 case AskTrackedEntityTypeEnum.Mission: return "/missions/" + id;
                 case AskTrackedEntityTypeEnum.FleetActionRun: return "/fleet-actions/runs/" + id;
                 case AskTrackedEntityTypeEnum.VesselImportBatch: return "/vessels/import?batch=" + id;
-                case AskTrackedEntityTypeEnum.Job: return "/jobs";
+                case AskTrackedEntityTypeEnum.Job: return TabLinks.JobsPath;
                 default: return "/activity";
             }
         }

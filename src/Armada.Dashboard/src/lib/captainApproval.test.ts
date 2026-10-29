@@ -21,4 +21,10 @@ describe('captain auto-approve switch', () => {
     expect(supportsAutoApproveSwitch('ClaudeCode')).toBe(true);
     expect(supportsAutoApproveSwitch('ApiEndpoint')).toBe(false);
   });
+
+  it('offers the auto-approve switch for pi captains', () => {
+    expect(supportsAutoApproveSwitch('Pi')).toBe(true);
+    expect(supportsAutoApproveSwitch(' Pi ')).toBe(true);
+    expect(supportsAutoApproveSwitch('pi')).toBe(false);
+  });
 });

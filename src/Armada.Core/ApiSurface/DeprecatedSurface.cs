@@ -27,27 +27,14 @@ namespace Armada.Core.ApiSurface
 
         #region Private-Members
 
-        // "METHOD template" to its replacement. These return an entire list in one response; each replacement pages.
+        // "METHOD template" to its replacement. Empty: the whole-list routes deprecated in 1.x were retired (RetiredSurface).
         private static readonly Dictionary<string, string> _Routes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["GET /api/v1/harbors"] = "POST /api/v1/harbors/enumerate",
-            ["GET /api/v1/model-endpoints"] = "POST /api/v1/model-endpoints/enumerate",
-            ["GET /api/v1/planning-sessions"] = "POST /api/v1/planning-sessions/enumerate",
-            ["GET /api/v1/objectives/{id}/refinement-sessions"] = "POST /api/v1/objectives/{id}/refinement-sessions/enumerate",
-            ["GET /api/v1/backlog/{id}/refinement-sessions"] = "POST /api/v1/backlog/{id}/refinement-sessions/enumerate",
-            ["GET /api/v1/inbox"] = "POST /api/v1/inbox/enumerate",
-            ["GET /api/v1/cli-permissions/rules"] = "POST /api/v1/cli-permissions/rules/enumerate",
-            ["GET /api/v1/push/devices"] = "POST /api/v1/push/devices/enumerate",
-            ["GET /api/v1/releases/{id}/github/pull-requests"] = "POST /api/v1/releases/{id}/github/pull-requests/enumerate",
-            ["GET /api/v1/vessels/{id}/branches"] = "POST /api/v1/vessels/{id}/branches/enumerate",
-            ["GET /api/v1/signals/recipient/{captainId}"] = "POST /api/v1/signals/enumerate (toCaptainId, unreadOnly)",
         };
 
-        // MCP tool name to its replacement.
+        // MCP tool name to its replacement. Empty: see RetiredSurface.
         private static readonly Dictionary<string, string> _Tools = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["inbox"] = "enumerate with entityType inbox",
-            ["list_cli_permission_rules"] = "enumerate with entityType cli_permission_rules",
         };
 
         // WebSocket command action to its replacement.

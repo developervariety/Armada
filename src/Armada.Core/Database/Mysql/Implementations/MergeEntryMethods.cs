@@ -169,6 +169,63 @@ namespace Armada.Core.Database.Mysql.Implementations
             return entry;
         }
 
+        /// <inheritdoc />
+        public async Task<bool> TryUpdateIfUnchangedAsync(MergeEntry entry, DateTime expectedVersion, CancellationToken token = default)
+        {
+            if (entry == null) throw new ArgumentNullException(nameof(entry));
+            entry.LastUpdateUtc = DateTime.UtcNow;
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (MySqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"UPDATE merge_entries SET
+                        tenant_id = @tenant_id,
+                            user_id = @user_id,
+                        mission_id = @mission_id,
+                        vessel_id = @vessel_id,
+                        branch_name = @branch_name,
+                        target_branch = @target_branch,
+                        status = @status,
+                        priority = @priority,
+                        batch_id = @batch_id,
+                        test_command = @test_command,
+                        test_output = @test_output,
+                        test_exit_code = @test_exit_code,
+                        retry_count = @retry_count,
+                        lease_expires_utc = @lease_expires_utc,
+                        last_update_utc = @last_update_utc,
+                        test_started_utc = @test_started_utc,
+                        completed_utc = @completed_utc
+                        WHERE id = @id AND last_update_utc = @expected_version;";
+                    cmd.Parameters.AddWithValue("@expected_version", ToIso8601(expectedVersion));
+                    cmd.Parameters.AddWithValue("@id", entry.Id);
+                    cmd.Parameters.AddWithValue("@tenant_id", (object?)entry.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)entry.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@mission_id", (object?)entry.MissionId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@vessel_id", (object?)entry.VesselId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@branch_name", entry.BranchName);
+                    cmd.Parameters.AddWithValue("@target_branch", entry.TargetBranch);
+                    cmd.Parameters.AddWithValue("@status", entry.Status.ToString());
+                    cmd.Parameters.AddWithValue("@priority", entry.Priority);
+                    cmd.Parameters.AddWithValue("@batch_id", (object?)entry.BatchId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_count", entry.RetryCount);
+                    cmd.Parameters.AddWithValue("@lease_expires_utc", entry.LeaseExpiresUtc.HasValue ? (object)ToIso8601(entry.LeaseExpiresUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(entry.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    bool updated = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false) > 0;
+                    if (!updated) entry.LastUpdateUtc = expectedVersion;
+                    return updated;
+                }
+            }
+
+        }
+
         /// <summary>
         /// Delete a merge entry by identifier.
         /// </summary>

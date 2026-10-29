@@ -3,6 +3,7 @@ import * as client from '@dashboard/api/client';
 import type { CliPermissionRequest, CliPermissionRule } from '@dashboard/types/models';
 import MoreLayout from '../app/(app)/(more)/_layout';
 import CliRoute from '../app/(app)/(more)/cli-permissions';
+import ServerRoute from '../app/(app)/(more)/server';
 import { ruleDraftError, ruleTarget } from '../screens/system/CliPermissionsHub';
 import { emit, page, renderW4Routes, resetW4 } from '../test/w4';
 import { rowActionTarget } from '../test/a11y';
@@ -21,7 +22,7 @@ function request(over: Partial<CliPermissionRequest> = {}): CliPermissionRequest
 }
 const RULE: CliPermissionRule = { id: 'cpl_1', tenantId: 'ten_1', scope: 'Vessel', vesselId: 'vsl_1', pattern: 'Bash(git status:*)', action: 'Allow', description: 'status', createdUtc: '2026-10-01T00:00:00Z' } as CliPermissionRule;
 
-const ROUTES = { '(more)/_layout': MoreLayout, '(more)/more': () => null, '(more)/cli-permissions': CliRoute };
+const ROUTES = { '(more)/_layout': MoreLayout, '(more)/more': () => null, '(more)/setup': () => null, '(more)/server': ServerRoute, '(more)/cli-permissions': CliRoute };
 
 beforeEach(async () => {
   await resetW4();
@@ -45,7 +46,7 @@ describe('rule helpers', () => {
 
 describe('CLI Tool Permissions', () => {
   it('lists pending requests and reloads on CLI permission events', async () => {
-    const h = await renderW4Routes(ROUTES, '/cli-permissions');
+    const h = await renderW4Routes(ROUTES, '/server?tab=cli-permissions');
     await waitFor(() => expect(screen.getByTestId('cli-permission-cpr_1')).toBeTruthy());
     expect(api.listCliPermissionRequests).toHaveBeenCalledWith({ status: 'Pending', limit: 200 });
     api.listCliPermissionRequests.mockResolvedValue([]);
@@ -55,7 +56,7 @@ describe('CLI Tool Permissions', () => {
 
   it('a ?request= link shows that request first even when the filter hides it', async () => {
     api.getCliPermissionRequest.mockResolvedValue(request({ id: 'cpr_9', status: 'Allowed', summaryText: 'npm test' }));
-    await renderW4Routes(ROUTES, '/cli-permissions?request=cpr_9');
+    await renderW4Routes(ROUTES, '/server?tab=cli-permissions&request=cpr_9');
     await waitFor(() => expect(screen.getByTestId('cli-request-highlighted')).toBeTruthy());
     expect(api.getCliPermissionRequest).toHaveBeenCalledWith('cpr_9');
     expect(screen.getByTestId('cli-permission-cpr_9')).toBeTruthy();
@@ -63,7 +64,7 @@ describe('CLI Tool Permissions', () => {
 
   it('creates a global rule (tenant admin)', async () => {
     api.createCliPermissionRule.mockResolvedValue(RULE);
-    await renderW4Routes(ROUTES, '/cli-permissions?tab=rules', 'tenantAdmin');
+    await renderW4Routes(ROUTES, '/server?tab=cli-permissions&section=rules', 'tenantAdmin');
     await waitFor(() => expect(screen.getByTestId('cli-rule-row-cpl_1')).toBeTruthy());
     expect(screen.getByText(/Vessel armada/)).toBeTruthy();
     await fireEvent.press(screen.getByTestId('cli-rules-create'));
@@ -77,7 +78,7 @@ describe('CLI Tool Permissions', () => {
     api.getCliPermissionRule.mockResolvedValue({ ...RULE, description: 'fresh' });
     api.updateCliPermissionRule.mockResolvedValue(RULE);
     api.deleteCliPermissionRule.mockResolvedValue(undefined as never);
-    await renderW4Routes(ROUTES, '/cli-permissions?tab=rules');
+    await renderW4Routes(ROUTES, '/server?tab=cli-permissions&section=rules');
     await waitFor(() => expect(screen.getByTestId('cli-rule-row-cpl_1')).toBeTruthy());
     await fireEvent.press(screen.getByTestId('cli-rule-row-cpl_1'));
     await waitFor(() => expect(screen.getByText('fresh')).toBeTruthy());
@@ -93,8 +94,33 @@ describe('CLI Tool Permissions', () => {
     expect(api.deleteCliPermissionRule).toHaveBeenCalledWith('cpl_1');
   });
 
+  it('is a Settings tab with Requests and Rules sub-sections in ?section=', async () => {
+    const h = await renderW4Routes(ROUTES, '/server?tab=cli-permissions');
+    await waitFor(() => expect(screen.getByTestId('cli-permission-cpr_1')).toBeTruthy());
+    expect(screen.getByTestId('server-tab-cli-permissions')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('cli-permissions-tab-rules'));
+    await waitFor(() => expect(screen.getByTestId('cli-rule-row-cpl_1')).toBeTruthy());
+    expect(h.getPathname()).toBe('/server');
+    expect(h.getSearchParams()).toEqual(expect.objectContaining({ tab: 'cli-permissions', section: 'rules' }));
+  });
+
+  it('redirects the old /cli-permissions route, keeping ?request= (push and inbox links)', async () => {
+    api.getCliPermissionRequest.mockResolvedValue(request({ id: 'cpr_9', status: 'Allowed', summaryText: 'npm test' }));
+    const h = await renderW4Routes(ROUTES, '/cli-permissions?request=cpr_9');
+    await waitFor(() => expect(h.getPathname()).toBe('/server'));
+    expect(h.getSearchParams()).toEqual(expect.objectContaining({ tab: 'cli-permissions', request: 'cpr_9' }));
+    await waitFor(() => expect(screen.getByTestId('cli-request-highlighted')).toBeTruthy());
+  });
+
+  it('redirects the old /cli-permissions?tab=rules to the Rules sub-section', async () => {
+    const h = await renderW4Routes(ROUTES, '/cli-permissions?tab=rules');
+    await waitFor(() => expect(h.getPathname()).toBe('/server'));
+    expect(h.getSearchParams()).toEqual(expect.objectContaining({ tab: 'cli-permissions', section: 'rules' }));
+    await waitFor(() => expect(screen.getByTestId('cli-rule-row-cpl_1')).toBeTruthy());
+  });
+
   it('regular users cannot create or edit rules', async () => {
-    await renderW4Routes(ROUTES, '/cli-permissions?tab=rules', 'user');
+    await renderW4Routes(ROUTES, '/server?tab=cli-permissions&section=rules', 'user');
     await waitFor(() => expect(screen.getByTestId('cli-rule-row-cpl_1')).toBeTruthy());
     expect(screen.queryByTestId('cli-rules-create')).toBeNull();
     expect(screen.queryByTestId('cli-rule-row-cpl_1-swipe')).toBeNull();
