@@ -108,8 +108,7 @@ namespace Armada.Server.Routes
                 }
                 catch (ArgumentException ex)
                 {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return RequestErrorResponse.BadRequest(req, ex);
                 }
                 catch (UnauthorizedAccessException)
                 {
@@ -180,8 +179,7 @@ namespace Armada.Server.Routes
                 }
                 catch (ArgumentException ex)
                 {
-                    req.Http.Response.StatusCode = 400;
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    return RequestErrorResponse.BadRequest(req, ex);
                 }
             },
             api => api

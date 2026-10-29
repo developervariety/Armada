@@ -304,6 +304,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
             _DispatchHold?.ThrowIfActive();
 
             // Verify vessel exists
@@ -421,6 +422,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
             _DispatchHold?.ThrowIfActive();
 
             // Verify vessel exists
@@ -616,6 +618,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            CollectionLimits.RequireDispatch(missionDescriptions, selectedPlaybooks);
             _DispatchHold?.ThrowIfActive();
 
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);

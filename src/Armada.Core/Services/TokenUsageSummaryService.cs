@@ -49,6 +49,7 @@ namespace Armada.Core.Services
         {
             if (query == null) throw new ArgumentNullException(nameof(query));
             if (!query.FromUtc.HasValue || !query.ToUtc.HasValue) throw new ArgumentException("A summary needs a window start and end.", nameof(query));
+            CollectionLimits.RequireInclusiveBuckets(query.FromUtc.Value, query.ToUtc.Value, query.BucketMinutes <= 0 ? 15 : query.BucketMinutes);
 
             List<TokenUsageRecord> records = await _TokenUsage.EnumerateForSummaryAsync(query, token).ConfigureAwait(false);
             List<ArmadaEvent> legacyEvents = await _TokenUsage.EnumerateLegacyEventsAsync(query, token).ConfigureAwait(false);

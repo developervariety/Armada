@@ -147,6 +147,7 @@ namespace Armada.Server
         {
             if (ids == null) throw new ArgumentNullException(nameof(ids));
             if (readInScope == null) throw new ArgumentNullException(nameof(readInScope));
+            CollectionLimits.RequireRequestItems(ids, "Ids");
 
             DeleteMultipleResult result = new DeleteMultipleResult();
             foreach (string? id in ids)
@@ -219,6 +220,7 @@ namespace Armada.Server
         {
             if (ids == null) throw new ArgumentNullException(nameof(ids));
             if (readInScope == null) throw new ArgumentNullException(nameof(readInScope));
+            CollectionLimits.RequireRequestItems(ids, "Ids");
 
             DeleteMultipleResult result = new DeleteMultipleResult();
             foreach (string? id in ids)

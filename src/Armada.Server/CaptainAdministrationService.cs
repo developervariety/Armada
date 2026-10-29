@@ -340,6 +340,7 @@ namespace Armada.Server
         public async Task<DeleteMultipleResult> DeleteManyAsync(IEnumerable<string> captainIds, AuthContext? scope, CancellationToken token = default)
         {
             if (captainIds == null) throw new ArgumentNullException(nameof(captainIds));
+            CollectionLimits.RequireRequestItems(captainIds, "Ids");
 
             DeleteMultipleResult result = new DeleteMultipleResult();
             foreach (string id in captainIds)

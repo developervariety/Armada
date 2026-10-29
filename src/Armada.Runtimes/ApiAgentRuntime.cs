@@ -115,6 +115,7 @@ namespace Armada.Runtimes
         private readonly ModelEndpoint _Endpoint;
         private readonly LoggingModule _Logging;
         private readonly int _MaxIterations;
+        private readonly EndpointLaunchOptions _LaunchOptions;
         private readonly Func<ModelEndpoint, LoggingModule, CompletionClientBase> _ClientFactory;
         private HttpClient? _TransportClient;
         private readonly string _Header = "[ApiAgentRuntime] ";
@@ -130,20 +131,24 @@ namespace Armada.Runtimes
         /// </summary>
         /// <param name="endpoint">The inference model endpoint to drive.</param>
         /// <param name="logging">Logging module.</param>
-        /// <param name="maxIterations">Maximum tool-call iterations before the loop stops. Clamped to 1..1000.</param>
+        /// <param name="maxIterations">Maximum tool-call iterations before the loop stops. Null uses the endpoint
+        /// launch option, which defaults to 100. An explicit value is clamped to 1..1000.</param>
         /// <param name="clientFactory">Optional inference-client factory seam for testing; defaults to the
         /// production <see cref="ModelEndpointClientFactory"/>.</param>
         public ApiAgentRuntime(
             ModelEndpoint endpoint,
             LoggingModule logging,
-            int maxIterations = 100,
+            int? maxIterations = null,
             Func<ModelEndpoint, LoggingModule, CompletionClientBase>? clientFactory = null)
         {
             _Endpoint = endpoint ?? throw new ArgumentNullException(nameof(endpoint));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             if (!_Endpoint.Enabled) throw new InvalidOperationException("The model endpoint is disabled.");
             if (_Endpoint.Kind != ModelEndpointKindEnum.Inference) throw new InvalidOperationException("The API agent runtime requires an inference endpoint.");
-            _MaxIterations = Math.Clamp(maxIterations, 1, 1000);
+            _LaunchOptions = (_Endpoint.LaunchOptions ?? new EndpointLaunchOptions()).Copy();
+            EndpointLaunchOptionsRules.Validate(_LaunchOptions);
+            int iterations = maxIterations ?? _LaunchOptions.MaxIterations;
+            _MaxIterations = Math.Clamp(iterations, 1, 1000);
             _ClientFactory = clientFactory ?? new Func<ModelEndpoint, LoggingModule, CompletionClientBase>(
                 (ep, log) => CreateProductionClient(ep, log));
         }
@@ -310,16 +315,20 @@ namespace Armada.Runtimes
                 using CompletionClientBase client = _ClientFactory(_Endpoint, _Logging);
                 string? effectiveModel = String.IsNullOrWhiteSpace(model) ? _Endpoint.Model : model;
                 if (!String.IsNullOrWhiteSpace(effectiveModel)) client.Model = effectiveModel;
+                if (_LaunchOptions.MaxTokens.HasValue) client.MaxTokens = _LaunchOptions.MaxTokens.Value;
 
                 TaskPlan taskPlan = new TaskPlan();
                 BuiltInToolRegistry registry = new BuiltInToolRegistry(taskPlan, commandToolEnabled);
                 List<PolyToolDefinition> tools = BuildToolDefinitions(registry);
+                FilterOfferedTools(registry, tools);
 
                 HashSet<string> mcpToolNames = new HashSet<string>(StringComparer.Ordinal);
-                if (mcpAccess != null)
+                if (mcpAccess != null && EndpointLaunchPolicy.OffersTools(_LaunchOptions) && !_LaunchOptions.ReadOnlyTools)
                 {
                     mcpConnection = await ConnectMcpToolsAsync(processId, mcpAccess, tools, mcpToolNames, token).ConfigureAwait(false);
+                    FilterOfferedMcpTools(tools, mcpToolNames);
                 }
+                FilterToAllowList(tools);
                 DeferredMcpToolCatalog? deferredCatalog = mcpConnection?.DeferredCatalog;
 
                 List<ChatMessage> messages = new List<ChatMessage>();
@@ -344,6 +353,7 @@ namespace Armada.Runtimes
                     request.Messages = messages;
                     request.Tools = tools;
                     if (!String.IsNullOrWhiteSpace(effectiveModel)) request.Model = effectiveModel;
+                    if (_LaunchOptions.MaxTokens.HasValue) request.MaxTokens = _LaunchOptions.MaxTokens;
 
                     ToolChatStreamingResponse streamedResponse = await client.ToolChatStreamingAsync(request, token).ConfigureAwait(false);
                     if (streamedResponse.Chunks != null)
@@ -417,11 +427,23 @@ namespace Armada.Runtimes
                     foreach (ToolCall call in response.ToolCalls)
                     {
                         token.ThrowIfCancellationRequested();
-                        string resultContent = deferredCatalog != null && String.Equals(call.Name, DeferredMcpToolCatalog.DiscoveryName, StringComparison.Ordinal)
-                            ? ExecuteDiscoveryTool(processId, deferredCatalog, call, workingDirectory)
-                            : mcpConnection?.Client != null && mcpToolNames.Contains(call.Name)
-                                ? await ExecuteMcpToolAsync(processId, mcpConnection.Client, call, workingDirectory, token).ConfigureAwait(false)
-                                : await ExecuteToolAsync(processId, registry, call, workingDirectory, token).ConfigureAwait(false);
+                        string resultContent;
+                        if (IsDisallowedToolCall(registry, mcpToolNames, call.Name))
+                        {
+                            resultContent = JsonSerializer.Serialize(new
+                            {
+                                error = "tool_not_allowed",
+                                message = "Tool '" + call.Name + "' is not allowed for this endpoint."
+                            });
+                        }
+                        else
+                        {
+                            resultContent = deferredCatalog != null && String.Equals(call.Name, DeferredMcpToolCatalog.DiscoveryName, StringComparison.Ordinal)
+                                ? ExecuteDiscoveryTool(processId, deferredCatalog, call, workingDirectory)
+                                : mcpConnection?.Client != null && mcpToolNames.Contains(call.Name)
+                                    ? await ExecuteMcpToolAsync(processId, mcpConnection.Client, call, workingDirectory, token).ConfigureAwait(false)
+                                    : await ExecuteToolAsync(processId, registry, call, workingDirectory, token).ConfigureAwait(false);
+                        }
                         messages.Add(ChatMessage.ToolResult(call.Id, call.Name, resultContent));
                     }
 
@@ -913,6 +935,67 @@ namespace Armada.Runtimes
                 _TransportClient = null;
                 throw;
             }
+        }
+
+        private void FilterOfferedTools(BuiltInToolRegistry registry, List<PolyToolDefinition> tools)
+        {
+            if (!EndpointLaunchPolicy.OffersTools(_LaunchOptions))
+            {
+                tools.Clear();
+                return;
+            }
+
+            for (int i = tools.Count - 1; i >= 0; i--)
+            {
+                string name = tools[i].Name;
+                if (!EndpointLaunchPolicy.AllowsBuiltIn(_LaunchOptions, name, registry.GetMutationKind(name)))
+                    tools.RemoveAt(i);
+            }
+        }
+
+        private void FilterOfferedMcpTools(List<PolyToolDefinition> tools, HashSet<string> mcpToolNames)
+        {
+            List<string> dropped = new List<string>();
+            foreach (string name in mcpToolNames)
+            {
+                if (!EndpointLaunchPolicy.AllowsMcp(_LaunchOptions, name)) dropped.Add(name);
+            }
+            foreach (string name in dropped) mcpToolNames.Remove(name);
+            if (dropped.Count == 0) return;
+            for (int i = tools.Count - 1; i >= 0; i--)
+            {
+                if (dropped.Contains(tools[i].Name)) tools.RemoveAt(i);
+            }
+        }
+
+        private void FilterToAllowList(List<PolyToolDefinition> tools)
+        {
+            HashSet<string>? allowed = EndpointLaunchPolicy.AllowedNames(_LaunchOptions);
+            if (allowed == null) return;
+            for (int i = tools.Count - 1; i >= 0; i--)
+            {
+                if (!allowed.Contains(tools[i].Name)) tools.RemoveAt(i);
+            }
+        }
+
+        private bool IsDisallowedToolCall(BuiltInToolRegistry registry, HashSet<string> mcpToolNames, string name)
+        {
+            if (mcpToolNames.Contains(name))
+                return !EndpointLaunchPolicy.AllowsMcp(_LaunchOptions, name);
+
+            bool builtIn = false;
+            foreach (ArmadaToolDefinition tool in registry.GetToolDefinitions())
+            {
+                if (!String.Equals(tool.Name, name, StringComparison.Ordinal)) continue;
+                builtIn = true;
+                break;
+            }
+            if (builtIn)
+                return !EndpointLaunchPolicy.AllowsBuiltIn(_LaunchOptions, name, registry.GetMutationKind(name));
+
+            if (String.Equals(name, DeferredMcpToolCatalog.DiscoveryName, StringComparison.Ordinal))
+                return !EndpointLaunchPolicy.AllowsMcp(_LaunchOptions, name);
+            return false;
         }
 
         private List<PolyToolDefinition> BuildToolDefinitions(BuiltInToolRegistry registry)

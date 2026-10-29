@@ -18,6 +18,7 @@ namespace Armada.Server.Mcp
     using ModelContextProtocol.Protocol;
     using ModelContextProtocol.Server;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Hosts Armada's MCP tools over the official MCP C# SDK Streamable HTTP transport.
@@ -397,6 +398,22 @@ namespace Armada.Server.Mcp
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (CollectionLimitExceededException limit)
+            {
+                object result = McpCollectionLimitError.Create(limit);
+                CallToolResult toolResult = ConvertToolResult(result, out string? toolError);
+                await WriteToolAuditAsync(
+                    request.Params.Name,
+                    arguments,
+                    "Failed",
+                    false,
+                    toolError ?? limit.Message,
+                    cancellationToken).ConfigureAwait(false);
+                return await AppendPendingWakesAsync(
+                    request.Params.Name,
+                    toolResult,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

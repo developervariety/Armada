@@ -5748,6 +5748,16 @@ All enumerations serialize as strings in JSON (e.g., `"InProgress"`, not `2`).
 
 ---
 
+### Model endpoint launch options
+
+An inference endpoint stores `launchOptions`. Omitted on create or update, the stored options stay as they are. A stored null reads as the defaults: tools on, read-only tools off, every otherwise offered tool allowed, `maxIterations` 100, and `maxTokens` unset so the provider default stands. An empty `allowedTools` list allows no tools. A null list allows every tool the launch would otherwise offer. `maxIterations` is from 1 to 1000. `maxTokens`, when set, is from 1 to 10000000. Tool names are exact, unique, trimmed, and at most 256 characters, and the list holds at most 256 names.
+
+A mission launch and an Ask turn on that endpoint apply the options. Read-only tools offer only built-in read-only tools: no shell, no file mutation, and no MCP tool. A tool the model names anyway is refused and is not executed. Create and update reject an invalid value with HTTP 400. A list past 256 names uses the [collection-limit](REQUEST_LIMITS.md) body. Any other invalid option uses `data.code` `InvalidEndpointOptions` and `data.field`.
+
+### Request size limits
+
+A request that asks for more items than its field allows is HTTP 400. The body `data` carries `code` `CollectionLimitExceeded`, `field`, `limit` and `actual`. The numbers and the fields they cover are in [Request limits](REQUEST_LIMITS.md). A successful response keeps its present shape.
+
 ### Request Types
 
 #### EnumerationQuery

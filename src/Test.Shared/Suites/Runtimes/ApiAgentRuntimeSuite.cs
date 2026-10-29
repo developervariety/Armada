@@ -603,6 +603,97 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("endpoint_launch_options_bound_the_run", "Endpoint launch options bound the tools, the iteration cap and the completion length", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    script.Enqueue(new ToolChatResponse
+                    {
+                        Success = true,
+                        ToolCalls = new List<ToolCall>
+                        {
+                            new ToolCall { Id = "w1", Name = "write_file", ArgumentsJson = "{\"file_path\":\"secret.txt\",\"content\":\"nope\"}" },
+                            new ToolCall { Id = "r1", Name = "run_command", ArgumentsJson = "{\"command\":\"echo reached > marker.txt\"}" }
+                        }
+                    });
+                    script.Enqueue(new ToolChatResponse
+                    {
+                        Success = true,
+                        ToolCalls = new List<ToolCall> { new ToolCall { Id = "r2", Name = "read_file", ArgumentsJson = "{\"file_path\":\"secret.txt\"}" } }
+                    });
+                    script.Enqueue(new ToolChatResponse { Success = true, Text = "Still going.", ToolCalls = new List<ToolCall>() });
+
+                    ModelEndpoint endpoint = NewEndpoint("bounded");
+                    endpoint.LaunchOptions = new EndpointLaunchOptions
+                    {
+                        ReadOnlyTools = true,
+                        MaxTokens = 32,
+                        MaxIterations = 2
+                    };
+                    ScriptedClient client = new ScriptedClient(script, CreateLogging());
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), null, (ep, log) => client);
+                    runtime.CommandToolEnabled = true;
+
+                    int? exitCode = null;
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                    runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                    await runtime.StartAsync(dir, "Inspect the tree.").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(30)), "The run must finish.");
+
+                    AssertEqual(2, client.ToolNamesPerCall.Count, "MaxIterations 2 stops before a third model call.");
+                    AssertEqual(32, client.LastMaxTokens ?? -1, "The request must carry the endpoint completion length.");
+                    AssertTrue(client.ToolNamesPerCall[0].Contains("read_file"), "A read-only launch must still offer read_file.");
+                    AssertFalse(client.ToolNamesPerCall[0].Contains("write_file"), "A read-only launch must not offer write_file.");
+                    AssertFalse(client.ToolNamesPerCall[0].Contains("run_command"), "A read-only launch must not offer the shell.");
+                    AssertFalse(File.Exists(Path.Combine(dir, "secret.txt")), "A refused write must not create a file.");
+                    AssertFalse(File.Exists(Path.Combine(dir, "marker.txt")), "A refused command must not run.");
+                    string results = String.Join("\n", client.ToolResultsSeen);
+                    AssertTrue(results.Contains("tool_not_allowed", StringComparison.Ordinal), "A refused tool call must say it is not allowed: " + results);
+                    AssertEqual(2, exitCode ?? -1, "The iteration cap must stop a run that is still calling tools.");
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
+            cases.Add(CaseAsync("empty_allowed_tools_offers_nothing", "An empty allowed-tool list offers no tools and executes none", TestTags.Negative, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    script.Enqueue(new ToolChatResponse
+                    {
+                        Success = true,
+                        ToolCalls = new List<ToolCall> { new ToolCall { Id = "r1", Name = "read_file", ArgumentsJson = "{\"file_path\":\"secret.txt\"}" } }
+                    });
+                    script.Enqueue(new ToolChatResponse { Success = true, Text = "Done.", ToolCalls = new List<ToolCall>() });
+                    File.WriteAllText(Path.Combine(dir, "secret.txt"), "hidden");
+
+                    ModelEndpoint endpoint = NewEndpoint("no-tools");
+                    endpoint.LaunchOptions = new EndpointLaunchOptions { AllowedTools = new List<string>() };
+                    ScriptedClient client = new ScriptedClient(script, CreateLogging());
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 5, (ep, log) => client);
+
+                    int? exitCode = null;
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                    runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                    await runtime.StartAsync(dir, "Read the file.").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(30)), "The run must finish.");
+                    AssertEqual(0, client.ToolNamesPerCall[0].Count, "An empty allow-list must offer no tools.");
+                    AssertTrue(String.Join("\n", client.ToolResultsSeen).Contains("tool_not_allowed", StringComparison.Ordinal),
+                        "A call must be refused when no tool is allowed.");
+                    AssertEqual(0, exitCode ?? -1);
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
             cases.Add(CaseAsync("tool_calls_are_activity_records_not_answer_text", "Tool calls are reported as activity records separate from the model answer", TestTags.Positive, async () =>
             {
                 string dir = NewTempDir();
@@ -1316,12 +1407,16 @@ namespace Test.Shared.Suites.Runtimes
             /// <summary>Tool names offered to the model, one list per inference call.</summary>
             public List<List<string>> ToolNamesPerCall { get; } = new List<List<string>>();
 
+            /// <summary>Completion length of the latest model request, or null when the launch did not set one.</summary>
+            public int? LastMaxTokens { get; private set; }
+
             /// <summary>Tool-result contents the model was shown, copied at each call because the loop reuses
             /// one message list across turns.</summary>
             public List<string> ToolResultsSeen { get; } = new List<string>();
 
             private void Record(ToolChatRequest request)
             {
+                LastMaxTokens = request.MaxTokens;
                 List<string> names = new List<string>();
                 if (request.Tools != null)
                 {

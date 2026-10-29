@@ -126,6 +126,33 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(1, secondSlot.TotalCount);
             }));
 
+            cases.Add(Case("build_rejects_a_window_over_1000_buckets", "Build rejects a window that would fill more than 1000 buckets", TestTags.Negative, () =>
+            {
+                // One-minute buckets across 1000 minutes fill 1001 inclusive slots, one past the limit.
+                DateTime start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                RequestHistoryQuery query = new RequestHistoryQuery
+                {
+                    FromUtc = start,
+                    ToUtc = start.AddMinutes(1000),
+                    BucketMinutes = 1
+                };
+
+                CollectionLimitExceededException? refused = null;
+                try
+                {
+                    RequestHistorySummaryBuilder.Build(new List<RequestHistoryEntry>(), query);
+                }
+                catch (CollectionLimitExceededException ex)
+                {
+                    refused = ex;
+                }
+
+                AssertTrue(refused != null, "A window of more than 1000 buckets must be refused.");
+                AssertEqual("Buckets", refused!.Field);
+                AssertEqual(CollectionLimits.MaxSummaryBuckets, refused.Limit);
+                AssertEqual(1001L, refused.Actual);
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Request History Summary Builder",

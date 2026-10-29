@@ -751,7 +751,8 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE ask_threads ADD COLUMN unread_count INT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(129, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.MysqlStatements),
                 new SchemaMigration(130, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.MysqlStatements),
-                new SchemaMigration(131, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.MysqlStatements)
+                new SchemaMigration(131, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.MysqlStatements),
+                new SchemaMigration(132, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.MysqlStatements)
             };
         }
 

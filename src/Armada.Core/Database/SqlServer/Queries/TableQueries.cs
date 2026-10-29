@@ -1032,7 +1032,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('ask_threads', 'unread_count') IS NULL ALTER TABLE ask_threads ADD unread_count INT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(132, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.SqlServerStatements),
                 new SchemaMigration(133, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.SqlServerStatements),
-                new SchemaMigration(134, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.SqlServerStatements)
+                new SchemaMigration(134, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.SqlServerStatements),
+                new SchemaMigration(135, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.SqlServerStatements)
             };
         }
 

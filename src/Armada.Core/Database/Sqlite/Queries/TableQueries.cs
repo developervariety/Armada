@@ -1693,7 +1693,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE ask_threads ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(136, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.SqliteStatements),
                 new SchemaMigration(137, "Persist the latest state of each incident in an indexed projection table", IncidentSchema.SqliteStatements),
-                new SchemaMigration(138, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.SqliteStatements)
+                new SchemaMigration(138, "Persist Ask native tool permission requests and remembered rules", AskToolPermissionSchema.SqliteStatements),
+                new SchemaMigration(139, "Persist launch options on model endpoints", EndpointLaunchOptionsPersistence.SqliteStatements)
             };
         }
 

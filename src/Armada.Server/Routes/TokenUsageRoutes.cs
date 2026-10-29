@@ -53,6 +53,14 @@ namespace Armada.Server.Routes
                 if (!query.ToUtc.HasValue) query.ToUtc = DateTime.UtcNow;
                 if (query.BucketMinutes <= 0) query.BucketMinutes = 15;
                 ApplyScope(ctx, query);
+                try
+                {
+                    CollectionLimits.RequireInclusiveBuckets(query.FromUtc.Value, query.ToUtc.Value, query.BucketMinutes);
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    return RequestErrorResponse.BadRequest(req, limit);
+                }
 
                 TokenUsageSummaryService summaries = new TokenUsageSummaryService(_database.TokenUsage, _jsonOptions);
                 return await summaries.SummarizeAsync(query).ConfigureAwait(false);
