@@ -30,6 +30,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import CliPermissionCard from '../components/cliPermissions/CliPermissionCard';
 import { useLiveRefresh } from '../lib/useLiveRefresh';
 import { CLI_PERMISSION_EVENT_PREFIX, mergeCliRequest, requestStatusLabel } from '../lib/cliPermissions';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 /** The route's maximum; the list has no total, so a full page means there may be more (said visibly below). */
 const REQUEST_LIMIT = 1000;
@@ -137,6 +138,7 @@ function RulesPanel() {
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { isAdmin, isTenantAdmin } = useAuth();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const canEdit = !!isAdmin || !!isTenantAdmin;
   const [scopeFilter, setScopeFilter] = useState<CliPermissionRuleScope | ''>('');
   const [rules, setRules] = useState<CliPermissionRule[]>([]);
@@ -249,14 +251,10 @@ function RulesPanel() {
     const rule = deleteTarget;
     setDeleteTarget(null);
     if (!rule) return;
-    try {
-      await deleteCliPermissionRule(rule.id);
-      setRules((prev) => prev.filter((r) => r.id !== rule.id));
-      if (editingId === rule.id) cancelEdit();
-      pushToast('success', t('Rule deleted.'));
-    } catch (err: unknown) {
-      setError(errorText(err, t('The rule could not be deleted.')));
-    }
+    if (!(await deletion.run({ kind: 'cliPermissionRule', action: () => deleteCliPermissionRule(rule.id), errorMessage: (err) => errorText(err, t('The rule could not be deleted.')) }))) return;
+    setRules((prev) => prev.filter((r) => r.id !== rule.id));
+    if (editingId === rule.id) cancelEdit();
+    pushToast('success', t('Rule deleted.'));
   }
 
   const ruleColumns: DataTableColumn<CliPermissionRule>[] = [
@@ -391,6 +389,7 @@ function RulesPanel() {
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteTarget(null)}
       />
+      {deletion.dialog}
     </section>
   );
 }
