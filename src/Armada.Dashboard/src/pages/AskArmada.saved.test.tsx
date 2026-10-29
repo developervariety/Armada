@@ -2,12 +2,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import AskArmada from './AskArmada';
-import { createAskThread, getAskThread, getAskTurn, getCaptainAskTools, listAskThreads, listAskTurns, listCaptains, markAskThreadRead, markAskThreadUnread, sendAskTurn, updateAskThread } from '../api/client';
+import { createAskThread, deleteAskThread, deleteAskThreads, getAskThread, getAskTurn, getCaptainAskTools, listAskThreads, listAskTurns, listCaptains, markAskThreadRead, markAskThreadUnread, sendAskTurn, updateAskThread } from '../api/client';
 import type { AskThread, AskTurn, Captain, CaptainChatMetrics, CaptainToolAccessResult } from '../types/models';
 import type { ChatTurn } from '../components/shared/CaptainChatPanel';
 
 vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
-  createAskThread: vi.fn(), getAskThread: vi.fn(), getAskTurn: vi.fn(), getCaptainAskTools: vi.fn(),
+  createAskThread: vi.fn(), deleteAskThread: vi.fn(), deleteAskThreads: vi.fn(), getAskThread: vi.fn(), getAskTurn: vi.fn(), getCaptainAskTools: vi.fn(),
   listAskThreads: vi.fn(), listAskTurns: vi.fn(), listCaptains: vi.fn(), markAskThreadRead: vi.fn(), markAskThreadUnread: vi.fn(), sendAskTurn: vi.fn(), updateAskThread: vi.fn(),
 }));
 vi.mock('../context/LocaleContext', () => {
@@ -90,6 +90,43 @@ describe('Ask Armada saved conversations', () => {
     await waitFor(() => expect(updateAskThread).toHaveBeenCalledWith(thread.id, { setPinned: true, pinned: true }));
     fireEvent.click(screen.getByLabelText('Archive conversation'));
     await waitFor(() => expect(updateAskThread).toHaveBeenCalledWith(thread.id, { setArchived: true, archived: true }));
+  });
+
+  it('offers delete only on archived conversations, behind a confirmation and a progress dialog', async () => {
+    const archived: AskThread = { ...secondThread, archived: true };
+    vi.mocked(listAskThreads).mockResolvedValue([thread, archived] as never);
+    const pendingDelete = deferred<void>();
+    vi.mocked(deleteAskThread).mockReturnValue(pendingDelete.promise as never);
+    await renderSavedPage();
+    expect(await screen.findByText('Second conversation')).toBeInTheDocument();
+    expect(screen.getAllByLabelText('Delete conversation')).toHaveLength(1);
+
+    vi.mocked(listAskThreads).mockResolvedValue([thread] as never);
+    fireEvent.click(screen.getByLabelText('Delete conversation'));
+    expect(deleteAskThread).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(deleteAskThread).toHaveBeenCalledWith(archived.id));
+    expect(await screen.findByText('This may take some time.')).toBeInTheDocument();
+    pendingDelete.resolve();
+    await waitFor(() => expect(screen.queryByText('Second conversation')).not.toBeInTheDocument());
+    expect(screen.queryByText('This may take some time.')).not.toBeInTheDocument();
+  });
+
+  it('deletes the ticked archived conversations in one request and names each one that was kept', async () => {
+    const archivedA: AskThread = { ...secondThread, id: 'ath_a', title: 'Old A', archived: true };
+    const archivedB: AskThread = { ...secondThread, id: 'ath_b', title: 'Old B', archived: true };
+    vi.mocked(listAskThreads).mockResolvedValue([archivedA, archivedB] as never);
+    vi.mocked(getAskThread).mockImplementation(async (id: string) => (id === archivedB.id ? archivedB : archivedA) as never);
+    vi.mocked(deleteAskThreads).mockResolvedValue({ deleted: 1, skipped: [{ id: 'ath_b', reason: 'The conversation has an active turn.' }] } as never);
+    await renderSavedPage();
+    await screen.findByText('Old A');
+    const boxes = screen.getAllByLabelText('Select conversation for deletion');
+    boxes.forEach((box) => fireEvent.click(box));
+    vi.mocked(listAskThreads).mockResolvedValue([archivedB] as never);
+    fireEvent.click(screen.getByRole('button', { name: /Delete selected \(2\)/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(deleteAskThreads).toHaveBeenCalledWith(['ath_a', 'ath_b']));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Old B: The conversation has an active turn.');
   });
 
   it('opens the saved conversation named by an inbox link without choosing the tab first', async () => {

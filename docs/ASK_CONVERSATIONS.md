@@ -3,7 +3,7 @@
 Temporary chat keeps the current page-state conversation and direct captain
 chat route. Saved conversations add history on the Admiral. The Dashboard can create,
 resume, rename, pin and archive a thread. Archive hides a thread from the normal
-list; it does not delete history.
+list; deleting an archived thread removes its history.
 
 Each thread belongs to one user in one tenant. The Dashboard offers these as separate modes. Saved-thread routes retain the
 Ask administrator access rule. A mission credential cannot use these human
@@ -81,6 +81,8 @@ The saved-thread API uses these routes:
 | GET | `/api/v1/ask/threads/{id}/turns/{turnId}` | Read a stored request. |
 | POST | `/api/v1/ask/threads/{id}/read` | Clear the thread's unread count. |
 | POST | `/api/v1/ask/threads/{id}/unread` | Set the thread's unread count to one. |
+| DELETE | `/api/v1/ask/threads/{id}` | Delete an archived conversation. |
+| POST | `/api/v1/ask/threads/delete/multiple` | Delete up to 100 archived conversations. |
 
 The MCP tools `armada_list_ask_threads` and `armada_get_ask_thread` read a human
 owner's saved conversations. They are read-only: no MCP tool sends a message,
@@ -92,11 +94,10 @@ matching typed contracts. Clients must retain the request identifier until they
 know the result. Transport failure is not permission to submit the same text
 under a new identifier.
 
-The fork does not import upstream's central CLI permission requests and rules,
-automatic approval, retention pruning or bulk thread deletion with this feature.
 Temporary chat MCP access uses the captain chat service's current caller scope.
 Saved turns use a separate turn-bound MCP credential and the manual approval gate. Saved threads
-do not change dispatch, landing, rescue or deployment authority.
+do not change dispatch, landing, rescue or deployment authority. Nothing deletes a
+conversation automatically: there is no retention pruning.
 
 A send body has `requestId`, `content` and `showThinking`. It does not accept
 history or a captain identifier. A new request pins the thread's selected captain.
@@ -114,6 +115,21 @@ Thread updates use presence flags (`setTitle`, `setCaptainId`, `setPinned`,
 null captain clears it. Absent flags leave fields unchanged. Thread lists return
 an enumeration result. Turn lists return a bounded array in ascending sequence
 order, using the exclusive `beforeSequence` cursor for older pages.
+
+## Deleting conversations
+
+The owner deletes a conversation with `DELETE /api/v1/ask/threads/{id}`, or
+several with `POST /api/v1/ask/threads/delete/multiple` and a body of
+`{"ids": [...]}` (at most 100 distinct ids). Delete removes the thread with its
+turns and proposals and cannot be undone. Only the owner can delete, and no MCP
+tool deletes a conversation.
+
+A conversation is deleted only when it is archived, has no active turn, no
+uncertain turn and no proposal that is waiting for a decision or executing. The
+single route answers 204, 404 for an unknown conversation, or 409 with the reason.
+The bulk route answers 200 with `deleted`, `status` and a `skipped` entry
+(`id`, `reason`) for each refused id. Each delete records an `ask_thread.deleted`
+audit event that keeps the thread id and title.
 
 ## Native tool access
 

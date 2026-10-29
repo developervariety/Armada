@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Ask conversation delete
+
+- `DELETE /api/v1/ask/threads/{id}` and `POST /api/v1/ask/threads/delete/multiple` (at most 100 ids) delete the caller's own archived Ask conversations with their turns and proposals. A conversation with an active or uncertain turn, or a proposal that is waiting for a decision or executing, is kept: the single route answers 409 with the reason and the bulk route lists the id in `skipped` with its reason. Each delete records an `ask_thread.deleted` event that keeps the thread id and title. The Dashboard shows Delete on archived conversations and a Delete selected action. No MCP tool deletes a conversation, and nothing deletes one automatically.
+
 ### Delete progress dialog
 
 - The Dashboard opens a progress dialog while a slow delete runs: vessel delete, mission and voyage purge, bulk delete of vessels, missions, docks, captains and fleets, and Ask conversation delete. The dialog says the delete may take some time, cannot be dismissed while the request is pending, closes on success, and turns into the error with Retry and Dismiss on failure. A second delete started while one is pending is ignored.

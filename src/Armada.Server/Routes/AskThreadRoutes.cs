@@ -35,6 +35,7 @@ namespace Armada.Server.Routes
         {
             RegisterThreadRoutes(app, authenticate, authz);
             RegisterUnreadRoutes(app, authenticate, authz);
+            RegisterDeleteRoutes(app, authenticate, authz);
             RegisterTurnRoutes(app, authenticate, authz);
         }
 

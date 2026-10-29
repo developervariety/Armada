@@ -28,7 +28,8 @@ namespace Test.Shared.Suites.Services
                 Case("tool_calls_are_saved_with_the_turn_and_survive_a_failed_turn", ToolCallsSavedAsync),
                 Case("running_turn_reports_the_tool_calls_made_so_far", ToolCallsLiveAsync),
                 Case("finished_reply_is_unread_until_the_owner_reads_it", UnreadAsync),
-                Case("mcp_tools_only_read_the_callers_own_conversations", McpReadToolsAsync)
+                Case("mcp_tools_only_read_the_callers_own_conversations", McpReadToolsAsync),
+                Case("delete_removes_archived_idle_threads_and_reports_each_refusal", DeleteAsync)
             });
         }
 

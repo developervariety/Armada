@@ -44,7 +44,58 @@ namespace Test.Shared.Suites.E2E
                 await VerifyUnreadRoutesAsync(fx, thread.Id).ConfigureAwait(false);
                 await VerifyTurnAndLegacyRoutesAsync(fx, thread.Id).ConfigureAwait(false);
                 await VerifyMalformedBodiesAsync(fx, thread.Id).ConfigureAwait(false);
+                await VerifyDeleteRoutesAsync(fx, thread.Id).ConfigureAwait(false);
             }
+        }
+
+        private static async Task<AskThread> CreateThreadAsync(E2EServerFixture fx, string title)
+        {
+            using (HttpResponseMessage created = await fx.AuthClient.PostAsync("/api/v1/ask/threads", JsonHelper.ToJsonContent(new { title })).ConfigureAwait(false))
+                return await JsonHelper.DeserializeAsync<AskThread>(created).ConfigureAwait(false);
+        }
+
+        private static async Task VerifyDeleteRoutesAsync(E2EServerFixture fx, string activeThreadId)
+        {
+            AskThread archived = await CreateThreadAsync(fx, "Delete me").ConfigureAwait(false);
+            AskThread kept = await CreateThreadAsync(fx, "Keep me").ConfigureAwait(false);
+            using (HttpResponseMessage archive = await fx.AuthClient.PutAsync("/api/v1/ask/threads/" + archived.Id, JsonHelper.ToJsonContent(new { setArchived = true, archived = true })).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.OK, archive.StatusCode);
+
+            using (HttpResponseMessage notArchived = await fx.AuthClient.DeleteAsync("/api/v1/ask/threads/" + kept.Id).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.Conflict, notArchived.StatusCode);
+            using (HttpClient otherAdmin = await AskThreadApiTestClients.CreateOtherAdminAsync(fx).ConfigureAwait(false))
+            using (HttpResponseMessage foreign = await otherAdmin.DeleteAsync("/api/v1/ask/threads/" + archived.Id).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.NotFound, foreign.StatusCode);
+            using (HttpClient regular = await AskThreadApiTestClients.CreateBearerUserAsync(fx, false).ConfigureAwait(false))
+            {
+                using (HttpResponseMessage refused = await regular.DeleteAsync("/api/v1/ask/threads/" + archived.Id).ConfigureAwait(false))
+                    AssertEqual(HttpStatusCode.Forbidden, refused.StatusCode);
+                using (HttpResponseMessage refusedBatch = await regular.PostAsync("/api/v1/ask/threads/delete/multiple", JsonHelper.ToJsonContent(new { ids = new[] { archived.Id } })).ConfigureAwait(false))
+                    AssertEqual(HttpStatusCode.Forbidden, refusedBatch.StatusCode);
+            }
+            using (HttpResponseMessage unauth = await fx.UnauthClient.DeleteAsync("/api/v1/ask/threads/" + archived.Id).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.Unauthorized, unauth.StatusCode);
+
+            using (HttpResponseMessage deleted = await fx.AuthClient.DeleteAsync("/api/v1/ask/threads/" + archived.Id).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.NoContent, deleted.StatusCode);
+            using (HttpResponseMessage gone = await fx.AuthClient.GetAsync("/api/v1/ask/threads/" + archived.Id).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.NotFound, gone.StatusCode);
+            using (HttpResponseMessage again = await fx.AuthClient.DeleteAsync("/api/v1/ask/threads/" + archived.Id).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.NotFound, again.StatusCode);
+
+            using (HttpResponseMessage batch = await fx.AuthClient.PostAsync("/api/v1/ask/threads/delete/multiple", JsonHelper.ToJsonContent(new { ids = new[] { kept.Id, activeThreadId, "ask_missing" } })).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.OK, batch.StatusCode);
+                DeleteMultipleResult result = await JsonHelper.DeserializeAsync<DeleteMultipleResult>(batch).ConfigureAwait(false);
+                AssertEqual(0, result.Deleted);
+                AssertEqual(3, result.Skipped.Count);
+            }
+            using (HttpResponseMessage empty = await fx.AuthClient.PostAsync("/api/v1/ask/threads/delete/multiple", JsonHelper.ToJsonContent(new { ids = new string[0] })).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.BadRequest, empty.StatusCode);
+            string[] tooMany = new string[AskThreadService.MaxDeleteBatch + 1];
+            for (int i = 0; i < tooMany.Length; i++) tooMany[i] = "ask_x" + i;
+            using (HttpResponseMessage capped = await fx.AuthClient.PostAsync("/api/v1/ask/threads/delete/multiple", JsonHelper.ToJsonContent(new { ids = tooMany })).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.BadRequest, capped.StatusCode);
         }
 
         private static async Task VerifyOtherOwnersCannotReadAsync(E2EServerFixture fx, string threadId)

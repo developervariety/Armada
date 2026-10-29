@@ -1331,6 +1331,12 @@ export const getAskThread = (id: string) =>
   get<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`);
 export const updateAskThread = (id: string, data: AskThreadUpdateRequest) =>
   put<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}`, data);
+/** Deletes an archived conversation; a conversation that is busy or has an open proposal answers 409. */
+export const deleteAskThread = (id: string) =>
+  del<void>(`/api/v1/ask/threads/${encodeURIComponent(id)}`);
+/** Deletes up to 100 archived conversations. A conversation that cannot be deleted comes back in `skipped` with its reason. */
+export const deleteAskThreads = (ids: string[]) =>
+  post<BatchDeleteResult>('/api/v1/ask/threads/delete/multiple', { ids });
 export const markAskThreadRead = (id: string) =>
   post<AskThread>(`/api/v1/ask/threads/${encodeURIComponent(id)}/read`);
 export const markAskThreadUnread = (id: string) =>
