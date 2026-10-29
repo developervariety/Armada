@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Query parameters for paginated enumeration of entities.
@@ -13,7 +14,7 @@ namespace Armada.Core.Models
         #region Private-Members
 
         private int _PageNumber = 1;
-        private int _PageSize = 10;
+        private int _PageSize = CollectionLimits.DefaultPageSize;
 
         #endregion
 
@@ -36,8 +37,8 @@ namespace Armada.Core.Models
             get => _PageSize;
             set
             {
-                if (value < 1) _PageSize = 1;
-                else if (value > 1000) _PageSize = 1000;
+                if (value < CollectionLimits.MinPageSize) _PageSize = CollectionLimits.MinPageSize;
+                else if (value > CollectionLimits.MaxPageSize) _PageSize = CollectionLimits.MaxPageSize;
                 else _PageSize = value;
             }
         }

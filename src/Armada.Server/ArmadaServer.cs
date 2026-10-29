@@ -1910,7 +1910,16 @@ namespace Armada.Server
                 // The call's token (cancelled when the client cancels or drops the call) flows to handlers that wait,
                 // such as cli_permission_prompt. Set inside this async lambda, so it never leaks to the caller's flow.
                 McpToolHelpers.SetCallToken(callToken);
-                return await handler(args).ConfigureAwait(false);
+                try
+                {
+                    return await handler(args).ConfigureAwait(false);
+                }
+                catch (CollectionLimitExceededException limit)
+                {
+                    // A collection over its limit is a typed InvalidArgument (Code CollectionLimitExceeded), never a
+                    // generic tool failure.
+                    return McpToolError.FromException(limit);
+                }
             });
         }
 
