@@ -247,6 +247,10 @@ namespace Test.Shared.Suites.Tui
                 AssertFalse(CaptainForm.SupportsAutoApprove(null), "none");
                 AssertNull(CaptainForm.RuntimeOptionsJson(AgentRuntimeEnum.Codex, new MuxCaptainOptions(), true), "no mux options for codex");
                 AssertTrue(AskController.InstructionsUrl(AgentRuntimeEnum.Mux).EndsWith("INSTRUCTIONS_FOR_MUX.md", StringComparison.Ordinal), "mux docs");
+                AssertTrue(AskController.InstructionsUrl(AgentRuntimeEnum.Pi).EndsWith("INSTRUCTIONS_FOR_PI.md", StringComparison.Ordinal), "pi docs");
+                AssertTrue(CaptainForm.SupportsAutoApprove(AgentRuntimeEnum.Pi), "pi");
+                AssertTrue(Array.IndexOf(CaptainForm.Runtimes, AgentRuntimeEnum.Pi) >= 0, "the captain form offers pi");
+                AssertEqual("pi", CaptainForm.RuntimeLabel(AgentRuntimeEnum.Pi));
                 AssertTrue(AskController.InstructionsUrl(null).EndsWith("MCP_API.md", StringComparison.Ordinal), "fallback docs");
 
                 AssertNull(new HarborLaunchRequest { Runtime = "1" }.RuntimeType, "numeric harbor runtime rejected (was Codex)");

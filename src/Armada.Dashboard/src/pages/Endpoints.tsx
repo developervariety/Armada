@@ -374,21 +374,21 @@ export default function Endpoints() {
 
   const columns: DataTableColumn<ModelEndpoint>[] = [
     {
-      key: 'name', label: t('Endpoint'), required: true, headerTitle: t('Endpoint name, shown when choosing an endpoint for a captain. (disabled) means it is not used or health-checked.'), cellClassName: 'cell-nowrap',
-      render: (endpoint) => (
-        <>
-          <strong>{endpoint.name}</strong>
-          {!endpoint.enabled && <span className="text-dim"> ({t('disabled')})</span>}
-        </>
-      ),
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique endpoint ID (mep_ prefix), used by captains and the API to refer to this endpoint.'), cellClassName: 'mono text-dim table-id-cell', interactive: true,
       render: (endpoint) => (
         <span className="id-display">
           <span className="id-value" title={endpoint.id}>{endpoint.id}</span>
           <CopyButton text={endpoint.id} title={t('Copy endpoint ID')} />
         </span>
+      ),
+    },
+    {
+      key: 'name', label: t('Endpoint'), required: true, headerTitle: t('Endpoint name, shown when choosing an endpoint for a captain. (disabled) means it is not used or health-checked.'), cellClassName: 'cell-nowrap',
+      render: (endpoint) => (
+        <>
+          <strong>{endpoint.name}</strong>
+          {!endpoint.enabled && <span className="text-dim"> ({t('disabled')})</span>}
+        </>
       ),
     },
     {

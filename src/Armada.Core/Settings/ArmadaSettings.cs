@@ -192,7 +192,34 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Time limit, in minutes, for each stage-check command a vessel's workflow profile defines (its build and unit-test
+        /// Hard limit in minutes for suppressing an output stall while a runtime tool is outstanding. Must be >= 1.
+        /// Configure larger than StallThresholdMinutes to allow long quiet commands. Default: 60.
+        /// </summary>
+        public int ToolWaitHardLimitMinutes
+        {
+            get => _ToolWaitHardLimitMinutes;
+            set
+            {
+                if (value < 1) throw new ArgumentOutOfRangeException(nameof(ToolWaitHardLimitMinutes), "Must be >= 1");
+                _ToolWaitHardLimitMinutes = value;
+            }
+        }
+
+        /// <summary>
+        /// Token budget for the prior stage's handoff delivered to a captain whose served context is not known (CLI
+        /// runtimes, endpoints without a context length). A reader with a known served context gets one eighth of it
+        /// instead. Findings and required actions are delivered first, then relevant diff sections, then a pointer to
+        /// the complete handoff artifact and the list of what did not fit. Clamped to [0, 1000000]; 0 delivers only the
+        /// pointer and the did-not-fit list.
+        /// </summary>
+        public int HandoffBudgetTokens
+        {
+            get => _HandoffBudgetTokens;
+            set => _HandoffBudgetTokens = value < 0 ? 0 : (value > 1000000 ? 1000000 : value);
+        }
+
+        /// <summary>
+        /// Shared execution time limit, in minutes, for the stage-check commands and baseline checks a vessel's workflow profile defines (its build and unit-test
         /// commands, run in the dock after a stage's agent exits). A command that runs longer is reported as a timed-out
         /// check. Set it above the slowest command's real duration, or give the profile a narrower test command.
         /// Must be in range [1, 240].
@@ -206,6 +233,17 @@ namespace Armada.Core.Settings
                 _StageCheckTimeoutMinutes = value;
             }
         }
+
+        /// <summary>
+        /// Maximum simultaneously executing stage checks per Harbor (including the local host). Queued checks wait.
+        /// </summary>
+        public int StageCheckConcurrencyPerHarbor
+        {
+            get => _StageCheckConcurrencyPerHarbor;
+            set => _StageCheckConcurrencyPerHarbor = value >= 1 && value <= 64 ? value : throw new ArgumentOutOfRangeException(nameof(StageCheckConcurrencyPerHarbor));
+        }
+
+        private int _StageCheckConcurrencyPerHarbor = 1;
 
         /// <summary>
         /// Maximum number of automatic landing retries when landing fails due to target-branch drift.
@@ -919,7 +957,9 @@ namespace Armada.Core.Settings
         private int _CaptainCrashLoopWindowMinutes = 15;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
+        private int _ToolWaitHardLimitMinutes = 60;
         private int _StageCheckTimeoutMinutes = Constants.DefaultStageCheckTimeoutMinutes;
+        private int _HandoffBudgetTokens = Constants.DefaultHandoffBudgetTokens;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
         private int _MaxMissionRuntimeMinutes = Constants.DefaultMaxMissionRuntimeMinutes;
         private int _ReviewTimeoutMinutes = Constants.DefaultReviewTimeoutMinutes;

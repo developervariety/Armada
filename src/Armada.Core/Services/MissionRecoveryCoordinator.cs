@@ -27,6 +27,7 @@ namespace Armada.Core.Services
         private readonly DatabaseDriver _Database;
         private readonly ArmadaSettings _Settings;
         private readonly IncidentService _Incidents;
+        private readonly SemaphoreSlim _MaintenanceGate = new SemaphoreSlim(1, 1);
 
         private static readonly TimeSpan _FailureLookback = TimeSpan.FromHours(24);
         private const int MaxDiffExcerptChars = 4000;
@@ -40,6 +41,7 @@ namespace Armada.Core.Services
             MissionStatusEnum.Assigned,
             MissionStatusEnum.InProgress,
             MissionStatusEnum.Testing,
+            MissionStatusEnum.Verifying,
             MissionStatusEnum.Review,
             MissionStatusEnum.WorkProduced,
             MissionStatusEnum.PullRequestOpen
@@ -73,6 +75,13 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         public async Task MaintainAsync(CancellationToken token = default)
+        {
+            await _MaintenanceGate.WaitAsync(token).ConfigureAwait(false);
+            try { await MaintainCoreAsync(token).ConfigureAwait(false); }
+            finally { _MaintenanceGate.Release(); }
+        }
+
+        private async Task MaintainCoreAsync(CancellationToken token)
         {
             int maxAttempts = _Settings.MaxMissionRecoveryAttempts;
             if (maxAttempts <= 0) return; // Autonomous recovery disabled.
@@ -146,6 +155,16 @@ namespace Armada.Core.Services
             bool anyComplete = rescues.Any(m => m.Status == MissionStatusEnum.Complete);
             if (anyComplete)
             {
+                Mission landed = rescues.First(m => m.Status == MissionStatusEnum.Complete);
+                Mission? unresolved = await _Database.Missions.ReadAsync(original.Id, token).ConfigureAwait(false);
+                if (unresolved != null && (unresolved.Status == MissionStatusEnum.Failed || unresolved.Status == MissionStatusEnum.LandingFailed))
+                {
+                    unresolved.Status = MissionStatusEnum.Complete;
+                    unresolved.FailureReason = "Resolved by landed rescue " + landed.Id + ". Prior failure: " + unresolved.FailureReason;
+                    unresolved.CompletedUtc = DateTime.UtcNow;
+                    unresolved.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.TryUpdateIfStatusAsync(unresolved, new[] { MissionStatusEnum.Failed, MissionStatusEnum.LandingFailed }, token).ConfigureAwait(false);
+                }
                 await TransitionAsync(auth, incident, IncidentStatusEnum.Mitigated, "A rescue mission landed successfully.", token).ConfigureAwait(false);
                 return;
             }
@@ -157,7 +176,8 @@ namespace Armada.Core.Services
             if (incident.RecoveryAttempts < maxAttempts)
             {
                 if (String.IsNullOrEmpty(incident.MissionId)) return;
-                Mission rescueMission = await DispatchRescueAsync(original, incident, token).ConfigureAwait(false);
+                Mission? rescueMission = await DispatchRescueAsync(original, incident, token).ConfigureAwait(false);
+                if (rescueMission == null) return;
                 incident.RescueMissionIds.Add(rescueMission.Id);
                 incident.RecoveryAttempts += 1;
                 incident.RecoveryNotes = "Dispatched rescue mission " + rescueMission.Id + " (attempt " + incident.RecoveryAttempts + "/" + maxAttempts + ").";
@@ -211,7 +231,8 @@ namespace Armada.Core.Services
                 // Dispatch the first rescue immediately when the budget allows.
                 if (maxAttempts > 0)
                 {
-                    Mission rescueMission = await DispatchRescueAsync(mission, incident, token).ConfigureAwait(false);
+                    Mission? rescueMission = await DispatchRescueAsync(mission, incident, token).ConfigureAwait(false);
+                    if (rescueMission == null) continue;
                     incident.RescueMissionIds.Add(rescueMission.Id);
                     incident.RecoveryAttempts += 1;
                     incident.RecoveryNotes = "Dispatched rescue mission " + rescueMission.Id + " (attempt 1/" + maxAttempts + ").";
@@ -240,11 +261,26 @@ namespace Armada.Core.Services
             return !voyageMissions.Any(m => String.Equals(m.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
         }
 
-        private async Task<Mission> DispatchRescueAsync(Mission original, Incident incident, CancellationToken token)
+        private async Task<Mission?> DispatchRescueAsync(Mission original, Incident incident, CancellationToken token)
         {
             // The rescue is a fresh, standalone Worker mission (no voyage attachment, so it never re-opens a
             // terminal voyage) linked back through ParentMissionId and the incident. The normal pending-dispatch
             // sweep assigns it on the next health cycle.
+            List<Mission> peers = await _Database.Missions.EnumerateByVesselAsync(original.VesselId!, token).ConfigureAwait(false);
+            Mission? existing = peers.FirstOrDefault(m => m.Id != original.Id && m.TenantId == original.TenantId
+                && _ActiveStatuses.Contains(m.Status)
+                && (m.ParentMissionId == original.Id || String.Equals(m.Title, original.Title, StringComparison.OrdinalIgnoreCase)
+                    || String.Equals(m.Title, "[Rescue] " + original.Title, StringComparison.OrdinalIgnoreCase)));
+            if (existing != null)
+            {
+                ArmadaEvent evt = new ArmadaEvent("mission.rescue_deduplicated", "Rescue for " + original.Id + " suppressed because " + existing.Id + " is open")
+                {
+                    TenantId = original.TenantId, UserId = original.UserId, EntityType = "mission", EntityId = original.Id,
+                    MissionId = original.Id, VesselId = original.VesselId, VoyageId = original.VoyageId
+                };
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+                return null;
+            }
             Mission rescue = new Mission();
             rescue.TenantId = original.TenantId;
             rescue.UserId = original.UserId;
@@ -268,7 +304,8 @@ namespace Armada.Core.Services
         {
             string brief =
                 "This is an autonomous RESCUE mission. A prior attempt at the work below failed and needs a " +
-                "fix-forward. Re-implement the change correctly, addressing the failure, and stay strictly in scope.\n\n" +
+                "fix-forward. Fetch the current target branch head before starting. Start from that head and re-apply only the required change; do not reuse the failed dock's stale base. Before handoff, integrate the latest target head, check for conflicts, and rerun the relevant checks.\n\n" +
+                "Re-implement the change correctly, addressing the failure, and stay strictly in scope.\n\n" +
                 "## Original Mission\n" +
                 original.Title + "\n\n" +
                 (String.IsNullOrWhiteSpace(original.Description) ? "" : BoundRescueDescription(original.Description) + "\n\n") +
