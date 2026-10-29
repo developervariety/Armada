@@ -257,6 +257,12 @@
             "description": "Fleet action run ID (far_ prefix)."
         },
         {
+            "key": "batteryRunId",
+            "value": "",
+            "type": "string",
+            "description": "Battery run ID (bat_ prefix)."
+        },
+        {
             "key": "targetId",
             "value": "",
             "type": "string",
@@ -283,6 +289,12 @@
             "value": "",
             "type": "string",
             "description": "Ask tracked work ID (atw_ prefix)."
+        },
+        {
+            "key": "askMessageId",
+            "value": "",
+            "type": "string",
+            "description": "Ask message ID (amg_ prefix), for reading one message's tool calls."
         },
         {
             "key": "promptTemplateName",
@@ -356,7 +368,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Email\": \"admin@armada\"\n}"
+                            "raw": "{\n  \"Email\": \"admin@armada\",\n  \"PageNumber\": 1,\n  \"PageSize\": 100\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/api/v1/tenants/lookup",
@@ -370,14 +382,14 @@
                                 "lookup"
                             ]
                         },
-                        "description": "Look up which tenants a given email address belongs to. No authentication required. Used by the dashboard login flow."
+                        "description": "Look up which tenants a given email address belongs to. No authentication required. Used by the login flows. Returns one page (PageNumber, PageSize 1 to 1000, default 10) of the active tenants for the email, ordered by name, with PageNumber, PageSize, TotalPages and TotalRecords."
                     },
                     "response": [
                         {
                             "name": "Tenant List",
                             "status": "OK",
                             "code": 200,
-                            "body": "{\n  \"Tenants\": [\n    {\n      \"TenantId\": \"default\",\n      \"TenantName\": \"Default Tenant\"\n    }\n  ]\n}"
+                            "body": "{\n  \"Tenants\": [\n    {\n      \"Id\": \"default\",\n      \"Name\": \"Default Tenant\"\n    }\n  ],\n  \"PageNumber\": 1,\n  \"PageSize\": 100,\n  \"TotalPages\": 1,\n  \"TotalRecords\": 1\n}"
                         }
                     ]
                 },
@@ -1601,7 +1613,7 @@
                                 "{{fleetId}}"
                             ]
                         },
-                        "description": "Returns a single fleet by ID."
+                        "description": "Get one fleet and the number of vessels it holds in the caller's scope ({ Fleet, VesselCount }). The vessels are not embedded: page them with POST /api/v1/vessels/enumerate and FleetId."
                     }
                 },
                 {
@@ -2273,6 +2285,129 @@
                     }
                 },
                 {
+                    "name": "Get Vessel Cleanup Inventory",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/cleanup",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "cleanup"
+                            ]
+                        },
+                        "description": "Read-only cleanup inventory summary (ResourceCount and Safe/InUse/Unknown counts). Resources are paged with GET .../cleanup/resources."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Vessel Cleanup Resources",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/cleanup/resources?pageNumber=1&pageSize=100&status=Safe",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "cleanup",
+                                "resources"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "100"
+                                },
+                                {
+                                    "key": "status",
+                                    "value": "Safe"
+                                }
+                            ]
+                        },
+                        "description": "One page of cleanup resources (docks, orphaned worktrees, managed branches), optionally filtered by status (Safe, InUse, Unknown)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate Vessel Cleanup Resources",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 100,\n  \"Status\": \"Safe\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/cleanup/resources/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "cleanup",
+                                "resources",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "POST form of the cleanup resource list: EnumerationQuery (PageNumber, PageSize, Status) in the body."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Clean Up Vessel Resources",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Keys\": [\n    \"dock:dck_example\"\n  ]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/cleanup",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "cleanup"
+                            ]
+                        },
+                        "description": "Remove the selected Safe resources (at most 1000 Keys; more is 400 CollectionLimitExceeded). Returns per-key results and the refreshed inventory summary."
+                    },
+                    "response": []
+                },
+                {
                     "name": "2. Register Vessel",
                     "event": [
                         {
@@ -2727,8 +2862,74 @@
                                 "health"
                             ]
                         },
-                        "description": "Health row, raw findings, dependency rows and overrides for one vessel."
+                        "description": "Health row, raw findings, DependencyCount, and overrides for one vessel. Dependency rows are paged with GET /api/v1/vessels/{id}/health/dependencies."
                     }
+                },
+                {
+                    "name": "List Vessel Dependencies",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/health/dependencies?pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "health",
+                                "dependencies"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25"
+                                }
+                            ]
+                        },
+                        "description": "One page of the vessel's outdated or vulnerable dependency rows, cut in the database (pageSize 1 to 1000, default 10)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate Vessel Dependencies",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/health/dependencies/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "vessels",
+                                "{{vesselId}}",
+                                "health",
+                                "dependencies",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "POST form of the dependency list: EnumerationQuery in the body, querystring values override it."
+                    },
+                    "response": []
                 },
                 {
                     "name": "Evaluate Vessel Health",
@@ -2915,6 +3116,36 @@
                             ]
                         },
                         "description": "Paginated enumeration of voyages with optional filtering and sorting via JSON body."
+                    }
+                },
+                {
+                    "name": "Enumerate Voyage Progress",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10,\n  \"Status\": null\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/voyages/progress/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "voyages",
+                                "progress",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of voyages with mission counts (VoyageProgress). With no Status, the active voyages: InProgress first, then Open, newest first. The status snapshot carries only the counts."
                     }
                 },
                 {
@@ -3378,6 +3609,105 @@
                             ]
                         },
                         "description": "Read GitHub pull-request review, comment, and required-check evidence for one mission."
+                    }
+                },
+                {
+                    "name": "Enumerate Mission GitHub Pull Request Reviews",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10,\n  \"Order\": \"CreatedDescending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/github/pull-request/reviews/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "missions",
+                                "{{missionId}}",
+                                "github",
+                                "pull-request",
+                                "reviews",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the mission pull request's reviews, paged by GitHub (page size 1 to 100) with an exact TotalRecords. The pull-request detail carries only the counts."
+                    }
+                },
+                {
+                    "name": "Enumerate Mission GitHub Pull Request Comments",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10,\n  \"Order\": \"CreatedDescending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/github/pull-request/comments/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "missions",
+                                "{{missionId}}",
+                                "github",
+                                "pull-request",
+                                "comments",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the mission pull request's comments, paged by GitHub (page size 1 to 100) with an exact TotalRecords. The pull-request detail carries only the counts."
+                    }
+                },
+                {
+                    "name": "Enumerate Mission GitHub Pull Request Checks",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10,\n  \"Order\": \"CreatedDescending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/github/pull-request/checks/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "missions",
+                                "{{missionId}}",
+                                "github",
+                                "pull-request",
+                                "checks",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the mission pull request's checks, paged by GitHub (page size 1 to 100) with an exact TotalRecords. The pull-request detail carries only the counts."
                     }
                 },
                 {
@@ -4135,7 +4465,7 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/tools",
+                            "raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/tools?pageNumber=1&pageSize=50",
                             "host": [
                                 "{{baseUrl}}"
                             ],
@@ -4145,18 +4475,74 @@
                                 "captains",
                                 "{{captainId}}",
                                 "tools"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "50"
+                                },
+                                {
+                                    "key": "sourceKind",
+                                    "value": "McpServer",
+                                    "disabled": true
+                                },
+                                {
+                                    "key": "refresh",
+                                    "value": "true",
+                                    "disabled": true
+                                }
                             ]
                         },
-                        "description": "Describe the Armada MCP tools available through the selected captain, including runtime-specific availability notes."
+                        "description": "The tool sources (Servers, at most 256) and tool counts of the selected captain, with one page of its named tools (Tools is an EnumerationResult ordered by source kind, source, and name). pageSize is 1 to 1000 (default 10); sourceKind filters McpServer, RuntimeBuiltIn, or Internal tools; a probe snapshot from the last 60 seconds is reused unless refresh=true."
                     },
                     "response": [
                         {
                             "name": "Captain Tools",
                             "status": "OK",
                             "code": 200,
-                            "body": "{\n  \"captainId\": \"cpt_abc123\",\n  \"captainName\": \"captain-1\",\n  \"runtime\": \"Mux\",\n  \"toolsAccessible\": true,\n  \"availabilityVerified\": true,\n  \"availabilitySource\": \"mux-probe\",\n  \"summary\": \"Mux probe succeeded and the endpoint reported tool calling enabled.\",\n  \"endpointName\": \"local-codex\",\n  \"toolsEnabled\": true,\n  \"effectiveToolCount\": 42,\n  \"armadaToolCount\": 37,\n  \"tools\": [\n    {\n      \"name\": \"get_status\",\n      \"description\": \"Get current Admiral status snapshot\",\n      \"inputSchemaJson\": \"{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{}}\"\n    }\n  ]\n}"
+                            "body": "{\n  \"captainId\": \"cpt_abc123\",\n  \"captainName\": \"captain-1\",\n  \"runtime\": \"Mux\",\n  \"toolsAccessible\": true,\n  \"availabilityVerified\": true,\n  \"availabilitySource\": \"mux-probe\",\n  \"summary\": \"Mux probe succeeded and the endpoint reported tool calling enabled.\",\n  \"endpointName\": \"local-codex\",\n  \"toolsEnabled\": true,\n  \"effectiveToolCount\": 42,\n  \"armadaToolCount\": 37,\n  \"servers\": [],\n  \"toolCount\": 37,\n  \"mcpToolCount\": 37,\n  \"runtimeBuiltInToolCount\": 0,\n  \"snapshotUtc\": \"2026-10-28T12:00:00Z\",\n  \"tools\": {\n    \"pageNumber\": 1,\n    \"pageSize\": 50,\n    \"totalPages\": 1,\n    \"totalRecords\": 37,\n    \"objects\": [\n      {\n        \"name\": \"get_status\",\n        \"description\": \"Get current Admiral status snapshot\",\n        \"registrationSource\": \"armada\",\n        \"sourceKind\": \"McpServer\"\n      }\n    ]\n  }\n}"
                         }
                     ]
+                },
+                {
+                    "name": "Enumerate Captain Tools",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/captains/{{captainId}}/tools/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "captains",
+                                "{{captainId}}",
+                                "tools",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "The POST twin of Get Captain Tools: the CaptainToolsQuery (PageNumber, PageSize 1 to 1000, SourceKind, Refresh) comes from the JSON body.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 2,\n  \"PageSize\": 50,\n  \"SourceKind\": \"McpServer\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    }
                 },
                 {
                     "name": "Enumerate CLI Permission Requests",
@@ -4244,7 +4630,39 @@
                                 "enumerate"
                             ]
                         },
-                        "description": "One page of the fixture battery packs the Admiral found, ordered by id. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10). Captain sessions get 403."
+                        "description": "One page of the fixture battery packs the Admiral found, ordered by pack directory name. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10). Captain sessions get 403."
+                    }
+                },
+                {
+                    "name": "Enumerate Battery Run Results",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Order\": \"CreatedAscending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/battery/runs/{{batteryRunId}}/results/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "battery",
+                                "runs",
+                                "{{batteryRunId}}",
+                                "results",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of a battery run's per-task results, paged in the database. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10, Order, Status as the outcome filter). The run read no longer embeds results."
                     }
                 },
                 {
@@ -4627,7 +5045,7 @@
                                 "{{askThreadId}}"
                             ]
                         },
-                        "description": "Thread detail: the thread, tracked work with embedded snapshots, and pending proposals. Another user's thread returns 404."
+                        "description": "Thread detail: the thread, TrackedWorkCount, PendingProposalCount, PendingCliPermissionCount, and the running turn (ToolCallCount). The collections are paged with the work, proposals, and tool-call enumerate requests below. Another user's thread returns 404."
                     }
                 },
                 {
@@ -4688,7 +5106,7 @@
                                 "multiple"
                             ]
                         },
-                        "description": "Bulk delete the caller's conversations. Returns the deleted IDs and the skipped IDs with a reason; another user's or an unknown thread is skipped."
+                        "description": "Bulk delete the caller's conversations (at most 1000 IDs; more is 400 CollectionLimitExceeded and nothing is deleted). Returns the deleted IDs and the skipped IDs with a reason; another user's or an unknown thread is skipped."
                     }
                 },
                 {
@@ -4994,7 +5412,206 @@
                                 "{{askTrackedWorkId}}"
                             ]
                         },
-                        "description": "Current work-card snapshot of one tracked item."
+                        "description": "Current work-card snapshot of one tracked item: status and counts with MissionCount and TargetCount. The rows are paged with Enumerate Work Missions and Enumerate Work Targets."
+                    }
+                },
+                {
+                    "name": "Enumerate Tracked Work",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/work/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "work",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the work the thread tracks, newest first by default, each with a counts-only snapshot. Status filters by state (Active, Succeeded, Failed, Cancelled). Owner only."
+                    }
+                },
+                {
+                    "name": "Enumerate Work Missions",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/work/{{askTrackedWorkId}}/missions/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "work",
+                                "{{askTrackedWorkId}}",
+                                "missions",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of mission rows of tracked voyage or mission work, paged in the database. Fleet action runs answer 400; use Enumerate Work Targets."
+                    }
+                },
+                {
+                    "name": "Enumerate Work Targets",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/work/{{askTrackedWorkId}}/targets/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "work",
+                                "{{askTrackedWorkId}}",
+                                "targets",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of target rows of a tracked fleet action run. Other work types answer 400."
+                    }
+                },
+                {
+                    "name": "Enumerate Proposals",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Status\": \"Pending\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/proposals/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "proposals",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the thread's action proposals. Status filters by proposal status (for example Pending)."
+                    }
+                },
+                {
+                    "name": "Enumerate Message Tool Calls",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/messages/{{askMessageId}}/tool-calls/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "messages",
+                                "{{askMessageId}}",
+                                "tool-calls",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the tool calls the captain made while writing one message. 404 when the message is not in the thread."
+                    }
+                },
+                {
+                    "name": "Enumerate Turn Tool Calls",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/ask/threads/{{askThreadId}}/turn/tool-calls/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "ask",
+                                "threads",
+                                "{{askThreadId}}",
+                                "turn",
+                                "tool-calls",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the tool calls the running turn has made so far (empty when no turn runs)."
                     }
                 },
                 {
@@ -6138,7 +6755,7 @@
                                 "purge"
                             ]
                         },
-                        "description": "Batch purge multiple terminal merge queue entries by ID. Returns a summary of purged and skipped entries."
+                        "description": "Batch purge multiple terminal merge queue entries by ID (at most 1000; more is 400 CollectionLimitExceeded). Returns a summary of purged and skipped entries."
                     },
                     "response": [
                         {
@@ -6912,7 +7529,7 @@
                                 "{{runId}}"
                             ]
                         },
-                        "description": "Run with target summaries (no output)."
+                        "description": "The run with its target counts. Targets are not embedded: page them with Enumerate Run Targets."
                     }
                 },
                 {
@@ -8612,7 +9229,7 @@
                                 "tree"
                             ]
                         },
-                        "description": "List the root directory of the vessel workspace."
+                        "description": "One page of the workspace root (folders first, then files); pageNumber and pageSize (1 to 1000, default 10) page it and TotalRecords counts every entry."
                     },
                     "response": []
                 },
@@ -8837,7 +9454,7 @@
                                 "changes"
                             ]
                         },
-                        "description": "Return branch state and changed files for the vessel workspace."
+                        "description": "Branch state and one page of changed files (pageNumber, pageSize 1 to 1000, default 10); TotalRecords counts every changed file."
                     },
                     "response": []
                 },
@@ -8860,7 +9477,73 @@
                                 "status"
                             ]
                         },
-                        "description": "Return high-level workspace status, git state, and active mission overlap context."
+                        "description": "Workspace status, git state, and ActiveMissionCount. Active missions are paged with GET .../active-missions."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Workspace Active Missions",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/active-missions?pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "workspace",
+                                "vessels",
+                                "{{vesselId}}",
+                                "active-missions"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25"
+                                }
+                            ]
+                        },
+                        "description": "One page of the vessel's active missions with their scoped files, newest first, paged from the database."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate Workspace Active Missions",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/workspace/vessels/{{vesselId}}/active-missions/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "workspace",
+                                "vessels",
+                                "{{vesselId}}",
+                                "active-missions",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "POST form of the active missions list: EnumerationQuery in the body."
                     },
                     "response": []
                 },
@@ -9029,9 +9712,40 @@
                                 "{{planningSessionId}}"
                             ]
                         },
-                        "description": "Read one planning session with transcript, captain, and vessel context."
+                        "description": "Read one planning session (PlanningSessionDetail): the session, captain, vessel, MessageCount, and LinkedObjectiveCount. The transcript is paged with Enumerate Planning Session Messages."
                     },
                     "response": []
+                },
+                {
+                    "name": "Enumerate Planning Session Messages",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/planning-sessions/{{planningSessionId}}/messages/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "planning-sessions",
+                                "{{planningSessionId}}",
+                                "messages",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the planning transcript, newest first (CreatedDescending, the default) or oldest first (CreatedAscending). TotalRecords is the transcript length."
+                    }
                 },
                 {
                     "name": "Send Planning Message",
@@ -9527,7 +10241,7 @@
                                 "reorder"
                             ]
                         },
-                        "description": "Apply explicit rank updates to one or more backlog items.",
+                        "description": "Apply explicit rank updates to one or more backlog items (at most 1000 items). Returns ObjectiveReorderResult { Updated, Items: [{ ObjectiveId, Rank }] }.",
                         "body": {
                             "mode": "raw",
                             "raw": "{\n  \"Items\": [\n    {\n      \"ObjectiveId\": \"{{objectiveId}}\",\n      \"Rank\": 5\n    }\n  ]\n}"
@@ -9627,7 +10341,38 @@
                                 "{{objectiveRefinementSessionId}}"
                             ]
                         },
-                        "description": "Read one backlog refinement session and transcript."
+                        "description": "Read one backlog refinement session with its captain, vessel, objective, and MessageCount. The transcript is paged with Enumerate Refinement Session Messages."
+                    }
+                },
+                {
+                    "name": "Enumerate Refinement Session Messages",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/objective-refinement-sessions/{{objectiveRefinementSessionId}}/messages/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "objective-refinement-sessions",
+                                "{{objectiveRefinementSessionId}}",
+                                "messages",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the refinement transcript, newest first (CreatedDescending, the default) or oldest first (CreatedAscending)."
                     }
                 },
                 {
@@ -9816,7 +10561,7 @@
                                 "reorder"
                             ]
                         },
-                        "description": "Applies one or more explicit backlog rank updates to objectives."
+                        "description": "Applies one or more explicit backlog rank updates to objectives (at most 1000 items). Returns ObjectiveReorderResult { Updated, Items: [{ ObjectiveId, Rank }] }."
                     }
                 },
                 {
@@ -10478,10 +11223,10 @@
                                 "github-actions"
                             ]
                         },
-                        "description": "Pull recent GitHub Actions workflow runs into Armada check history. Saves the first synced check-run ID to checkRunId when present.",
+                        "description": "Pull one GitHub page of Actions workflow runs (RunCount 1 to 100 per page, PageNumber selects the page) into Armada check history. Returns counts, GitHub's total, and CheckRunIds. Saves the first synced check-run ID to checkRunId when present.",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"VesselId\": \"{{vesselId}}\",\n  \"WorkflowProfileId\": \"{{workflowProfileId}}\",\n  \"DeploymentId\": \"{{deploymentId}}\",\n  \"EnvironmentName\": \"staging\",\n  \"BranchName\": \"main\",\n  \"RunCount\": 10\n}"
+                            "raw": "{\n  \"VesselId\": \"{{vesselId}}\",\n  \"WorkflowProfileId\": \"{{workflowProfileId}}\",\n  \"DeploymentId\": \"{{deploymentId}}\",\n  \"EnvironmentName\": \"staging\",\n  \"BranchName\": \"main\",\n  \"RunCount\": 10,\n  \"PageNumber\": 1\n}"
                         }
                     },
                     "event": [
@@ -10491,9 +11236,8 @@
                                 "exec": [
                                     "if (pm.response.code === 200) {",
                                     "    const json = pm.response.json();",
-                                    "    if (json.CheckRuns && json.CheckRuns.length > 0) {",
-                                    "        const first = json.CheckRuns[0];",
-                                    "        pm.collectionVariables.set('checkRunId', first.Id || first.id);",
+                                    "    if (json.CheckRunIds && json.CheckRunIds.length > 0) {",
+                                    "        pm.collectionVariables.set('checkRunId', json.CheckRunIds[0]);",
                                     "    }",
                                     "}"
                                 ],
@@ -12002,7 +12746,7 @@
                         "method": "GET",
                         "header": [],
                         "url": {
-                            "raw": "{{baseUrl}}/api/v1/runtimes/mux/endpoints",
+                            "raw": "{{baseUrl}}/api/v1/runtimes/mux/endpoints?pageNumber=1&pageSize=50",
                             "host": [
                                 "{{baseUrl}}"
                             ],
@@ -12012,9 +12756,61 @@
                                 "runtimes",
                                 "mux",
                                 "endpoints"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "50"
+                                },
+                                {
+                                    "key": "configDirectory",
+                                    "value": "",
+                                    "disabled": true
+                                }
                             ]
                         },
-                        "description": "List saved Mux endpoints. Add the optional configDirectory query parameter to inspect a non-default Mux config directory."
+                        "description": "One page of the saved Mux endpoints, ordered by name (MuxEndpointPage: Objects, TotalRecords, TotalPages, HarborId, ConfigDirectory, ErrorCode, ErrorMessage). pageSize is 1 to 1000 (default 10). Add the optional configDirectory query parameter to inspect a non-default Mux config directory."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate Mux Endpoints",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/runtimes/mux/endpoints/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "runtimes",
+                                "mux",
+                                "endpoints",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "The POST twin of List Mux Endpoints: paging (EnumerationQuery) in the JSON body; configDirectory and harborId stay in the querystring.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 100\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
                     },
                     "response": []
                 },
@@ -12287,6 +13083,12 @@
                                 {
                                     "key": "toUtc",
                                     "value": "2026-05-08T00:00:00Z"
+                                },
+                                {
+                                    "key": "modelLimit",
+                                    "value": "10",
+                                    "description": "Most models broken out by name (1 to 100); the rest are summed into OtherModels",
+                                    "disabled": true
                                 },
                                 {
                                     "key": "source",
@@ -13009,7 +13811,69 @@
                                 "storage"
                             ]
                         },
-                        "description": "Returns the latest cached StorageSnapshot: host locations and volumes, database table statistics, retention and bounded recent history. Does not start scans. 200 success, 401 anonymous, 403 non-global-admin. Missing metrics are omitted, not zero."
+                        "description": "Returns the latest cached StorageSnapshot: host totals (HostCount, FreshHostCount, ObservedFileBytes), database table statistics, retention and bounded recent history. Host reports are paged with GET /api/v1/storage/hosts. Does not start scans. 200 success, 401 anonymous, 403 non-global-admin. Missing metrics are omitted, not zero."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List storage hosts",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/storage/hosts?pageNumber=1&pageSize=25",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "storage",
+                                "hosts"
+                            ],
+                            "query": [
+                                {
+                                    "key": "pageNumber",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "pageSize",
+                                    "value": "25"
+                                }
+                            ]
+                        },
+                        "description": "One page of cached host reports (Admiral first, then Harbors): locations, volumes, warnings. Global administrators only."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Enumerate storage hosts",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/storage/hosts/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "storage",
+                                "hosts",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "POST form of the storage host list: EnumerationQuery in the body. Global administrators only."
                     },
                     "response": []
                 },

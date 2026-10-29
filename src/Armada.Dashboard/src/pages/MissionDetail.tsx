@@ -11,7 +11,6 @@ import {
   deleteMission,
   purgeMission,
   getMissionDiff,
-  getMissionGitHubPullRequest,
   getMissionLog,
   getMissionInstructions,
   getMissionLandingPreview,
@@ -27,7 +26,9 @@ import {
   getHarbor,
 } from '../api/client';
 import { listAll } from '../api/paging';
-import type { Captain, CheckRun, Deployment, GitHubPullRequestDetail, Harbor, LandingPreviewResult, Mission, Vessel } from '../types/models';
+import type { Captain, CheckRun, Deployment, Harbor, LandingPreviewResult, Mission, Vessel } from '../types/models';
+
+import { loadPullRequestEvidence, type PullRequestEvidence } from '../lib/pullRequestEvidence';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -61,7 +62,8 @@ export default function MissionDetail() {
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
   const [linkedCheckRuns, setLinkedCheckRuns] = useState<CheckRun[]>([]);
   const [linkedDeployments, setLinkedDeployments] = useState<Deployment[]>([]);
-  const [gitHubPullRequest, setGitHubPullRequest] = useState<GitHubPullRequestDetail | null>(null);
+  const [pullRequestEvidence, setPullRequestEvidence] = useState<PullRequestEvidence | null>(null);
+  const gitHubPullRequest = pullRequestEvidence?.detail ?? null;
   const [loadingGitHubPullRequest, setLoadingGitHubPullRequest] = useState(false);
   const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -201,17 +203,17 @@ export default function MissionDetail() {
 
   useEffect(() => {
     if (!mission?.id || !mission.prUrl) {
-      setGitHubPullRequest(null);
+      setPullRequestEvidence(null);
       setLoadingGitHubPullRequest(false);
       return;
     }
 
     let cancelled = false;
     setLoadingGitHubPullRequest(true);
-    getMissionGitHubPullRequest(mission.id).then((result) => {
-      if (!cancelled) setGitHubPullRequest(result);
+    loadPullRequestEvidence(mission.id).then((result) => {
+      if (!cancelled) setPullRequestEvidence(result);
     }).catch(() => {
-      if (!cancelled) setGitHubPullRequest(null);
+      if (!cancelled) setPullRequestEvidence(null);
     }).finally(() => {
       if (!cancelled) setLoadingGitHubPullRequest(false);
     });
@@ -675,7 +677,7 @@ export default function MissionDetail() {
             <h3 title={t('Review and check status Armada read from GitHub for this mission\'s pull request.')}>{t('GitHub Pull Request')}</h3>
             <div className="inline-actions">
               <a className="btn btn-sm" href={mission.prUrl} target="_blank" rel="noreferrer" title={t('Open the pull request on GitHub in a new tab.')}>{t('Open GitHub')}</a>
-              <button className="btn btn-sm" disabled={loadingGitHubPullRequest} onClick={() => mission.id && void getMissionGitHubPullRequest(mission.id).then(setGitHubPullRequest).catch(() => setGitHubPullRequest(null))} title={t('Fetch the latest reviews, checks and mergeability for this pull request from GitHub.')}>
+              <button className="btn btn-sm" disabled={loadingGitHubPullRequest} onClick={() => mission.id && void loadPullRequestEvidence(mission.id).then(setPullRequestEvidence).catch(() => setPullRequestEvidence(null))} title={t('Fetch the latest reviews, checks and mergeability for this pull request from GitHub.')}>
                 {loadingGitHubPullRequest ? t('Refreshing...') : t('Refresh')}
               </button>
             </div>
@@ -697,10 +699,10 @@ export default function MissionDetail() {
               </div>
               <div className="detail-grid">
                 <div className="card">
-                  <h4 title={t('Each reviewer and the state of their latest review.')}>{t('Reviews')}</h4>
-                  {gitHubPullRequest.reviews.length === 0 ? <div className="text-dim">{t('No reviews')}</div> : (
+                  <h4 title={t('Each reviewer and the state of their latest review.')}>{t('Reviews')}{gitHubPullRequest.reviewCount > (pullRequestEvidence?.reviews.length ?? 0) ? ` (${pullRequestEvidence?.reviews.length ?? 0}/${gitHubPullRequest.reviewCount})` : ''}</h4>
+                  {(pullRequestEvidence?.reviews.length ?? 0) === 0 ? <div className="text-dim">{t('No reviews')}</div> : (
                     <div style={{ display: 'grid', gap: '0.45rem' }}>
-                      {gitHubPullRequest.reviews.map((review, index) => (
+                      {(pullRequestEvidence?.reviews ?? []).map((review, index) => (
                         <div key={`review-${index}`}>
                           <strong>{review.reviewerLogin || t('Unknown')}</strong> <span className="text-dim">{review.state}</span>
                         </div>
@@ -709,10 +711,10 @@ export default function MissionDetail() {
                   )}
                 </div>
                 <div className="card">
-                  <h4 title={t('CI checks GitHub reports for the pull request, with status and conclusion.')}>{t('Checks')}</h4>
-                  {gitHubPullRequest.checks.length === 0 ? <div className="text-dim">{t('No provider checks')}</div> : (
+                  <h4 title={t('CI checks GitHub reports for the pull request, with status and conclusion.')}>{t('Checks')}{gitHubPullRequest.checkCount > (pullRequestEvidence?.checks.length ?? 0) ? ` (${pullRequestEvidence?.checks.length ?? 0}/${gitHubPullRequest.checkCount})` : ''}</h4>
+                  {(pullRequestEvidence?.checks.length ?? 0) === 0 ? <div className="text-dim">{t('No provider checks')}</div> : (
                     <div style={{ display: 'grid', gap: '0.45rem' }}>
-                      {gitHubPullRequest.checks.map((check, index) => (
+                      {(pullRequestEvidence?.checks ?? []).map((check, index) => (
                         <div key={`check-${index}`}>
                           <strong>{check.name}</strong> <span className="text-dim">{check.status}{check.conclusion ? ` / ${check.conclusion}` : ''}</span>
                         </div>

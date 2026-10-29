@@ -7,10 +7,10 @@
 const OPERATIONS_CALLS = [
   'getStatus', 'getHealth', 'getDoctor', 'getSettings',
   'listMissions', 'listMissionSummaries', 'getMission', 'getMissionHistory', 'getTokenUsage', 'getMissionLandingPreview',
-  'getMissionGitHubPullRequest', 'createMission', 'updateMission', 'deleteMission', 'purgeMission', 'dispatchMission',
+  'getMissionGitHubPullRequest', 'enumerateMissionPullRequestReviews', 'enumerateMissionPullRequestChecks', 'createMission', 'updateMission', 'deleteMission', 'purgeMission', 'dispatchMission',
   'restartMission', 'retryMissionLanding', 'transitionMission', 'approveMissionReview', 'denyMissionReview',
   'getMissionDiff', 'getMissionLog', 'getMissionInstructions', 'getEntity',
-  'listVoyages', 'getVoyage', 'getVoyageStatus', 'createVoyage', 'cancelVoyage', 'purgeVoyage',
+  'listVoyages', 'getVoyage', 'getVoyageStatus', 'enumerateVoyageProgress', 'createVoyage', 'cancelVoyage', 'purgeVoyage',
   'listMergeQueue', 'getMergeEntry', 'enqueueMerge', 'deleteMergeEntry', 'processMergeEntry', 'processAllMergeQueue', 'cancelMergeEntry',
   'listDocks', 'getDock', 'deleteDock',
   'listSignals', 'getSignal', 'sendSignal', 'markSignalRead', 'deleteSignalsBatch',

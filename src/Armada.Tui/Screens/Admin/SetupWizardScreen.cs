@@ -854,14 +854,14 @@ namespace Armada.Tui.Screens.Admin
                 string error = "";
                 try
                 {
-                    MuxEndpointListResult? result = await Context.Client.ListMuxEndpointsAsync(dir.Length > 0 ? dir : null).ConfigureAwait(false);
+                    MuxEndpointPage? result = await Context.Client.ListMuxEndpointsAsync(dir.Length > 0 ? dir : null).ConfigureAwait(false);
                     if (result == null || !result.Success)
                     {
                         error = result != null && !String.IsNullOrEmpty(result.ErrorMessage) ? result.ErrorMessage : result != null && !String.IsNullOrEmpty(result.ErrorCode) ? result.ErrorCode : L("Mux endpoint discovery failed.");
                     }
                     else
                     {
-                        endpoints = result.Endpoints ?? new List<MuxEndpointInfo>();
+                        endpoints = result.Objects ?? new List<MuxEndpointInfo>();
                     }
                 }
                 catch (ArmadaApiException ex)
@@ -1632,13 +1632,13 @@ namespace Armada.Tui.Screens.Admin
                 try
                 {
                     readiness = await Context.Client.GetVesselReadinessAsync(vesselId).ConfigureAwait(false);
-                    EnumerationResult<WorkflowProfile>? profileResult = await Context.Client.ListWorkflowProfilesAsync(new ArmadaPageQuery(1, 9999)).ConfigureAwait(false);
+                    List<WorkflowProfile> allProfiles = await ArmadaPaging.ReadAllAsync<WorkflowProfile>((p, ct) => Context.Client.ListWorkflowProfilesAsync(new ArmadaPageQuery(p, 1000), ct)).ConfigureAwait(false);
                     DeploymentEnvironmentQuery envQuery = new DeploymentEnvironmentQuery();
                     envQuery.PageNumber = 1;
                     envQuery.PageSize = 9999;
                     envQuery.VesselId = vesselId;
                     EnumerationResult<DeploymentEnvironment>? envResult = await Context.Client.ListEnvironmentsAsync(envQuery).ConfigureAwait(false);
-                    profiles = (profileResult?.Objects ?? new List<WorkflowProfile>()).Where(p =>
+                    profiles = allProfiles.Where(p =>
                         p.Scope == WorkflowProfileScopeEnum.Global
                         || (p.Scope == WorkflowProfileScopeEnum.Fleet && fleetId.Length > 0 && p.FleetId == fleetId)
                         || (p.Scope == WorkflowProfileScopeEnum.Vessel && p.VesselId == vesselId)).ToList();

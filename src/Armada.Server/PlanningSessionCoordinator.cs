@@ -121,6 +121,7 @@ namespace Armada.Server
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (request == null) throw new ArgumentNullException(nameof(request));
+            CollectionBounds.Validate(request);
 
             if (!captain.SupportsPlanningSessions)
                 throw new InvalidOperationException(captain.PlanningSessionSupportReason ?? "This captain runtime is not supported for planning sessions.");

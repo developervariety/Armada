@@ -3,6 +3,7 @@ namespace Armada.Core.Models
     using System;
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Query parameters for paginated enumeration of entities.
@@ -13,7 +14,7 @@ namespace Armada.Core.Models
         #region Private-Members
 
         private int _PageNumber = 1;
-        private int _PageSize = 10;
+        private int _PageSize = CollectionLimits.DefaultPageSize;
 
         #endregion
 
@@ -36,8 +37,8 @@ namespace Armada.Core.Models
             get => _PageSize;
             set
             {
-                if (value < 1) _PageSize = 1;
-                else if (value > 1000) _PageSize = 1000;
+                if (value < CollectionLimits.MinPageSize) _PageSize = CollectionLimits.MinPageSize;
+                else if (value > CollectionLimits.MaxPageSize) _PageSize = CollectionLimits.MaxPageSize;
                 else _PageSize = value;
             }
         }
@@ -106,6 +107,13 @@ namespace Armada.Core.Models
         /// Whether to return only unread signals (signals only).
         /// </summary>
         public bool? UnreadOnly { get; set; }
+
+        /// <summary>
+        /// Server-set mission filter: leave out missions with this failure kind (missions without a failure kind are
+        /// kept). Applied in the data source before counting. Never read from a request body or querystring.
+        /// </summary>
+        [JsonIgnore]
+        public MissionFailureKindEnum? ExcludeFailureKind { get; set; }
 
         /// <summary>
         /// Owner-user filter for privileged callers. Ignored for a regular user (always scoped to self). A

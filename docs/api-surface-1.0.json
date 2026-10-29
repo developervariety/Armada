@@ -242,6 +242,42 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/ask/threads/{id}/messages/{messageId}/tool-calls/enumerate",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<AskMessageToolCall>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Ask"
+      ],
+      "summary": "Enumerate a message's tool calls",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/ask/threads/{id}/proposals/enumerate",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<AskActionProposal>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Ask"
+      ],
+      "summary": "Enumerate a thread's proposals",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/ask/threads/{id}/proposals/{pid}/approve",
       "auth": "Authenticated",
       "resource": "AskThread:Execute",
@@ -307,6 +343,23 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/ask/threads/{id}/turn/tool-calls/enumerate",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<AskMessageToolCall>",
+        "404": ""
+      },
+      "tags": [
+        "Ask"
+      ],
+      "summary": "Enumerate the running turn's tool calls",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/ask/threads/{id}/unread",
       "auth": "Authenticated",
       "resource": "AskThread:Execute",
@@ -320,6 +373,24 @@
         "Ask"
       ],
       "summary": "Mark a thread unread",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/ask/threads/{id}/work/enumerate",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<AskTrackedWork>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Ask"
+      ],
+      "summary": "Enumerate a thread's tracked work",
       "experimental": false
     },
     {
@@ -337,6 +408,42 @@
         "Ask"
       ],
       "summary": "Read a work snapshot",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/ask/threads/{id}/work/{workId}/missions/enumerate",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<AskWorkMissionSnapshot>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Ask"
+      ],
+      "summary": "Enumerate a tracked work item's missions",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/ask/threads/{id}/work/{workId}/targets/enumerate",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<AskWorkTargetSnapshot>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Ask"
+      ],
+      "summary": "Enumerate a tracked fleet action run's targets",
       "experimental": false
     },
     {
@@ -409,7 +516,8 @@
       "requestType": "ObjectiveReorderRequest",
       "requestRequired": true,
       "responses": {
-        "200": "List<Objective>"
+        "200": "ObjectiveReorderResult",
+        "400": ""
       },
       "tags": [
         "Objectives"
@@ -589,6 +697,42 @@
         "Battery"
       ],
       "summary": "Get a battery run",
+      "experimental": false
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/battery/runs/{id}/results",
+      "auth": "Authenticated",
+      "resource": "BatteryRun:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<BatteryTaskResult>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Battery"
+      ],
+      "summary": "List a battery run's results",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/battery/runs/{id}/results/enumerate",
+      "auth": "Authenticated",
+      "resource": "BatteryRun:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<BatteryTaskResult>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Battery"
+      ],
+      "summary": "Enumerate a battery run's results",
       "experimental": false
     },
     {
@@ -824,12 +968,31 @@
       "requestRequired": false,
       "responses": {
         "200": "CaptainToolAccessResult",
+        "400": "",
         "404": ""
       },
       "tags": [
         "Captains"
       ],
       "summary": "Describe captain tools",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/captains/{id}/tools/enumerate",
+      "auth": "Authenticated",
+      "resource": "Captain:Read",
+      "requestType": "CaptainToolsQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "CaptainToolAccessResult",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Captains"
+      ],
+      "summary": "Enumerate captain tools",
       "experimental": false
     },
     {
@@ -2108,7 +2271,7 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "Fleet",
+        "200": "FleetDetailResponse",
         "404": ""
       },
       "tags": [
@@ -2907,7 +3070,8 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "MissionHistorySummaryResult"
+        "200": "MissionHistorySummaryResult",
+        "400": ""
       },
       "tags": [
         "Missions"
@@ -3049,6 +3213,60 @@
         "Missions"
       ],
       "summary": "Get GitHub pull-request evidence for a mission",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/missions/{id}/github/pull-request/checks/enumerate",
+      "auth": "Authenticated",
+      "resource": "Mission:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<GitHubPullRequestCheck>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Missions"
+      ],
+      "summary": "Enumerate the checks of a mission's GitHub pull request",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/missions/{id}/github/pull-request/comments/enumerate",
+      "auth": "Authenticated",
+      "resource": "Mission:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<GitHubPullRequestComment>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Missions"
+      ],
+      "summary": "Enumerate the comments of a mission's GitHub pull request",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/missions/{id}/github/pull-request/reviews/enumerate",
+      "auth": "Authenticated",
+      "resource": "Mission:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<GitHubPullRequestReview>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Missions"
+      ],
+      "summary": "Enumerate the reviews of a mission's GitHub pull request",
       "experimental": false
     },
     {
@@ -3528,6 +3746,24 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/objective-refinement-sessions/{id}/messages/enumerate",
+      "auth": "Authenticated",
+      "resource": "ObjectiveRefinementSession:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<ObjectiveRefinementMessage>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Objectives"
+      ],
+      "summary": "Enumerate an objective refinement session's transcript",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/objective-refinement-sessions/{id}/stop",
       "auth": "TenantAdmin",
       "resource": "ObjectiveRefinementSession:Execute",
@@ -3635,7 +3871,8 @@
       "requestType": "ObjectiveReorderRequest",
       "requestRequired": true,
       "responses": {
-        "200": "List<Objective>"
+        "200": "ObjectiveReorderResult",
+        "400": ""
       },
       "tags": [
         "Objectives"
@@ -3761,7 +3998,7 @@
       "tags": [
         "Personas"
       ],
-      "summary": "List all personas",
+      "summary": "List personas",
       "experimental": false
     },
     {
@@ -3789,7 +4026,9 @@
       "resource": "Persona:Read",
       "requestType": "EnumerationQuery",
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<Persona>"
+      },
       "tags": [
         "Personas"
       ],
@@ -3889,7 +4128,9 @@
       "resource": "Pipeline:Read",
       "requestType": "EnumerationQuery",
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<Pipeline>"
+      },
       "tags": [
         "Pipelines"
       ],
@@ -3956,7 +4197,7 @@
       "requestType": "PlanningSessionCreateRequest",
       "requestRequired": true,
       "responses": {
-        "201": "Object",
+        "201": "PlanningSessionDetail",
         "400": "",
         "404": "",
         "501": "ApiStatusErrorResponse"
@@ -4009,7 +4250,7 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "",
+        "200": "PlanningSessionDetail",
         "404": "",
         "501": "ApiStatusErrorResponse"
       },
@@ -4045,7 +4286,7 @@
       "requestType": "PlanningSessionMessageRequest",
       "requestRequired": true,
       "responses": {
-        "200": "",
+        "200": "PlanningSessionDetail",
         "400": "",
         "404": "",
         "501": "ApiStatusErrorResponse"
@@ -4058,13 +4299,32 @@
     },
     {
       "method": "POST",
+      "route": "/api/v1/planning-sessions/{id}/messages/enumerate",
+      "auth": "Authenticated",
+      "resource": "PlanningSession:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<PlanningSessionMessage>",
+        "400": "",
+        "404": "",
+        "501": "ApiStatusErrorResponse"
+      },
+      "tags": [
+        "Planning"
+      ],
+      "summary": "Enumerate a planning session's transcript",
+      "experimental": false
+    },
+    {
+      "method": "POST",
       "route": "/api/v1/planning-sessions/{id}/stop",
       "auth": "TenantAdmin",
       "resource": "PlanningSession:Execute",
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "",
+        "200": "PlanningSessionDetail",
         "404": "",
         "501": "ApiStatusErrorResponse"
       },
@@ -4082,7 +4342,7 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "",
+        "200": "PlanningSessionDetail",
         "404": "",
         "501": "ApiStatusErrorResponse"
       },
@@ -4150,7 +4410,9 @@
       "resource": "Playbook:Read",
       "requestType": "EnumerationQuery",
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<Playbook>"
+      },
       "tags": [
         "Playbooks"
       ],
@@ -4401,7 +4663,9 @@
       "resource": "PromptTemplate:Read",
       "requestType": "EnumerationQuery",
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<PromptTemplate>"
+      },
       "tags": [
         "Prompt Templates"
       ],
@@ -4753,7 +5017,8 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "RequestHistorySummaryResult"
+        "200": "RequestHistorySummaryResult",
+        "400": ""
       },
       "tags": [
         "RequestHistory"
@@ -5019,13 +5284,30 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "MuxEndpointListResult",
+        "200": "MuxEndpointPage",
         "400": ""
       },
       "tags": [
         "Runtimes"
       ],
-      "summary": "List saved Mux endpoints",
+      "summary": "Enumerate saved Mux endpoints",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/runtimes/mux/endpoints/enumerate",
+      "auth": "Authenticated",
+      "resource": "Runtime:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "MuxEndpointPage",
+        "400": ""
+      },
+      "tags": [
+        "Runtimes"
+      ],
+      "summary": "Enumerate saved Mux endpoints (body query)",
       "experimental": false
     },
     {
@@ -5535,6 +5817,43 @@
       "experimental": false
     },
     {
+      "method": "GET",
+      "route": "/api/v1/storage/hosts",
+      "auth": "AdminOnly",
+      "resource": "Storage:Admin",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<StorageHostReport>",
+        "401": "",
+        "403": ""
+      },
+      "tags": [
+        "Storage"
+      ],
+      "summary": "List cached storage host reports",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/storage/hosts/enumerate",
+      "auth": "AdminOnly",
+      "resource": "Storage:Admin",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<StorageHostReport>",
+        "400": "",
+        "401": "",
+        "403": ""
+      },
+      "tags": [
+        "Storage"
+      ],
+      "summary": "Enumerate cached storage host reports",
+      "experimental": false
+    },
+    {
       "method": "POST",
       "route": "/api/v1/storage/refresh",
       "auth": "AdminOnly",
@@ -5607,10 +5926,10 @@
       "route": "/api/v1/tenants/lookup",
       "auth": "NoAuthRequired",
       "resource": "Session:Read",
-      "requestType": null,
+      "requestType": "TenantLookupRequest",
       "requestRequired": false,
       "responses": {
-        "200": "",
+        "200": "TenantLookupResult",
         "400": ""
       },
       "tags": [
@@ -5727,7 +6046,8 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "TokenUsageSummaryResult"
+        "200": "TokenUsageSummaryResult",
+        "400": ""
       },
       "tags": [
         "TokenUsage"
@@ -6288,6 +6608,42 @@
       "experimental": false
     },
     {
+      "method": "GET",
+      "route": "/api/v1/vessels/{id}/cleanup/resources",
+      "auth": "Authenticated",
+      "resource": "Vessel:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<VesselCleanupResource>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "List vessel cleanup resources",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/vessels/{id}/cleanup/resources/enumerate",
+      "auth": "Authenticated",
+      "resource": "Vessel:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<VesselCleanupResource>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "Enumerate vessel cleanup resources",
+      "experimental": false
+    },
+    {
       "method": "PATCH",
       "route": "/api/v1/vessels/{id}/context",
       "auth": "TenantAdmin",
@@ -6336,6 +6692,41 @@
         "Vessels"
       ],
       "summary": "Get vessel health",
+      "experimental": false
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/vessels/{id}/health/dependencies",
+      "auth": "Authenticated",
+      "resource": "VesselHealth:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<VesselDependency>",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "List vessel dependencies",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/vessels/{id}/health/dependencies/enumerate",
+      "auth": "Authenticated",
+      "resource": "VesselHealth:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<VesselDependency>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Vessels"
+      ],
+      "summary": "Enumerate vessel dependencies",
       "experimental": false
     },
     {
@@ -6503,11 +6894,30 @@
       "resource": "Voyage:Read",
       "requestType": "EnumerationQuery",
       "requestRequired": false,
-      "responses": {},
+      "responses": {
+        "200": "EnumerationResult<Voyage>"
+      },
       "tags": [
         "Voyages"
       ],
       "summary": "Enumerate voyages",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/voyages/progress/enumerate",
+      "auth": "Authenticated",
+      "resource": "Voyage:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<VoyageProgress>",
+        "400": ""
+      },
+      "tags": [
+        "Voyages"
+      ],
+      "summary": "Enumerate voyage progress",
       "experimental": false
     },
     {
@@ -6518,7 +6928,7 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "",
+        "200": "VoyageCancelResult",
         "404": ""
       },
       "tags": [
@@ -6535,7 +6945,7 @@
       "requestType": null,
       "requestRequired": false,
       "responses": {
-        "200": "",
+        "200": "VoyageProgress",
         "404": ""
       },
       "tags": [
@@ -6742,6 +7152,41 @@
         "WorkflowProfiles"
       ],
       "summary": "Update a workflow profile",
+      "experimental": false
+    },
+    {
+      "method": "GET",
+      "route": "/api/v1/workspace/vessels/{vesselId}/active-missions",
+      "auth": "Authenticated",
+      "resource": "Workspace:Read",
+      "requestType": null,
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<WorkspaceActiveMission>",
+        "404": ""
+      },
+      "tags": [
+        "Workspace"
+      ],
+      "summary": "List workspace active missions",
+      "experimental": false
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/workspace/vessels/{vesselId}/active-missions/enumerate",
+      "auth": "Authenticated",
+      "resource": "Workspace:Read",
+      "requestType": "EnumerationQuery",
+      "requestRequired": false,
+      "responses": {
+        "200": "EnumerationResult<WorkspaceActiveMission>",
+        "400": "",
+        "404": ""
+      },
+      "tags": [
+        "Workspace"
+      ],
+      "summary": "Enumerate workspace active missions",
       "experimental": false
     },
     {
@@ -7257,7 +7702,7 @@
           "required": true
         }
       ],
-      "description": "Cancel an entire voyage and all its pending missions",
+      "description": "Cancel an entire voyage and its Pending, Assigned, and Blocked missions. Returns the voyage with CancelledMissions and NotCancelledMissions counts; read which missions remain with enumerate (entityType missions, voyageId).",
       "experimental": false
     },
     {
@@ -8800,7 +9245,7 @@
           "required": true
         }
       ],
-      "description": "Permanently delete several Ask Armada conversations by ID (cancelling running turns). Returns which were deleted and which were not found. This cannot be undone.",
+      "description": "Permanently delete up to 1000 Ask Armada conversations by ID (cancelling running turns); more is InvalidArgument CollectionLimitExceeded. Returns which were deleted and which were not found (both bounded by the request). This cannot be undone.",
       "experimental": false
     },
     {
@@ -8842,7 +9287,7 @@
           "required": true
         }
       ],
-      "description": "Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. Returns a summary of deleted and skipped entries. This cannot be undone.",
+      "description": "Permanently delete multiple captains from the database by ID. Captains that are Working or have active missions are skipped. At most 1000 ids (InvalidArgument, Code CollectionLimitExceeded, otherwise). Returns a summary of deleted and skipped entries. This cannot be undone.",
       "experimental": false
     },
     {
@@ -9122,7 +9567,7 @@
           "required": true
         }
       ],
-      "description": "Delete a vessel by ID",
+      "description": "Delete a vessel by ID. Returns status, vesselId, warningCount, and (when cleanup left anything behind) the first 50 warnings.",
       "experimental": false
     },
     {
@@ -9329,7 +9774,7 @@
           "required": false
         }
       ],
-      "description": "Dispatch a voyage from a planning session and keep the linked backlog item associated with the resulting voyage.",
+      "description": "Dispatch a voyage from a planning session and link it to every backlog item linked to the session. Returns the voyage and linkedObjectiveCount; list the items with list_backlog filtered by voyageId.",
       "experimental": false
     },
     {
@@ -9616,7 +10061,7 @@
           "required": true
         }
       ],
-      "description": "Get a fleet action run with per-target summaries (status, skip/failure reason codes, exit code, voyage id, output length hints). Output text is not included.",
+      "description": "Get a fleet action run with its target counts (succeeded, failed, skipped, cancelled). Targets are not embedded: page them with enumerate (entityType fleet_action_run_target, runId, pageNumber, pageSize, optional status) for per-target status, reason codes, exit code, voyage id and output length hints.",
       "experimental": false
     },
     {
@@ -9630,7 +10075,7 @@
           "required": true
         }
       ],
-      "description": "Get one Ask Armada conversation with its recent messages, pending and decided action proposals, and tracked work.",
+      "description": "Get one Ask Armada conversation with counts of its tracked work, pending proposals, and pending CLI permission requests, and the running turn's progress (with its tool call count). Read the collections with list_ask_work, list_ask_proposals, and list_ask_tool_calls.",
       "experimental": false
     },
     {
@@ -9649,7 +10094,7 @@
           "required": true
         }
       ],
-      "description": "Get the current state of work an Ask Armada conversation is tracking (a voyage, mission, or fleet action run it started).",
+      "description": "Get the current state of work an Ask Armada conversation is tracking (a voyage, mission, or fleet action run it started): status and counts, with missionCount and targetCount. Read the rows with list_ask_work_missions and list_ask_work_targets.",
       "experimental": false
     },
     {
@@ -9677,7 +10122,7 @@
           "required": true
         }
       ],
-      "description": "Inspect one planning session created from backlog/objective work, including its transcript and linked backlog items.",
+      "description": "Inspect one planning session created from backlog/objective work: the session, its captain and vessel, messageCount, and linkedObjectiveCount. Read the transcript with list_backlog_planning_session_messages and the linked items with list_backlog filtered by planningSessionId.",
       "experimental": false
     },
     {
@@ -9691,7 +10136,7 @@
           "required": true
         }
       ],
-      "description": "Inspect one backlog refinement session, including its transcript, captain, vessel, and linked backlog item.",
+      "description": "Inspect one backlog refinement session: the session, its captain, vessel, and linked backlog item, and messageCount. Read the transcript with list_backlog_refinement_session_messages.",
       "experimental": false
     },
     {
@@ -9705,7 +10150,7 @@
           "required": true
         }
       ],
-      "description": "Get one fixture battery run visible to the caller: its provenance (seed, sampling settings, battery version, configuration revision), counts, and one result per task attempt (Passed, Failed, CouldNotRun or PendingEvaluation) with the grader's evidence and the captain's raw output.",
+      "description": "Get one fixture battery run visible to the caller: its provenance (seed, sampling settings, battery version, configuration revision) and outcome counts. The per-task results are not embedded: page them with list_battery_results.",
       "experimental": false
     },
     {
@@ -9755,9 +10200,29 @@
           "name": "captainId",
           "type": "string",
           "required": true
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "refresh",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "name": "sourceKind",
+          "type": "string",
+          "required": false
         }
       ],
-      "description": "Describe the runtime-visible tool sources and named tools available to a specific captain.",
+      "description": "Describe the runtime-visible tool sources (at most 256) and tool counts of a specific captain, with one page of its named tools (Tools: pageNumber, pageSize 1 to 1000 default 10, ordered by source kind, source, and name). A snapshot from the last 60 seconds is reused for paging unless refresh is true.",
       "experimental": false
     },
     {
@@ -9841,7 +10306,7 @@
           "required": true
         }
       ],
-      "description": "Get details of a specific fleet including its vessels",
+      "description": "Get one fleet and its vessel count (VesselCount). Vessels are not embedded: page them with enumerate entityType vessels and fleetId.",
       "experimental": false
     },
     {
@@ -10232,7 +10697,41 @@
           "required": true
         }
       ],
-      "description": "Read an Ask Armada conversation's messages, newest page first. Pass beforeSequence (the lowest sequence you have) to read older messages.",
+      "description": "Read an Ask Armada conversation's messages, newest page first (1 to 200 per page). Pass beforeSequence (the lowest sequence you have) to read older messages. Each message carries toolCallCount; read its tool calls with list_ask_tool_calls.",
+      "experimental": false
+    },
+    {
+      "name": "list_ask_proposals",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "order",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Read one page of an Ask Armada conversation's action proposals (paged in the database), newest first by default. status filters by proposal status, for example Pending.",
       "experimental": false
     },
     {
@@ -10270,6 +10769,137 @@
         }
       ],
       "description": "List the caller's Ask Armada conversations, newest first, with titles, captain, pinned and archived state, and unread counts. Use search to match titles and includeArchived to include archived ones.",
+      "experimental": false
+    },
+    {
+      "name": "list_ask_tool_calls",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "messageId",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "order",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Read one page of tool calls in an Ask Armada conversation: the calls of one message (messageId, paged in the database), or without messageId the calls the running turn has made so far. Newest first by default; pass order CreatedAscending for the order they were made in.",
+      "experimental": false
+    },
+    {
+      "name": "list_ask_work",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "order",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Read one page of the work an Ask Armada conversation tracks (paged in the database), newest first by default, each item with a counts-only snapshot. status filters by state: Active, Succeeded, Failed, or Cancelled.",
+      "experimental": false
+    },
+    {
+      "name": "list_ask_work_missions",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "order",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "workId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Read one page of the mission rows of tracked work (a voyage's missions, or the mission itself), paged in the database. Newest first by default; pass order CreatedAscending for creation order. Fleet action runs have targets instead (list_ask_work_targets).",
+      "experimental": false
+    },
+    {
+      "name": "list_ask_work_targets",
+      "auth": "Authenticated",
+      "resource": "AskThread:Read",
+      "arguments": [
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "threadId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "workId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Read one page of the target rows of a tracked fleet action run (one per vessel, by vessel name), paged in the database.",
       "experimental": false
     },
     {
@@ -10352,6 +10982,64 @@
       "experimental": false
     },
     {
+      "name": "list_backlog_planning_session_messages",
+      "auth": "Authenticated",
+      "resource": "PlanningSession:Read",
+      "arguments": [
+        {
+          "name": "order",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Read one page of a planning session's transcript (paged in the database). Newest first by default; pass order CreatedAscending for oldest first. totalRecords is the transcript length.",
+      "experimental": false
+    },
+    {
+      "name": "list_backlog_refinement_session_messages",
+      "auth": "Authenticated",
+      "resource": "ObjectiveRefinementSession:Read",
+      "arguments": [
+        {
+          "name": "order",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "sessionId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "Read one page of a backlog refinement session's transcript (paged in the database). Newest first by default; pass order CreatedAscending for oldest first. totalRecords is the transcript length.",
+      "experimental": false
+    },
+    {
       "name": "list_backlog_refinement_sessions",
       "auth": "Authenticated",
       "resource": "ObjectiveRefinementSession:Read",
@@ -10372,7 +11060,7 @@
           "required": false
         }
       ],
-      "description": "List captain-backed refinement sessions for one backlog item (lightweight, paginated). Returns session metadata only, most-recently-updated first; fetch a session's transcript with get_backlog_refinement_session.",
+      "description": "List captain-backed refinement sessions for one backlog item, one page at a time (paged in the database). Returns session metadata only, most-recently-updated first; read a session's transcript with list_backlog_refinement_session_messages.",
       "experimental": false
     },
     {
@@ -10392,6 +11080,40 @@
         }
       ],
       "description": "List the fixture battery packs (each a fixture repository plus its tasks, defined as data), with each task's persona, grader (command, byteComparison, seededSet, mutation, rubric) and toolchain. Malformed packs are listed with valid false and their validation errors. Returns an enumeration result (objects, totalRecords, totalPages).",
+      "experimental": false
+    },
+    {
+      "name": "list_battery_results",
+      "auth": "Authenticated",
+      "resource": "BatteryRun:Read",
+      "arguments": [
+        {
+          "name": "order",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "runId",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "List one page of a fixture battery run's per-task results (Passed, Failed, CouldNotRun or PendingEvaluation), each with the grader's evidence and the captain's raw output. Paged in the database; returns an enumeration result (objects, totalRecords, totalPages).",
       "experimental": false
     },
     {
@@ -10685,6 +11407,59 @@
         }
       ],
       "description": "List stage outcomes (one per stage attempt: who ran it, what was observed, what Armada did next, and the suspected cause of a shortfall), newest first, one page at a time. A global admin sees every tenant; everyone else sees their own tenant. Returns an enumeration result (objects, totalRecords, totalPages).",
+      "experimental": false
+    },
+    {
+      "name": "list_vessel_dependencies",
+      "auth": "Authenticated",
+      "resource": "VesselHealth:Read",
+      "arguments": [
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "vesselId",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "description": "List one page of a vessel's outdated or vulnerable dependency rows from its last health evaluation (ecosystem, packageName, projectPath, currentVersion, latestVersion, drift, isVulnerable, severity, advisoryUrl), ordered by ecosystem, package name, then project path. Returns the standard page shape (objects, pageNumber, pageSize, totalPages, totalRecords).",
+      "experimental": false
+    },
+    {
+      "name": "list_voyage_progress",
+      "auth": "Authenticated",
+      "resource": "Voyage:Read",
+      "arguments": [
+        {
+          "name": "order",
+          "type": "string",
+          "required": false
+        },
+        {
+          "name": "pageNumber",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": false
+        }
+      ],
+      "description": "Page through voyages with their mission counts (the voyages the status tool counts in ActiveVoyages). With no status the view is the active voyages: InProgress first, then Open, newest first within each. A status selects one voyage status. Returns PageNumber, PageSize, TotalPages, TotalRecords, and Objects (VoyageProgress).",
       "experimental": false
     },
     {
@@ -11624,7 +12399,7 @@
       "auth": "Authenticated",
       "resource": "Status:Read",
       "arguments": [],
-      "description": "Get aggregate status of active work in Armada: captain counts by state, mission counts by status, active voyages with progress, and recent signals. A global administrator sees every tenant; any other caller sees only its own tenant.",
+      "description": "Get aggregate status of active work in Armada: captain counts by state, mission counts by status, active voyage counts (ActiveVoyages, InProgressVoyages, OpenVoyages), and the 10 most recent signals. Page through the active voyages with progress with list_voyage_progress. A global administrator sees every tenant; any other caller sees only its own tenant.",
       "experimental": false
     },
     {
@@ -11754,6 +12529,11 @@
           "required": false
         },
         {
+          "name": "modelLimit",
+          "type": "integer",
+          "required": false
+        },
+        {
           "name": "runtime",
           "type": "string",
           "required": false
@@ -11784,7 +12564,7 @@
           "required": false
         }
       ],
-      "description": "Summarize model token usage over a time window: time buckets with a per-model breakdown, a whole-window per-model aggregate ordered most-used first, and grand totals (input, output, cached, total). Counts are real where the runtime reports usage (for example Claude Code) and estimated otherwise -- estimatedCount reports how many aggregated records were estimated.",
+      "description": "Summarize model token usage over a time window: time buckets with a per-model breakdown, a whole-window per-model aggregate ordered most-used first, and grand totals (input, output, cached, total). Counts are real where the runtime reports usage (for example Claude Code) and estimated otherwise; estimatedCount reports how many aggregated records were estimated. At most 1000 buckets: a window and bucketMinutes that would produce more fails with InvalidArgument (Code CollectionLimitExceeded). byModel and each bucket's models list the modelLimit most-used models; the rest are summed into otherModels (otherModelCount says how many).",
       "experimental": false
     },
     {
@@ -13374,17 +14154,12 @@
       "resource": "VesselHealth:Read",
       "arguments": [
         {
-          "name": "includeDependencies",
-          "type": "boolean",
-          "required": false
-        },
-        {
           "name": "vesselId",
           "type": "string",
           "required": true
         }
       ],
-      "description": "Get one vessel's health: the row with effective (override-aware) statuses, raw findings (criterion, status, detailCode, valueA, valueB), and manual overrides. Dependency rows are excluded by default (dependencyCount hint returned); set includeDependencies to include them.",
+      "description": "Get one vessel's health: the row with effective (override-aware) statuses, raw findings (criterion, status, detailCode, valueA, valueB), manual overrides, and dependencyCount. Dependency rows are not embedded; page them with list_vessel_dependencies.",
       "experimental": false
     },
     {
@@ -13392,26 +14167,6 @@
       "auth": "Authenticated",
       "resource": "Voyage:Read",
       "arguments": [
-        {
-          "name": "includeDescription",
-          "type": "boolean",
-          "required": false
-        },
-        {
-          "name": "includeDiffs",
-          "type": "boolean",
-          "required": false
-        },
-        {
-          "name": "includeLogs",
-          "type": "boolean",
-          "required": false
-        },
-        {
-          "name": "includeMissions",
-          "type": "boolean",
-          "required": false
-        },
         {
           "name": "summary",
           "type": "boolean",
@@ -13423,7 +14178,7 @@
           "required": true
         }
       ],
-      "description": "Get status of a specific voyage. Returns summary with mission counts by default; opt-in to full mission details.",
+      "description": "Get status of a specific voyage: the voyage with its mission counts (TotalMissions, MissionCountsByStatus). Missions are never embedded; read them one page at a time with enumerate (entityType missions, voyageId).",
       "experimental": false
     }
   ],
@@ -13514,6 +14269,7 @@
       "list_missions_summary",
       "list_signals",
       "list_vessels",
+      "list_voyage_progress",
       "list_voyages",
       "process_merge_queue",
       "purge_mission",

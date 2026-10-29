@@ -124,6 +124,33 @@ namespace Test.Shared.Suites.Services
                 return Task.CompletedTask;
             }));
 
+            cases.Add(CaseAsync("builder_bounds_agent_lists_with_marker", "Findings, acceptance criteria and protocol lines over 256 keep 255 entries plus a marker naming the omitted count; actions and verdict use the full lists", TestTags.Negative, () =>
+            {
+                System.Text.StringBuilder output = new System.Text.StringBuilder("Reviewed.\n## Findings\n");
+                for (int i = 1; i <= 300; i++) output.Append(i).Append(". File: src/F").Append(i).Append(".cs:").Append(i).Append(" Severity: Blocking. Problem ").Append(i).Append(".\n");
+                output.Append("\n");
+                for (int i = 0; i < 299; i++) output.Append("[ARMADA:STAGE-OUTCOME] note ").Append(i).Append('\n');
+                output.Append("[ARMADA:VERDICT] NEEDS_REVISION\n");
+                System.Text.StringBuilder description = new System.Text.StringBuilder("Fix it.\n## Acceptance criteria\n");
+                for (int i = 0; i < 270; i++) description.Append("- criterion ").Append(i).Append('\n');
+                Mission judge = JudgeMission(output.ToString());
+                judge.Description = description.ToString();
+
+                HandoffArtifact artifact = HandoffArtifactBuilder.Build(judge);
+                AssertEqual("NEEDS_REVISION", artifact.Verdict, "verdict decided from the full protocol lines");
+                AssertEqual(256, artifact.Findings.Count, "findings bounded");
+                AssertContains("45 more findings", artifact.Findings[255].Summary);
+                AssertContains("of 300", artifact.Findings[255].Summary);
+                AssertEqual(256, artifact.CompletionLines.Count, "protocol lines bounded");
+                AssertStartsWith(HandoffArtifactBuilder.TruncatedLinePrefix, artifact.CompletionLines[255]);
+                AssertContains("45 more of 300", artifact.CompletionLines[255]);
+                AssertEqual(256, artifact.AcceptanceCriteria.Count, "criteria bounded");
+                AssertContains("15 more of 270", artifact.AcceptanceCriteria[255]);
+                AssertContains("300 blocking finding", String.Join(" ", artifact.RequiredActions));
+                CollectionBounds.Validate(artifact);
+                return Task.CompletedTask;
+            }));
+
             cases.Add(CaseAsync("renderer_budget_respected", "Across budgets the rendering never exceeds the budget once the budget covers the pointer and did-not-fit floor", TestTags.Positive, () =>
             {
                 HandoffArtifact artifact = BigArtifact();
