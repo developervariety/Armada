@@ -570,6 +570,35 @@
                     }
                 },
                 {
+                    "name": "Enumerate Tenants",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/tenants/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "tenants",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of tenants (the system tenant excluded). Global admin only. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10); querystring pageNumber and pageSize override it."
+                    }
+                },
+                {
                     "name": "Create Tenant",
                     "request": {
                         "method": "POST",
@@ -701,6 +730,35 @@
                     }
                 },
                 {
+                    "name": "Enumerate Users",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/users/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "users",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of users, redacted: a global admin sees every tenant, a tenant admin their tenant, other users only themselves. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10)."
+                    }
+                },
+                {
                     "name": "Create User",
                     "request": {
                         "method": "POST",
@@ -829,6 +887,35 @@
                             ]
                         },
                         "description": "List credentials (paginated). Global admin: all. Tenant admin: credentials in own tenant. Regular user: own credentials only."
+                    }
+                },
+                {
+                    "name": "Enumerate Credentials",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/credentials/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "credentials",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of credentials with bearer tokens masked: a global admin sees every tenant, a tenant admin their tenant, other users their own. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10)."
                     }
                 },
                 {
@@ -1762,7 +1849,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Name\": \"MyRepo\",\n  \"RepoUrl\": \"https://github.com/org/repo.git\",\n  \"FleetId\": \"{{fleetId}}\",\n  \"DefaultBranch\": \"main\"\n}"
+                            "raw": "{\n  \"Name\": \"MyRepo\",\n  \"RepoUrl\": \"https://github.com/org/repo.git\",\n  \"FleetId\": \"{{fleetId}}\",\n  \"DefaultBranch\": \"main\",\n  \"TestCommand\": null,\n  \"LintCommand\": null,\n  \"AuditCommand\": null\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/api/v1/vessels",
@@ -1818,7 +1905,7 @@
                         ],
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Name\": \"Renamed Repo\",\n  \"DefaultBranch\": \"main\"\n}"
+                            "raw": "{\n  \"Name\": \"Renamed Repo\",\n  \"DefaultBranch\": \"main\",\n  \"TestCommand\": \"make test\",\n  \"LintCommand\": \"npm run lint\",\n  \"AuditCommand\": \"osv-scanner scan source -r .\"\n}"
                         },
                         "url": {
                             "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}",
@@ -1942,27 +2029,6 @@
                             ]
                         },
                         "description": "Returns the current git status (branch, ahead/behind, dirty files) for the vessel repository."
-                    }
-                },
-                {
-                    "name": "[Deprecated] List Vessel Branches",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/vessels/{{vesselId}}/branches",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "vessels",
-                                "{{vesselId}}",
-                                "branches"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/vessels/{id}/branches/enumerate. Returns the list of local and remote branches for the vessel repository."
                     }
                 },
                 {
@@ -3529,6 +3595,37 @@
                     ]
                 },
                 {
+                    "name": "Enumerate Mission Handoff Artifacts",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 10\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/missions/{{missionId}}/handoff-artifacts/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "missions",
+                                "{{missionId}}",
+                                "handoff-artifacts",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the handoff artifacts recorded for a mission, newest first, without Output and Diff (their lengths stay). Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10). 404 when the mission is missing or out of scope."
+                    }
+                },
+                {
                     "name": "Get Mission Log",
                     "request": {
                         "method": "GET",
@@ -4001,7 +4098,7 @@
                                 "captains"
                             ]
                         },
-                        "description": "Registers a new captain (AI agent). Runtime options: ClaudeCode, Codex, Gemini, Cursor, Custom. Model is optional; when omitted, the runtime chooses automatically. SystemInstructions are optional per-captain instructions injected into every mission prompt. Invalid or unavailable models return a validation error. Auto-saves the ID to the captainId collection variable."
+                        "description": "Registers a new captain (AI agent). Runtime options: ClaudeCode, Codex, Gemini, Cursor, Mux, OpenCode, Pi, Custom. Model is optional; when omitted, the runtime chooses automatically. SystemInstructions are optional per-captain instructions injected into every mission prompt. Invalid or unavailable models return a validation error. Auto-saves the ID to the captainId collection variable."
                     },
                     "response": [
                         {
@@ -4060,6 +4157,95 @@
                             "body": "{\n  \"captainId\": \"cpt_abc123\",\n  \"captainName\": \"captain-1\",\n  \"runtime\": \"Mux\",\n  \"toolsAccessible\": true,\n  \"availabilityVerified\": true,\n  \"availabilitySource\": \"mux-probe\",\n  \"summary\": \"Mux probe succeeded and the endpoint reported tool calling enabled.\",\n  \"endpointName\": \"local-codex\",\n  \"toolsEnabled\": true,\n  \"effectiveToolCount\": 42,\n  \"armadaToolCount\": 37,\n  \"tools\": [\n    {\n      \"name\": \"get_status\",\n      \"description\": \"Get current Admiral status snapshot\",\n      \"inputSchemaJson\": \"{\\\"type\\\":\\\"object\\\",\\\"properties\\\":{}}\"\n    }\n  ]\n}"
                         }
                     ]
+                },
+                {
+                    "name": "Enumerate CLI Permission Requests",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Status\": \"Pending\",\n  \"CaptainId\": \"{{captainId}}\",\n  \"VesselId\": null,\n  \"MissionId\": null,\n  \"ThreadId\": null\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/cli-permissions/requests/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "cli-permissions",
+                                "requests",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of CLI permission requests, newest first, with TotalRecords. Body: CliPermissionRequestEnumerateRequest (EnumerationQuery plus ThreadId). Status is Pending, Allowed, Denied, Expired, or Cancelled (anything else is 400). Replaces the removed GET /api/v1/cli-permissions/requests."
+                    }
+                },
+                {
+                    "name": "Enumerate Model Probe Runs",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"CaptainId\": \"{{captainId}}\",\n  \"ModelEndpointId\": null,\n  \"Status\": null\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/model-probe-runs/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "model-probe-runs",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of quick model probe runs (without results), newest first. Body: ModelProbeRunQuery (TenantId for global admins, CaptainId, ModelEndpointId, Status, PageNumber, PageSize 1 to 1000, default 100). Captain sessions get 403."
+                    }
+                },
+                {
+                    "name": "Enumerate Battery Packs",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/battery/packs/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "battery",
+                                "packs",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of the fixture battery packs the Admiral found, ordered by id. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10). Captain sessions get 403."
+                    }
                 },
                 {
                     "name": "Update Captain",
@@ -4897,31 +5083,6 @@
                     }
                 },
                 {
-                    "name": "[Deprecated] List Push Devices",
-                    "request": {
-                        "method": "GET",
-                        "header": [
-                            {
-                                "key": "Content-Type",
-                                "value": "application/json"
-                            }
-                        ],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/push/devices",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "push",
-                                "devices"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/push/devices/enumerate. Lists the caller's devices. Admins may add ?userId= (and global admins ?tenantId=)."
-                    }
-                },
-                {
                     "name": "Enumerate Push Devices",
                     "request": {
                         "method": "POST",
@@ -5224,26 +5385,6 @@
                     ]
                 },
                 {
-                    "name": "List Recent Signals",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/signals/recent",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "signals",
-                                "recent"
-                            ]
-                        },
-                        "description": "Returns the most recent signals for the caller scope."
-                    }
-                },
-                {
                     "name": "Get Signal",
                     "request": {
                         "method": "GET",
@@ -5282,27 +5423,6 @@
                             ]
                         },
                         "description": "Marks a single signal as read."
-                    }
-                },
-                {
-                    "name": "[Deprecated] List Signals By Recipient",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/signals/recipient/{{captainId}}",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "signals",
-                                "recipient",
-                                "{{captainId}}"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/signals/enumerate with ToCaptainId. Returns signals addressed to a specific captain recipient."
                     }
                 },
                 {
@@ -6056,33 +6176,6 @@
             "name": "Harbors",
             "item": [
                 {
-                    "name": "[Deprecated] List Harbors",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/harbors",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "harbors"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/harbors/enumerate. Returns all registered Harbors visible to the caller as a plain array (not a paged envelope)."
-                    },
-                    "response": [
-                        {
-                            "name": "OK",
-                            "status": "OK",
-                            "code": 200,
-                            "body": "[\n  {\n    \"id\": \"hbr_abc123\",\n    \"name\": \"workstation-01\",\n    \"connectionStatus\": \"Connected\",\n    \"maxConcurrentJobs\": 4,\n    \"enabled\": true\n  }\n]"
-                        }
-                    ]
-                },
-                {
                     "name": "Enumerate Harbors",
                     "request": {
                         "method": "POST",
@@ -6339,6 +6432,43 @@
                     }
                 },
                 {
+                    "name": "Enumerate Harbor Jobs",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/harbors/{{harborId}}/jobs/enumerate?open=true",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "harbors",
+                                "{{harborId}}",
+                                "jobs",
+                                "enumerate"
+                            ],
+                            "query": [
+                                {
+                                    "key": "open",
+                                    "value": "true"
+                                }
+                            ]
+                        },
+                        "description": "[Experimental] One page of the captain launches recorded on a Harbor, newest first. Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10, CreatedAfter, CreatedBefore; default window the last 7 days). open=true lists only jobs that have not ended."
+                    }
+                },
+                {
                     "name": "Stop Harbor Job",
                     "request": {
                         "method": "POST",
@@ -6402,7 +6532,36 @@
                                 "jobs"
                             ]
                         },
-                        "description": "Returns background jobs newest first, scoped to the caller."
+                        "description": "Returns one page of background jobs newest first, scoped to the caller (first page of 100 without parameters; there is no unpaged form)."
+                    }
+                },
+                {
+                    "name": "Enumerate Jobs",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Statuses\": [\n    \"Queued\",\n    \"Running\"\n  ],\n  \"Kind\": null,\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/jobs/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "jobs",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of background jobs newest first, scoped to the caller. Body: JobQuery (Statuses, Kind, PageNumber, PageSize 1 to 1000, default 100); querystring pageNumber and pageSize override it."
                     }
                 },
                 {
@@ -6501,10 +6660,10 @@
                                 "fleet-actions"
                             ]
                         },
-                        "description": "Creates a Command action. Unknown template variables are rejected with 400 naming the variable. Captures actionId.",
+                        "description": "Creates a Command action. Unknown template variables are rejected with 400 naming the variable. Captures actionId. Optional fields: CommandWindows, OutputParser (registered parser ID), RequiredTools, RequiresNetwork, ScanSourceActionKey, Inputs [{Name, Type: string/semver/enum, Required, Default, AllowedValues, Description}]. Templates use {{input.name}} and {{scan.summary}}. Unknown input variables are rejected on save. Network actions skip when FleetActions.Offline is true or the vessel Harbor is listed in FleetActions.OfflineHarborIds.",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"Name\": \"Git status\",\n  \"Kind\": \"Command\",\n  \"CommandText\": \"git status -sb\",\n  \"TimeoutSeconds\": 60,\n  \"DefaultConcurrency\": 4,\n  \"RequiresCleanWorkingTree\": false\n}"
+                            "raw": "{\n  \"Name\": \"Git status\",\n  \"Kind\": \"Command\",\n  \"CommandText\": \"git status -sb\",\n  \"TimeoutSeconds\": 60,\n  \"DefaultConcurrency\": 4,\n  \"RequiresCleanWorkingTree\": false,\n  \"CommandWindows\": \"git status -sb\",\n  \"RequiredTools\": [\n    \"git\"\n  ],\n  \"RequiresNetwork\": false,\n  \"Inputs\": [\n    {\n      \"Name\": \"note\",\n      \"Type\": \"string\",\n      \"Required\": false,\n      \"Default\": \"\",\n      \"Description\": \"Optional run annotation\"\n    }\n  ]\n}"
                         }
                     },
                     "event": [
@@ -6642,10 +6801,10 @@
                                 "run"
                             ]
                         },
-                        "description": "Starts a run over the given vessels. Returns 202 with RunId. A vessel from another tenant rejects the whole request. Captures runId.",
+                        "description": "Starts a run over the given vessels. Returns 202 with RunId. A vessel from another tenant rejects the whole request. Captures runId. InputValues supplies declared runtime inputs by name; defaults apply when omitted. Missing required inputs, invalid semver or enum values, and unknown input names return 400 before dispatch. Targets with parsed findings use Findings, counted separately. Skipped ToolMissing:<tool> identifies a missing executable.",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"VesselIds\": [\n    \"{{vesselId}}\"\n  ],\n  \"Concurrency\": 2\n}"
+                            "raw": "{\n  \"VesselIds\": [\n    \"{{vesselId}}\"\n  ],\n  \"Concurrency\": 2,\n  \"InputValues\": {}\n}"
                         }
                     },
                     "event": [
@@ -6654,6 +6813,7 @@
                             "script": {
                                 "type": "text/javascript",
                                 "exec": [
+                                    "pm.test('Fleet action run is accepted', () => pm.response.to.have.status(202));",
                                     "if (pm.response.code >= 200 && pm.response.code < 300) {",
                                     "    const body = pm.response.json();",
                                     "    if (body && body.RunId) pm.collectionVariables.set('runId', body.RunId);",
@@ -6848,25 +7008,6 @@
         {
             "name": "Inbox",
             "item": [
-                {
-                    "name": "[Deprecated] Get Inbox",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/inbox",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "inbox"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/inbox/enumerate. Returns a consolidated, most-urgent-first list of items awaiting operator attention (reviews, failed landings, failed missions, stalled captains)."
-                    }
-                },
                 {
                     "name": "Enumerate Inbox",
                     "request": {
@@ -8032,25 +8173,6 @@
             "name": "Model Endpoints",
             "item": [
                 {
-                    "name": "[Deprecated] List Model Endpoints",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/model-endpoints",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "model-endpoints"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/model-endpoints/enumerate. List all model endpoints in scope. Returns a plain array, not a paginated envelope. The stored API key is never returned; reads expose HasApiKey."
-                    }
-                },
-                {
                     "name": "Enumerate Model Endpoints",
                     "request": {
                         "method": "POST",
@@ -8270,7 +8392,41 @@
                                 "memories"
                             ]
                         },
-                        "description": "List/search durable memories visible to the caller, ordered by salience then recency. Query: type (Episodic/Semantic/Procedural), topic, vesselId, search, pageNumber, pageSize. Returns a paged EnumerationResult."
+                        "description": "List/search durable memories visible to the caller. Query: pageNumber, pageSize, order, sortBy, createdAfter, createdBefore, vesselId, voyageId, missionId, tenantId, userId, search, type (Episodic/Semantic/Procedural), topic, topicContains, vesselName, summaryContains, scope, minSalience. Without sortBy or order, ordered by salience then recency. Returns a paged EnumerationResult."
+                    }
+                },
+                {
+                    "name": "Enumerate Memories",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/memories/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "memories",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "Paginated enumeration of the memories visible to the caller. Body: every EnumerationQuery field (PageNumber, PageSize, Order as the sort direction, CreatedAfter, CreatedBefore, VesselId, VoyageId, MissionId, TenantId, UserId) plus Search, Type, Topic, TopicContains, VesselName, SummaryContains, Scope, MinSalience, and SortBy (Created, Updated, Salience, Vessel, Type, Topic, Summary, Visibility). Without SortBy or Order, ordered by salience then recency. Returns a paged EnumerationResult.",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"SortBy\": \"Updated\",\n  \"Order\": \"CreatedDescending\",\n  \"Type\": \"Procedural\",\n  \"VesselName\": \"billing\",\n  \"MinSalience\": 0.5\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
                     }
                 },
                 {
@@ -8779,26 +8935,6 @@
         {
             "name": "Planning Sessions",
             "item": [
-                {
-                    "name": "[Deprecated] List Planning Sessions",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/planning-sessions",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "planning-sessions"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/planning-sessions/enumerate. List planning sessions visible to the authenticated caller."
-                    },
-                    "response": []
-                },
                 {
                     "name": "Enumerate Planning Sessions",
                     "request": {
@@ -9399,27 +9535,6 @@
                     }
                 },
                 {
-                    "name": "[Deprecated] List Backlog Refinement Sessions",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/backlog/{{objectiveId}}/refinement-sessions",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "backlog",
-                                "{{objectiveId}}",
-                                "refinement-sessions"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/backlog/{id}/refinement-sessions/enumerate. List refinement sessions linked to one backlog item."
-                    }
-                },
-                {
                     "name": "Enumerate Backlog Refinement Sessions",
                     "request": {
                         "method": "POST",
@@ -9803,28 +9918,6 @@
                     }
                 },
                 {
-                    "name": "[Deprecated] List Objective Refinement Sessions",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/objectives/{{objectiveId}}/refinement-sessions",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "objectives",
-                                "{{objectiveId}}",
-                                "refinement-sessions"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/objectives/{id}/refinement-sessions/enumerate. List refinement sessions linked to one objective (same as the backlog alias)."
-                    },
-                    "response": []
-                },
-                {
                     "name": "Enumerate Objective Refinement Sessions",
                     "request": {
                         "method": "POST",
@@ -10133,6 +10226,36 @@
                             ]
                         },
                         "description": "Delete the current workflow profile."
+                    }
+                },
+                {
+                    "name": "Batch Delete Workflow Profiles",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Ids\": [\"wfp_abc123\", \"wfp_def456\"]\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/workflow-profiles/delete/multiple",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "workflow-profiles",
+                                "delete",
+                                "multiple"
+                            ]
+                        },
+                        "description": "Batch delete multiple workflow profiles by ID (tenant admins). Missing, out-of-scope, or non-editable ids are skipped with a reason."
                     }
                 },
                 {
@@ -11097,28 +11220,6 @@
                     }
                 },
                 {
-                    "name": "[Deprecated] Get Release GitHub Pull Requests",
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{baseUrl}}/api/v1/releases/{{releaseId}}/github/pull-requests",
-                            "host": [
-                                "{{baseUrl}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "releases",
-                                "{{releaseId}}",
-                                "github",
-                                "pull-requests"
-                            ]
-                        },
-                        "description": "Deprecated (removed in 2.0; see DEPRECATION.md): use POST /api/v1/releases/{id}/github/pull-requests/enumerate. Read GitHub pull-request evidence derived from the mission PR URLs linked to this release."
-                    }
-                },
-                {
                     "name": "Enumerate Release GitHub Pull Requests",
                     "request": {
                         "method": "POST",
@@ -11853,7 +11954,7 @@
                                 }
                             ]
                         },
-                        "description": "List the cross-entity Armada timeline for the current scope."
+                        "description": "One page of the cross-entity Armada timeline for the current scope. pageSize 1 to 1000 (default 50); order=CreatedDescending (default) or CreatedAscending."
                     }
                 },
                 {
@@ -11878,10 +11979,10 @@
                                 "enumerate"
                             ]
                         },
-                        "description": "Enumerate the cross-entity Armada timeline using a JSON body.",
+                        "description": "One page of the cross-entity Armada timeline using a JSON body (HistoricalTimelineQuery: EnumerationQuery paging and Order plus the timeline filters). PageSize 1 to 1000 (default 50); Order CreatedDescending (newest first, default) or CreatedAscending; stable tie-break so pages never overlap.",
                         "body": {
                             "mode": "raw",
-                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50,\n  \"VesselId\": \"{{vesselId}}\",\n  \"SourceTypes\": [\n    \"Mission\",\n    \"Voyage\"\n  ],\n  \"ExcludeReadRequests\": true\n}",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 50,\n  \"Order\": \"CreatedDescending\",\n  \"VesselId\": \"{{vesselId}}\",\n  \"SourceTypes\": [\n    \"Mission\",\n    \"Voyage\"\n  ],\n  \"ExcludeReadRequests\": true\n}",
                             "options": {
                                 "raw": {
                                     "language": "json"
@@ -11978,6 +12079,35 @@
                         "description": "List captured request-history entries scoped to the authenticated caller."
                     },
                     "response": []
+                },
+                {
+                    "name": "Enumerate Request History",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Route\": \"/api/v1/status\",\n  \"Method\": null,\n  \"StatusCode\": null,\n  \"IsSuccess\": null\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/request-history/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "request-history",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of request-history entries scoped to the caller. Body: RequestHistoryQuery (filters, PageNumber, PageSize 1 to 500, default 25); querystring values override it."
+                    }
                 },
                 {
                     "name": "Request History Summary",
@@ -12210,6 +12340,35 @@
                     "response": []
                 },
                 {
+                    "name": "Enumerate Token Usage",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Model\": null,\n  \"Runtime\": null,\n  \"VesselId\": null,\n  \"CaptainId\": null\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/token-usage/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "token-usage",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of token-usage records scoped to the caller. Body: TokenUsageQuery (filters, PageNumber, PageSize 1 to 500, default 25); querystring values override it."
+                    }
+                },
+                {
                     "name": "Delete Token Usage By Filter",
                     "request": {
                         "method": "POST",
@@ -12336,6 +12495,35 @@
                             "body": "{\n  \"Error\": \"BadRequest\",\n  \"Message\": \"Invalid suspectedCause: Sloppy\"\n}"
                         }
                     ]
+                },
+                {
+                    "name": "Enumerate Stage Outcomes",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"Persona\": \"Worker\",\n  \"SuspectedCause\": \"Protocol\",\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/stage-outcomes/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "stage-outcomes",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of stage outcomes visible to the caller, newest first. Body: StageOutcomeQuery (the GET filters plus PageNumber, PageSize 1 to 1000, default 100)."
+                    }
                 },
                 {
                     "name": "Get Stage Outcome",
@@ -12569,6 +12757,35 @@
                             "body": "{\n  \"Success\": true,\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"TotalPages\": 1,\n  \"TotalRecords\": 1,\n  \"Objects\": [\n    {\n      \"Id\": \"fcr_mvq1a2b3c4d5e6f7g8h9i0j1\",\n      \"TenantId\": \"default\",\n      \"Name\": \"Prose instead of result block\",\n      \"Description\": \"The captain wrote its result in prose instead of the required block.\",\n      \"Priority\": 5,\n      \"Enabled\": true,\n      \"IsBuiltIn\": false,\n      \"Match\": {\n        \"Personas\": [],\n        \"Runtimes\": [],\n        \"FailureKinds\": [\n          \"InvalidOutput\"\n        ],\n        \"RuntimeFailureKinds\": [],\n        \"StageCheckStatuses\": [],\n        \"StageCheckReasons\": [],\n        \"Dispositions\": [\n          \"Relaunched\",\n          \"Failed\"\n        ],\n        \"TextPattern\": \"result block\"\n      },\n      \"Cause\": \"Protocol\",\n      \"CreatedByUserId\": \"default\",\n      \"CreatedUtc\": \"2026-10-26T18:00:00.000Z\",\n      \"LastUpdateUtc\": \"2026-10-26T18:00:00.000Z\"\n    }\n  ],\n  \"TotalMs\": 1.2\n}"
                         }
                     ]
+                },
+                {
+                    "name": "Enumerate Failure Cause Rules",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/failure-cause-rules/enumerate",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "failure-cause-rules",
+                                "enumerate"
+                            ]
+                        },
+                        "description": "One page of failure-cause rules in evaluation order (priority, then name). Body: EnumerationQuery (PageNumber, PageSize 1 to 1000, default 10)."
+                    }
                 },
                 {
                     "name": "Create Failure Cause Rule",

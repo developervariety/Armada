@@ -39,6 +39,14 @@ namespace Armada.Server
         /// </summary>
         public MissionActivityTracker MissionActivity { get; } = new MissionActivityTracker();
 
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, RuntimeToolWaitTracker> _ToolWaits = new System.Collections.Concurrent.ConcurrentDictionary<int, RuntimeToolWaitTracker>();
+
+        /// <summary>Oldest outstanding tool for this process launch, or null when it is not waiting on a tool.</summary>
+        public DateTime? GetToolWaitStartedUtc(int processId)
+        {
+            return _ToolWaits.TryGetValue(processId, out RuntimeToolWaitTracker? tracker) ? tracker.StartedUtc : null;
+        }
+
         /// <summary>Bound on one model-validation process after launch; tests may shorten it.</summary>
         internal TimeSpan ModelValidationTimeout
         {
@@ -828,6 +836,18 @@ namespace Armada.Server
                 rawSource.OnRawStdoutReceived += (processId, line) => telemetry.ObserveLine(telemetryRuntime, line);
             else
                 runtime.OnStdoutReceived += (processId, line) => telemetry.ObserveLine(telemetryRuntime, line);
+
+            // Raw CLI events are available locally and over Harbor; API lifecycle diagnostics travel on
+            // general output forwarded by Harbor. Keep this separate from output heartbeats.
+            Action<int, string> observeTool = (pid, line) =>
+                _ToolWaits.GetOrAdd(pid, _ => new RuntimeToolWaitTracker()).Observe(captain.Runtime, line, DateTime.UtcNow);
+            if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
+                runtime.OnOutputReceived += observeTool;
+            else if (runtime is IRawStdoutSource toolSource)
+                toolSource.OnRawStdoutReceived += observeTool;
+            else
+                runtime.OnStdoutReceived += observeTool;
+            runtime.OnProcessExited += (pid, exitCode) => _ToolWaits.TryRemove(pid, out _);
 
             runtime.OnOutputReceived += HandleAgentOutput;
             runtime.OnOutputReceived += HandleAgentHeartbeat;

@@ -240,7 +240,48 @@ namespace Armada.Helm.Commands
             return ResolveMuxExecutable() != null;
         }
 
+        /// <summary>
+        /// pi's user MCP configuration file: <c>$PI_CODING_AGENT_DIR/mcp.json</c> when that variable is set, otherwise
+        /// <c>&lt;home&gt;/.pi/agent/mcp.json</c>.
+        /// </summary>
+        /// <param name="homeDirectory">Home directory; null for the user's profile.</param>
+        /// <returns>The path.</returns>
+        internal static string GetPiConfigPath(string? homeDirectory = null)
+        {
+            string? agentDirectory = Environment.GetEnvironmentVariable("PI_CODING_AGENT_DIR");
+            if (!String.IsNullOrWhiteSpace(agentDirectory)) return Path.Combine(agentDirectory!, "mcp.json");
+            string home = homeDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return Path.Combine(home, ".pi", "agent", "mcp.json");
+        }
+
+        /// <summary>
+        /// Whether pi is installed, so `armada mcp install` can configure it: a <c>pi</c> executable resolves on PATH and
+        /// identifies itself as pi in its <c>--help</c> output (other tools are also named <c>pi</c>).
+        /// </summary>
+        /// <returns>True when pi is available.</returns>
+        internal static bool IsPiAvailable()
+        {
+            return IsPiExecutable(ResolveExecutableOnPath(OperatingSystem.IsWindows()
+                ? new[] { "pi.cmd", "pi.exe", "pi" }
+                : new[] { "pi" }));
+        }
+
+        /// <summary>
+        /// Whether a resolved executable is the pi coding agent.
+        /// </summary>
+        /// <param name="path">Resolved executable path, or null.</param>
+        /// <returns>True when the executable identifies itself as pi.</returns>
+        internal static bool IsPiExecutable(string? path)
+        {
+            return !String.IsNullOrEmpty(path) && RuntimeDetectionService.IsPiCommand(path!);
+        }
+
         internal static List<ConfigTarget> BuildTargets(int mcpPort, string host)
+        {
+            return BuildTargets(mcpPort, host, IsPiAvailable());
+        }
+
+        internal static List<ConfigTarget> BuildTargets(int mcpPort, string host, bool includePi)
         {
             string mcpUrl = GetMcpUrl(mcpPort, host);
             string codexCommand = ResolveCliCommand("codex");
@@ -327,12 +368,27 @@ namespace Armada.Helm.Commands
                     Kind: McpClientKindEnum.OpenCode));
             }
 
+            // pi keeps user MCP servers under "mcpServers" in ~/.pi/agent/mcp.json (or $PI_CODING_AGENT_DIR/mcp.json);
+            // existing entries are kept. Only offered when a pi executable is found, so no stray ~/.pi is created.
+            if (includePi)
+            {
+                targets.Add(new(
+                    "pi",
+                    GetPiConfigPath(),
+                    new JsonObject
+                    {
+                        ["type"] = "http",
+                        ["url"] = mcpUrl,
+                    },
+                    Kind: McpClientKindEnum.Pi));
+            }
+
             return targets;
         }
 
         /// <summary>
         /// Client configurations for a remote Admiral's HTTP MCP endpoint with a bearer token. Claude Code, Gemini CLI,
-        /// Cursor, and OpenCode get an <c>Authorization: Bearer</c> header in their config file; Mux gets an
+        /// Cursor, OpenCode, and pi get an <c>Authorization: Bearer</c> header in their config file; Mux gets an
         /// <c>auth</c> block sending the same header; Codex reads the token from <c>ARMADA_TOKEN</c> at runtime
         /// (<c>codex mcp add --bearer-token-env-var</c>), so it is not written to disk. Printed snippets use
         /// <see cref="TokenPlaceholder"/>.
@@ -342,8 +398,9 @@ namespace Armada.Helm.Commands
         /// <param name="paths">Config locations.</param>
         /// <param name="includeMux">Include Mux.</param>
         /// <param name="includeOpenCode">Include OpenCode.</param>
+        /// <param name="includePi">Include pi.</param>
         /// <returns>Targets.</returns>
-        internal static List<ConfigTarget> BuildRemoteTargets(string mcpUrl, string bearerToken, McpInstallPaths paths, bool includeMux, bool includeOpenCode)
+        internal static List<ConfigTarget> BuildRemoteTargets(string mcpUrl, string bearerToken, McpInstallPaths paths, bool includeMux, bool includeOpenCode, bool includePi = false)
         {
             if (String.IsNullOrWhiteSpace(mcpUrl)) throw new ArgumentNullException(nameof(mcpUrl));
             if (String.IsNullOrWhiteSpace(bearerToken)) throw new ArgumentNullException(nameof(bearerToken));
@@ -410,6 +467,16 @@ namespace Armada.Helm.Commands
                     IsOpenCodeConfig: true,
                     Kind: McpClientKindEnum.OpenCode,
                     ManualConfig: new JsonObject { ["type"] = "remote", ["url"] = mcpUrl, ["enabled"] = true, ["headers"] = BearerHeaders(TokenPlaceholder) }));
+            }
+
+            if (includePi)
+            {
+                targets.Add(new(
+                    "pi",
+                    GetPiConfigPath(paths.HomeDirectory),
+                    new JsonObject { ["type"] = "http", ["url"] = mcpUrl, ["headers"] = BearerHeaders(bearerToken) },
+                    Kind: McpClientKindEnum.Pi,
+                    ManualConfig: new JsonObject { ["type"] = "http", ["url"] = mcpUrl, ["headers"] = BearerHeaders(TokenPlaceholder) }));
             }
 
             return targets;
