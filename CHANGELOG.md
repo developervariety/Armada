@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Fixture grading completion
+
+- Fixture grading waits for a passed Definition-of-Done record for the current captain, dock, commit and attempt, followed by the final completion event. An early captain release cannot start grading or reset the fixture while its gate still runs.
+
 ### Mission metadata validation
 
 - REST, MCP and WebSocket mission metadata updates refuse unknown or non-patchable fields by name before saving any field. Sending a preference, status or recovery counter cannot silently succeed without changing it.
