@@ -65,7 +65,7 @@ checkout and Git references unchanged. See [Local checkout import](VESSEL_CHECKO
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_get_captain`, `armada_get_captain_log` |
-| Write | `armada_create_captain`, `armada_update_captain`, `armada_bench_captain`, `armada_unbench_captain` |
+| Write | `armada_create_captain`, `armada_update_captain`, `armada_bench_captain`, `armada_unbench_captain`, `armada_probe_captain_model` (global administrator; sends one small prompt to the captain's model and records endpoint health, without a mission) |
 | Interrupt | `armada_stop_captain`, `armada_stop_all` |
 | Destructive | `armada_delete_captain`, `armada_delete_captains` |
 

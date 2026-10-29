@@ -2971,9 +2971,9 @@ namespace Armada.Test.Unit.Suites.Services
                 return voyage;
             }
 
-            public async Task<Voyage> DispatchVoyageQueuedAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, List<SelectedPlaybook>? selectedPlaybooks, StageSkipRequest? stageSkip, List<CaptainAssignmentOverride>? captainOverrides, CancellationToken token = default)
+            public async Task<Voyage> DispatchVoyageQueuedAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, List<SelectedPlaybook>? selectedPlaybooks, StageSkipRequest? stageSkip, List<CaptainAssignmentOverride>? captainOverrides, CancellationToken token = default, bool isEvaluation = false)
             {
-                Voyage voyage = await _Inner.DispatchVoyageQueuedAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, stageSkip, captainOverrides, token).ConfigureAwait(false);
+                Voyage voyage = await _Inner.DispatchVoyageQueuedAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, stageSkip, captainOverrides, token, isEvaluation).ConfigureAwait(false);
                 await _Inner.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
                 return voyage;
             }

@@ -45,11 +45,10 @@ namespace Armada.Server.Mcp.Tools
         /// Register the saved Ask conversation read tools.
         /// </summary>
         /// <param name="register">Tool registration delegate.</param>
-        /// <param name="threads">The saved conversation service that also backs the REST routes.</param>
-        public static void Register(RegisterToolDelegate register, AskThreadService threads)
+        /// <param name="threads">The saved conversation service that also backs the REST routes, or null where the host has none; the tools then answer Unavailable.</param>
+        public static void Register(RegisterToolDelegate register, AskThreadService? threads)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
-            if (threads == null) throw new ArgumentNullException(nameof(threads));
 
             register(
                 ListToolName,
@@ -67,6 +66,7 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    if (threads == null) return McpToolUnavailable.Create("saved Ask conversations");
                     ListArgs request = Parse<ListArgs>(args);
                     try
                     {
@@ -101,6 +101,7 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    if (threads == null) return McpToolUnavailable.Create("saved Ask conversations");
                     GetArgs request = Parse<GetArgs>(args);
                     if (String.IsNullOrWhiteSpace(request.ThreadId)) return (object)new { Error = "threadId is required." };
                     try

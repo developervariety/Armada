@@ -165,7 +165,7 @@ namespace Armada.Server.Mcp
             McpProductionTools.Register(register, database);
             McpPapercutTools.Register(register, database, papercutMergeAdapter);
             McpMemoryProposalTools.Register(register, database);
-            if (askThreads != null) McpAskThreadTools.Register(register, askThreads);
+            McpAskThreadTools.Register(register, askThreads);
             if (logging != null) McpInboxTools.Register(register, database, logging, inboxTriageAdapter);
             McpDockTools.Register(register, database, dockService, missionOperations.Notifier);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);

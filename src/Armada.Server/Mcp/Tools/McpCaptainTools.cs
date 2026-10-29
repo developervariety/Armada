@@ -431,7 +431,6 @@ namespace Armada.Server.Mcp.Tools
                     });
             }
 
-            if (captainModelProbe != null)
             {
                 register(
                     "armada_probe_captain_model",
@@ -447,6 +446,7 @@ namespace Armada.Server.Mcp.Tools
                     },
                     async (args) =>
                     {
+                        if (captainModelProbe == null) return McpToolUnavailable.Create("captain model probe");
                         CaptainIdArgs request = JsonSerializer.Deserialize<CaptainIdArgs>(args!.Value, _JsonOptions)!;
                         try
                         {
