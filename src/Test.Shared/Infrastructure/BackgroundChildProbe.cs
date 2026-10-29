@@ -50,8 +50,8 @@ namespace Test.Shared.Infrastructure
         /// <returns>True when the process no longer runs.</returns>
         public static async Task<bool> GoneAsync(int pid)
         {
-            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
-            while (DateTime.UtcNow < deadline)
+            MonotonicDeadline deadline = MonotonicDeadline.After(TimeSpan.FromSeconds(5));
+            while (!deadline.Passed)
             {
                 if (!IsAlive(pid)) return true;
                 await Task.Delay(50).ConfigureAwait(false);

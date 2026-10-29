@@ -1742,6 +1742,60 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("CreateMission_OptionalTier_SetsTheFloorAndRejectsUnknownText", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("mission-tier-tenant")).ConfigureAwait(false);
+                    UserMaster user = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "mission-tier@example.com", "password")).ConfigureAwait(false);
+                    AuthContext caller = AuthContext.Authenticated(tenant.Id, user.Id, false, false, "Test");
+                    Vessel vessel = new Vessel("mission-tier-vessel", "https://github.com/test/mission-tier.git");
+                    vessel.TenantId = tenant.Id;
+                    vessel.UserId = user.Id;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    Func<JsonElement?, Task<object>>? createHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_create_mission") createHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null);
+                    AssertNotNull(createHandler, "armada_create_mission handler must be registered");
+
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        await createHandler!(JsonSerializer.SerializeToElement(new { title = "omit", description = "no tier", vesselId = vessel.Id })).ConfigureAwait(false);
+                    }
+                    AssertNull(admiralDouble.LastDispatched!.Tier, "omitting tier leaves the mission floor unset");
+
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        await createHandler!(JsonSerializer.SerializeToElement(new { title = "premium", description = "named tier", vesselId = vessel.Id, tier = "premium" })).ConfigureAwait(false);
+                    }
+                    AssertEqual(CaptainTierEnum.Premium, admiralDouble.LastDispatched!.Tier, "a tier name is matched without regard to case");
+
+                    admiralDouble = new RecordingAdmiralDouble();
+                    createHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_create_mission") createHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null);
+                    object refused;
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        refused = await createHandler!(JsonSerializer.SerializeToElement(new { title = "bad", description = "bad tier", vesselId = vessel.Id, tier = "gold" })).ConfigureAwait(false);
+                    }
+                    string refusedJson = JsonSerializer.Serialize(refused);
+                    AssertContains("Unknown captain tier", refusedJson, "an unknown tier is refused");
+                    AssertContains("gold", refusedJson, "the refusal repeats the rejected value");
+                    AssertNull(admiralDouble.LastDispatched, "an unknown tier does not dispatch");
+                }
+            });
+
             await RunTest("RestartMission_ProgressSignalIsOwnedLikeTheMission", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

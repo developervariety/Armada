@@ -109,9 +109,9 @@ namespace Test.Shared.Infrastructure
 
         private static async Task<Mission> WaitForStartedMissionAsync(HttpClient client, string voyageId)
         {
-            DateTime deadline = DateTime.UtcNow + _AssignTimeout;
+            MonotonicDeadline deadline = MonotonicDeadline.After(_AssignTimeout);
             List<Mission> last = new List<Mission>();
-            while (DateTime.UtcNow < deadline)
+            while (!deadline.Passed)
             {
                 HttpResponseMessage response = await client.GetAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
@@ -128,9 +128,9 @@ namespace Test.Shared.Infrastructure
 
         private static async Task WaitForCaptainReleasedAsync(HttpClient client, string captainId)
         {
-            DateTime deadline = DateTime.UtcNow + _ReleaseTimeout;
+            MonotonicDeadline deadline = MonotonicDeadline.After(_ReleaseTimeout);
             Captain? captain = null;
-            while (DateTime.UtcNow < deadline)
+            while (!deadline.Passed)
             {
                 HttpResponseMessage response = await client.GetAsync("/api/v1/captains/" + captainId).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();

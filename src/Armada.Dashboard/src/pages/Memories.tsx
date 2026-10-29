@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { listMemories, deleteMemory } from '../api/client';
-import type { Memory, MemoryType } from '../types/models';
+import { Link } from 'react-router-dom';
+import { listMemories, deleteMemory, listAllVessels } from '../api/client';
+import type { Memory, MemoryType, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -30,6 +31,7 @@ export default function Memories() {
   const viewer = viewerFromAuth(useAuth());
 
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(false);
   const { pageNumber, pageSize, totalPages, totalRecords, setPageNumber, setPageSize, acceptPage } = useServerPaging();
   const [typeFilter, setTypeFilter] = useState<'' | MemoryType>('');
@@ -60,6 +62,12 @@ export default function Memories() {
   }, [acceptPage, requests, pageNumber, pageSize, typeFilter, appliedSearch, pushToast, t]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { listAllVessels().then(setVessels).catch(() => {}); }, []);
+
+  const vesselName = useCallback((id: string | null | undefined) => {
+    if (!id) return '-';
+    return vessels.find(vessel => vessel.id === id)?.name || id;
+  }, [vessels]);
 
   const handleDelete = async () => {
     const id = confirm.id;
@@ -145,7 +153,11 @@ export default function Memories() {
                       <td className="text-dim">{m.topic || '-'}</td>
                       <td>{m.summary || (m.content.length > 80 ? `${m.content.slice(0, 80)}...` : m.content)}</td>
                       <td className="text-dim">{m.salience.toFixed(2)}</td>
-                      <td className="mono text-dim">{m.vesselId || m.sourceVesselId || '-'}</td>
+                      <td>
+                        {(m.vesselId || m.sourceVesselId) ? (
+                          <Link to={`/vessels/${m.vesselId || m.sourceVesselId}`}>{vesselName(m.vesselId || m.sourceVesselId)}</Link>
+                        ) : '-'}
+                      </td>
                       <td><ScopeBadge scope={m.scope} /></td>
                       <td className="text-dim">{formatRelativeTime(m.lastUpdateUtc)}</td>
                       <td className="text-right" onClick={e => e.stopPropagation()}>

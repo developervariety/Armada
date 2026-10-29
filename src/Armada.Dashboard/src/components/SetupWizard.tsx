@@ -17,6 +17,7 @@ import MuxRuntimeFields from './captains/MuxRuntimeFields';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, type MuxCaptainFormFields } from '../lib/mux';
 import type { Captain, DeploymentEnvironment, Fleet, Mission, Vessel, VesselReadinessResult, WorkflowProfile } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
+import MissionFailureDetails, { FAILED_MISSION_STATUSES } from './shared/MissionFailureDetails';
 
 const STORAGE_KEY = 'armada_setup_completed';
 
@@ -1035,6 +1036,10 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
         </div>
       ) : (
         <p className="text-dim">{t('No mission has been dispatched yet.')}</p>
+      )}
+
+      {dispatchedMission && FAILED_MISSION_STATUSES.has(dispatchedMission.status) && (
+        <MissionFailureDetails mission={dispatchedMission} />
       )}
 
       <div className="wizard-summary-grid" style={{ marginTop: '1rem' }}>

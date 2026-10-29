@@ -332,11 +332,11 @@ export default function WorkflowProfiles() {
             <label>{t('Package Command')}
               <textarea rows={2} value={createForm.packageCommand} onChange={(event) => setCreateForm((current) => ({ ...current, packageCommand: event.target.value }))} />
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+            <label className="checkbox-row">
               <input type="checkbox" checked={createForm.isDefault} onChange={(event) => setCreateForm((current) => ({ ...current, isDefault: event.target.checked }))} />
               <span>{t('Default for this scope')}</span>
             </label>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}>
+            <label className="checkbox-row">
               <input type="checkbox" checked={createForm.active} onChange={(event) => setCreateForm((current) => ({ ...current, active: event.target.checked }))} />
               <span>{t('Active')}</span>
             </label>

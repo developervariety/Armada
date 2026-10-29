@@ -194,7 +194,7 @@ namespace Armada.Test.Unit.TestHelpers
                 null, null, emitEvent);
             CaptainAdministrationService captainAdministration = new CaptainAdministrationService(Driver, Admiral.Service.RecallCaptainAsync, logging);
             captainAdministration.StopProcess = lifecycle.HandleStopAgentAsync;
-            captainAdministration.ValidateModel = lifecycle.ValidateCaptainModelAsync;
+            captainAdministration.ValidateModel = lifecycle.ValidateCaptainModelDetailedAsync;
             CaptainAdministration = captainAdministration;
             WebSocket.CaptainAdministration = captainAdministration;
 

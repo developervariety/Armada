@@ -955,7 +955,7 @@ namespace Armada.Server.WebSocket
                 Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller),
                 Armada.Core.Authorization.OwnershipPolicy.UserOf(caller)).ConfigureAwait(false);
             if (!created.Succeeded)
-                return new { type = "command.error", action = "create_captain", error = created.Message, code = created.Code };
+                return new { type = "command.error", action = "create_captain", error = created.Message, code = created.Code, reason = created.ValidationFailure?.Reason.ToString() };
             return new { type = "command.result", action = "create_captain", data = (object)created.Captain! };
         }
 
@@ -980,7 +980,7 @@ namespace Armada.Server.WebSocket
                 // The shared captain update REST and MCP use: runtime-option normalization and model validation.
                 CaptainWriteResult updated = await CaptainAdministration.UpdateAsync(existCpt, updCptInput).ConfigureAwait(false);
                 if (!updated.Succeeded)
-                    return new { type = "command.error", action = "update_captain", error = updated.Message, code = updated.Code };
+                    return new { type = "command.error", action = "update_captain", error = updated.Message, code = updated.Code, reason = updated.ValidationFailure?.Reason.ToString() };
                 return new { type = "command.result", action = "update_captain", data = (object)updated.Captain! };
             }
         }

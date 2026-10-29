@@ -11,6 +11,7 @@ import {
   listDeployments,
   listVessels,
   purgeMission,
+  getVoyage,
 } from '../api/client';
 
 vi.mock('../api/client', async () => (await import('../test/clientMock')).withAllPages({
@@ -32,6 +33,7 @@ vi.mock('../api/client', async () => (await import('../test/clientMock')).withAl
   listVessels: vi.fn(),
   listCaptains: vi.fn(),
   listDeployments: vi.fn(),
+  getVoyage: vi.fn(),
 }));
 
 vi.mock('../context/LocaleContext', () => {
@@ -98,11 +100,24 @@ describe('MissionDetail', () => {
     vi.mocked(listCaptains).mockResolvedValue(page([]) as never);
     vi.mocked(listCheckRuns).mockResolvedValue(page([]) as never);
     vi.mocked(listDeployments).mockResolvedValue(page([]) as never);
+    vi.mocked(getVoyage).mockResolvedValue({ id: 'vyg_1', title: 'Decoder voyage' } as never);
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  it('links the voyage title and falls back to the voyage id', async () => {
+    vi.mocked(getMission).mockResolvedValue(mission({ voyageId: 'vyg_1' }) as never);
+    const { unmount } = renderDetail();
+    expect(await screen.findByRole('link', { name: 'Decoder voyage' })).toHaveAttribute('href', '/voyages/vyg_1');
+    unmount();
+
+    vi.mocked(getVoyage).mockRejectedValue(new Error('missing'));
+    vi.mocked(getMission).mockResolvedValue(mission({ voyageId: 'vyg_missing' }) as never);
+    renderDetail();
+    expect(await screen.findByRole('link', { name: 'vyg_missing' })).toHaveAttribute('href', '/voyages/vyg_missing');
   });
 
   it('offers Land for a WorkProduced mission and Retry Landing for a LandingFailed mission', async () => {

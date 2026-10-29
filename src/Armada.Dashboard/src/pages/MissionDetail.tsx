@@ -20,6 +20,7 @@ import {
   listAllCheckRuns,
   listAllDeployments,
   listAllVessels,
+  getVoyage,
 } from '../api/client';
 import type { Captain, CheckRun, Deployment, FormattedLogEntry, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -49,6 +50,7 @@ export default function MissionDetail() {
   const navigate = useNavigate();
 
   const [mission, setMission] = useState<Mission | null>(null);
+  const [voyageTitle, setVoyageTitle] = useState<string | null>(null);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
@@ -150,6 +152,18 @@ export default function MissionDetail() {
     listAllVessels().then(setVessels).catch(() => {});
     listAllCaptains().then(setCaptains).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!mission?.voyageId) {
+      setVoyageTitle(null);
+      return;
+    }
+    let cancelled = false;
+    getVoyage(mission.voyageId)
+      .then((voyage) => { if (!cancelled) setVoyageTitle(voyage.title?.trim() ? voyage.title : null); })
+      .catch(() => { if (!cancelled) setVoyageTitle(null); });
+    return () => { cancelled = true; };
+  }, [mission?.voyageId]);
 
   useEffect(() => {
     if (!id) {
@@ -763,7 +777,7 @@ export default function MissionDetail() {
         <div className="detail-field">
           <span className="detail-label">{t('Voyage')}</span>
           {mission.voyageId
-            ? <Link to={`/voyages/${mission.voyageId}`} className="mono">{mission.voyageId}</Link>
+            ? <Link to={`/voyages/${mission.voyageId}`} title={mission.voyageId}>{voyageTitle || mission.voyageId}</Link>
             : <span>-</span>}
         </div>
         <div className="detail-field">

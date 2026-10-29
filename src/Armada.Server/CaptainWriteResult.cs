@@ -31,9 +31,14 @@ namespace Armada.Server
         public string? Code { get; private set; }
 
         /// <summary>
-        /// Refusal reason when refused; null on success.
+        /// Refusal reason when refused; null on success. A model refusal keeps the validation message.
         /// </summary>
         public string? Message { get; private set; }
+
+        /// <summary>
+        /// Typed model-validation failure when the refusal is a model check; null otherwise.
+        /// </summary>
+        public CaptainModelValidationFailure? ValidationFailure { get; private set; }
 
         /// <summary>
         /// The stored captain when written; null when refused.
@@ -76,10 +81,11 @@ namespace Armada.Server
         /// <param name="outcome">Busy for a conflict, Failed for a rejected model.</param>
         /// <param name="code">Refusal code.</param>
         /// <param name="message">Refusal reason.</param>
+        /// <param name="validationFailure">Typed model-validation failure, when the refusal is a model check.</param>
         /// <returns>The result.</returns>
-        public static CaptainWriteResult Refused(CaptainAdministrationOutcomeEnum outcome, string code, string message)
+        public static CaptainWriteResult Refused(CaptainAdministrationOutcomeEnum outcome, string code, string message, CaptainModelValidationFailure? validationFailure = null)
         {
-            return new CaptainWriteResult { Outcome = outcome, Code = code, Message = message };
+            return new CaptainWriteResult { Outcome = outcome, Code = code, Message = message, ValidationFailure = validationFailure };
         }
 
         #endregion

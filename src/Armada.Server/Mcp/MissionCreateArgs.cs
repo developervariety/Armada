@@ -41,6 +41,12 @@ namespace Armada.Server.Mcp
         public string? Mode { get; set; }
 
         /// <summary>
+        /// Optional minimum captain tier: Economy, Standard, or Premium. Null keeps the default routing.
+        /// An unrecognized value is rejected.
+        /// </summary>
+        public string? Tier { get; set; }
+
+        /// <summary>
         /// Optional mission ID (msn_ prefix) this mission must wait for. The
         /// dependent mission stays Pending until the referenced mission reaches
         /// a completion state.
