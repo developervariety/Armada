@@ -1679,6 +1679,21 @@ The Admiral fetches the remote and counts commits once, then reuses the status f
 
 ---
 
+#### GET /api/v1/vessels/{id}/toolchain-suggestion
+
+Reads marker files in the vessel working directory and returns suggested build, test and lint commands for each ecosystem it finds (`.NET`, Node, Python, Go, Rust). The commands are catalog defaults. The read does not create or change a workflow profile or a vessel command. A missing working directory returns `checkoutReadable: false` and an empty `ecosystems` list. The response does not include the directory path.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Vessel ID (`vsl_` prefix) |
+
+**Response:** `200 OK` - `{ "vesselId": "vsl_...", "checkoutReadable": true, "ecosystems": [{ "ecosystem": "Go", "markers": ["go.mod"], "buildCommand": "go build ./...", "testCommand": "go test ./...", "lintCommand": "go vet ./..." }] }`
+**Error:** `404` - Vessel not found
+
+---
+
 #### GET /api/v1/vessels/{id}/readiness
 
 Returns readiness warnings and blocking issues for a vessel. Optional query:
@@ -5974,7 +5989,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 108 | POST | `/api/v1/model-endpoints/enumerate` | One page of the model endpoints the caller may see | Yes |
 | 109 | POST | `/api/v1/planning-sessions/enumerate` | One page of the planning sessions the caller may see | Yes |
 
-This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
+This table is a quick route index, not the complete contract. A caller reads `/openapi.json` or `/swagger` with the same authentication as other routes.
 
 \* Gated by `AllowSelfRegistration` setting.
 \*\* Non-admin users are scoped to their own records only.

@@ -41,6 +41,7 @@ namespace Armada.Core.Database
             profile.LintCommand = row.NullableText("lint_command");
             profile.BuildCommand = row.NullableText("build_command");
             profile.UnitTestCommand = row.NullableText("unit_test_command");
+            profile.AbbreviatedUnitTestCommand = row.NullableText("abbreviated_unit_test_command");
             profile.ContainerlessUnitTestCommand = row.NullableText("containerless_unit_test_command");
             profile.FailedTestLinePattern = row.NullableText("failed_test_line_pattern");
             profile.IsolatedTestRerunCommand = row.NullableText("isolated_test_rerun_command");
@@ -88,6 +89,7 @@ namespace Armada.Core.Database
                 .Text("lint_command", profile.LintCommand)
                 .Text("build_command", profile.BuildCommand)
                 .Text("unit_test_command", profile.UnitTestCommand)
+                .Text("abbreviated_unit_test_command", profile.AbbreviatedUnitTestCommand)
                 .Text("containerless_unit_test_command", profile.ContainerlessUnitTestCommand)
                 .Text("failed_test_line_pattern", profile.FailedTestLinePattern)
                 .Text("isolated_test_rerun_command", profile.IsolatedTestRerunCommand)

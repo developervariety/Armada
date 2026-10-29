@@ -7,6 +7,18 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Route authorization census
+
+- Every registered REST route outside the anonymous allow list rejects a caller with no credentials (HTTP 401). The allow list is the health check, login, tenant lookup, self-registration, and the dashboard shell. The OpenAPI document and Swagger UI now use the same authorization decision as other routes. No separate route registry was added.
+
+### Toolchain suggestion
+
+- `GET /api/v1/vessels/{id}/toolchain-suggestion` and `armada_suggest_vessel_toolchain` read marker files in a vessel working directory and return suggested build, test and lint commands for .NET, Node, Python, Go and Rust. The read does not create or change a workflow profile or a vessel command. See [GET /api/v1/vessels/{id}/toolchain-suggestion](docs/REST_API.md#get-apiv1vesselsidtoolchain-suggestion).
+
+### Abbreviated unit-test command
+
+- A workflow profile stores an optional `abbreviatedUnitTestCommand` beside `unitTestCommand`. Checks and the definition-of-done gate keep running `unitTestCommand`. See [Workflow Profiles](docs/OPERATIONAL_ASSETS.md#5-workflow-profiles).
+
 ### Mission captain tier
 
 - `armada_create_mission` accepts an optional `tier` (`Economy`, `Standard` or `Premium`). Only captains at or above that tier are assigned. Omitting it keeps the default routing. An unrecognized value is rejected and creates nothing. See [Captain Writes](docs/MCP_API.md#captain-writes).

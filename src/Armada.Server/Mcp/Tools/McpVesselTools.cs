@@ -10,6 +10,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -53,6 +54,28 @@ namespace Armada.Server.Mcp.Tools
                     Vessel? vessel = await ReadVisibleVesselAsync(database, McpCallerContext.Require(), vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     return (object)vessel;
+                });
+
+            register(
+                "armada_suggest_vessel_toolchain",
+                "Suggest build, test and lint commands from marker files in a vessel working directory. This read does not create or change a workflow profile or a vessel command.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" }
+                    },
+                    required = new[] { "vesselId" }
+                },
+                async (args) =>
+                {
+                    VesselIdArgs request = JsonSerializer.Deserialize<VesselIdArgs>(args!.Value, _JsonOptions)!;
+                    Vessel? vessel = await ReadVisibleVesselAsync(database, McpCallerContext.Require(), request.VesselId).ConfigureAwait(false);
+                    if (vessel == null) return (object)new { Error = "Vessel not found", Code = "not_found" };
+                    ToolchainSuggestion suggestion = VesselToolchainDetector.Detect(vessel.WorkingDirectory);
+                    suggestion.VesselId = vessel.Id;
+                    return (object)suggestion;
                 });
 
             register(

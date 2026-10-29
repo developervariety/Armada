@@ -130,6 +130,40 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("^FAIL (?<name>.+?): ", unchanged!.FailedTestLinePattern, "a refused update keeps the stored pattern");
             }));
 
+            cases.Add(CaseAsync("abbreviated_unit_test_command_is_stored_and_is_not_the_unit_test_command", "Abbreviated unit-test command is stored and is not the unit-test command", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService service = new WorkflowProfileService(testDb.Driver, logging);
+                await EnsureTenantAndUserAsync(testDb, "ten_abbrev", "usr_abbrev").ConfigureAwait(false);
+                AuthContext admin = AuthContext.Authenticated("ten_abbrev", "usr_abbrev", true, true, "UnitTest");
+
+                WorkflowProfile requested = new WorkflowProfile
+                {
+                    TenantId = "ten_abbrev",
+                    Name = "Fast Subset",
+                    Scope = WorkflowProfileScopeEnum.Global,
+                    UnitTestCommand = "dotnet run --project test/full",
+                    AbbreviatedUnitTestCommand = "  dotnet run --project test/short  "
+                };
+
+                RecordWriteResult<WorkflowProfile> created = await service.CreateAsync(admin, requested).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Succeeded, created.Outcome, "a profile with both commands is stored");
+                WorkflowProfile? stored = await service.ReadForCallerAsync(admin, created.Record!.Id).ConfigureAwait(false);
+                AssertEqual("dotnet run --project test/full", stored!.UnitTestCommand, "the full command is unchanged");
+                AssertEqual("dotnet run --project test/short", stored.AbbreviatedUnitTestCommand, "the abbreviated command is trimmed and stored");
+                AssertEqual("dotnet run --project test/full", service.ResolveCommand(stored, CheckRunTypeEnum.UnitTest), "unit-test resolution keeps the full command");
+                AssertTrue(WorkflowProfileService.BuildCommandPreviews(stored).Exists(command => command.CheckType == CheckRunTypeEnum.UnitTest && command.Command == "dotnet run --project test/full"), "the preview shows the full command");
+                AssertFalse(WorkflowProfileService.BuildCommandPreviews(stored).Exists(command => command.Command == "dotnet run --project test/short"), "the preview does not run the abbreviated command");
+
+                stored.AbbreviatedUnitTestCommand = "   ";
+                RecordWriteResult<WorkflowProfile> cleared = await service.ReplaceAsync(admin, stored.Id, stored).ConfigureAwait(false);
+                AssertEqual(RecordWriteOutcomeEnum.Succeeded, cleared.Outcome, "clearing the abbreviated command is stored");
+                WorkflowProfile? after = await service.ReadForCallerAsync(admin, stored.Id).ConfigureAwait(false);
+                AssertNull(after!.AbbreviatedUnitTestCommand, "a blank abbreviated command is stored as empty");
+                AssertEqual("dotnet run --project test/full", after.UnitTestCommand, "clearing the abbreviated command keeps the full command");
+            }));
+
             cases.Add(CaseAsync("profile_save_normalizes_gate_inputs_and_refuses_paths_outside_the_repository", "Profile save keeps normalized gate-input paths and refuses a rooted or parent-relative one", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

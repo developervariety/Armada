@@ -194,6 +194,7 @@ export function buildWorkflowProfileDuplicatePayload(profile: WorkflowProfile): 
     lintCommand: profile.lintCommand ?? null,
     buildCommand: profile.buildCommand ?? null,
     unitTestCommand: profile.unitTestCommand ?? null,
+    abbreviatedUnitTestCommand: profile.abbreviatedUnitTestCommand ?? null,
     failedTestLinePattern: profile.failedTestLinePattern ?? null,
     isolatedTestRerunCommand: profile.isolatedTestRerunCommand ?? null,
     gateCommandTimeoutSeconds: profile.gateCommandTimeoutSeconds ?? null,

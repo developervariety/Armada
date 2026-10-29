@@ -52,7 +52,7 @@ shows only critical items).
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_get_fleet`, `armada_get_vessel`, `armada_discover_vessel_checkouts` |
+| Read | `armada_get_fleet`, `armada_get_vessel`, `armada_suggest_vessel_toolchain`, `armada_discover_vessel_checkouts` |
 | Write | `armada_create_fleet`, `armada_update_fleet`, `armada_add_vessel`, `armada_update_vessel`, `armada_update_vessel_context`, `armada_import_vessel_checkout` |
 | Destructive | `armada_delete_fleet`, `armada_delete_fleets`, `armada_delete_vessel`, `armada_delete_vessels` |
 

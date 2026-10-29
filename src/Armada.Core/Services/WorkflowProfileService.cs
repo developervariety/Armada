@@ -646,6 +646,7 @@ namespace Armada.Core.Services
             target.LintCommand = NullIfWhiteSpace(source.LintCommand);
             target.BuildCommand = NullIfWhiteSpace(source.BuildCommand);
             target.UnitTestCommand = NullIfWhiteSpace(source.UnitTestCommand);
+            target.AbbreviatedUnitTestCommand = NullIfWhiteSpace(source.AbbreviatedUnitTestCommand);
             target.ContainerlessUnitTestCommand = NullIfWhiteSpace(source.ContainerlessUnitTestCommand);
             // A pattern is kept exactly as written: trimming would change what it matches.
             target.FailedTestLinePattern = String.IsNullOrWhiteSpace(source.FailedTestLinePattern) ? null : source.FailedTestLinePattern;

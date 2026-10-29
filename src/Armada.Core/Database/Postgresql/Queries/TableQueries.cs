@@ -1235,7 +1235,8 @@ $convert$;"),
                 new SchemaMigration(134, "Persist the shared mission context recall budget",
                     @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS context_recall_calls INTEGER NOT NULL DEFAULT 0;"),
                 new SchemaMigration(135, "Persist local context search vectors", ContextEmbeddingSchema.PostgresqlStatements),
-                new SchemaMigration(136, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.PostgresqlStatements)
+                new SchemaMigration(136, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.PostgresqlStatements),
+                new SchemaMigration(140, "Persist the optional abbreviated unit-test command on workflow profiles", WorkflowProfileAbbreviatedUnitTestPersistence.PostgresqlStatements)
             };
         }
 
