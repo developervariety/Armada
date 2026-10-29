@@ -81,6 +81,7 @@ import { buildObjectiveDuplicatePayload } from '../lib/duplicates';
 import { refinementSummaryFromEvent } from '../lib/refinementSummary';
 import { mergeSessionDetail, newerOf } from '../lib/liveMerge';
 import { sortByName } from '../lib/sortByName';
+import { PLANNING_PATH, planningHref } from '../lib/navTargets';
 
 function renderRouteLinks(ids: string[], prefix: string | ((id: string) => string), labelMap?: Map<string, string>) {
   if (ids.length < 1) return <span className="text-dim">None</span>;
@@ -821,7 +822,7 @@ export default function ObjectiveDetail() {
               className="btn btn-sm"
               disabled={!primaryVesselId}
               title={actionHelp.planning}
-              onClick={() => navigate('/planning', {
+              onClick={() => navigate(PLANNING_PATH, {
                 state: {
                   fromObjective: true,
                   objectiveId: objective.id,
@@ -1232,7 +1233,7 @@ export default function ObjectiveDetail() {
               {objective.planningSessionIds.length > 0 && (
                 <div>
                   <h4 title={t('Planning sessions started from this item.')}>{t('Planning Sessions')}</h4>
-                  {renderRouteLinks(objective.planningSessionIds, '/planning/')}
+                  {renderRouteLinks(objective.planningSessionIds, (id) => planningHref(id))}
                 </div>
               )}
               {objective.refinementSessionIds.length > 0 && (

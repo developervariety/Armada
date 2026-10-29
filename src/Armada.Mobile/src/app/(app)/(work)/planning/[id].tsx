@@ -1,6 +1,6 @@
-import { PlanningSessionScreen } from '../../../../screens/planning/PlanningSessionScreen';
+import { PlanningRedirect } from '@/navigation/legacyRedirects';
 
-/** /planning/:id: one planning session (beside the list on tablets). */
+/** /planning/:id: now /dispatch?tab=planning&session=:id (other query parameters such as ?prompt= are kept). */
 export default function PlanningSessionRoute() {
-  return <PlanningSessionScreen />;
+  return <PlanningRedirect />;
 }

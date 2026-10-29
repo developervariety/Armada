@@ -541,6 +541,15 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
+        /// Enumerate memories with server-side filtering, sorting, and pagination. A null query uses the relevance
+        /// order (salience, then newest first).
+        /// </summary>
+        public async Task<EnumerationResult<Memory>?> EnumerateMemoriesAsync(MemoryEnumerateRequest? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<Memory>, MemoryEnumerateRequest>("/api/v1/memories/enumerate", query ?? new MemoryEnumerateRequest { SortBy = MemorySortEnum.Salience }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Get a mission by ID.
         /// </summary>
         public async Task<Mission?> GetMissionAsync(string id, CancellationToken token = default)

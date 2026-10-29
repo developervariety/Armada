@@ -21,11 +21,11 @@ import { useTheme } from '../../theme/ThemeContext';
 export const JOBS_ACTIVE_REFRESH_MS = 3000;
 
 /**
- * Background jobs (/jobs): name, kind, status, progress, and error, newest first, with Cancel for jobs that have not
+ * Background jobs (the Activity hub's Jobs source, /activity?source=jobs; /jobs redirects there): name, kind, status, progress, and error, newest first, with Cancel for jobs that have not
  * finished. A job opens a sheet with its full record (refreshed with getJob). The list refreshes itself while any
- * job is active.
+ * job is active. `embedded` (inside the Activity hub) leaves the header title to the hub.
  */
-export function JobsScreen() {
+export function JobsScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { colors } = useTheme();
   const { pushToast } = useNotifications();
@@ -58,7 +58,7 @@ export function JobsScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right']} style={[styles.fill, { backgroundColor: colors.background }]} testID="jobs">
-      <Stack.Screen options={{ title: t('Jobs') }} />
+      {embedded ? null : <Stack.Screen options={{ title: t('Jobs') }} />}
       <ResourceList
         testID="jobs-list"
         items={jobs}
