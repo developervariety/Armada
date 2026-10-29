@@ -203,6 +203,48 @@ namespace Test.Shared.Suites.Database
                 AssertIds(await db.CliPermissionRequests.EnumerateAsync(Query(q => { q.TenantId = "ten_a"; q.Limit = 1; })).ConfigureAwait(false), "tenant with limit", r2.Id);
             }));
 
+            cases.Add(CaseAsync("request_enumerate_page", "EnumeratePageAsync pages newest first with the filtered total, clamps paging, and returns an empty final page past the end", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DatabaseDriver db = testDb.Driver;
+                List<CliPermissionRequest> created = new List<CliPermissionRequest>();
+                for (int i = 0; i < 7; i++)
+                {
+                    CliPermissionRequest request = NewRequest(i < 5 ? "ten_page" : "ten_other", _Fixed.AddMinutes(i));
+                    created.Add(await db.CliPermissionRequests.CreateAsync(request).ConfigureAwait(false));
+                }
+
+                CliPermissionRequestQuery tenant = Query(q => q.TenantId = "ten_page");
+                List<string> expected = created.Where(r => r.TenantId == "ten_page").OrderByDescending(r => r.CreatedUtc).Select(r => r.Id).ToList();
+                List<string> seen = new List<string>();
+                for (int page = 1; page <= 3; page++)
+                {
+                    EnumerationResult<CliPermissionRequest> result = await db.CliPermissionRequests.EnumeratePageAsync(tenant, page, 2).ConfigureAwait(false);
+                    AssertEqual(5L, result.TotalRecords, "page " + page + " total");
+                    AssertEqual(3, result.TotalPages, "page " + page + " pages");
+                    AssertEqual(page, result.PageNumber, "page number echoed");
+                    AssertEqual(2, result.PageSize, "page size echoed");
+                    AssertEqual(page < 3 ? 2 : 1, result.Objects.Count, "rows on page " + page);
+                    seen.AddRange(result.Objects.Select(r => r.Id));
+                }
+
+                AssertEqual(String.Join(",", expected), String.Join(",", seen), "three pages hold every row once, newest first");
+
+                EnumerationResult<CliPermissionRequest> past = await db.CliPermissionRequests.EnumeratePageAsync(tenant, 4, 2).ConfigureAwait(false);
+                AssertEqual(0, past.Objects.Count, "past the last page is empty");
+                AssertEqual(5L, past.TotalRecords, "past the last page keeps the total");
+
+                EnumerationResult<CliPermissionRequest> clamped = await db.CliPermissionRequests.EnumeratePageAsync(tenant, -3, 0).ConfigureAwait(false);
+                AssertEqual(1, clamped.PageNumber, "page number below 1 becomes 1");
+                AssertEqual(1, clamped.PageSize, "page size below 1 becomes 1");
+                AssertEqual(expected[0], clamped.Objects.Single().Id, "first row of the clamped page");
+
+                EnumerationResult<CliPermissionRequest> capped = await db.CliPermissionRequests.EnumeratePageAsync(new CliPermissionRequestQuery(), 1, 5000).ConfigureAwait(false);
+                AssertEqual(1000, capped.PageSize, "page size above 1000 is capped");
+                AssertEqual(7L, capped.TotalRecords, "no filter counts every row");
+                AssertEqual(7, capped.Objects.Count, "one capped page holds the seven rows");
+            }));
+
             cases.Add(CaseAsync("rule_crud", "Rules create, read, update (pattern, action, description), and delete", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

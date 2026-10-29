@@ -33,7 +33,7 @@ namespace Armada.Core.Services.Health
 
         private static readonly CheckRunTypeEnum[] _TestTypes = new CheckRunTypeEnum[]
         {
-            CheckRunTypeEnum.UnitTest, CheckRunTypeEnum.IntegrationTest, CheckRunTypeEnum.E2ETest, CheckRunTypeEnum.SmokeTest
+            CheckRunTypeEnum.UnitTest, CheckRunTypeEnum.AbbreviatedUnitTest, CheckRunTypeEnum.IntegrationTest, CheckRunTypeEnum.E2ETest, CheckRunTypeEnum.SmokeTest
         };
 
         #endregion

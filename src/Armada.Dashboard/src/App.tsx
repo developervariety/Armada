@@ -8,6 +8,7 @@ import { NotificationProvider } from './context/NotificationContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoadingIndicator from './components/shared/LoadingIndicator';
 import Layout from './components/Layout';
+import { CliPermissionsRedirect, PlanningRedirect } from './components/LegacyNavRedirects';
 import './App.css';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -18,15 +19,12 @@ const Missions = lazy(() => import('./pages/Missions'));
 const Voyages = lazy(() => import('./pages/Voyages'));
 const Events = lazy(() => import('./pages/Events'));
 const MergeQueue = lazy(() => import('./pages/MergeQueue'));
-const Jobs = lazy(() => import('./pages/Jobs'));
 const Docks = lazy(() => import('./pages/Docks'));
 const Doctor = lazy(() => import('./pages/Doctor'));
-const Storage = lazy(() => import('./pages/Storage'));
 const Tenants = lazy(() => import('./pages/admin/Tenants'));
 const Users = lazy(() => import('./pages/admin/Users'));
 const Credentials = lazy(() => import('./pages/admin/Credentials'));
 const Dispatch = lazy(() => import('./pages/Dispatch'));
-const Planning = lazy(() => import('./pages/Planning'));
 const Objectives = lazy(() => import('./pages/Objectives'));
 const ObjectiveDetail = lazy(() => import('./pages/ObjectiveDetail'));
 const Signals = lazy(() => import('./pages/Signals'));
@@ -59,7 +57,6 @@ const Skills = lazy(() => import('./pages/Skills'));
 const SkillDetail = lazy(() => import('./pages/SkillDetail'));
 const AskArmada = lazy(() => import('./pages/AskArmada'));
 const Inbox = lazy(() => import('./pages/Inbox'));
-const CliPermissions = lazy(() => import('./pages/CliPermissions'));
 const CheckRuns = lazy(() => import('./pages/CheckRuns'));
 const CheckRunDetail = lazy(() => import('./pages/CheckRunDetail'));
 const Environments = lazy(() => import('./pages/Environments'));
@@ -104,8 +101,8 @@ export default function App() {
                     <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                       <Route index element={<Dashboard />} />
                       <Route path="dashboard" element={<Navigate to="/" replace />} />
-                      <Route path="planning" element={<Planning />} />
-                      <Route path="planning/:id" element={<Planning />} />
+                      <Route path="planning" element={<PlanningRedirect />} />
+                      <Route path="planning/:id" element={<PlanningRedirect />} />
                       <Route path="dispatch" element={<DispatchHub />} />
                       <Route path="backlog" element={<Navigate to="/dispatch?tab=backlog" replace />} />
                       <Route path="backlog/:id" element={<ObjectiveDetail />} />
@@ -149,7 +146,7 @@ export default function App() {
                       <Route path="merge-queue" element={<Navigate to="/missions?tab=merge-queue" replace />} />
                       <Route path="merge-queue/:id" element={<MergeQueueDetail />} />
 
-                      <Route path="jobs" element={<Jobs />} />
+                      <Route path="jobs" element={<Navigate to="/activity?source=jobs" replace />} />
 
                       <Route path="configuration" element={<Configuration />} />
                       <Route path="personas" element={<Navigate to="/configuration?tab=personas" replace />} />
@@ -170,7 +167,7 @@ export default function App() {
                       {/* One optional-segment route so moving between /ask and /ask/:threadId keeps the page mounted. */}
                       <Route path="ask/:threadId?" element={<AskArmada />} />
                       <Route path="inbox" element={<Inbox />} />
-                      <Route path="cli-permissions" element={<CliPermissions />} />
+                      <Route path="cli-permissions" element={<CliPermissionsRedirect />} />
                       <Route path="delivery" element={<DeliveryHub />} />
                       <Route path="fleet-actions" element={<FleetActions />} />
                       <Route path="fleet-actions/runs/:id" element={<FleetActionRunDetail />} />
@@ -198,7 +195,7 @@ export default function App() {
                       <Route path="admin/users" element={<Navigate to="/server?tab=users" replace />} />
                       <Route path="admin/credentials" element={<Navigate to="/server?tab=credentials" replace />} />
 
-                      <Route path="storage" element={<Storage />} />
+                      <Route path="storage" element={<Navigate to="/server?tab=storage" replace />} />
                       <Route path="server" element={<ServerHub />} />
                       <Route path="doctor" element={<Navigate to="/server?tab=diagnostics" replace />} />
                       <Route path="settings" element={<Navigate to="/server" replace />} />

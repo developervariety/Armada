@@ -333,6 +333,7 @@ namespace Armada.Tui.Ask
                 case AgentRuntimeEnum.Gemini: file = "INSTRUCTIONS_FOR_GEMINI.md"; break;
                 case AgentRuntimeEnum.Mux: file = "INSTRUCTIONS_FOR_MUX.md"; break;
                 case AgentRuntimeEnum.OpenCode: file = "INSTRUCTIONS_FOR_OPENCODE.md"; break;
+                case AgentRuntimeEnum.Pi: file = "INSTRUCTIONS_FOR_PI.md"; break;
                 default: file = "MCP_API.md"; break;
             }
 

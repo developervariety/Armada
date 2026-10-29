@@ -14,10 +14,10 @@ import {
 import type { Captain, CliPermissionRequest, CliPermissionRequestStatus, CliPermissionRule, CliPermissionRuleAction, CliPermissionRuleScope } from '@dashboard/types/models';
 import { CLI_PERMISSION_EVENT_PREFIX, mergeCliRequest, requestStatusLabel } from '@dashboard/lib/cliPermissions';
 import { useAuth } from '../../auth/AuthContext';
+import { HubTabBar, useHubTab } from '../../components/app/HubTabs';
 import { CliPermissionCard } from '../../components/cliPermissions/CliPermissionCard';
 import { Field, FieldCard } from '../../components/resource/DetailParts';
 import { FormSheet, str, type FormField, type FormValues } from '../../components/resource/FormSheet';
-import { HubScreen, type HubTab } from '../../components/resource/Hub';
 import { ResourceList } from '../../components/resource/ResourceList';
 import { ResourceRow, useConfirm } from '../../components/resource/ResourceRow';
 import { resourceStyles } from '../../components/resource/styles';
@@ -297,21 +297,31 @@ function RulesPanel() {
   );
 }
 
+const SECTIONS = [
+  { key: 'requests' as const, label: 'Requests' },
+  { key: 'rules' as const, label: 'Rules' },
+];
+const SECTION_KEYS = SECTIONS.map((section) => section.key);
+
 /**
- * CLI Tool Permissions (/cli-permissions): the CLI tool calls captains asked Armada to approve (Requests, decided in
- * place with the same controls as Ask and the approvals center) and the allow / deny rules (Rules). Push and inbox
- * links open ?request={id}.
+ * CLI Tool Permissions, the Settings hub's cli-permissions tab (/server?tab=cli-permissions; /cli-permissions
+ * redirects there): the CLI tool calls captains asked Armada to approve (Requests, decided in place with the same
+ * controls as Ask and the approvals center) and the allow / deny rules (Rules), as sub-sections in ?section= so the
+ * Settings tab stays in ?tab=. Push and inbox links open ?request={id} on Requests.
  */
-export function CliPermissionsHub() {
+export function CliPermissionsTab() {
   const { t } = useLocale();
-  const tabs: HubTab[] = [
-    { key: 'requests', label: 'Requests', render: () => <RequestsPanel /> },
-    { key: 'rules', label: 'Rules', render: () => <RulesPanel /> },
-  ];
-  return <HubScreen title={t('CLI Tool Permissions')} tabs={tabs} defaultKey="requests" label={t('CLI Tool Permissions')} testID="cli-permissions" />;
+  const [section, setSection] = useHubTab(SECTION_KEYS, 'requests', 'section');
+  return (
+    <View style={styles.fill} testID="cli-permissions">
+      <HubTabBar tabs={SECTIONS} active={section} onChange={setSection} label={t('CLI Tool Permissions')} testID="cli-permissions" />
+      <View style={styles.fill} key={section}>{section === 'rules' ? <RulesPanel /> : <RequestsPanel />}</View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   request: { marginHorizontal: spacing.md, marginBottom: spacing.sm },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md },
 });

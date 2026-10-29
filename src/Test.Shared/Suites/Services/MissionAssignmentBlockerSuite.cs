@@ -185,6 +185,79 @@ namespace Test.Shared.Suites.Services
                     await testDb.Driver.Missions.UpdateAsync(mission);
                     MissionAssignmentBlocker? blocker = await h.Missions.GetAssignmentBlockerAsync(mission);
                     AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker!.Reason, "reason");
+                    AssertEqual(1, blocker.Captains.Count, "the idle captain is listed");
+                    AssertEqual("idle (not assigned: persona not allowed)", blocker.Captains[0].Detail, "detail");
+                    AssertEqual(false, blocker.Captains[0].EligibleForMission, "not eligible");
+                }
+            }));
+
+            cases.Add(CaseAsync("idle_captain_below_tier_not_assigned", "An idle captain below the mission's tier is described as not assigned, with the tier", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Harness h = await BuildHarnessAsync(testDb.Driver);
+                    Captain standard = new Captain("Standard One");
+                    standard.State = CaptainStateEnum.Idle;
+                    standard.Tier = CaptainTierEnum.Standard;
+                    await testDb.Driver.Captains.CreateAsync(standard);
+                    Mission mission = await AddMissionAsync(testDb.Driver, h.Vessel, "premium work", MissionStatusEnum.Pending);
+                    mission.Tier = CaptainTierEnum.Premium;
+                    await testDb.Driver.Missions.UpdateAsync(mission);
+                    MissionAssignmentBlocker? blocker = await h.Missions.GetAssignmentBlockerAsync(mission);
+                    AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker!.Reason, "reason");
+                    AssertEqual(1, blocker.Captains.Count, "the idle captain is listed");
+                    AssertEqual("idle (not assigned: tier below Premium)", blocker.Captains[0].Detail, "detail");
+                    AssertEqual(false, blocker.Captains[0].EligibleForMission, "not eligible");
+                }
+            }));
+
+            cases.Add(CaseAsync("idle_captain_outside_persona_priorities_not_assigned", "An idle captain outside the persona's captain priorities is described as not assigned, naming the persona", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Harness h = await BuildHarnessAsync(testDb.Driver);
+                    Captain claude = new Captain("Claude One");
+                    claude.State = CaptainStateEnum.Idle;
+                    claude.Runtime = AgentRuntimeEnum.ClaudeCode;
+                    await testDb.Driver.Captains.CreateAsync(claude);
+                    Persona persona = new Persona("PriorityRole", "persona.worker");
+                    persona.CaptainPriorities.Add(new PersonaCaptainPriority { Runtime = AgentRuntimeEnum.Codex });
+                    await testDb.Driver.Personas.CreateAsync(persona);
+                    Mission mission = await AddMissionAsync(testDb.Driver, h.Vessel, "priority work", MissionStatusEnum.Pending);
+                    mission.Persona = persona.Name;
+                    await testDb.Driver.Missions.UpdateAsync(mission);
+                    MissionAssignmentBlocker? blocker = await h.Missions.GetAssignmentBlockerAsync(mission);
+                    AssertEqual(MissionAssignmentBlockerReasonEnum.NoEligibleCaptain, blocker!.Reason, "reason");
+                    AssertEqual(1, blocker.Captains.Count, "the idle captain is listed");
+                    AssertEqual("idle (not assigned: not in persona PriorityRole's captain priorities)", blocker.Captains[0].Detail, "detail");
+                    AssertEqual(false, blocker.Captains[0].EligibleForMission, "not eligible");
+
+                    // With general fallback allowed the same captain may take the mission, and the blocker clears.
+                    persona.PriorityExhaustion = PersonaPriorityExhaustionEnum.UseEligibleCaptain;
+                    await testDb.Driver.Personas.UpdateAsync(persona);
+                    AssertNull(await h.Missions.CaptainIneligibilityReasonAsync(claude, mission), "fallback makes the captain eligible");
+                    MissionAssignmentBlocker? cleared = await h.Missions.GetAssignmentBlockerAsync(mission);
+                    AssertEqual(MissionAssignmentBlockerReasonEnum.AwaitingDispatch, cleared!.Reason, "reason with fallback");
+                }
+            }));
+
+            cases.Add(CaseAsync("idle_eligible_captain_assigned", "An idle captain that may take the mission is described as assigned; busy captains keep their text", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Harness h = await BuildHarnessAsync(testDb.Driver);
+                    Captain idle = await AddCaptainAsync(testDb.Driver, "Idle One", CaptainStateEnum.Idle);
+                    Captain stalled = await AddCaptainAsync(testDb.Driver, "Stalled One", CaptainStateEnum.Stalled);
+                    Mission mission = await AddMissionAsync(testDb.Driver, h.Vessel, "waiting", MissionStatusEnum.Pending);
+                    AssertNull(await h.Missions.CaptainIneligibilityReasonAsync(idle, mission), "the idle captain is eligible");
+
+                    MissionAssignmentBlocker blocker = new MissionAssignmentBlocker();
+                    await h.Missions.DescribeCaptainsAsync(blocker, new List<Captain> { idle, stalled }, mission);
+                    AssertEqual(2, blocker.Captains.Count, "both captains are listed");
+                    AssertEqual("idle (assigned)", blocker.Captains[0].Detail, "idle detail");
+                    AssertEqual(true, blocker.Captains[0].EligibleForMission, "eligible");
+                    AssertEqual("stalled and awaiting recovery", blocker.Captains[1].Detail, "busy detail unchanged");
+                    AssertNull(blocker.Captains[1].EligibleForMission, "eligibility is only reported for idle captains");
                 }
             }));
 

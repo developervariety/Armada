@@ -10,7 +10,7 @@ import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import DataTable, { type DataTableColumn } from '../components/shared/DataTable';
 import PageHeader from '../components/shared/PageHeader';
-import { fetchAllPages, listAll } from '../api/paging';
+import { fetchAllPages, MAX_PAGE_SIZE } from '../api/paging';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 import { canDeleteHistoryEntry } from '../lib/history';
@@ -73,6 +73,9 @@ function downloadTextFile(fileName: string, content: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
+/** Most pages an export reads (EXPORT_MAX_PAGES x MAX_PAGE_SIZE entries); the rest is reported, never fetched. */
+const EXPORT_MAX_PAGES = 10;
+
 export default function History() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
@@ -81,8 +84,9 @@ export default function History() {
   const location = useLocation();
   const initialQuery = new URLSearchParams(location.search);
   const [entries, setEntries] = useState<HistoricalTimelineEntry[]>([]);
-  // Paged on the server (the route returns at most 500 per page); totals come from the route, not the page.
+  // Paged and ordered on the server (POST /history/enumerate, 1 to 1000 per page); totals come from the route, not the page.
   const [pageNumber, setPageNumber] = useState(1);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [pageSize, setPageSize] = usePersistedPageSize('history', 100);
   const [totals, setTotals] = useState({ totalRecords: 0, totalPages: 1, totalMs: 0 });
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -108,8 +112,8 @@ export default function History() {
     data: null,
   });
 
-  function buildQuery(size = pageSize, page = 1): HistoricalTimelineQuery {
-    return buildHistoryTimelineQuery({
+  function buildQuery(size = pageSize, page = 1, dir = sortDir): HistoricalTimelineQuery {
+    const filters = buildHistoryTimelineQuery({
       objectiveId: objectiveFilter,
       text: textFilter,
       actor: actorFilter,
@@ -118,13 +122,21 @@ export default function History() {
       postmortemOnly,
       showReadRequests,
     }, size, page);
+    return { ...filters, order: dir === 'asc' ? 'CreatedAscending' : 'CreatedDescending' };
   }
 
-  async function load(page = pageNumber, size = pageSize) {
+  async function load(page = pageNumber, size = pageSize, dir = sortDir) {
     try {
       setLoading(true);
-      const historyResult = await enumerateHistoryTimeline(buildQuery(size, page));
+      const historyResult = await enumerateHistoryTimeline(buildQuery(size, page, dir));
       const objects = historyResult.objects || [];
+      const lastPage = Math.max(1, historyResult.totalPages || 1);
+      // The page asked for is past the end (entries were deleted or filters narrowed): show the last page instead.
+      if (objects.length === 0 && page > lastPage) {
+        setPageNumber(lastPage);
+        await load(lastPage, size, dir);
+        return;
+      }
       setEntries(objects);
       setTotals({
         totalRecords: typeof historyResult.totalRecords === 'number' ? historyResult.totalRecords : objects.length,
@@ -160,10 +172,13 @@ export default function History() {
     void load();
   }, []);
 
-  // Filter pickers need every vessel and backlog item, not the first page.
+  // Filter pickers read one bounded page each (never every page); an id from the URL that is not on it still filters.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([listAll(listVessels), listAll(listObjectives)]).then(([vesselResult, objectiveResult]) => {
+    Promise.all([
+      listVessels({ pageNumber: 1, pageSize: MAX_PAGE_SIZE }),
+      listObjectives({ pageNumber: 1, pageSize: MAX_PAGE_SIZE }),
+    ]).then(([vesselResult, objectiveResult]) => {
       if (cancelled) return;
       setVessels(vesselResult.objects || []);
       setObjectives(objectiveResult.objects || []);
@@ -174,6 +189,13 @@ export default function History() {
   function applyFilters() {
     setPageNumber(1);
     void load(1, pageSize);
+  }
+
+  function toggleSort() {
+    const next = sortDir === 'desc' ? 'asc' : 'desc';
+    setSortDir(next);
+    setPageNumber(1);
+    void load(1, pageSize, next);
   }
 
   function changePage(page: number) {
@@ -296,10 +318,13 @@ export default function History() {
   async function exportCurrentView(format: 'json' | 'csv' | 'md') {
     try {
       setExporting(format);
-      // Export the whole filtered view, every page (one request is capped at 500 by the route).
-      const query = buildQuery(500, 1);
-      const result = await fetchAllPages((page, size) => enumerateHistoryTimeline({ ...query, pageNumber: page, pageSize: size }), { pageSize: 500 });
+      // Export the filtered view page by page, explicitly bounded to EXPORT_MAX_PAGES pages of MAX_PAGE_SIZE.
+      const query = buildQuery(MAX_PAGE_SIZE, 1);
+      const result = await fetchAllPages((page, size) => enumerateHistoryTimeline({ ...query, pageNumber: page, pageSize: size }), { pageSize: MAX_PAGE_SIZE, maxPages: EXPORT_MAX_PAGES });
       const allEntries = result.objects || [];
+      if (result.totalRecords > allEntries.length) {
+        pushToast('warning', t('Exported the first {{count}} of {{total}} entries. Narrow the filters to export the rest.', { count: allEntries.length, total: result.totalRecords }));
+      }
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 
       if (format === 'json') {
@@ -323,7 +348,7 @@ export default function History() {
 
   const columns: DataTableColumn<HistoricalTimelineEntry>[] = [
     {
-      key: 'when', label: t('When'), headerTitle: t('When the activity happened. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
+      key: 'when', label: t('When'), sortKey: 'occurredUtc', headerTitle: t('When the activity happened. Hover a cell for the exact time.'), cellClassName: 'text-dim cell-nowrap',
       cellTitle: (entry) => formatDateTime(entry.occurredUtc),
       render: (entry) => formatRelativeTime(entry.occurredUtc),
     },
@@ -515,6 +540,7 @@ export default function History() {
         columns={columns}
         rows={entries}
         rowKey={(entry) => entry.id}
+        sort={{ field: 'occurredUtc', dir: sortDir, onSort: toggleSort }}
         pagination={{
           pageNumber,
           pageSize,

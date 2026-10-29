@@ -70,6 +70,11 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         Task HandleCompletionAsync(Captain captain, string missionId, CancellationToken token = default);
 
+        /// <summary>Complete only the row version owned by the agent exit handler.</summary>
+        Task HandleClaimedCompletionAsync(Captain captain, string missionId, DateTime expectedVersion, CancellationToken token = default)
+            => HandleCompletionAsync(captain, missionId, token);
+
+
         /// <summary>
         /// Whether a mission's completion is still being processed. Its status reads WorkProduced from the first step of
         /// completion, before the flow has decided what follows (a handoff, a rework, an output repair, landing), so voyage
@@ -137,15 +142,17 @@ namespace Armada.Core.Services.Interfaces
         /// <summary>
         /// Restart a Failed, LandingFailed, or Cancelled mission: back to Pending with its run state cleared. A later
         /// pipeline stage keeps the previous stage's branch (so it sees that work), a finished voyage is reopened, and
-        /// the following stages that were cancelled because this one failed are restored to Pending.
+        /// the following stages that were cancelled because this one failed are restored to Pending. A Pending mission
+        /// only takes the new title and description. Either way the mission is then dispatched at once when a captain
+        /// can take it under the normal dispatch rules; otherwise it stays Pending for the regular dispatcher.
         /// </summary>
         /// <param name="mission">The mission (already read and access-checked by the caller).</param>
         /// <param name="title">New title, or null to keep it.</param>
         /// <param name="description">New description, or null to keep it.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The restarted mission.</returns>
+        /// <returns>The restarted mission as stored after the dispatch attempt (Pending, Assigned, or InProgress).</returns>
         /// <exception cref="ArgumentNullException">Thrown when mission is null.</exception>
-        /// <exception cref="InvalidOperationException">Thrown when the mission is not Failed, LandingFailed, or Cancelled.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the mission is not Pending, Failed, LandingFailed, or Cancelled.</exception>
         Task<Mission> RestartAsync(Mission mission, string? title = null, string? description = null, CancellationToken token = default);
 
         /// <summary>
