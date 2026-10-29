@@ -2,7 +2,7 @@
 # Manage bounded, host-side helper sessions for an Armada operator session.
 #
 # Helpers started here are fresh, read-only, single-task processes. The script
-# adds the board contract to every prompt, enforces a concurrency cap, records
+# adds the helper contract to every prompt, enforces a concurrency cap, records
 # process state, and provides explicit cleanup. It does not configure AgentWake
 # and it does not replace captains for repository write work.
 #
@@ -14,13 +14,10 @@
 #   AUTONOMY_COMMAND              executable used only with runtime=command
 #   AUTONOMY_WORKDIR              process-state root
 #                                 (default $HOME/autonomy-helpers)
-#   AUTONOMY_PARTICIPANT_PREFIX   participant-key prefix (default helper)
 #   AUTONOMY_HELPER_CLASS         research (default) or delegate.
 #                                 research: reads and reports, writes nothing.
 #                                 delegate: may also dispatch voyages and write
-#                                 objectives, backlog items and board notes.
-#   AUTONOMY_HELPER_OFFER_SECONDS bounded reassignment window for offer mode
-#                                 (default 240)
+#                                 objectives, backlog items and incidents.
 #   AUTONOMY_ARMADA_MCP_URL        Armada MCP URL for Claude helpers
 #                                 (default http://127.0.0.1:7891/mcp)
 #   ARMADA_API_KEY                admiral API key a Claude helper authenticates
@@ -30,11 +27,10 @@
 #   AUTONOMY_CLAUDE_MCP_CONFIG    optional existing Claude MCP config file;
 #                                 default is a generated local Armada config. A
 #                                 supplied file must carry its own credential
-#                                 and participant headers.
+#                                 headers.
 #
 # Usage:
 #   spawn-helper.sh spawn <name> <prompt-file> [helper-cwd]
-#   spawn-helper.sh offer <name> <fallback-prompt-file> <lead-key> [helper-cwd]
 #   spawn-helper.sh kill <name>
 #   spawn-helper.sh list
 #   spawn-helper.sh cull
@@ -46,9 +42,7 @@ MAX_HELPERS="${AUTONOMY_MAX_HELPERS:-2}"
 HELPER_TIMEOUT_MIN="${AUTONOMY_HELPER_TIMEOUT_MIN:-90}"
 RUNTIME="${AUTONOMY_RUNTIME:-opencode}"
 WORKDIR="${AUTONOMY_WORKDIR:-$HOME/autonomy-helpers}"
-PARTICIPANT_PREFIX="${AUTONOMY_PARTICIPANT_PREFIX:-helper}"
 HELPER_CLASS="${AUTONOMY_HELPER_CLASS:-research}"
-HELPER_OFFER_SECONDS="${AUTONOMY_HELPER_OFFER_SECONDS:-240}"
 RUN_DIR="$WORKDIR/run"
 LOG_DIR="$WORKDIR/logs"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
@@ -190,14 +184,12 @@ validate_runtime() {
 }
 
 prepare_claude_mcp_config() {
-    # An operator-supplied config is theirs to own. It must carry its own
-    # X-Armada-Participant header, or the helper receives no directed wakes.
+    # An operator-supplied config is theirs to own and must carry its own credential.
     if [ -n "${AUTONOMY_CLAUDE_MCP_CONFIG:-}" ]; then
         canonical_file "$AUTONOMY_CLAUDE_MCP_CONFIG"
         return
     fi
 
-    local participant_key="${1:-}"
     local mcp_url="${AUTONOMY_ARMADA_MCP_URL:-http://127.0.0.1:7891/mcp}"
     case "$mcp_url" in
         http://*|https://*) ;;
@@ -212,23 +204,10 @@ prepare_claude_mcp_config() {
     # name here and never written into the config file.
     [ -n "${ARMADA_API_KEY:-}" ] || fail "ARMADA_API_KEY must be set so the Claude helper can authenticate to Armada MCP"
 
-    # The participant header identifies this helper to the board, so Armada can
-    # return its directed wakes on whatever tool the helper calls next. Without
-    # it the helper sees mail only when it reads the board by hand.
-    local config_path participant_header
-    if [ -n "$participant_key" ]; then
-        case "$participant_key" in
-            *[!A-Za-z0-9._:-]*) fail "participant key contains unsupported characters: $participant_key" ;;
-        esac
-        config_path="$WORKDIR/claude-armada-mcp-$participant_key.json"
-        participant_header=$(printf ',\n        "X-Armada-Participant": "%s"' "$participant_key")
-    else
-        config_path="$WORKDIR/claude-armada-mcp.json"
-        participant_header=""
-    fi
+    local config_path="$WORKDIR/claude-armada-mcp.json"
 
-    printf '{\n  "mcpServers": {\n    "armada": {\n      "type": "http",\n      "url": "%s",\n      "headers": {\n        "X-Api-Key": "${ARMADA_API_KEY}"%s\n      }\n    }\n  }\n}\n' \
-        "$mcp_url" "$participant_header" > "$config_path"
+    printf '{\n  "mcpServers": {\n    "armada": {\n      "type": "http",\n      "url": "%s",\n      "headers": {\n        "X-Api-Key": "${ARMADA_API_KEY}"\n      }\n    }\n  }\n}\n' \
+        "$mcp_url" > "$config_path"
     chmod 600 "$config_path"
     printf '%s\n' "$config_path"
 }
@@ -255,8 +234,7 @@ is_alive() {
 
 remove_state() {
     local name="$1"
-    rm -f "$RUN_DIR/$name.pid" "$RUN_DIR/$name.start" "$RUN_DIR/$name.key" \
-        "$RUN_DIR/$name.mode" "$RUN_DIR/$name.lead"
+    rm -f "$RUN_DIR/$name.pid" "$RUN_DIR/$name.start"
 }
 
 prune_dead() {
@@ -283,23 +261,18 @@ run_helper() {
     local runtime="$1"
     local prompt_file="$2"
     local helper_cwd="$3"
-    local prompt participant_key helper_name helper_mode lead_key offer_seconds mcp_config contract
+    local prompt helper_name mcp_config contract
 
     prompt=$(cat "$prompt_file")
-    participant_key="${HELPER_PARTICIPANT_KEY:?missing HELPER_PARTICIPANT_KEY}"
     helper_name="${HELPER_NAME:?missing HELPER_NAME}"
-    helper_mode="${HELPER_MODE:-task}"
-    lead_key="${HELPER_LEAD_PARTICIPANT_KEY:-}"
-    offer_seconds="${HELPER_OFFER_SECONDS:-240}"
     mcp_config="${HELPER_MCP_CONFIG:-}"
     local class_line class_limits
     if [ "${HELPER_CLASS:-research}" = "delegate" ]; then
         class_line="You are the bounded DELEGATE helper named $helper_name. You may dispatch
-voyages and write objectives, backlog items, incidents and board notes."
+voyages and write objectives, backlog items and incidents."
         class_limits="Before you dispatch anything: verify the brief's premise against the target tip,
-claim the vessel or objective on the board, and confirm the objective names
-exactly ONE vessel. Never dispatch onto a vessel another session has claimed, and
-never start a second voyage on a vessel that already has an active one. Do not
+confirm the objective names exactly ONE vessel, and never start a second voyage
+on a vessel that already has an active one. Do not
 edit repositories, commit, push, run shared test suites, delete refs, deploy, or
 commit durable memory."
     else
@@ -312,34 +285,14 @@ deploy, or commit durable memory."
 
 [ARMADA HOST HELPER CONTRACT]
 $class_line
-Your participantKey is $participant_key.
-On entry, read the coordination board and heartbeat with that exact key. Drain
-UnreadWakes before other work and acknowledge each processed wake with
-armada_mark_signal_read. Do only the task above.
+Do only the task above.
 $class_limits
-Post one addressed outcome note to the lead, release any claim you took, and
-exit. Do not start a polling loop or recurring schedule. Do not wait by running a
+Report the outcome as your final message and exit. Do not start a polling loop or recurring schedule. Do not wait by running a
 blocking poll; if you must watch a voyage, use scripts/autonomy/watch-armada.mjs.
 Your file sandbox is the helper working directory. If required evidence is
 outside it, report the boundary instead of weakening the sandbox or guessing.
 EOF
 )
-
-    if [ "$helper_mode" = "offer" ]; then
-        contract="$contract$(cat <<EOF
-
-[ARMADA HELPER OFFER]
-Your lead participantKey is $lead_key. Immediately post one availability note
-addressed to that key. State your fallback task from the prompt above. Give the
-lead a bounded $offer_seconds-second reassignment window. During that window,
-wait no more than 25 seconds between heartbeat or board-read checks. Handle a
-directed Wake before the fallback and acknowledge it. If the lead assigns work,
-do only that work. If the window expires without an assignment, do the fallback.
-If the lead tells you to stand down, post the outcome and exit. This bounded
-offer window is the only polling allowed by this contract.
-EOF
-)"
-    fi
 
     prompt="$prompt$contract"
     seed_memory_pointer "$helper_cwd"
@@ -368,25 +321,11 @@ EOF
 }
 
 do_spawn() {
-    local helper_mode="${1:-task}"
-    if [ "$#" -gt 0 ]; then shift; fi
     local name="${1:-}"
     local prompt_arg="${2:-}"
-    local lead_key=""
-    local helper_cwd_arg
-    if [ "$helper_mode" = "offer" ]; then
-        lead_key="${3:-}"
-        helper_cwd_arg="${4:-$WORKDIR}"
-    else
-        helper_cwd_arg="${3:-$WORKDIR}"
-    fi
+    local helper_cwd_arg="${3:-$WORKDIR}"
     validate_name "$name"
     [ -n "$prompt_arg" ] || fail "usage: $0 spawn <name> <prompt-file> [helper-cwd]"
-
-    if [ "$helper_mode" = "offer" ]; then
-        validate_name "$lead_key"
-        require_positive_integer AUTONOMY_HELPER_OFFER_SECONDS "$HELPER_OFFER_SECONDS"
-    fi
 
     require_positive_integer AUTONOMY_MAX_HELPERS "$MAX_HELPERS"
     require_positive_integer AUTONOMY_HELPER_TIMEOUT_MIN "$HELPER_TIMEOUT_MIN"
@@ -394,15 +333,14 @@ do_spawn() {
     validate_helper_class
     prune_dead
 
-    local prompt_file helper_cwd participant_key out_log pid alive mcp_config helper_settings
+    local prompt_file helper_cwd out_log pid alive mcp_config helper_settings
     prompt_file=$(canonical_file "$prompt_arg")
     helper_cwd=$(canonical_directory "$helper_cwd_arg")
-    participant_key="$PARTICIPANT_PREFIX-$name"
     out_log="$LOG_DIR/$name.log"
     mcp_config=""
     helper_settings=""
     if [ "$(printf '%s' "$RUNTIME" | tr '[:upper:]' '[:lower:]')" = "claude" ]; then
-        mcp_config=$(prepare_claude_mcp_config "$participant_key")
+        mcp_config=$(prepare_claude_mcp_config)
         helper_settings=$(prepare_helper_settings "$HELPER_CLASS")
     fi
 
@@ -416,11 +354,7 @@ do_spawn() {
     [ "$alive" -lt "$MAX_HELPERS" ] || fail "$alive running helpers meets cap $MAX_HELPERS; kill or cull first"
 
     nohup env \
-        HELPER_PARTICIPANT_KEY="$participant_key" \
         HELPER_NAME="$name" \
-        HELPER_MODE="$helper_mode" \
-        HELPER_LEAD_PARTICIPANT_KEY="$lead_key" \
-        HELPER_OFFER_SECONDS="$HELPER_OFFER_SECONDS" \
         HELPER_MCP_CONFIG="$mcp_config" \
         HELPER_SETTINGS="$helper_settings" \
         AUTONOMY_HELPER_CLASS="$HELPER_CLASS" \
@@ -431,10 +365,7 @@ do_spawn() {
 
     echo "$pid" > "$RUN_DIR/$name.pid"
     date -u +%s > "$RUN_DIR/$name.start"
-    echo "$participant_key" > "$RUN_DIR/$name.key"
-    echo "$helper_mode" > "$RUN_DIR/$name.mode"
-    echo "$lead_key" > "$RUN_DIR/$name.lead"
-    echo "spawned name=$name pid=$pid mode=$helper_mode key=$participant_key lead=${lead_key:--} log=$out_log"
+    echo "spawned name=$name pid=$pid log=$out_log"
 }
 
 do_kill() {
@@ -464,9 +395,9 @@ do_kill() {
 }
 
 do_list() {
-    local file pid name state start now elapsed key mode lead
+    local file pid name state start now elapsed
     now=$(date -u +%s)
-    printf '%-20s %-8s %-10s %-8s %-10s %-24s %s\n' NAME PID STATE MODE ELAPSED PARTICIPANT_KEY LEAD_KEY
+    printf '%-20s %-8s %-10s %s\n' NAME PID STATE ELAPSED
     for file in "$RUN_DIR"/*.pid; do
         [ -e "$file" ] || continue
         name=$(basename -- "$file" .pid)
@@ -478,10 +409,7 @@ do_list() {
             start=$(cat "$RUN_DIR/$name.start" 2>/dev/null || true)
             case "$start" in ''|*[!0-9]*) ;; *) elapsed="$(( (now - start) / 60 ))min" ;; esac
         fi
-        key=$(cat "$RUN_DIR/$name.key" 2>/dev/null || true)
-        mode=$(cat "$RUN_DIR/$name.mode" 2>/dev/null || true)
-        lead=$(cat "$RUN_DIR/$name.lead" 2>/dev/null || true)
-        printf '%-20s %-8s %-10s %-8s %-10s %-24s %s\n' "$name" "$pid" "$state" "${mode:-task}" "$elapsed" "$key" "${lead:--}"
+        printf '%-20s %-8s %-10s %s\n' "$name" "$pid" "$state" "$elapsed"
     done
     echo "running: $(alive_count)/$MAX_HELPERS"
 }
@@ -514,8 +442,7 @@ if [ "$#" -gt 0 ]; then shift; fi
 
 case "$COMMAND" in
     __run) run_helper "${1:-}" "${2:-}" "${3:-}" ;;
-    spawn) do_spawn task "$@" ;;
-    offer) do_spawn offer "$@" ;;
+    spawn) do_spawn "$@" ;;
     kill) do_kill "${1:-}" ;;
     list) do_list ;;
     cull) do_cull ;;

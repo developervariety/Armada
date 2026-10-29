@@ -7,8 +7,6 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { resolveParticipantIdentity } from "./mcp-ssh-http-bridge.mjs";
-
 const bridgePath = join(dirname(fileURLToPath(import.meta.url)), "mcp-ssh-http-bridge.mjs");
 
 // A stand-in for ssh: it records the remote command it was given and answers with
@@ -67,57 +65,20 @@ async function runBridgeProcess(fakeSsh, extraEnvironment) {
   await new Promise((resolve) => child.on("close", resolve));
 }
 
-function participantHeaders(logPath) {
-  return readFileSync(logPath, "utf8")
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .map((line) => ({
-      key: /X-Armada-Participant: ([A-Za-z0-9._:-]+)/.exec(line)?.[1] ?? null,
-      baseKey: /X-Armada-Participant-Base: ([A-Za-z0-9._:-]+)/.exec(line)?.[1] ?? null,
-    }));
-}
-
-test("two bridge processes on one configuration get different participant keys, each kept for its own life", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "bridge-key-"));
-  try {
-    const fakeSsh = createFakeSsh(directory);
-    const environment = { ARMADA_PARTICIPANT_KEY: "operator", ARMADA_PARTICIPANT_KEY_UNIQUE: "1" };
-
-    await runBridgeProcess(fakeSsh, environment);
-    await runBridgeProcess(fakeSsh, environment);
-
-    const sent = participantHeaders(fakeSsh.logPath);
-    assert.equal(sent.length, 4, "each process sent two requests");
-    for (const request of sent) {
-      assert.match(request.key ?? "", /^operator-[0-9a-z]{6}$/, "the key is the configured key plus a suffix");
-      assert.equal(request.baseKey, "operator", "the configured key travels as the base key");
-    }
-    assert.equal(sent[0].key, sent[1].key, "one process keeps one key for every request");
-    assert.equal(sent[2].key, sent[3].key, "one process keeps one key for every request");
-    assert.notEqual(sent[0].key, sent[2].key, "two processes do not share a key");
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
-test("without the unique flag the configured key is sent unchanged and no base key is sent", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "bridge-key-"));
+test("requests carry the transport headers and no session-identity header, whatever the environment holds", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "bridge-headers-"));
   try {
     const fakeSsh = createFakeSsh(directory);
 
-    await runBridgeProcess(fakeSsh, { ARMADA_PARTICIPANT_KEY: "operator" });
+    await runBridgeProcess(fakeSsh, { ARMADA_PARTICIPANT_KEY: "operator", ARMADA_PARTICIPANT_KEY_UNIQUE: "1" });
 
-    for (const request of participantHeaders(fakeSsh.logPath)) {
-      assert.equal(request.key, "operator");
-      assert.equal(request.baseKey, null);
+    const sent = readFileSync(fakeSsh.logPath, "utf8").split("\n").filter((line) => line.length > 0);
+    assert.equal(sent.length, 2, "the process sent two requests");
+    for (const command of sent) {
+      assert.match(command, /Content-Type: application\/json/);
+      assert.doesNotMatch(command, /participant/i);
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
-});
-
-test("a unique key that would pass the length limit is refused at start-up, not truncated", () => {
-  assert.throws(
-    () => resolveParticipantIdentity({ ARMADA_PARTICIPANT_KEY: "k".repeat(125), ARMADA_PARTICIPANT_KEY_UNIQUE: "1" }),
-    /ARMADA_PARTICIPANT_KEY must be 1-128 characters/);
 });
