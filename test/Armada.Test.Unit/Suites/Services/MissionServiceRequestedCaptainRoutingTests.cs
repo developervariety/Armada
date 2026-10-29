@@ -241,7 +241,7 @@ namespace Armada.Test.Unit.Suites.Services
                         await testDb.Driver.Captains.UpdateAsync(requested).ConfigureAwait(false);
                         AssertTrue(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "The evaluation starts when its requested captain becomes available");
                         AssertEqual(requested.Id, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId, "The requested captain runs the evaluation");
-                        ArmadaEvent selectedEvent = (await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false)).Last();
+                        ArmadaEvent selectedEvent = (await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false)).Single(evt => evt.CaptainId == requested.Id);
                         using JsonDocument selectedPayload = JsonDocument.Parse(selectedEvent.Payload!);
                         AssertEqual(requested.Id, selectedPayload.RootElement.GetProperty("requestedCaptainId").GetString());
                         AssertEqual(requested.Id, selectedPayload.RootElement.GetProperty("selectedCaptainId").GetString());
