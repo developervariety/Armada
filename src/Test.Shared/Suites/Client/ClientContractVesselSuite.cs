@@ -42,7 +42,15 @@ namespace Test.Shared.Suites.Client
                 string id = setup.Vessel.Id;
                 VesselCleanupInventory? inventory = await c.GetVesselCleanupInventoryAsync(id);
                 AssertEqual(id, inventory?.VesselId, "inventory vessel");
-                AssertEqual(inventory!.Resources.Count, inventory.SafeCount + inventory.InUseCount + inventory.UnknownCount, "every resource is classified");
+                AssertEqual(inventory!.ResourceCount, inventory.SafeCount + inventory.InUseCount + inventory.UnknownCount, "every resource is classified");
+                EnumerationResult<VesselCleanupResource>? resources = await c.ListVesselCleanupResourcesAsync(id, new EnumerationQuery { PageSize = 1000 });
+                AssertEqual((long)inventory.ResourceCount, resources?.TotalRecords, "resource page total matches the summary");
+
+                ArmadaApiException? tooMany = null;
+                try { await c.RunVesselCleanupAsync(id, Enumerable.Range(0, 1001).Select(i => "dock:dck_x" + i).ToList()); }
+                catch (ArmadaApiException ex) { tooMany = ex; }
+                AssertNotNull(tooMany, "more than 1000 keys is rejected");
+                AssertEqual(400, tooMany!.StatusCode, "over the key limit is a 400");
 
                 VesselCleanupResult? result = await c.RunVesselCleanupAsync(id, new List<string> { "dock:dck_does_not_exist" });
                 AssertNotNull(result, "cleanup result");
