@@ -41,6 +41,9 @@ namespace Armada.Core.Enums
         /// <summary>
         /// The command exceeded the run's timeout and was terminated.
         /// </summary>
-        TimedOut
+        TimedOut,
+
+        /// <summary>The output parser reported findings, regardless of process exit code.</summary>
+        Findings
     }
 }

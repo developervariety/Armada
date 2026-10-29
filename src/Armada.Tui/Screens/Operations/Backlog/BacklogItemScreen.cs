@@ -881,7 +881,7 @@ namespace Armada.Tui.Screens.Operations
             {
                 foreach (string id in _FleetIds) rows.Add(new BacklogLink("Linked Fleets", id, Reference.FleetName(id), "/fleets/" + Uri.EscapeDataString(id)));
                 foreach (string id in _VesselIds) rows.Add(new BacklogLink("Linked Vessels", id, Reference.VesselName(id), "/vessels/" + Uri.EscapeDataString(id)));
-                Add(rows, "Planning Sessions", o.PlanningSessionIds, id => "/planning/" + Uri.EscapeDataString(id));
+                Add(rows, "Planning Sessions", o.PlanningSessionIds, id => TabLinks.Planning(id));
                 Add(rows, "Refinement Sessions", o.RefinementSessionIds, id => "/backlog/" + Uri.EscapeDataString(o.Id) + "?refinementSessionId=" + Uri.EscapeDataString(id));
                 Add(rows, "Voyages", o.VoyageIds, id => "/voyages/" + Uri.EscapeDataString(id));
                 Add(rows, "Missions", o.MissionIds, id => "/missions/" + Uri.EscapeDataString(id));

@@ -10,6 +10,20 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Optional Windows shell command; falls back to CommandText.</summary>
+        public string? CommandWindows { get; set; }
+        /// <summary>Registered output parser identifier.</summary>
+        public string? OutputParser { get; set; }
+        /// <summary>Source action built-in key (or ID) for {{scan.summary}}.</summary>
+        public string? ScanSourceActionKey { get; set; }
+        /// <summary>Executable names required on the target host PATH.</summary>
+        public System.Collections.Generic.List<string>? RequiredTools { get; set; }
+        /// <summary>Whether execution requires network access.</summary>
+        public bool? RequiresNetwork { get; set; }
+        /// <summary>Typed runtime input definitions.</summary>
+        public System.Collections.Generic.List<FleetActionInput>? Inputs { get; set; }
+
+
         /// <summary>
         /// Display name. Required on create (1 to 200 characters after trimming).
         /// </summary>

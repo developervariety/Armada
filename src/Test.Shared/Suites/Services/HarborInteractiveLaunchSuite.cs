@@ -288,6 +288,27 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(reply.DurationMs.HasValue ? (double)reply.DurationMs.Value : -1, m.TotalMs, "total is the turn duration");
             }));
 
+            cases.Add(CaseAsync("pi_chat_streams_text_tools_and_usage", "A direct chat with a pi captain returns the final reply, its three tool calls with pi's durations, and pi's reported usage and cost", TestTags.Positive, async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using Scenario s = await Scenario.CreateAsync().ConfigureAwait(false);
+                Captain captain = await s.CreateCaptainAsync("pi-local", AgentRuntimeEnum.Pi).ConfigureAwait(false);
+                AuthContext admin = AuthContext.Authenticated(Constants.DefaultTenantId, "usr_pi", true, true, "Test");
+
+                CaptainChatResponse response = await s.Chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "Do the three steps." }, admin).ConfigureAwait(false);
+
+                AssertTrue(response.Success, "the chat succeeded: " + response.Error);
+                AssertEqual("DONE", response.Reply, "the reply is the final assistant text, not raw JSON");
+                AssertEqual("claude-haiku-4-5-20251001", response.Model);
+                CaptainChatMetrics m = response.Metrics;
+                AssertEqual(3, m.ToolCallCount, "bash, write and edit");
+                AssertEqual(10639, m.PromptTokens);
+                AssertEqual(261, m.CompletionTokens);
+                AssertEqual(false, m.TokensEstimated, "reported, not estimated");
+                AssertTrue(m.CostUsd.HasValue && Math.Abs(m.CostUsd.Value - 0.011944) < 1e-9, "cost from message_end usage");
+                AssertEqual(1, s.LocalLaunches);
+            }));
+
             cases.Add(CaseAsync("direct_chat_runs_on_harbor_with_final_message", "Direct captain chat runs on the Harbor, and the CLI's final-message file is returned over the link", TestTags.Positive, async () =>
             {
                 using Scenario s = await Scenario.CreateAsync().ConfigureAwait(false);
@@ -337,6 +358,35 @@ namespace Test.Shared.Suites.Services
                 string prompt = ChatShimCli.ReadRecord(s.HarborRecord, "prompt.txt");
                 AssertContains("## Session context", prompt, "the Admiral-side context file was inlined");
                 AssertContains("Plan the API hardening.", prompt, "the transcript reached the Harbor");
+                await planning.StopAsync(session).ConfigureAwait(false);
+            }));
+
+            cases.Add(CaseAsync("pi_planning_turn_keeps_only_reply_text", "A planning turn on a pi captain (run on a Harbor) stores the joined reply text and no pi protocol lines", TestTags.Positive, async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                using Scenario s = await Scenario.CreateAsync().ConfigureAwait(false);
+                using InProcessHarbor harbor = await s.ConnectHarborAsync("hbr_pi_plan", null, null).ConfigureAwait(false);
+                PlanningSessionCoordinator planning = s.CreatePlanningCoordinator();
+                Vessel vessel = await s.CreateVesselAsync("pi-plan-vessel").ConfigureAwait(false);
+                Captain captain = await s.CreateCaptainAsync("planner-pi", AgentRuntimeEnum.Pi).ConfigureAwait(false);
+
+                PlanningSession session = await planning.CreateAsync(null, null, captain, vessel, new PlanningSessionCreateRequest { Title = "Plan with pi" }).ConfigureAwait(false);
+                await planning.SendMessageAsync(session, "Plan the change.").ConfigureAwait(false);
+
+                string lastReply = String.Empty;
+                bool answered = await WaitUntilAsync(async () =>
+                {
+                    PlanningSession? current = await s.Db.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false);
+                    List<PlanningSessionMessage> messages = await s.Db.Driver.PlanningSessionMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
+                    PlanningSessionMessage? reply = messages.Where(m => m.Role == "Assistant").OrderBy(m => m.Sequence).LastOrDefault();
+                    lastReply = reply?.Content ?? String.Empty;
+                    return current != null && current.Status == PlanningSessionStatusEnum.Active && lastReply.Contains("DONE", StringComparison.Ordinal);
+                }).ConfigureAwait(false);
+                AssertTrue(answered, "the planning reply arrived (last reply '" + lastReply + "')");
+                AssertFalse(lastReply.Contains("\"type\"", StringComparison.Ordinal), "no pi protocol JSON in the planning reply: " + lastReply);
+                AssertEqual("DONE", lastReply.Trim(), "the reply is pi's final assistant text");
+                AssertEqual(0, s.LocalLaunches, "the Admiral-host runtime was never created");
+                AssertEqual(1, harbor.Runner.LaunchSnapshot().Count, "one launch on the Harbor");
                 await planning.StopAsync(session).ConfigureAwait(false);
             }));
 
@@ -498,6 +548,18 @@ namespace Test.Shared.Suites.Services
                     return new CodexRuntime(Logging) { ExecutablePath = LocalExecutable ?? localClaude };
                 });
 
+                if (!OperatingSystem.IsWindows())
+                {
+                    string piStubDirectory = Path.Combine(Root, "pi-stub");
+                    string piStub = StubAgentProcesses.WritePiStub(piStubDirectory);
+                    File.WriteAllText(Path.Combine(piStubDirectory, "pi-replay.jsonl"), String.Join("\n", PiStreamFixtures.ToolCalls) + "\n");
+                    _LocalRuntimes.Override(AgentRuntimeEnum.Pi, () =>
+                    {
+                        Interlocked.Increment(ref _LocalLaunches);
+                        return new PiRuntime(Logging) { ExecutablePath = piStub };
+                    });
+                }
+
                 Manager = new HarborConnectionManager(new HarborService(db.Driver, Logging), Logging, McpUrl);
                 Router = new CaptainLaunchRouter(Settings, _LocalRuntimes, Manager, null, Logging);
                 Chat = new CaptainChatService(db.Driver, _LocalRuntimes, null, null, null, 0, Logging);
@@ -532,6 +594,13 @@ namespace Test.Shared.Suites.Services
                 string? missing = HarborExecutable;
                 harborRuntimes.Override(AgentRuntimeEnum.ClaudeCode, () => new ClaudeCodeRuntime(Logging) { ExecutablePath = missing ?? claude });
                 harborRuntimes.Override(AgentRuntimeEnum.Codex, () => new CodexRuntime(Logging) { ExecutablePath = missing ?? codex });
+                if (!OperatingSystem.IsWindows())
+                {
+                    string piDirectory = Path.Combine(harborShims, "pi-stub");
+                    string pi = StubAgentProcesses.WritePiStub(piDirectory);
+                    File.WriteAllText(Path.Combine(piDirectory, "pi-replay.jsonl"), String.Join("\n", PiStreamFixtures.ToolCalls) + "\n");
+                    harborRuntimes.Override(AgentRuntimeEnum.Pi, () => new PiRuntime(Logging) { ExecutablePath = missing ?? pi });
+                }
 
                 return await InProcessHarbor.ConnectAsync(
                     Manager,
@@ -539,7 +608,7 @@ namespace Test.Shared.Suites.Services
                     tenantId,
                     userId,
                     harborRuntimes,
-                    new List<string> { "git", "ClaudeCode", "Codex" },
+                    new List<string> { "git", "ClaudeCode", "Codex", "Pi" },
                     Logging).ConfigureAwait(false);
             }
 
