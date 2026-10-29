@@ -27,9 +27,9 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The default `ask.system` prompt asks for a one or two sentence recap of finished and remaining work at the end of a multi-step answer. A built-in row that still holds the earlier default is upgraded; an edited row is kept.
 
-### Ask recap
+### Saved Ask conversations over MCP
 
-- The default `ask.system` prompt asks for a one or two sentence recap of finished and remaining work at the end of a multi-step answer. A built-in row that still holds the earlier default is upgraded; an edited row is kept.
+- `armada_list_ask_threads` and `armada_get_ask_thread` read the authenticated human caller's saved conversations. They are read-only: no MCP tool sends, approves, rejects, changes or deletes. See [Saved Ask Conversations](docs/MCP_API.md#saved-ask-conversations).
 
 ### Mission captain tier
 

@@ -82,6 +82,11 @@ The saved-thread API uses these routes:
 | POST | `/api/v1/ask/threads/{id}/read` | Clear the thread's unread count. |
 | POST | `/api/v1/ask/threads/{id}/unread` | Set the thread's unread count to one. |
 
+The MCP tools `armada_list_ask_threads` and `armada_get_ask_thread` read a human
+owner's saved conversations. They are read-only: no MCP tool sends a message,
+approves or rejects a proposal, changes a conversation or deletes one. See
+[Saved Ask Conversations](MCP_API.md#saved-ask-conversations).
+
 Core request and response models define the saved-thread API. The Dashboard uses
 matching typed contracts. Clients must retain the request identifier until they
 know the result. Transport failure is not permission to submit the same text
