@@ -22,6 +22,9 @@
 
 ---
 
+Routing preview accepts a mission capability hint and shows each captain's effective
+tier, capability score, rank and tie preferences. See [Smart Routing](docs/USAGE_ROUTING.md).
+
 ## Why Armada
 
 Armada is an Admiral process that coordinates AI coding agents, called captains, across registered git repositories, called vessels. It gives humans a control plane for dispatching, monitoring, reviewing, and landing agent work without losing context between repositories or terminal sessions.

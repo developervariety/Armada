@@ -3263,7 +3263,16 @@ export interface SmartRoutingPreviewResult {
   smartRoutingEnabled: boolean;
   hasPersonaRoutes: boolean;
   hasPersonaModels: boolean;
-  legacyOrder: SmartRoutingPreviewCaptain[];
+  legacyOrder: (SmartRoutingPreviewCaptain & {
+    ranking?: {
+      tier: string;
+      capabilityDimension: string | null;
+      capabilityScore: number | null;
+      preferenceRank: number;
+      externalProviderPreferred: boolean;
+      personaPreferred: boolean;
+    };
+  })[];
   usageFilter: SmartRoutingPreviewVerdict[];
   modelGroups: SmartRoutingPreviewGroup[];
   capacity: { choice: 'Default' | 'Lighter' | 'Stronger' | string; source: string; asked: boolean };

@@ -45,6 +45,9 @@ namespace Armada.Test.Automated.Suites
             /// <summary>Captains admitted by the preview's routing policy.</summary>
             public List<UsagePreviewCandidate> Candidates { get; set; } = new List<UsagePreviewCandidate>();
 
+            /// <summary>Legacy order with the factors used to rank each captain.</summary>
+            public List<UsagePreviewCandidate> LegacyOrder { get; set; } = new List<UsagePreviewCandidate>();
+
             /// <summary>Capacity-decision status returned by the preview.</summary>
             public UsagePreviewCapacity Capacity { get; set; } = new UsagePreviewCapacity();
         }
@@ -54,6 +57,9 @@ namespace Armada.Test.Automated.Suites
         {
             /// <summary>Captain identifier.</summary>
             public string Id { get; set; } = String.Empty;
+
+            /// <summary>Effective ranking factors returned by the route.</summary>
+            public CaptainRankingFactors? Ranking { get; set; }
 
             /// <summary>Captain name.</summary>
             public string Name { get; set; } = String.Empty;
@@ -475,11 +481,12 @@ namespace Armada.Test.Automated.Suites
                     string? savedSettings = settingsFileExisted
                         ? await File.ReadAllTextAsync(_SettingsFilePath).ConfigureAwait(false)
                         : null;
-                    async Task<UsagePreviewResponse> PreviewAsync(string listed)
+                    async Task<UsagePreviewResponse> PreviewAsync(string listed, string? hint = null)
                     {
                         using (StringContent content = JsonHelper.ToJsonContent(new
                         {
                             persona = "Worker",
+                            capabilityHint = hint,
                             usageRouting = new
                             {
                                 enabled = true,
@@ -504,6 +511,17 @@ namespace Armada.Test.Automated.Suites
                     AssertTrue(allowed.Candidates.Any(c => c.Name == listedName), "the listed synthetic model is a candidate");
                     AssertFalse(allowed.Candidates.Any(c => c.Name == excludedName), "an unlisted idle model is not a candidate while a listed captain serves");
                     AssertFalse(allowed.Capacity.Asked, "no work text means no capacity client call");
+
+                    foreach (string? hint in new string?[] { null, "audit", "not-a-mapped-hint" })
+                    {
+                        UsagePreviewResponse ranked = await PreviewAsync(listedModel, hint).ConfigureAwait(false);
+                        CaptainRankingFactors? factors = ranked.LegacyOrder.First(c => c.Name == listedName).Ranking;
+                        AssertNotNull(factors, "the route exposes the selector's ranking factors");
+                        AssertEqual(hint == "audit" ? "AuditReasoningFit" : null, factors!.CapabilityDimension,
+                            "the request hint reaches the selection mission");
+                        AssertEqual<long?>(hint == "audit" ? -1 : null, factors.CapabilityScore,
+                            "a missing profile scores -1 only when a mapped hint is active");
+                    }
 
                     UsagePreviewResponse dead = await PreviewAsync(deadModel).ConfigureAwait(false);
                     AssertTrue(dead.Reason.StartsWith(PersonaModelListHealth.ReasonDeadFallbackPrefix, StringComparison.Ordinal),

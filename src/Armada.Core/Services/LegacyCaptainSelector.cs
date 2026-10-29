@@ -36,6 +36,28 @@ namespace Armada.Core.Services
 
         #region Public-Methods
 
+        /// <summary>Read the ranking inputs used by selection for one captain.</summary>
+        /// <param name="tiers">Model tier settings.</param>
+        /// <param name="mission">Mission whose hint and persona apply.</param>
+        /// <param name="captain">Captain to describe.</param>
+        /// <returns>The effective ranking inputs, before Smart Routing groups and usage filters.</returns>
+        public static CaptainRankingFactors RankingFactors(ModelTierSettings tiers, Mission mission, Captain captain)
+        {
+            if (tiers == null) throw new ArgumentNullException(nameof(tiers));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            string? dimension = ResolveHintDimension(tiers, mission.CapabilityHint);
+            return new CaptainRankingFactors
+            {
+                Tier = CaptainTierSelector.EffectiveTier(captain),
+                CapabilityDimension = dimension,
+                CapabilityScore = dimension == null ? null : ScoreOf(tiers, captain.Model, dimension),
+                PreferenceRank = captain.PreferenceRank,
+                ExternalProviderPreferred = tiers.PreferNonNativeFirst && IsExternalServed(captain),
+                PersonaPreferred = PrefersPersona(captain, mission.Persona)
+            };
+        }
+
         /// <summary>
         /// Pick one captain from the pool, or null when none satisfies the mission's persona and tier
         /// constraints. The pool is never modified.
@@ -218,17 +240,17 @@ namespace Armada.Core.Services
         // Captains equal on every key are peers.
         private static Captain Pick(ModelTierSettings tiers, Mission mission, List<Captain> candidates, Func<int, int> randomPick)
         {
-            string? dimension = ResolveHintDimension(tiers, mission.CapabilityHint);
             List<Captain> top = new List<Captain>();
             List<long> best = new List<long>();
             foreach (Captain captain in candidates)
             {
+                CaptainRankingFactors factors = RankingFactors(tiers, mission, captain);
                 List<long> key = new List<long>
                 {
-                    dimension == null ? 0 : ScoreOf(tiers, captain.Model, dimension),
-                    captain.PreferenceRank,
-                    tiers.PreferNonNativeFirst && IsExternalServed(captain) ? 1 : 0,
-                    PrefersPersona(captain, mission.Persona) ? 1 : 0
+                    factors.CapabilityScore ?? 0,
+                    factors.PreferenceRank,
+                    factors.ExternalProviderPreferred ? 1 : 0,
+                    factors.PersonaPreferred ? 1 : 0
                 };
                 int comparison = best.Count == 0 ? 1 : Compare(key, best);
                 if (comparison > 0)

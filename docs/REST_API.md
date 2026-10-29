@@ -6133,12 +6133,15 @@ Legacy Routing order, usage verdicts, model groups, capacity reading, and chosen
 captain for a saved or draft policy with settings write permission.
 
 `POST /api/v1/settings/usage-preview` request fields: `persona`, `priority`,
-`preferredModel`, `missionTitle`, `missionText`, `usageRouting` (draft). The
+`preferredModel`, `capabilityHint`, `missionTitle`, `missionText`, `usageRouting` (draft). The
 typed-decision client is called only when `missionTitle` or `missionText` is
 present. Response fields: `reason`, `smartRoutingEnabled`, `hasPersonaRoutes`,
 `hasPersonaModels`, `legacyOrder`, `usageFilter`, `modelGroups`, `capacity`
 (`choice`, `source`, `asked`), `candidates`, `chosen`, `accounts`, `warnings`,
-`scope`. Each `usageFilter` verdict names the `layer` that decided it:
+`scope`. Each `legacyOrder` entry includes `ranking`: effective tier, active
+capability dimension and score, preference rank, external-provider preference,
+and persona preference. A null score means no active dimension; -1 means no
+matching profile or dimension. Each `usageFilter` verdict names the `layer` that decided it:
 `eligibility` (persona lock or tier floor), `routes`, or `usage`. See [the preview table](USAGE_ROUTING.md#dashboard-and-api). No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
 
