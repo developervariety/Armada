@@ -261,6 +261,7 @@ namespace Armada.Test.Database
             await RunTest("DataExpiry_Purges_Expired_Rows_And_Keeps_Retained_Rows", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyRetentionPurgeAsync(token), token);
             await RunTest("DataExpiry_Keeps_Latest_Incident_Snapshots_Tombstones_And_Reversals", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyDurableEventsSurviveRetentionAsync(token), token);
             await RunTest("DataExpiry_Keeps_Latest_Runbook_Execution_Snapshot", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyLatestRunbookExecutionSnapshotSurvivesRetentionAsync(token), token);
+            await RunTest("DataExpiry_Keeps_Rows_Changed_After_Their_Export", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyRowChangedAfterExportSurvivesRetentionAsync(token), token);
             await RunTest("DataExpiry_Purges_Production_Facts_Older_Than_Fact_Retention", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyProductionFactRetentionAsync(token), token);
             await RunTest("DataExpiry_Purges_Request_History_Older_Than_Request_Retention", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyRequestHistoryRetentionAsync(token), token);
 

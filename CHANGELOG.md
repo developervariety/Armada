@@ -11,6 +11,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - Every pipeline expansion of a mission description stamps its stages with one persisted stage chain identity (SQLite migration 143, PostgreSQL 148, MySQL 136, SQL Server 139). The parallel-stage barrier waits only on siblings of the same chain, so a cancelled or failed independent root no longer holds another description's Judge in `parallel_stages_running`; unfinished, Failed, LandingFailed and Cancelled siblings of the same chain, and rows without an identity, still hold it.
 
+### Expiry export snapshots
+
+- Data expiry deletes only the rows it exported. A voyage, mission, dock or merge entry updated between its export and the delete, and any row that starts matching after the snapshot, stays for a later pass instead of being deleted with an older exported state. A voyage with remaining missions waits for the pass that deletes them.
+
 ### Provider-failure retry docks
 
 - A provider safeguard block that continues a mission on an alternate runtime keeps the mission's active dock and saved branch, as credential and quota requeues already do, so the continuation resumes the saved work instead of cutting a fresh branch. A provider credential rejection (401) requeue has a regression test for the retained dock and worktree.
