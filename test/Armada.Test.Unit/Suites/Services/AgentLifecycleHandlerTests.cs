@@ -2535,7 +2535,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
             {
-                foreach (string scenario in new[] { "pending-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle" })
+                foreach (string scenario in new[] { "pending-reviews", "canonical-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -2551,7 +2551,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 VesselId = rig.Vessel.Id,
                                 VoyageId = rig.Voyage.Id,
                                 Mode = MissionModeEnum.Research,
-                                Persona = persona,
+                                Persona = scenario == "canonical-reviews" && persona == "TestEngineer" ? PersonaCatalog.TestEngineer : persona,
                                 Status = MissionStatusEnum.Pending,
                                 DependsOnMissionId = parentId
                             };
@@ -2581,7 +2581,7 @@ namespace Armada.Test.Unit.Suites.Services
                             "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
                         Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
                         Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
-                        if (scenario == "pending-reviews")
+                        if (scenario is "pending-reviews" or "canonical-reviews")
                         {
                             AssertTrue(worker.Status is MissionStatusEnum.WorkProduced or MissionStatusEnum.Complete, "Complete current work reaches its configured review chain: " + worker.FailureReason);
                             foreach (Mission stage in futureStages)

@@ -609,6 +609,7 @@ The Admiral tracks captain state and health so a busy fleet remains debuggable:
 
 - Captains move through idle, assigned, in-progress, planning, stopped, quarantined, and failure states.
 - Health checks reclaim stale captains and docks after restarts.
+- [Report completion](docs/PERSONAS.md#a-report-only-worker-that-ends-complete-with-an-unfinished-report) preserves verified pending review obligations while blocking unfinished current work.
 - [Full Research replay](docs/PIPELINES.md#full-research-attempt-replay) lets an owner operator archive a failed six-stage attempt and repeat all original duties on the same voyage, with immutable source and separate historical reports.
 - Diagnostics report active mission timing, dock git status, uncommitted files, launch/log hints, and code-index freshness.
 - Quarantine and lifecycle controls prevent unhealthy captains — including those hitting provider quota or usage limits — from repeatedly taking work until an operator or reset window intervenes.

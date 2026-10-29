@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Report completion
+
+- A complete report can retain a counted obligation for actual pending downstream review roles without cancelling them. The gate verifies the owned dependency chain and still blocks unfinished work, unavailable reviewers and mismatched counts.
+
 ### Mission captain tier
 
 - `armada_create_mission` accepts an optional `tier` (`Economy`, `Standard` or `Premium`). Only captains at or above that tier are assigned. Omitting it keeps the default routing. An unrecognized value is rejected and creates nothing. See [Captain Writes](docs/MCP_API.md#captain-writes).

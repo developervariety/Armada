@@ -15,6 +15,7 @@ namespace Armada.Core.Services
             if (!ReportIncompleteResult.TryRead(mission.AgentOutput, out string statement)) return null;
             if (String.IsNullOrWhiteSpace(mission.VoyageId)) return statement;
             bool pendingJudge = false;
+            int pendingReviewCount = 0;
             try
             {
                 List<Mission> stages = await _Database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
@@ -26,6 +27,7 @@ namespace Armada.Core.Services
                 foreach (Mission judge in owned.Values.Where(stage => stage.Status == MissionStatusEnum.Pending
                     && String.Equals(stage.Persona, "Judge", StringComparison.Ordinal)))
                 {
+                    HashSet<string> reviewRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { PersonaCatalog.Judge };
                     string? parentId = judge.DependsOnMissionId;
                     HashSet<string> visited = new HashSet<string>(StringComparer.Ordinal);
                     while (!String.IsNullOrWhiteSpace(parentId) && visited.Add(parentId))
@@ -33,9 +35,14 @@ namespace Armada.Core.Services
                         if (String.Equals(parentId, mission.Id, StringComparison.Ordinal))
                         {
                             pendingJudge = true;
+                            pendingReviewCount = reviewRoles.Count;
                             break;
                         }
-                        if (!owned.TryGetValue(parentId, out Mission? parent)) break;
+                        if (!owned.TryGetValue(parentId, out Mission? parent) || parent.Status != MissionStatusEnum.Pending) break;
+                        string role = PersonaCatalog.NormalizeName(parent.Persona);
+                        if (PersonaCatalog.Matches(role, "PortingReferenceAnalyst") || PersonaCatalog.Matches(role, PersonaCatalog.TestEngineer)
+                            || PersonaCatalog.Matches(role, PersonaCatalog.Linter) || PersonaCatalog.Matches(role, PersonaCatalog.Judge))
+                            reviewRoles.Add(role);
                         parentId = parent.DependsOnMissionId;
                     }
                     if (pendingJudge) break;
@@ -48,7 +55,7 @@ namespace Armada.Core.Services
                     + "; unmet report criteria remain blocking: " + ex.GetType().Name);
                 return statement;
             }
-            return ReportIncompleteResult.TryRead(mission.AgentOutput, pendingJudge, out statement) ? statement : null;
+            return ReportIncompleteResult.TryRead(mission.AgentOutput, pendingJudge, pendingReviewCount, out statement) ? statement : null;
         }
     }
 }

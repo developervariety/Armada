@@ -103,6 +103,11 @@ not prove delivery. A report required in a stage's final response is checked
 in that stage's mission output. The active Judge prompt defines the full
 review sections, evidence and verdict contract.
 
+A completed report can await its configured future reviews without cancelling
+those stages. The completion gate verifies the pending owned dependency chain
+and any stated review-role count; unfinished current or earlier work remains
+blocking. See [report completion](PERSONAS.md#a-report-only-worker-that-ends-complete-with-an-unfinished-report).
+
 ## Check evidence reuse
 
 Automatic Build and UnitTest Checks reuse a full passing definition-of-done

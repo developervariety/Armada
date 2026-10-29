@@ -558,9 +558,13 @@ Armada blocks that unfinished work before review:
   dispatches no rescue.
 
 A criterion explicitly awaiting only the actual pending downstream Judge keeps
-that review eligible. The Judge must still decide it. An unrelated, missing or
-cancelled Judge does not excuse an unmet criterion. Any separate unfinished
-current-stage work still blocks, even when future Judge review is also pending.
+that review eligible. A precursor can also state that a named count of later
+role reviews does not yet exist. That count must match the distinct pending
+review roles on its owned dependency path to the pending Judge; revising Workers
+are not review roles. Every intervening stage must still be Pending. The Judge
+must decide final acceptance. An unrelated, missing, cancelled or foreign stage
+does not excuse an unmet criterion. Separate unfinished current work or earlier
+review duties still block, even when future reviews are pending.
 
 Only the final outcome `[ARMADA:RESULT] COMPLETE` counts, and the sentence must
 say the acceptance criteria themselves are not met; a finding that some code

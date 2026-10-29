@@ -44,6 +44,11 @@ namespace Armada.Core.Services
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
+        private static readonly Regex _PendingRoleReviewsOnly = new Regex(
+            @"\A\s*(?:at\s+this\s+[A-Za-z]+\s+precursor\s+stage\s+)?because\s+the\s+(?<count>[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten)\s+later\s+role\s+reviews\s+do\s+not\s+yet\s+exist\s*[.!]?\s*\z",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+
         #endregion
 
         #region Public-Methods
@@ -66,6 +71,17 @@ namespace Armada.Core.Services
         /// <param name="statement">The bounded statement of unfinished current work.</param>
         /// <returns>True when an unmet criterion is not solely awaiting that configured Judge.</returns>
         public static bool TryRead(string? agentOutput, bool hasPendingDownstreamJudge, out string statement)
+        {
+            return TryRead(agentOutput, hasPendingDownstreamJudge, 0, out statement);
+        }
+
+        /// <summary>Read unmet work while retaining only verified future review obligations.</summary>
+        /// <param name="agentOutput">Captain output.</param>
+        /// <param name="hasPendingDownstreamJudge">Whether an owned pending Judge depends on this mission through pending stages.</param>
+        /// <param name="pendingDownstreamReviewCount">Distinct pending review roles on that dependency path, excluding Workers.</param>
+        /// <param name="statement">The bounded statement of unfinished work.</param>
+        /// <returns>True when an unmet criterion is not solely awaiting the verified future reviews.</returns>
+        public static bool TryRead(string? agentOutput, bool hasPendingDownstreamJudge, int pendingDownstreamReviewCount, out string statement)
         {
             statement = String.Empty;
             if (String.IsNullOrEmpty(agentOutput)) return false;
@@ -95,6 +111,9 @@ namespace Armada.Core.Services
                     try
                     {
                         if (_PendingJudgeOnly.IsMatch(reason)) continue;
+                        Match futureReviews = _PendingRoleReviewsOnly.Match(reason);
+                        if (futureReviews.Success && pendingDownstreamReviewCount > 0
+                            && ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount) continue;
                     }
                     catch (RegexMatchTimeoutException)
                     {
@@ -138,6 +157,17 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static int ReadReviewCount(string value)
+        {
+            if (Int32.TryParse(value, out int count)) return count;
+            return value.ToLowerInvariant() switch
+            {
+                "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5,
+                "six" => 6, "seven" => 7, "eight" => 8, "nine" => 9, "ten" => 10,
+                _ => 0
+            };
+        }
 
         private static int SentenceStart(string text, int index)
         {
