@@ -30,6 +30,7 @@ import type {
   GitHubPullRequestDetail,
   ObjectiveQuery,
   ObjectiveReorderRequest,
+  ObjectiveReorderResult,
   ObjectiveUpsertRequest,
   ArmadaEvent,
   MergeEntry,
@@ -175,6 +176,13 @@ import type {
   AskActionProposal,
   AskWorkSnapshot,
   AskQuickAction,
+  AskTrackedWork,
+  AskMissionSnapshot,
+  AskTargetSnapshot,
+  AskToolCall,
+  PagedQuery,
+  PlanningSessionMessage,
+  ObjectiveRefinementMessage,
   CliPermissionDecisionRequest,
   CliPermissionPolicy,
   CliPermissionRequest,
@@ -1015,7 +1023,7 @@ export const listObjectives = (params?: ObjectiveQuery) =>
   get<EnumerationResult<Objective>>(`/api/v1/objectives${buildObjectiveQuery(params)}`);
 export const enumerateObjectives = (query?: ObjectiveQuery) =>
   post<EnumerationResult<Objective>>('/api/v1/objectives/enumerate', query || {});
-export const reorderObjectives = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/objectives/reorder', data);
+export const reorderObjectives = (data: ObjectiveReorderRequest) => post<ObjectiveReorderResult>('/api/v1/objectives/reorder', data);
 export const getObjective = (id: string) => get<Objective>(`/api/v1/objectives/${encodeURIComponent(id)}`);
 export const createObjective = (data: ObjectiveUpsertRequest) => post<Objective>('/api/v1/objectives', data);
 export const updateObjective = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/objectives/${encodeURIComponent(id)}`, data);
@@ -1025,15 +1033,30 @@ export const listBacklog = (params?: ObjectiveQuery) =>
   get<EnumerationResult<Objective>>(`/api/v1/backlog${buildObjectiveQuery(params)}`);
 export const enumerateBacklog = (query?: ObjectiveQuery) =>
   post<EnumerationResult<Objective>>('/api/v1/backlog/enumerate', query || {});
-export const reorderBacklog = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/backlog/reorder', data);
+export const reorderBacklog = (data: ObjectiveReorderRequest) => post<ObjectiveReorderResult>('/api/v1/backlog/reorder', data);
 export const getBacklogItem = (id: string) => get<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`);
 export const createBacklogItem = (data: ObjectiveUpsertRequest) => post<Objective>('/api/v1/backlog', data);
 export const updateBacklogItem = (id: string, data: ObjectiveUpsertRequest) => put<Objective>(`/api/v1/backlog/${encodeURIComponent(id)}`, data);
 export const deleteBacklogItem = (id: string) => del<void>(`/api/v1/backlog/${encodeURIComponent(id)}`);
-export const listObjectiveRefinementSessions = (objectiveId: string) =>
-  enumerateFirstPage<ObjectiveRefinementSession>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`);
-export const listBacklogRefinementSessions = (objectiveId: string) =>
-  enumerateFirstPage<ObjectiveRefinementSession>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`);
+/** Paging body for the POST .../enumerate routes (PascalCase for the C# server). */
+function pagedBody(query?: PagedQuery): Record<string, unknown> {
+  return {
+    PageNumber: query?.pageNumber ?? 1,
+    PageSize: query?.pageSize ?? 10,
+    ...(query?.order ? { Order: query.order } : {}),
+    ...(query?.status ? { Status: query.status } : {}),
+  };
+}
+
+/** One page of an objective's refinement sessions, most recently updated first (TotalRecords counts them all). */
+export const listObjectiveRefinementSessions = (objectiveId: string, query?: PagedQuery) =>
+  post<EnumerationResult<ObjectiveRefinementSession>>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`, pagedBody(query));
+/** One page of a backlog item's refinement sessions, most recently updated first (TotalRecords counts them all). */
+export const listBacklogRefinementSessions = (objectiveId: string, query?: PagedQuery) =>
+  post<EnumerationResult<ObjectiveRefinementSession>>(`/api/v1/backlog/${encodeURIComponent(objectiveId)}/refinement-sessions/enumerate`, pagedBody(query));
+/** One page of a refinement session's transcript; newest first unless `order` is CreatedAscending. */
+export const listObjectiveRefinementMessages = (sessionId: string, query?: PagedQuery) =>
+  post<EnumerationResult<ObjectiveRefinementMessage>>(`/api/v1/objective-refinement-sessions/${encodeURIComponent(sessionId)}/messages/enumerate`, pagedBody(query));
 export const createObjectiveRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
   post<ObjectiveRefinementSessionDetail>(`/api/v1/objectives/${encodeURIComponent(objectiveId)}/refinement-sessions`, data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
 export const createBacklogRefinementSession = (objectiveId: string, data: ObjectiveRefinementSessionCreateRequest) =>
@@ -1169,7 +1192,11 @@ export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);
 export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purge`);
 
 // ==================== Planning Sessions ====================
-export const listPlanningSessions = () => enumerateFirstPage<PlanningSession>('/api/v1/planning-sessions/enumerate');
+/** One page of the planning sessions visible to the caller, most recently updated first (TotalRecords counts them all). */
+export const listPlanningSessions = (query?: PagedQuery) => post<EnumerationResult<PlanningSession>>('/api/v1/planning-sessions/enumerate', pagedBody(query));
+/** One page of a planning session's transcript; newest first unless `order` is CreatedAscending. */
+export const listPlanningSessionMessages = (id: string, query?: PagedQuery) =>
+  post<EnumerationResult<PlanningSessionMessage>>(`/api/v1/planning-sessions/${encodeURIComponent(id)}/messages/enumerate`, pagedBody(query));
 export const getPlanningSession = (id: string) => get<PlanningSessionDetail>(`/api/v1/planning-sessions/${id}`);
 export const createPlanningSession = (data: PlanningSessionCreateRequest) =>
   post<PlanningSessionDetail>('/api/v1/planning-sessions', data, { timeout: PLANNING_CREATE_TIMEOUT_MS });
@@ -1376,6 +1403,25 @@ export const rejectAskProposal = (id: string, proposalId: string) =>
 
 export const getAskWorkSnapshot = (id: string, workId: string) =>
   get<AskWorkSnapshot>(`${askThreadPath(id)}/work/${encodeURIComponent(workId)}`);
+
+/** One page of the work a conversation tracks (each with a counts-only snapshot); `status` filters by state. */
+export const enumerateAskWork = (id: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskTrackedWork>>(`${askThreadPath(id)}/work/enumerate`, pagedBody(query));
+/** One page of the mission rows of tracked work (voyage or mission work). */
+export const enumerateAskWorkMissions = (id: string, workId: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskMissionSnapshot>>(`${askThreadPath(id)}/work/${encodeURIComponent(workId)}/missions/enumerate`, pagedBody(query));
+/** One page of the target rows of a tracked fleet action run. */
+export const enumerateAskWorkTargets = (id: string, workId: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskTargetSnapshot>>(`${askThreadPath(id)}/work/${encodeURIComponent(workId)}/targets/enumerate`, pagedBody(query));
+/** One page of a conversation's proposals; `status` filters (for example Pending). */
+export const enumerateAskProposals = (id: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskActionProposal>>(`${askThreadPath(id)}/proposals/enumerate`, pagedBody(query));
+/** One page of one message's tool calls. */
+export const enumerateAskToolCalls = (id: string, messageId: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskToolCall>>(`${askThreadPath(id)}/messages/${encodeURIComponent(messageId)}/tool-calls/enumerate`, pagedBody(query));
+/** One page of the tool calls the running turn has made so far (empty when no turn runs). */
+export const enumerateAskTurnToolCalls = (id: string, query?: PagedQuery) =>
+  post<EnumerationResult<AskToolCall>>(`${askThreadPath(id)}/turn/tool-calls/enumerate`, pagedBody(query));
 
 /** The quick-action catalog; tolerates a bare array or an `{ QuickActions | Actions | Objects }` wrapper. */
 export const getAskQuickActions = async (): Promise<AskQuickAction[]> => {
