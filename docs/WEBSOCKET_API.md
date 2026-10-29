@@ -2842,7 +2842,7 @@ transition out of `Complete`, `Failed`, or `Cancelled`, is rejected.
 | `PullRequestOpen` | `Complete`, `LandingFailed`, `Cancelled` |
 | `Testing` | `Review`, `InProgress`, `Complete`, `Failed` |
 | `Review` | `Complete`, `InProgress`, `Failed` |
-| `LandingFailed` | `WorkProduced`, `Failed`, `Cancelled` |
+| `LandingFailed` | `WorkProduced`, `Complete`, `Failed`, `Cancelled` |
 
 An invalid transition returns `command.error` with `code` `Conflict`; an unknown status name returns `InvalidArgument`.
 
@@ -3047,7 +3047,7 @@ recognize.
 | `persona` | string \| null | Persona for this mission (for example `Worker`, `Architect`, `Judge`) |
 | `failureReason` | string \| null | Human-readable failure detail (not stable; do not parse) |
 | `requiresReview` | bool | Whether the mission stops at a review gate |
-| `failureKind` | string \| null | Structured failure classification (`MissionFailureKindEnum`: `Compile`, `TestFail`, `Timeout`, `LandingConflict`, `Crash`, `NoOp`, `Boundary`, `ScopeViolation`, `JudgeRejected`, `Infra`, `Unknown`, `ReviewDenied`, `DependencyFailed`, `MaxRuntimeExceeded`, `StallRecoveryExhausted`, `OperatorAction`, `InvalidOutput`). Branch on this, not on `failureReason` |
+| `failureKind` | string \| null | Structured failure classification (`MissionFailureKindEnum`: `Compile`, `TestFail`, `Timeout`, `LandingConflict`, `Crash`, `NoOp`, `Boundary`, `ScopeViolation`, `JudgeRejected`, `Infra`, `Unknown`, `ReviewDenied`, `DependencyFailed`, `MaxRuntimeExceeded`, `StallRecoveryExhausted`, `OperatorAction`, `InvalidOutput`, `Blocked`). Branch on this, not on `failureReason` |
 | `createdUtc` | string | ISO 8601 creation timestamp |
 | `startedUtc` | string \| null | ISO 8601 start timestamp |
 | `completedUtc` | string \| null | ISO 8601 completion timestamp |

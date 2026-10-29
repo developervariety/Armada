@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools, listModelEndpoints, setCaptainCliPermissionPolicy } from '../api/client';
+import { apiErrorMessage, listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools, listModelEndpoints, setCaptainCliPermissionPolicy } from '../api/client';
 import { listAll } from '../api/paging';
 import type { ModelEndpoint } from '../types/models';
 import type { Captain, CaptainToolAccessResult } from '../types/models';
@@ -28,6 +28,7 @@ import { CAPTAIN_AUTO_APPROVE_TOOLTIP, CAPTAIN_CLI_POLICY_TOOLTIP, CAPTAIN_INFER
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 import { usePersistedPageSize } from '../lib/usePersistedPageSize';
 import { PLANNING_PATH } from '../lib/navTargets';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'name' | 'runtime' | 'state' | 'createdUtc';
@@ -36,6 +37,7 @@ export default function Captains() {
   const navigate = useNavigate();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const { isAdmin, isTenantAdmin } = useAuth();
   const canManageCliPolicy = !!isAdmin || !!isTenantAdmin;
   const [captains, setCaptains] = useState<Captain[]>([]);
@@ -201,11 +203,9 @@ export default function Captains() {
       message: t('Delete captain "{{name}}"? This cannot be undone.', { name }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await deleteCaptain(id);
-          pushToast('warning', t('Captain "{{name}}" deleted.', { name }));
-          load();
-        } catch { setError(t('Delete failed.')); }
+        if (!(await deletion.run({ kind: 'captain', action: () => deleteCaptain(id), errorMessage: (err) => apiErrorMessage(err, t('Delete failed.')) }))) return;
+        pushToast('warning', t('Captain "{{name}}" deleted.', { name }));
+        load();
       },
     });
   }
@@ -220,9 +220,16 @@ export default function Captains() {
         const ids = [...selected];
         setSelected([]);
         let failed = 0;
-        for (const id of ids) {
-          try { await deleteCaptain(id); } catch { failed++; }
-        }
+        if (!(await deletion.run({
+          kind: 'captain',
+          count: ids.length,
+          action: async () => {
+            failed = 0;
+            for (const id of ids) {
+              try { await deleteCaptain(id); } catch { failed++; }
+            }
+          },
+        }))) return;
         const deleted = ids.length - failed;
         if (deleted > 0) {
           pushToast(failed > 0 ? 'warning' : 'success', failed > 0
@@ -562,6 +569,7 @@ export default function Captains() {
       {/* Confirm Dialog */}
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+      {deletion.dialog}
 
       <DataTable
         tableKey="captains"

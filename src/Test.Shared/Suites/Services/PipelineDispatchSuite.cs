@@ -3369,6 +3369,92 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("completion_passes_scope_with_phantom_empty_path_and_bare_name", "Completion does not fail scope for an empty path or a bare-name match in a nested directory", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    StubGitService git = new StubGitService();
+                    git.ChangedFilesSinceResult = new[]
+                    {
+                        "src/Armada.Server/Routes/CaptainRoutes.cs",
+                        "postman/Armada.postman_collection.json",
+                        "CODEX.md",
+                        "\n",
+                        ""
+                    };
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+
+                    missionService.OnGetMissionOutput = _ => "worker complete\n[ARMADA:RESULT] COMPLETE";
+
+                    Vessel vessel = new Vessel("scope-vessel", "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain workerCaptain = new Captain("scope-worker");
+                    workerCaptain.State = CaptainStateEnum.Working;
+                    workerCaptain = await testDb.Driver.Captains.CreateAsync(workerCaptain).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("scope-voyage");
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission worker = new Mission(
+                        "REST route scope check",
+                        "Touch only src/Armada.Server/Routes/CaptainRoutes.cs, docs/REST_API.md, and Armada.postman_collection.json.");
+                    worker.VesselId = vessel.Id;
+                    worker.VoyageId = voyage.Id;
+                    worker.Persona = "Worker";
+                    worker.Status = MissionStatusEnum.InProgress;
+                    worker.CaptainId = workerCaptain.Id;
+                    worker = await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+                    Dock workerDock = new Dock(vessel.Id);
+                    workerDock.CaptainId = workerCaptain.Id;
+                    workerDock.WorktreePath = Path.Combine(settings.DocksDirectory, vessel.Name, worker.Id);
+                    workerDock.BranchName = "armada/scope/shared";
+                    workerDock.Active = true;
+                    workerDock = await testDb.Driver.Docks.CreateAsync(workerDock).ConfigureAwait(false);
+
+                    worker.DockId = workerDock.Id;
+                    worker.LastUpdateUtc = DateTime.UtcNow;
+                    await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                    workerCaptain.CurrentMissionId = worker.Id;
+                    workerCaptain.CurrentDockId = workerDock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(workerCaptain).ConfigureAwait(false);
+
+                    Mission dependent = new Mission("[Test Engineer] Downstream should be cancelled", "Write tests");
+                    dependent.VesselId = vessel.Id;
+                    dependent.VoyageId = voyage.Id;
+                    dependent.Persona = "Test Engineer";
+                    dependent.Status = MissionStatusEnum.Pending;
+                    dependent.DependsOnMissionId = worker.Id;
+                    dependent = await testDb.Driver.Missions.CreateAsync(dependent).ConfigureAwait(false);
+
+                    Directory.CreateDirectory(Path.Combine(settings.LogDirectory, "docks"));
+                    await File.WriteAllTextAsync(
+                        Path.Combine(settings.LogDirectory, "docks", workerDock.Id + ".start"),
+                        "abc123def456\n").ConfigureAwait(false);
+
+                    await missionService.HandleCompletionAsync(workerCaptain, worker.Id).ConfigureAwait(false);
+
+                    Mission? failedWorker = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                    Mission? cancelledDependent = await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false);
+
+                    AssertNotNull(failedWorker, "Worker mission should remain readable");
+                    AssertTrue(failedWorker!.FailureKind != MissionFailureKindEnum.ScopeViolation, "no scope violation: " + failedWorker.FailureReason);
+                    AssertTrue(failedWorker.FailureReason == null || !failedWorker.FailureReason.Contains("scoped file list"), "no scope failure reason: " + failedWorker.FailureReason);
+                    AssertNotNull(cancelledDependent, "Dependent mission should remain readable");
+                    AssertTrue(cancelledDependent!.Status != MissionStatusEnum.Cancelled, "dependent is not cancelled by a false scope violation");
+                }
+            }));
+
             cases.Add(CaseAsync("persona_aware_captain_routing_prefers_matching_captain", "Persona-aware captain routing prefers matching captain", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
