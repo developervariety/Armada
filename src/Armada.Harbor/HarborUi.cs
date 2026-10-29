@@ -2,7 +2,9 @@ namespace Armada.Harbor
 {
     using System;
     using Avalonia;
+    using Avalonia.Automation;
     using Avalonia.Controls;
+    using Avalonia.Controls.Shapes;
     using Avalonia.Layout;
     using Avalonia.Media;
 
@@ -18,6 +20,12 @@ namespace Armada.Harbor
         /// Monospace font stack for logs and JSON.
         /// </summary>
         public const string MonospaceFonts = "Cascadia Code, SF Mono, Menlo, Consolas, monospace";
+
+        #endregion
+
+        #region Private-Members
+
+        private static readonly Geometry _RefreshGeometry = Geometry.Parse("M 13.5,8 A 5.5,5.5 0 1 1 11.9,4.1 M 12,1.5 V 4.5 H 9");
 
         #endregion
 
@@ -278,6 +286,37 @@ namespace Armada.Harbor
             Button button = new Button { Content = text };
             button.Click += (sender, args) => onClick();
             if (!String.IsNullOrEmpty(tip)) ToolTip.SetTip(button, tip);
+            return button;
+        }
+
+        /// <summary>
+        /// A refresh button that shows a circular-arrow icon instead of the word Refresh.
+        /// Screen readers still announce it as Refresh.
+        /// </summary>
+        /// <param name="onClick">Handler.</param>
+        /// <param name="tip">Tooltip, or null.</param>
+        /// <returns>The button.</returns>
+        public static Button RefreshButton(Action onClick, string? tip = null)
+        {
+            Path icon = new Path
+            {
+                Data = _RefreshGeometry,
+                Width = 14,
+                Height = 14,
+                Stretch = Stretch.Uniform,
+                StrokeThickness = 1.6,
+                StrokeLineCap = PenLineCap.Round,
+                StrokeJoin = PenLineJoin.Round,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            icon.Bind(Shape.StrokeProperty, icon.GetResourceObservable("HarborTextBrush"));
+
+            Button button = Button("Refresh", onClick, tip);
+            button.Content = icon;
+            button.VerticalAlignment = VerticalAlignment.Stretch;
+            button.VerticalContentAlignment = VerticalAlignment.Center;
+            AutomationProperties.SetName(button, "Refresh");
             return button;
         }
 

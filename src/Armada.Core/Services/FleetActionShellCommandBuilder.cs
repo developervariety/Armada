@@ -25,6 +25,15 @@ namespace Armada.Core.Services
     {
         #region Public-Methods
 
+        /// <summary>Select the optional Windows command, otherwise the portable/POSIX command.</summary>
+        /// <param name="commandText">Default command.</param>
+        /// <param name="commandWindows">Optional Windows override.</param>
+        /// <param name="windows">Whether the execution host is Windows.</param>
+        /// <returns>The selected command template.</returns>
+        public static string? SelectCommand(string? commandText, string? commandWindows, bool windows)
+            => windows && !String.IsNullOrWhiteSpace(commandWindows) ? commandWindows : commandText;
+
+
         /// <summary>
         /// Build a request that runs <paramref name="commandText"/> on the Admiral host.
         /// </summary>

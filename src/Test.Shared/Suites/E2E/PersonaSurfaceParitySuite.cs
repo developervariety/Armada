@@ -97,6 +97,26 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(endpoint.Id, (await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!.ModelEndpointId, "a refused update changes nothing");
             }));
 
+            cases.Add(new TestCaseDescriptor(Suite, "mcp_captain_pi_runtime", "MCP create_captain creates a Pi captain and update_captain keeps it", async ct =>
+            {
+                using SecurityTestServer fx = await SecurityTestServer.PrepareAsync("127.0.0.1", null).ConfigureAwait(false);
+                await fx.StartAsync().ConfigureAwait(false);
+                LoggingModule quiet = new LoggingModule(); quiet.Settings.EnableConsole = false;
+                using DatabaseDriver db = DatabaseDriverFactory.Create(fx.Settings.Database, quiet);
+                await db.InitializeAsync().ConfigureAwait(false);
+
+                using HttpClient mcp = fx.CreateMcpClient(true);
+                await McpTestCalls.CallToolAsync(mcp, "create_captain", new { name = "pi-captain", runtime = "Pi", reasoningEffort = "High" }).ConfigureAwait(false);
+                Captain captain = (await db.Captains.EnumerateAsync().ConfigureAwait(false)).Single(c => c.Name == "pi-captain");
+                AssertEqual(AgentRuntimeEnum.Pi, captain.Runtime);
+                AssertEqual(ReasoningEffortEnum.High, captain.ReasoningEffort);
+
+                await McpTestCalls.CallToolAsync(mcp, "update_captain", new { captainId = captain.Id, name = "pi-captain-2", runtime = "pi" }).ConfigureAwait(false);
+                Captain updated = (await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                AssertEqual("pi-captain-2", updated.Name);
+                AssertEqual(AgentRuntimeEnum.Pi, updated.Runtime);
+            }));
+
             return new TestSuiteDescriptor(Suite, "Persona writes match across surfaces", cases);
         }
 
