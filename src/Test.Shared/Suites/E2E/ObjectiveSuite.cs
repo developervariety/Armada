@@ -182,9 +182,10 @@ namespace Test.Shared.Suites.E2E
                         }
                     })).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, reorderResponse.StatusCode);
-                List<Objective> reordered = await JsonHelper.DeserializeAsync<List<Objective>>(reorderResponse).ConfigureAwait(false);
-                AssertEqual(1, reordered.Count);
-                AssertEqual(5, reordered[0].Rank);
+                ObjectiveReorderResult reordered = await JsonHelper.DeserializeAsync<ObjectiveReorderResult>(reorderResponse).ConfigureAwait(false);
+                AssertEqual(1, reordered.Updated);
+                AssertEqual(_ObjectiveId, reordered.Items[0].ObjectiveId);
+                AssertEqual(5, reordered.Items[0].Rank);
 
                 HttpResponseMessage deleteResponse = await authClient.DeleteAsync("/api/v1/backlog/" + _ObjectiveId).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.NoContent, deleteResponse.StatusCode);

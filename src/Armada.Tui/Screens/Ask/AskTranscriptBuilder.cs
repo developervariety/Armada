@@ -437,7 +437,7 @@ namespace Armada.Tui.Screens.Ask
             {
                 block.WorkId = workId;
                 AskTrackedWork? work = conv.Work(workId) ?? message.TrackedWork;
-                lines.AddRange(AskCardRenderer.WorkCard(block, work, conv.SnapshotFor(workId), highlight == workId, lines.Count, theme, loc, nowUtc, w));
+                lines.AddRange(AskCardRenderer.WorkCard(block, work, conv.SnapshotFor(workId), conv.WorkRowsFor(workId), highlight == workId, lines.Count, theme, loc, nowUtc, w));
             }
 
             lines.Add(StyledText.Empty);

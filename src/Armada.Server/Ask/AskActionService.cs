@@ -12,6 +12,7 @@ namespace Armada.Server.Ask
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Ask;
     using Armada.Core.Settings;
     using SyslogLogging;
@@ -185,6 +186,7 @@ namespace Armada.Server.Ask
             AskThread? thread = await _Threads.GetThreadAsync(auth, threadId, token).ConfigureAwait(false);
             if (thread == null) return new AskProposalDecision(null, 404, "Thread not found");
             if (request == null || String.IsNullOrWhiteSpace(request.ToolName)) return new AskProposalDecision(null, 400, "ToolName is required");
+            CollectionBounds.Validate(request);
 
             string tool = AskToolPolicy.NormalizeToolName(request.ToolName);
             if (!HasTool(tool)) return new AskProposalDecision(null, 400, "Unknown tool: " + tool);

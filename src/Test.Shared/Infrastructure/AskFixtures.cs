@@ -101,6 +101,24 @@ namespace Test.Shared.Infrastructure
         #region Public-Methods
 
         /// <summary>
+        /// Serve a snapshot's mission and target rows from the paged work row routes (the snapshot itself is serialized
+        /// with counts only). Call again with a newer snapshot to change what the routes return.
+        /// </summary>
+        /// <param name="threadId">Thread ID.</param>
+        /// <param name="workId">Tracked work ID.</param>
+        /// <param name="snapshot">Snapshot whose rows to serve.</param>
+        /// <returns>The snapshot.</returns>
+        public AskWorkSnapshot ServeWorkRows(string threadId, string workId, AskWorkSnapshot snapshot)
+        {
+            string key = threadId + "/" + workId;
+            _MissionRows[key] = snapshot.Missions.ToList();
+            _TargetRows[key] = snapshot.Targets.ToList();
+            Stub.On("POST", "/api/v1/ask/threads/" + threadId + "/work/" + workId + "/missions/enumerate", body => Ok(Page(_MissionRows.TryGetValue(key, out List<AskWorkMissionSnapshot>? m) ? m : new List<AskWorkMissionSnapshot>())));
+            Stub.On("POST", "/api/v1/ask/threads/" + threadId + "/work/" + workId + "/targets/enumerate", body => Ok(Page(_TargetRows.TryGetValue(key, out List<AskWorkTargetSnapshot>? t) ? t : new List<AskWorkTargetSnapshot>())));
+            return snapshot;
+        }
+
+        /// <summary>
         /// Add tool calls to a message: sets its ToolCallCount and serves the calls from the paged tool call route.
         /// </summary>
         /// <param name="message">Message (ThreadId and Id set).</param>
@@ -297,8 +315,11 @@ namespace Test.Shared.Infrastructure
                 if (ms == "Failed") m.FailureReason = "Tests failed";
                 if (i == 1) m.PrUrl = "https://example.com/pr/1";
                 s.Missions.Add(m);
+                s.Counts[ms] = s.Counts.TryGetValue(ms, out int c) ? c + 1 : 1;
             }
 
+            s.MissionCount = s.Missions.Count;
+            s.TotalCount = s.Missions.Count;
             return s;
         }
 
@@ -330,6 +351,9 @@ namespace Test.Shared.Infrastructure
         #endregion
 
         #region Private-Methods
+
+        private readonly Dictionary<string, List<AskWorkMissionSnapshot>> _MissionRows = new Dictionary<string, List<AskWorkMissionSnapshot>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<AskWorkTargetSnapshot>> _TargetRows = new Dictionary<string, List<AskWorkTargetSnapshot>>(StringComparer.Ordinal);
 
         private static System.Net.Http.HttpResponseMessage Ok(string json)
         {

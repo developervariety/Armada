@@ -943,6 +943,7 @@ namespace Armada.Tui.Screens.Operations
                     // deleted (still running) is skipped by paging past it.
                     int failures = 0;
                     int pageNumber = 1;
+                    HashSet<string> attempted = new HashSet<string>(StringComparer.Ordinal);
                     while (!t.IsCancellationRequested)
                     {
                         EnumerationQuery query = new EnumerationQuery();
@@ -950,14 +951,21 @@ namespace Armada.Tui.Screens.Operations
                         query.PageSize = 100;
                         EnumerationResult<PlanningSession>? page = await c.EnumeratePlanningSessionsAsync(query, t).ConfigureAwait(false);
                         if (page == null || page.Objects.Count == 0) break;
-                        int failedOnPage = 0;
+                        bool progressed = false;
                         foreach (PlanningSession s in page.Objects)
                         {
+                            if (!attempted.Add(s.Id)) continue;
+                            progressed = true;
                             try { await c.DeletePlanningSessionAsync(s.Id, t).ConfigureAwait(false); }
-                            catch (ArmadaApiException) { failures++; failedOnPage++; }
+                            catch (ArmadaApiException) { failures++; }
                         }
 
-                        if (failedOnPage == page.Objects.Count) pageNumber++;
+                        // Sessions that could not be deleted stay on the page; move past them once each was tried.
+                        if (!progressed)
+                        {
+                            if (pageNumber >= page.TotalPages) break;
+                            pageNumber++;
+                        }
                     }
 
                     return failures;

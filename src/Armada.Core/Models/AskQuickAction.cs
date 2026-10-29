@@ -80,6 +80,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// JSON schema of the tool arguments (type object, properties, required), or null.
         /// </summary>
+        [CollectionBound(3, Reason = "AskQuickActionCatalog.BuildSchema writes exactly type, properties, and required.")]
         public JsonObject? ArgumentsSchema { get; set; } = null;
 
         #endregion

@@ -1030,8 +1030,8 @@ namespace Armada.Tui.Screens.Operations
                 string selected = !String.IsNullOrEmpty(preferred) ? preferred!
                     : !String.IsNullOrEmpty(_SelectedSessionId) ? _SelectedSessionId
                     : rows.FirstOrDefault()?.Id ?? "";
-                if (selected.Length > 0 && (selected != _SelectedSessionId || Detail == null)) SelectSession(selected);
-                else if (selected.Length == 0) ShowDetail(null);
+                if (selected.Length > 0) SelectSession(selected);
+                else ShowDetail(null);
             });
             return new GridPage<ObjectiveRefinementSession>(rows, total);
         }

@@ -61,6 +61,11 @@ namespace Armada.Tui.Ask
         public Dictionary<string, List<AskMessageToolCall>> ToolCalls { get; } = new Dictionary<string, List<AskMessageToolCall>>(StringComparer.Ordinal);
 
         /// <summary>
+        /// Mission or target rows by tracked work id, read from the paged row enumeration.
+        /// </summary>
+        public Dictionary<string, AskWorkRows> WorkRows { get; } = new Dictionary<string, AskWorkRows>(StringComparer.Ordinal);
+
+        /// <summary>
         /// Latest known state of every proposal by id. Never null.
         /// </summary>
         public Dictionary<string, AskActionProposal> Proposals { get; } = new Dictionary<string, AskActionProposal>(StringComparer.Ordinal);
@@ -403,6 +408,7 @@ namespace Armada.Tui.Ask
             TurnError = null;
             Metrics.Clear();
             ToolCalls.Clear();
+            WorkRows.Clear();
             _ClosedTurns.Clear();
             Changed();
         }
@@ -588,6 +594,32 @@ namespace Armada.Tui.Ask
             Proposals.TryGetValue(proposal.Id, out AskActionProposal? previous);
             Proposals[proposal.Id] = MergeProposal(previous, proposal);
             Changed();
+        }
+
+        /// <summary>
+        /// The rows read for a work card, or null before they are read.
+        /// </summary>
+        /// <param name="workId">Tracked work id.</param>
+        /// <returns>Rows or null.</returns>
+        public AskWorkRows? WorkRowsFor(string? workId)
+        {
+            if (String.IsNullOrEmpty(workId)) return null;
+            return WorkRows.TryGetValue(workId!, out AskWorkRows? rows) ? rows : null;
+        }
+
+        /// <summary>
+        /// Store the rows read for a work card.
+        /// </summary>
+        /// <param name="threadId">Thread the rows were read for.</param>
+        /// <param name="workId">Tracked work id.</param>
+        /// <param name="rows">Rows.</param>
+        /// <returns>False when for another thread.</returns>
+        public bool ApplyWorkRows(string threadId, string workId, AskWorkRows rows)
+        {
+            if (threadId != ThreadId || String.IsNullOrEmpty(workId) || rows == null) return false;
+            WorkRows[workId] = rows;
+            Changed();
+            return true;
         }
 
         /// <summary>

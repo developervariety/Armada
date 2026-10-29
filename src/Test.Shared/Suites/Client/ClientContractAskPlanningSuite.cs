@@ -83,6 +83,12 @@ namespace Test.Shared.Suites.Client
                 }, LiveTimeoutMs), "dispatch tracked in the thread");
                 AskWorkSnapshot? snapshot = await c.GetAskWorkSnapshotAsync(thread.Id, work!.Id);
                 AssertEqual(work.Id, snapshot?.TrackedWorkId, "work snapshot");
+                AssertEqual((long)(snapshot?.MissionCount ?? -1), (await c.EnumerateAskWorkMissionsAsync(thread.Id, work.Id))?.TotalRecords, "mission rows paged with the snapshot's count");
+                await ClientContract.ExpectErrorAsync(() => c.EnumerateAskWorkTargetsAsync(thread.Id, work.Id), "a voyage has mission rows, not targets");
+                AskMessage? withCalls = ((await c.EnumerateAskMessagesAsync(thread.Id))?.Messages ?? new List<AskMessage>()).FirstOrDefault(m => m.ToolCallCount > 0);
+                if (withCalls != null) AssertEqual((long)withCalls.ToolCallCount, (await c.EnumerateAskToolCallsAsync(thread.Id, withCalls.Id))?.TotalRecords, "tool calls paged with the message's count");
+                else await ClientContract.ExpectErrorAsync(() => c.EnumerateAskToolCallsAsync(thread.Id, "amg_none"), "an unknown message has no tool calls");
+                AssertNotNull(await c.EnumerateAskTurnToolCallsAsync(thread.Id), "running turn tool calls page");
 
                 CaptainChatRequest chat = new CaptainChatRequest();
                 chat.Message = "Status?";

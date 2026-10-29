@@ -381,7 +381,9 @@ namespace Armada.Server.Routes
                 AskActionRequest? request;
                 try { request = Body<AskActionRequest>(req); }
                 catch (JsonException ex) { return Error(req, 400, ApiResultEnum.BadRequest, "Invalid body: " + ex.Message); }
-                AskProposalDecision decision = await actions.SubmitQuickActionAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false);
+                AskProposalDecision decision;
+                try { decision = await actions.SubmitQuickActionAsync(ctx, req.Parameters["id"], request).ConfigureAwait(false); }
+                catch (CollectionLimitExceededException ex) { return RouteErrorMapper.LimitExceeded(req, ex); }
                 if (decision.StatusCode != 200) return Error(req, decision.StatusCode, ToResult(decision.StatusCode), decision.Message ?? "Request failed");
                 return decision.Proposal;
             },
