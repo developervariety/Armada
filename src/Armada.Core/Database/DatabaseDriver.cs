@@ -493,6 +493,34 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Incident methods (current state of each incident; incident.snapshot events keep the history).
+        /// </summary>
+        public IIncidentMethods Incidents
+        {
+            get => _Incidents;
+            protected set => _Incidents = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
+        /// Runbook execution methods (current state of each execution; runbook-execution.snapshot events keep the
+        /// history).
+        /// </summary>
+        public IRunbookExecutionMethods RunbookExecutions
+        {
+            get => _RunbookExecutions;
+            protected set => _RunbookExecutions = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
+        /// Runbook reads (runbooks are playbook rows, paged in the playbooks table).
+        /// </summary>
+        public IRunbookMethods Runbooks
+        {
+            get => _Runbooks;
+            protected set => _Runbooks = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
         /// Harbor job record methods (captain launches delegated to a Harbor).
         /// </summary>
         public IHarborJobMethods HarborJobs
@@ -639,6 +667,9 @@ namespace Armada.Core.Database
         private IBatteryRunMethods _BatteryRuns = null!;
         private IBatteryTaskResultMethods _BatteryTaskResults = null!;
         private IPushDeviceMethods _PushDevices = null!;
+        private IIncidentMethods _Incidents = null!;
+        private IRunbookExecutionMethods _RunbookExecutions = null!;
+        private IRunbookMethods _Runbooks = null!;
         private IHarborJobMethods _HarborJobs = null!;
         private IHarborLinkSampleMethods _HarborLinkSamples = null!;
         private IHarborLinkEventMethods _HarborLinkEvents = null!;

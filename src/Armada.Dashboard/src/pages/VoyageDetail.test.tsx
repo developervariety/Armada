@@ -1,13 +1,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 import VoyageDetail from './VoyageDetail';
-import { getVoyage, listCaptains, listVessels } from '../api/client';
+import { getMission, getVoyage, listCaptains, listMissions, listVessels } from '../api/client';
 import { translateTemplate } from '../i18n/runtime';
 import { LIVE_REFRESH_DEBOUNCE_MS } from '../lib/useLiveRefresh';
 import type { Mission, Voyage, WebSocketMessage } from '../types/models';
 
 vi.mock('../api/client', () => ({
   getVoyage: vi.fn(),
+  getMission: vi.fn(),
   purgeVoyage: vi.fn(),
   cancelVoyage: vi.fn(),
   listMissions: vi.fn(),
@@ -53,6 +54,24 @@ function mission(status: string): Mission {
   return { id: 'msn_1', tenantId: 'default', voyageId: 'vyg_1', vesselId: 'vsl_1', captainId: null, title: 'Add request logging', status } as unknown as Mission;
 }
 
+/** The voyage detail as the server serves it now: counts only (missions come from the paged list). */
+function detailOf(v: Voyage, missions: Mission[]) {
+  const counts: Record<string, number> = {};
+  for (const m of missions) counts[m.status] = (counts[m.status] ?? 0) + 1;
+  return { voyage: v, totalMissions: missions.length, completedMissions: counts['Complete'] ?? 0, failedMissions: counts['Failed'] ?? 0, inProgressMissions: counts['InProgress'] ?? 0, missionCountsByStatus: counts, vesselId: missions[0]?.vesselId ?? null, vesselCount: missions.length ? 1 : 0 };
+}
+
+function missionsPage(missions: Mission[]) {
+  return { success: true, pageNumber: 1, pageSize: 50, totalPages: missions.length ? 1 : 0, totalRecords: missions.length, totalMs: 1, objects: missions };
+}
+
+/** Serve a voyage and its missions the way the server does. */
+function serve(v: Voyage, missions: Mission[]) {
+  vi.mocked(getVoyage).mockResolvedValue(detailOf(v, missions) as never);
+  vi.mocked(listMissions).mockResolvedValue(missionsPage(missions) as never);
+  vi.mocked(getMission).mockResolvedValue((missions[0] ?? null) as never);
+}
+
 describe('VoyageDetail live refresh', () => {
   beforeEach(() => {
     handlers.clear();
@@ -62,8 +81,12 @@ describe('VoyageDetail live refresh', () => {
 
   it('reloads when a mission or voyage event arrives, without a manual refresh', async () => {
     vi.mocked(getVoyage)
-      .mockResolvedValueOnce({ voyage: voyage('InProgress'), missions: [mission('InProgress')] } as never)
-      .mockResolvedValue({ voyage: voyage('Complete'), missions: [mission('Complete')] } as never);
+      .mockResolvedValueOnce(detailOf(voyage('InProgress'), [mission('InProgress')]) as never)
+      .mockResolvedValue(detailOf(voyage('Complete'), [mission('Complete')]) as never);
+    vi.mocked(listMissions)
+      .mockResolvedValueOnce(missionsPage([mission('InProgress')]) as never)
+      .mockResolvedValue(missionsPage([mission('Complete')]) as never);
+    vi.mocked(getMission).mockResolvedValue(mission('InProgress') as never);
 
     render(
       <MemoryRouter initialEntries={['/voyages/vyg_1']}>
@@ -108,7 +131,7 @@ describe('VoyageDetail configuration', () => {
   }
 
   it('shows the landing mode with its short label and not the legacy push and pull request flags', async () => {
-    vi.mocked(getVoyage).mockResolvedValue({ voyage: voyage('InProgress', 'MergeAndPush'), missions: [] } as never);
+    serve(voyage('InProgress', 'MergeAndPush'), []);
     renderDetail();
     expect(await screen.findByText('(local + push)')).toBeInTheDocument();
     expect(screen.getByText(/MergeAndPush/)).toBeInTheDocument();
@@ -117,7 +140,7 @@ describe('VoyageDetail configuration', () => {
   });
 
   it('shows Default when the voyage inherits its landing mode', async () => {
-    vi.mocked(getVoyage).mockResolvedValue({ voyage: voyage('InProgress'), missions: [] } as never);
+    serve(voyage('InProgress'), []);
     renderDetail();
     expect(await screen.findByText('(vessel or global default)')).toBeInTheDocument();
   });
@@ -128,7 +151,20 @@ describe('VoyageDetail missions table', () => {
     localStorage.clear();
     vi.mocked(listVessels).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 0, totalMs: 1, objects: [] });
     vi.mocked(listCaptains).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 1000, totalPages: 1, totalRecords: 0, totalMs: 1, objects: [] });
-    vi.mocked(getVoyage).mockResolvedValue({ voyage: voyage('InProgress'), missions: [mission('InProgress')] } as never);
+    serve(voyage('InProgress'), [mission('InProgress')]);
+  });
+
+  it('reads the missions one server page at a time and takes progress from the server counts', async () => {
+    const v = voyage('InProgress');
+    vi.mocked(getVoyage).mockResolvedValue({ ...detailOf(v, [mission('Complete')]), totalMissions: 120, missionCountsByStatus: { Complete: 60, Failed: 2, InProgress: 58 } } as never);
+    vi.mocked(listMissions).mockResolvedValue({ ...missionsPage([mission('InProgress')]), totalPages: 3, totalRecords: 120 } as never);
+    render(
+      <MemoryRouter initialEntries={['/voyages/vyg_1']}>
+        <Routes><Route path="/voyages/:id" element={<VoyageDetail />} /></Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('60/120 complete, 2 failed')).toBeInTheDocument();
+    expect(vi.mocked(listMissions)).toHaveBeenCalledWith({ pageNumber: 1, pageSize: 50, filters: { voyageId: 'vyg_1', order: 'CreatedAscending' } });
   });
 
   it('locks Mission and ID in the column chooser and shows the ID in its own column, not under the title', async () => {

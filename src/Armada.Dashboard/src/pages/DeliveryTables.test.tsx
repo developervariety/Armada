@@ -12,6 +12,7 @@ import Endpoints from './Endpoints';
 import CheckRuns from './CheckRuns';
 import History from './History';
 import Jobs from './Jobs';
+import { asPage } from '../test/asPage';
 
 vi.mock('../api/client', () => ({
   // Deployments / Incidents / Releases / Environments
@@ -21,7 +22,7 @@ vi.mock('../api/client', () => ({
   listEnvironments: vi.fn(), createEnvironment: vi.fn(), updateEnvironment: vi.fn(), deleteEnvironment: vi.fn(),
   listVessels: vi.fn(), listWorkflowProfiles: vi.fn(),
   // Endpoints
-  listModelEndpoints: vi.fn(), createModelEndpoint: vi.fn(), updateModelEndpoint: vi.fn(), deleteModelEndpoint: vi.fn(),
+  listModelEndpoints: vi.fn(), enumerateModelEndpoints: vi.fn(), createModelEndpoint: vi.fn(), updateModelEndpoint: vi.fn(), deleteModelEndpoint: vi.fn(),
   validateModelEndpoint: vi.fn(), healthCheckModelEndpoints: vi.fn(),
   // Checks
   listCheckRuns: vi.fn(), runCheck: vi.fn(), getVesselReadiness: vi.fn(), previewWorkflowProfileForVessel: vi.fn(),
@@ -59,6 +60,7 @@ beforeEach(() => {
   vi.mocked(client.enumerateHistoryTimeline).mockResolvedValue(page([]));
   vi.mocked(client.listJobs).mockResolvedValue(page([]));
   vi.mocked(client.listModelEndpoints).mockResolvedValue([] as never);
+  vi.mocked(client.enumerateModelEndpoints).mockImplementation((async () => asPage(await client.listModelEndpoints())) as never);
 });
 
 afterEach(() => vi.clearAllMocks());

@@ -584,8 +584,8 @@ namespace Armada.Core.Services.Push
             {
                 AuthContext auth = AuthContext.Authenticated(recipient.TenantId, recipient.UserId, recipient.IsAdmin, recipient.IsTenantAdmin, "Push");
                 InboxService inbox = new InboxService(_Database, _Logging, _Settings);
-                List<InboxItem> items = await inbox.GetInboxAsync(auth, token).ConfigureAwait(false);
-                return items.Count(i => _ApprovalKinds.Contains(i.Kind));
+                long count = await inbox.CountAsync(auth, _ApprovalKinds, token).ConfigureAwait(false);
+                return (int)Math.Min(int.MaxValue, count);
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {

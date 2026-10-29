@@ -28,6 +28,7 @@ import { socketFactory, type FakeSocket } from '../test/fakeSocket';
 import { ThemeProvider } from '../theme/ThemeContext';
 
 jest.mock('@dashboard/api/client', () => require('../test/askFixtures').askClientMockFactory());
+jest.mock('@dashboard/lib/askPaging', () => require('../test/askFixtures').askPagingMockFactory());
 
 const api = client as jest.Mocked<typeof client>;
 
@@ -205,7 +206,7 @@ describe('approvals center', () => {
 
   it('an Ask proposal shows its exact arguments and can be approved in place', async () => {
     api.getInbox.mockResolvedValue([ASK_ITEM]);
-    api.getAskThread.mockResolvedValue({ thread: { id: 'thr_1' } as never, pendingProposals: [{ id: 'prp_1', threadId: 'thr_1', toolName: 'dispatch', argumentsText: '{"vesselId":"vsl_1"}', source: 'Captain', status: 'Pending' }] });
+    (api.enumerateAskProposals as unknown as jest.Mock).mockResolvedValue({ success: true, pageNumber: 1, pageSize: 100, totalPages: 1, totalRecords: 1, totalMs: 0, objects: [{ id: 'prp_1', threadId: 'thr_1', toolName: 'dispatch', argumentsText: '{"vesselId":"vsl_1"}', source: 'Captain', status: 'Pending' }] });
     api.approveAskProposal.mockResolvedValue({ id: 'prp_1', threadId: 'thr_1', toolName: 'dispatch', source: 'Captain', status: 'Executed' });
     await renderApprovals();
     await waitFor(() => expect(screen.getByTestId('proposal-approve-prp_1')).toBeTruthy());

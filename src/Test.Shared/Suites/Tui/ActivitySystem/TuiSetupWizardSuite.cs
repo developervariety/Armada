@@ -306,7 +306,7 @@ namespace Test.Shared.Suites.Tui.ActivitySystem
             cases.Add(TuiCase.Sync(Suite, "mux_captain", "A Mux captain requires an endpoint and sends the runtime options the dashboard builds", () =>
             {
                 StubHttpHandler stub = EmptyServer();
-                stub.Json("GET", "/api/v1/runtimes/mux/endpoints", "{\"Success\":true,\"Endpoints\":[{\"Name\":\"local\",\"AdapterType\":\"openai\",\"Model\":\"gpt\"}]}");
+                stub.Json("GET", "/api/v1/runtimes/mux/endpoints", "{\"Success\":true,\"PageNumber\":1,\"PageSize\":1000,\"TotalPages\":1,\"TotalRecords\":1,\"Objects\":[{\"Name\":\"local\",\"AdapterType\":\"openai\",\"Model\":\"gpt\"}]}");
                 using (TuiTestHost host = TuiCase.SignedIn(140, 50, "/setup", stub))
                 {
                     SetupWizardScreen screen = Current(host);

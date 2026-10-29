@@ -192,7 +192,7 @@ Before dispatching work, understand what exists:
 ```
 status()                                                    -> overview of captains, missions, voyages
 enumerate({ entityType: "fleets" })                         -> find available fleets
-get_fleet({ fleetId })                                      -> see vessels in a fleet
+get_fleet({ fleetId })                                      -> fleet + vesselCount (page vessels with enumerate fleetId)
 enumerate({ entityType: "vessels", fleetId: "flt_..." })    -> find vessels in a fleet
 enumerate({ entityType: "captains" })                       -> confirm captains are registered
 ```
@@ -272,10 +272,10 @@ create_mission({
 
 ```
 voyage_status({ voyageId: "vyg_..." })
-voyage_status({ voyageId: "vyg_...", summary: false, includeMissions: true })
+enumerate({ entityType: "missions", voyageId: "vyg_...", pageSize: 25 })
 ```
 
-By default this returns the voyage with mission counts by status; pass `summary: false, includeMissions: true` for the full mission objects. Mission statuses:
+`voyage_status` returns the voyage with mission counts by status (it never embeds missions); page the missions themselves with `enumerate` (`entityType: "missions"`, `voyageId`). Mission statuses:
 
 | Status | Meaning |
 |--------|---------|
@@ -359,7 +359,7 @@ Boolean include flags (all default to `false`): `includeDescription` (missions, 
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `get_fleet` | `fleetId` (required) | Get fleet with its vessels |
+| `get_fleet` | `fleetId` (required) | Get fleet and its vessel count; page its vessels with `enumerate` (`vessels`, `fleetId`) |
 | `create_fleet` | `name` (required), `description` | Create a new fleet |
 | `update_fleet` | `fleetId` (required), `name`, `description` | Update fleet |
 | `delete_fleet` | `fleetId` (required) | Delete fleet |
@@ -379,7 +379,7 @@ Boolean include flags (all default to `false`): `includeDescription` (missions, 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `dispatch` | `title` (required), `vesselId`, `missions` (array of {title, description}), `description`, `pipeline` (name) or `pipelineId`, `objectiveId`, `selectedPlaybooks`, `captainAssignments` | Dispatch a voyage with missions -- the primary way to create work. `vesselId` and `missions` are needed to create work; without either, an empty voyage is created. |
-| `voyage_status` | `voyageId` (required), `summary` (default true), `includeMissions` (default false), `includeDescription` (default false), `includeDiffs` (default false), `includeLogs` (default false) | Get voyage status. Default summary mode returns voyage metadata and mission counts by status. Set `includeMissions: true` for full mission details. |
+| `voyage_status` | `voyageId` (required), `summary` (default true) | Get voyage status: the voyage with mission counts by status. Missions are not embedded; page them with `enumerate` (`entityType: "missions"`, `voyageId`). |
 | `cancel_voyage` | `voyageId` (required) | Cancel voyage and all pending missions |
 | `purge_voyage` | `voyageId` (required) | Permanently delete voyage and all missions (cannot be undone) |
 
