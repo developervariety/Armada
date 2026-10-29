@@ -13,6 +13,7 @@ namespace Armada.Tui.Screens.Operations
     using Armada.Tui.Ask;
     using Armada.Tui.Input;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Services;
     using Armada.Tui.Widgets;
     using TUIKit.Input;
@@ -739,7 +740,7 @@ namespace Armada.Tui.Screens.Operations
             if (session == null) return;
             string id = session.Id;
             _Deleting = true;
-            Run((c, t) => c.DeletePlanningSessionAsync(id, t), () =>
+            DeleteProgress.RunVoid(Context, "Deleting planning session", t => Context.Client.DeletePlanningSessionAsync(id, t), () =>
             {
                 _Deleting = false;
                 Sessions = Sessions.Where(s => s.Id != id).ToList();
@@ -751,11 +752,7 @@ namespace Armada.Tui.Screens.Operations
                 }
 
                 Toast(NotificationSeverityEnum.Warning, Tr("Planning session deleted."));
-            }, null, ex =>
-            {
-                _Deleting = false;
-                ShowMessage(String.IsNullOrEmpty(ex.Message) ? Tr("Failed to delete planning session.") : ex.Message);
-            });
+            }, "Failed to delete planning session.", null, () => _Deleting = false);
         }
 
         /// <summary>
@@ -892,7 +889,7 @@ namespace Armada.Tui.Screens.Operations
             {
                 string id = session.Id;
                 _Deleting = true;
-                Run((c, t) => c.DeletePlanningSessionAsync(id, t), () =>
+                DeleteProgress.RunVoid(Context, "Deleting planning session", t => Context.Client.DeletePlanningSessionAsync(id, t), () =>
                 {
                     _Deleting = false;
                     Sessions = Sessions.Where(s => s.Id != id).ToList();
@@ -903,11 +900,7 @@ namespace Armada.Tui.Screens.Operations
                     _Seed = null;
                     Toast(NotificationSeverityEnum.Warning, Tr("Planning session deleted."));
                     Context.Navigate(TabLinks.PlanningPath);
-                }, null, ex =>
-                {
-                    _Deleting = false;
-                    ShowMessage(String.IsNullOrEmpty(ex.Message) ? Tr("Failed to delete planning session.") : ex.Message);
-                });
+                }, "Failed to delete planning session.", null, () => _Deleting = false);
             }, "Delete Session").Destructive = true;
         }
 
@@ -918,12 +911,12 @@ namespace Armada.Tui.Screens.Operations
             Confirm("Delete All Planning Sessions", Tr("Delete all {{count}} planning session(s) and their transcripts? This cannot be undone.", LocalizationArgs.Of("count", targets.Count)), () =>
             {
                 _Deleting = true;
-                Call(async (c, t) =>
+                DeleteProgress.Run(Context, "{count, plural, one {Deleting # planning session} other {Deleting # planning sessions}}", async t =>
                 {
                     int failures = 0;
                     foreach (PlanningSession s in targets)
                     {
-                        try { await c.DeletePlanningSessionAsync(s.Id, t).ConfigureAwait(false); }
+                        try { await Context.Client.DeletePlanningSessionAsync(s.Id, t).ConfigureAwait(false); }
                         catch (ArmadaApiException) { failures++; }
                     }
 
@@ -937,7 +930,7 @@ namespace Armada.Tui.Screens.Operations
                         : Tr("All planning sessions deleted."));
                     if (SessionId != null) Context.Navigate(TabLinks.PlanningPath);
                     else Load();
-                }, "Failed to delete planning sessions.");
+                }, "Failed to delete planning sessions.", targets.Count, () => _Deleting = false);
             }, "Delete All", "delete");
         }
 

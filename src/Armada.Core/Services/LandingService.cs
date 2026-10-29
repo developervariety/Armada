@@ -26,6 +26,12 @@ namespace Armada.Core.Services
         /// </summary>
         public DockHostResolver? DockHosts { get; set; } = null;
 
+        /// <summary>
+        /// Dock service used to recreate a missing dock worktree from the mission branch before retrying. When null, a
+        /// missing worktree fails the retry as before.
+        /// </summary>
+        public IDockService? Docks { get; set; } = null;
+
         #endregion
 
         #region Private-Members
@@ -176,7 +182,16 @@ namespace Armada.Core.Services
 
                 _Logging.Debug(_Header + "retrying landing for mission " + missionId + " branch " + missionBranch);
 
-                if (dock != null && !String.IsNullOrEmpty(dock.WorktreePath)
+                DockRestoreResult? restored = null;
+                if (dock != null && !String.IsNullOrEmpty(dock.WorktreePath) && Docks != null
+                    && !await DockWorktreeExistsAsync(dock, token).ConfigureAwait(false))
+                {
+                    restored = await Docks.RestoreWorktreeAsync(dock.Id, "retry landing of mission " + mission.Id, true, token).ConfigureAwait(false);
+                    if (!restored.Restored)
+                        _Logging.Warn(_Header + "could not recreate the worktree of dock " + dock.Id + " for mission " + missionId + ": " + restored.Reason);
+                }
+
+                if (dock != null && !String.IsNullOrEmpty(dock.WorktreePath) && restored?.Restored != true
                     && !await DockWorktreeExistsAsync(dock, token).ConfigureAwait(false))
                 {
                     string where = DockHostResolver.IsHarborDock(dock) ? " on Harbor " + dock.HarborId : "";
@@ -185,7 +200,8 @@ namespace Armada.Core.Services
                     mission.FailureKind = MissionFailureKindEnum.Infra;
                     mission.FailureReason = "Dock missing: the worktree " + dock.WorktreePath + where + " for dock " + dock.Id
                         + " no longer exists, so landing cannot be retried from it. Branch '" + missionBranch
-                        + "' is still in the repository; merge it manually or restart the mission.";
+                        + "' is still in the repository; merge it manually or restart the mission."
+                        + (restored != null && !String.IsNullOrEmpty(restored.Reason) ? " Recreating the worktree failed: " + restored.Reason + "." : "");
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     if (!await SaveRetryAsync().ConfigureAwait(false)) return false;
                     return false;
@@ -221,7 +237,7 @@ namespace Armada.Core.Services
                 {
                     _Logging.Warn(_Header + "no landing handler configured -- cannot retry landing for mission " + missionId);
                     mission.Status = MissionStatusEnum.LandingFailed;
-                    mission.FailureKind = MissionFailureKindEnum.LandingConflict;
+                    mission.FailureKind = MissionFailureKindEnum.Infra;
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     if (!await SaveRetryAsync().ConfigureAwait(false)) return false;
                     return false;
@@ -233,11 +249,15 @@ namespace Armada.Core.Services
 
                 // Capture any merge-conflict file list so the operator sees exactly what to fix.
                 string failureReason = "Landing retry failed: " + ex.Message;
+                MissionFailureKindEnum failureKind = LandingFailureClassifier.Classify(ex);
                 try
                 {
                     IReadOnlyList<string> conflicts = await git.GetConflictedFilesAsync(repoPath, token).ConfigureAwait(false);
                     if (conflicts.Count > 0)
+                    {
                         failureReason = "Landing retry failed with merge conflicts in: " + String.Join(", ", conflicts);
+                        failureKind = MissionFailureKindEnum.LandingConflict;
+                    }
                 }
                 catch { }
 
@@ -248,7 +268,7 @@ namespace Armada.Core.Services
                     {
                         mission.Status = MissionStatusEnum.LandingFailed;
                         mission.FailureReason = failureReason;
-                        mission.FailureKind = MissionFailureKindEnum.LandingConflict;
+                        mission.FailureKind = failureKind;
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         if (!await SaveRetryAsync().ConfigureAwait(false)) return false;
                     }
