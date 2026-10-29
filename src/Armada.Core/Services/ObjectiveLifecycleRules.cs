@@ -49,6 +49,19 @@ namespace Armada.Core.Services
             return true;
         }
 
+        /// <summary>Keep an incomplete recorded preflight out of the dispatch-ready state.</summary>
+        /// <param name="objective">Objective to normalize.</param>
+        /// <returns>True when the row needs preflight preparation.</returns>
+        public static bool ApplyDispatchReadiness(Objective objective)
+        {
+            if (objective == null) throw new ArgumentNullException(nameof(objective));
+            if (IsTerminalStatus(objective.Status) || objective.BacklogState != ObjectiveBacklogStateEnum.ReadyForDispatch)
+                return false;
+            if (ObjectivePreflightEvaluator.IsComplete(objective.Preparation?.Preflight)) return false;
+            objective.BacklogState = ObjectiveBacklogStateEnum.Triaged;
+            return true;
+        }
+
         #endregion
     }
 }

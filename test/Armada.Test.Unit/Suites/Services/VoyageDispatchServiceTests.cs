@@ -2581,6 +2581,11 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 Objective x = await CreateScopedObjectiveAsync(testDb, "Revert x", vessel.Id).ConfigureAwait(false);
                 Objective y = await CreateScopedObjectiveAsync(testDb, "Revert y", vessel.Id).ConfigureAwait(false);
+                foreach (Objective ready in new[] { x, y })
+                {
+                    ready.Preparation.Preflight = PreflightTestData.Complete();
+                    await testDb.Driver.Objectives.UpdateAsync(ready).ConfigureAwait(false);
+                }
                 List<Objective> ordered = new[] { x, y }
                     .OrderBy(item => ObjectiveService.BuildDispatchAdmissionLeaseName(Constants.DefaultTenantId, item.Id), StringComparer.Ordinal)
                     .ToList();

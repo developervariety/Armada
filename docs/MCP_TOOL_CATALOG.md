@@ -507,7 +507,11 @@ every tool.
   `missing_action` error and an unknown action returns an error naming the valid
   values, so a claim call that omits the action never reads back an empty claim
   list as a successful reservation. The header key stands in for `participantKey`, and
-  `displayName` defaults the same way as a post's `authorName`. A voyage
+  `displayName` defaults the same way as a post's `authorName`. Claims of type `host` or
+  `suite` record advisory windows with a fixed expiry: 15 minutes by default,
+  from one minute to two hours. Presence does not extend these windows, and an
+  expired window never releases an execution slot or stops a running suite.
+  Vessel and objective work claims still renew with presence. A voyage
   dispatched on a claimed vessel or objective posts a `[claims]` overlap note
   that names each other holder. `armada_dispatch` sends the request's
   participant key with the dispatch, so a claim that key holds is the
@@ -517,6 +521,13 @@ every tool.
   status, evidence) in one call, with recent fleet notes and, under
   `CampaignRooms`, recent notes from each root's campaign room. Reading it does
   not create a room.
+  It includes a closeout count over every descendant, including levels outside
+  the summary tree. Open or cancelled scope, and completed rows without direct or
+  completed-child evidence, prevent parent completion. `includeSlices=true`
+  returns the full remaining items and the criterion and evidence review. An
+  empty structural check still requires verification of each acceptance
+  criterion, its exact source and its required checks; a link or main-branch
+  ancestry alone is not enough.
 
 #### Identify your session so wakes reach you on any tool
 

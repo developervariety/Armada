@@ -203,6 +203,7 @@ namespace Armada.Test.Database
             SkipWhereNotStored();
             CoordinationRoom room = await CreateRoomAsync("claims", token).ConfigureAwait(false);
             CoordinationClaim? claim = null;
+            List<CoordinationClaim> windows = new List<CoordinationClaim>();
             try
             {
                 string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
@@ -226,9 +227,24 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(1, active.Count, "Active claim on the subject");
                 DatabaseAssert.AllProperties(claim, active[0], "Active CoordinationClaim");
 
+                foreach (CoordinationClaimSubjectEnum kind in new[] { CoordinationClaimSubjectEnum.Host, CoordinationClaimSubjectEnum.Suite })
+                    windows.Add(await _Driver.CoordinationClaims.CreateAsync(new CoordinationClaim
+                    {
+                        CoordinationRoomId = room.Id, TenantId = room.TenantId,
+                        ParticipantKey = claim.ParticipantKey, DisplayName = claim.DisplayName,
+                        SubjectType = kind, SubjectId = "shared-resource-" + suffix,
+                        ExpiresUtc = DateTime.UtcNow.AddMinutes(5)
+                    }, token).ConfigureAwait(false));
+
                 DateTime extended = DateTime.UtcNow.AddHours(2);
                 DatabaseAssert.Equal(1, await _Driver.CoordinationClaims.ExtendActiveForParticipantAsync(room.Id, claim.ParticipantKey, extended, token).ConfigureAwait(false),
                     "Heartbeat extends the participant's one active claim");
+                foreach (CoordinationClaim window in windows)
+                {
+                    CoordinationClaim stored = DatabaseAssert.NotNull(await _Driver.CoordinationClaims.ReadAsync(window.Id, token).ConfigureAwait(false), "Fixed window");
+                    DatabaseAssert.Equal(window.SubjectType, stored.SubjectType, "Resource kind round trips");
+                    DatabaseAssert.UtcInstant(window.ExpiresUtc, stored.ExpiresUtc, "Presence must not extend resource window expiry");
+                }
                 CoordinationClaim afterExtend = DatabaseAssert.NotNull(await _Driver.CoordinationClaims.ReadAsync(claim.Id, token).ConfigureAwait(false), "Extended claim");
                 DatabaseAssert.UtcInstant(extended, afterExtend.ExpiresUtc, "Extended CoordinationClaim.ExpiresUtc");
 
@@ -249,6 +265,7 @@ namespace Armada.Test.Database
             {
                 if (!_NoCleanup)
                 {
+                    foreach (CoordinationClaim window in windows) await DeleteClaimRowAsync(window.Id, token).ConfigureAwait(false);
                     if (claim != null) await DeleteClaimRowAsync(claim.Id, token).ConfigureAwait(false);
                     await _Driver.CoordinationRooms.DeleteAsync(room.Id, token).ConfigureAwait(false);
                 }

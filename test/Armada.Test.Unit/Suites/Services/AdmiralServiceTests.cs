@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System.Collections.Generic;
     using System.Globalization;
+    using System.Text.Json;
     using Microsoft.Data.Sqlite;
     using Armada.Core;
     using Armada.Core.Database.Sqlite;
@@ -214,6 +215,11 @@ namespace Armada.Test.Unit.Suites.Services
                                 }
                             }
                         };
+                        settings.ModelTier.ModelCapabilityProfiles["shared-model"] = new ModelCapabilityProfile
+                        {
+                            AuditReasoningFit = 83, MechanicalThroughput = 67, TelemetryRichness = 72, Cost = 31
+                        };
+                        string capabilityBefore = JsonSerializer.Serialize(settings.ModelTier.ModelCapabilityProfiles);
                         int processId = 5353 + scenario;
                         Captain failing = new Captain("typed-auth-first") { Model = "shared-model", State = CaptainStateEnum.Working, ProcessId = processId };
                         Captain sibling = new Captain("typed-auth-second") { Model = "shared-model", State = CaptainStateEnum.Idle };
@@ -257,6 +263,8 @@ namespace Armada.Test.Unit.Suites.Services
                                 ? new RuntimeProviderError { HttpStatusCode = 429 }
                                 : new RuntimeProviderError { HttpStatusCode = 401 }, default).ConfigureAwait(false);
 
+                        AssertEqual(capabilityBefore, JsonSerializer.Serialize(settings.ModelTier.ModelCapabilityProfiles),
+                            "Provider auth/quota faults change availability, never configured model capability scores");
                         Mission? missionAfter = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                         AssertNotNull(missionAfter, "The typed provider failure keeps its mission stored.");
                         AssertEqual(MissionStatusEnum.Pending, missionAfter!.Status, "Typed provider evidence reroutes the failed mission.");

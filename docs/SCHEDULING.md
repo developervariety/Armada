@@ -245,6 +245,12 @@ that names the vessel and up to 20 of the objectives with their blocking codes.
 It posts again only when that set of objectives or codes changes, and forgets
 the vessel once it is no longer fully blocked.
 
+An objective saved as `ReadyForDispatch` must have complete recorded preflight
+answers. An incomplete row returns to `Triaged`, and
+`objective.readiness_repaired` records its blocking question numbers. The first
+objective-service use repairs existing false ready labels without changing their
+rank, priority or dependencies.
+
 `fairShareWithinPriorityBands` is off by default. When it is on, it applies only
 to objective trees whose root has a `campaign:<name>` tag. It keeps P0 ahead of
 P1, P1 ahead of P2, and P2 ahead of P3. Within one priority band, it takes one

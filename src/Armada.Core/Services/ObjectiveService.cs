@@ -792,6 +792,7 @@ namespace Armada.Core.Services
                 await ValidateLinksAsync(auth, objective, token).ConfigureAwait(false);
                 if (request.BlockedByObjectiveIds != null)
                     await ValidateDependencyCycleAsync(auth, objective, token).ConfigureAwait(false);
+                await ValidateCampaignCompletionAsync(auth, objective, token).ConfigureAwait(false);
                 ApplyLifecycleTimestamps(objective);
                 await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
                 await PreparationClaimObservationRecorder.RecordChangesAsync(_Database, new PreparationClaimSnapshot(), objective, _Logging, token).ConfigureAwait(false);
@@ -916,6 +917,8 @@ namespace Armada.Core.Services
                 await ValidateUpdatedLinksAsync(auth, objective, request, token).ConfigureAwait(false);
                 if (request.BlockedByObjectiveIds != null)
                     await ValidateDependencyCycleAsync(auth, objective, token).ConfigureAwait(false);
+                if (priorStatus != ObjectiveStatusEnum.Completed)
+                    await ValidateCampaignCompletionAsync(auth, objective, token).ConfigureAwait(false);
                 ApplyLifecycleTimestamps(objective, priorStatus);
                 await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
                 if (request.Preparation != null || request.StartFromRef != null || request.VesselIds != null)
@@ -1574,11 +1577,28 @@ namespace Armada.Core.Services
                     return;
 
                 await BackfillFromSnapshotsAsync(token).ConfigureAwait(false);
+                await RepairStaleReadyRowsAsync(token).ConfigureAwait(false);
                 state.Completed = true;
             }
             finally
             {
                 state.Lock.Release();
+            }
+        }
+
+        private async Task RepairStaleReadyRowsAsync(CancellationToken token)
+        {
+            foreach (Objective row in await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false))
+            {
+                if (row.BacklogState != ObjectiveBacklogStateEnum.ReadyForDispatch
+                    || ObjectiveLifecycleRules.IsTerminalStatus(row.Status)
+                    || ObjectivePreflightEvaluator.IsComplete(row.Preparation?.Preflight)) continue;
+                row.LastUpdateUtc = DateTime.UtcNow;
+                AuthContext owner = AuthContext.Authenticated(
+                    row.TenantId ?? Constants.DefaultTenantId, row.UserId ?? Constants.DefaultUserId,
+                    row.TenantId == null, true, "ReadinessRepair");
+                await PersistObjectiveAsync(owner, row, token).ConfigureAwait(false);
+                OnObjectiveChanged?.Invoke(row);
             }
         }
 
@@ -1725,6 +1745,20 @@ namespace Armada.Core.Services
             return objective;
         }
 
+        private async Task ValidateCampaignCompletionAsync(AuthContext auth, Objective objective, CancellationToken token)
+        {
+            if (objective.Status != ObjectiveStatusEnum.Completed) return;
+            List<Objective> snapshot = await ReadAllObjectivesAsync(auth, token).ConfigureAwait(false);
+            bool hasChildren = snapshot.Any(row => String.Equals(row.ParentObjectiveId, objective.Id, StringComparison.OrdinalIgnoreCase));
+            if (!hasChildren && CampaignRoomResolver.ReadCampaignName(objective) == null) return;
+            snapshot.RemoveAll(row => String.Equals(row.Id, objective.Id, StringComparison.OrdinalIgnoreCase));
+            snapshot.Add(objective);
+            CampaignCloseoutReport report = CampaignCloseoutEvaluator.Evaluate(objective.Id, snapshot);
+            if (report.Items.Count > 0)
+                throw new InvalidOperationException("campaign_closeout_incomplete: " + String.Join(", ",
+                    report.Items.Select(item => item.ObjectiveId + ":" + item.Reason)));
+        }
+
         private async Task PersistObjectiveAsync(AuthContext auth, Objective objective, CancellationToken token)
         {
             await UpsertObjectiveRowAsync(objective, token, skipIfExistingNewer: false).ConfigureAwait(false);
@@ -1741,16 +1775,24 @@ namespace Armada.Core.Services
             // are always written together in one row update.
             ObjectiveLifecycleRules.ApplyTerminalBacklogState(objective);
             Objective? existing = await _Database.Objectives.ReadAsync(objective.Id, token).ConfigureAwait(false);
+            if (skipIfExistingNewer && existing != null && existing.LastUpdateUtc > objective.LastUpdateUtc) return;
+            bool repairedReadiness = ObjectiveLifecycleRules.ApplyDispatchReadiness(objective);
             if (existing == null)
-            {
                 await _Database.Objectives.CreateAsync(objective, token).ConfigureAwait(false);
-                return;
-            }
-
-            if (skipIfExistingNewer && existing.LastUpdateUtc > objective.LastUpdateUtc)
-                return;
-
-            await _Database.Objectives.UpdateAsync(objective, token).ConfigureAwait(false);
+            else
+                await _Database.Objectives.UpdateAsync(objective, token).ConfigureAwait(false);
+            if (repairedReadiness)
+                await _Database.Events.CreateAsync(new ArmadaEvent
+                {
+                    TenantId = objective.TenantId, UserId = objective.UserId,
+                    EventType = "objective.readiness_repaired", EntityType = "objective", EntityId = objective.Id,
+                    Message = "ReadyForDispatch changed to Triaged: objective_preflight_incomplete.",
+                    Payload = JsonSerializer.Serialize(new
+                    {
+                        Reason = "objective_preflight_incomplete",
+                        BlockingQuestions = ObjectivePreflightEvaluator.BlockingQuestions(objective.Preparation?.Preflight)
+                    }, _JsonOptions)
+                }, token).ConfigureAwait(false);
         }
 
         private async Task<List<ArmadaEvent>> ReadObjectiveSnapshotEventsAsync(
