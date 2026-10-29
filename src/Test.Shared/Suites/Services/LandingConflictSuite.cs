@@ -2,6 +2,7 @@ namespace Test.Shared.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.ComponentModel;
     using System.Diagnostics;
     using System.IO;
     using System.Threading;
@@ -11,7 +12,9 @@ namespace Test.Shared.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server;
     using SyslogLogging;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
@@ -313,6 +316,115 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("classifier_only_conflicts_are_landing_conflicts", "Only a merge conflict git reports classifies as LandingConflict; process-start and other failures are Infra", TestTags.Positive, async () =>
+            {
+                AssertEqual(MissionFailureKindEnum.LandingConflict, LandingFailureClassifier.Classify(new GitMergeConflictException("conflict", new[] { "a.txt" })));
+                AssertEqual(MissionFailureKindEnum.LandingConflict, LandingFailureClassifier.Classify(new InvalidOperationException("wrapped", new GitMergeConflictException("conflict"))));
+                AssertEqual(MissionFailureKindEnum.Infra, LandingFailureClassifier.Classify(new Win32Exception(2, "An error occurred trying to start process '/usr/bin/git'. No such file or directory")));
+                AssertEqual(MissionFailureKindEnum.Infra, LandingFailureClassifier.Classify(new DirectoryNotFoundException("gone")));
+                AssertEqual(MissionFailureKindEnum.Infra, LandingFailureClassifier.Classify(new IOException("io")));
+                AssertEqual(MissionFailureKindEnum.Infra, LandingFailureClassifier.Classify(new InvalidOperationException("An error occurred trying to start process 'git' with working directory '/x'.")));
+                AssertEqual(MissionFailureKindEnum.Infra, LandingFailureClassifier.Classify(new GitDirtyCheckoutException("/w", " M a.txt")));
+                AssertEqual(MissionFailureKindEnum.Infra, LandingFailureClassifier.Classify(new InvalidOperationException("push rejected")));
+                await Task.CompletedTask;
+            }));
+
+            cases.Add(CaseAsync("landing_dock_missing_unrepairable_is_infra", "Landing with a vanished dock whose branch is gone fails as Infra naming the path and branch, and is not rescued", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                DatabaseDriver db = testDb.Driver;
+                StubGitService git = new StubGitService();
+                MissionLandingHandler handler = CreateHandler(db, git);
+                Vessel vessel = await db.Vessels.CreateAsync(new Vessel("Gone Dock", "https://github.com/test/gone")
+                {
+                    LocalPath = Path.Combine(Path.GetTempPath(), "armada_gone_bare_" + Guid.NewGuid().ToString("N")),
+                    WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_gone_work_" + Guid.NewGuid().ToString("N")),
+                    LandingMode = LandingModeEnum.MergeAndPush
+                });
+                Dock dock = await db.Docks.CreateAsync(new Dock(vessel.Id)
+                {
+                    Active = true,
+                    BranchName = "armada/gone/branch",
+                    WorktreePath = Path.Combine(Path.GetTempPath(), "armada_gone_dock_" + Guid.NewGuid().ToString("N"))
+                });
+                Mission mission = await db.Missions.CreateAsync(new Mission("Gone dock")
+                {
+                    Status = MissionStatusEnum.WorkProduced, VesselId = vessel.Id, DockId = dock.Id, BranchName = dock.BranchName, DiffSnapshot = "diff"
+                });
+
+                await handler.HandleMissionCompleteAsync(mission, dock);
+
+                Mission failed = (await db.Missions.ReadAsync(mission.Id))!;
+                AssertEqual(MissionStatusEnum.LandingFailed, failed.Status);
+                AssertEqual(MissionFailureKindEnum.Infra, failed.FailureKind, "a missing dock is not a landing conflict");
+                AssertContains("Dock missing", failed.FailureReason ?? "");
+                AssertContains(dock.WorktreePath!, failed.FailureReason ?? "");
+                AssertContains(dock.BranchName!, failed.FailureReason ?? "");
+                AssertFalse(MissionFailureClassifier.IsRecoverable(MissionFailureClassifier.Classify(failed)), "no autonomous rescue re-implements it");
+                AssertEqual(0, git.PushCalls.Count, "nothing published");
+            }));
+
+            cases.Add(CaseAsync("landing_dock_missing_recreated_and_lands", "Landing with a vanished dock recreates the worktree from the mission branch and lands the same commit", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                RealLandingFixture f = await RealLandingFixture.CreateAsync(testDb.Driver, LandingModeEnum.MergeAndPush);
+                Directory.Delete(f.Dock.WorktreePath!, true);
+
+                await f.Handler.HandleMissionCompleteAsync(f.Mission, f.Dock);
+
+                Mission landed = (await testDb.Driver.Missions.ReadAsync(f.Mission.Id))!;
+                AssertEqual(MissionStatusEnum.Complete, landed.Status, landed.FailureReason);
+                AssertEqual(f.WorkCommit, f.Repos.OriginHead("main"), "the mission's own commit is on origin");
+                List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateRecentAsync(50);
+                AssertTrue(events.Exists(e => e.EventType == "dock.repaired" && e.EntityId == f.Dock.Id), "the repair is recorded");
+            }));
+
+            cases.Add(CaseAsync("landing_git_cannot_start_is_infra", "Git failing to start during landing is Infra, not a landing conflict", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                DatabaseDriver db = testDb.Driver;
+                GitService git = new GitService(CreateLogging(), new ProcessStartFailureExecutor());
+                LoggingModule logging = CreateLogging();
+                ArmadaSettings settings = CreateSettings();
+                MissionLandingHandler handler = new MissionLandingHandler(logging, db, settings, git, new RecordingMergeQueueService(),
+                    new MessageTemplateService(logging), null, new DockService(logging, db, settings, git), null);
+                Vessel vessel = await db.Vessels.CreateAsync(new Vessel("No Git", "https://github.com/test/nogit")
+                {
+                    LocalPath = TestTemp.NewDirectory("nogit_bare"),
+                    WorkingDirectory = TestTemp.NewDirectory("nogit_work"),
+                    LandingMode = LandingModeEnum.MergeAndPush
+                });
+                Dock dock = await db.Docks.CreateAsync(new Dock(vessel.Id) { Active = true, BranchName = "armada/nogit", WorktreePath = TestTemp.NewDirectory("nogit_dock") });
+                Mission mission = await db.Missions.CreateAsync(new Mission("No git")
+                {
+                    Status = MissionStatusEnum.WorkProduced, VesselId = vessel.Id, DockId = dock.Id, BranchName = dock.BranchName, DiffSnapshot = "diff"
+                });
+
+                await handler.HandleMissionCompleteAsync(mission, dock);
+
+                Mission failed = (await db.Missions.ReadAsync(mission.Id))!;
+                AssertEqual(MissionStatusEnum.LandingFailed, failed.Status, failed.FailureReason);
+                AssertEqual(MissionFailureKindEnum.Infra, failed.FailureKind, "a process that cannot start is an environment failure");
+                AssertContains("trying to start process", failed.FailureReason ?? "");
+            }));
+
+            cases.Add(CaseAsync("landing_real_conflict_is_landing_conflict", "A real merge conflict with the current target is recorded as LandingConflict and the dock is left clean", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync();
+                RealLandingFixture f = await RealLandingFixture.CreateAsync(testDb.Driver, LandingModeEnum.MergeAndPush, "shared.txt", "mission version\n");
+                f.Repos.AdvanceMain("shared.txt", "target version\n");
+                string target = f.Repos.OriginHead("main");
+
+                await f.Handler.HandleMissionCompleteAsync(f.Mission, f.Dock);
+
+                Mission failed = (await testDb.Driver.Missions.ReadAsync(f.Mission.Id))!;
+                AssertEqual(MissionStatusEnum.LandingFailed, failed.Status);
+                AssertEqual(MissionFailureKindEnum.LandingConflict, failed.FailureKind, failed.FailureReason);
+                AssertContains("shared.txt", failed.FailureReason ?? "");
+                AssertEqual(target, f.Repos.OriginHead("main"), "nothing was published");
+                AssertTrue((await f.Git.GetWorkingTreeStatusAsync(f.Dock.WorktreePath!)).IsClean, "the conflicted merge was aborted");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Landing Conflict",
@@ -322,6 +434,23 @@ namespace Test.Shared.Suites.Services
         #endregion
 
         #region Private-Methods
+
+        private static MissionLandingHandler CreateHandler(DatabaseDriver db, StubGitService git)
+        {
+            LoggingModule logging = CreateLogging();
+            ArmadaSettings settings = CreateSettings();
+            return new MissionLandingHandler(logging, db, settings, git, new RecordingMergeQueueService(),
+                new MessageTemplateService(logging), null, new DockService(logging, db, settings, git), null);
+        }
+
+        private sealed class ProcessStartFailureExecutor : IHostCommandExecutor
+        {
+            public Task<HostCommandResult> RunAsync(HostCommandRequest request, CancellationToken token = default)
+            {
+                throw new Win32Exception(2, "An error occurred trying to start process '" + request.Executable + "' with working directory '"
+                    + request.WorkingDirectory + "'. No such file or directory");
+            }
+        }
 
         private sealed class RecordingChangelogExecutor : IHostCommandExecutor
         {
