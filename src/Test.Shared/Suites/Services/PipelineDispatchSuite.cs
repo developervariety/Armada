@@ -55,17 +55,19 @@ namespace Test.Shared.Suites.Services
                 prior.AgentOutput = "Requirement summary\n" + new string('x', 100000) + "\nUnresolved: missing key guard\n[ARMADA:VERDICT] NEEDS_REVISION";
                 prior.DiffSnapshot = new string('D', 200000);
                 string context = PipelineHandoffContext.Build(prior);
-                AssertTrue(context.Length < 4200, "full output and diff must not inflate handoff");
+                AssertTrue(context.Length < 1500, "full output and diff must not inflate the persisted handoff");
                 AssertContains("Branch: armada/provider-fix", context, "exact source branch");
                 AssertContains("Commit: abc123", context, "exact source commit");
-                AssertContains("Requirement summary", context, "opening evidence retained");
-                AssertContains("Unresolved: missing key guard", context, "closing findings retained");
-                AssertContains("retrieve the full prior mission output", context, "explicit incomplete evidence warning");
+                AssertContains(PipelineHandoffContext.ArtifactPlaceholder, context, "artifact rendered at launch");
                 AssertContains(prior.Id, context, "complete artifacts remain discoverable");
-                AssertContains("get_mission_diff", context, "full diff retrieval reference");
+                AssertContains("handoff-artifacts", context, "artifact retrieval reference");
+                AssertFalse(context.Contains(new string('x', 100)), "no output excerpt persisted");
                 AssertFalse(context.Contains(new string('D', 100)), "cumulative diff omitted");
-                AssertContains("No prior output recorded", PipelineHandoffContext.BoundOutput(null), "missing output explicit");
-                AssertEqual("small evidence", PipelineHandoffContext.BoundOutput("small evidence"), "small evidence preserved verbatim");
+                string filled = PipelineHandoffContext.Fill("Task" + context, "RENDERED BLOCK");
+                AssertContains("RENDERED BLOCK", filled, "placeholder replaced");
+                AssertFalse(filled.Contains(PipelineHandoffContext.ArtifactPlaceholder), "placeholder consumed");
+                AssertFalse(filled.Contains("rendered into the mission instructions at launch"), "placeholder note consumed");
+                AssertEqual("legacy text", PipelineHandoffContext.Fill("legacy text", "RENDERED BLOCK"), "description without placeholder unchanged");
             }));
 
             cases.Add(CaseAsync("direct_dispatch_sanitizes_captain_names_in_mission_branches", "Direct dispatch sanitizes captain names in mission branches", TestTags.Positive, async () =>
@@ -1185,7 +1187,7 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(MissionStatusEnum.InProgress, apiTest!.Status, "Test stage should start after worker completion");
 
                     Captain? testCaptain = await testDb.Driver.Captains.ReadAsync(apiTest.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "test complete";
+                    missionService.OnGetMissionOutput = _ => "test complete\n[ARMADA:RESULT] COMPLETE";
                     await missionService.HandleCompletionAsync(testCaptain!, apiTest.Id).ConfigureAwait(false);
 
                     apiTest = await testDb.Driver.Missions.ReadAsync(apiTest.Id).ConfigureAwait(false);
@@ -1684,7 +1686,7 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(MissionStatusEnum.Pending, backendWorker!.Status, "Dependent worker should still wait while upstream review is running");
 
                     Captain? activeTestCaptain = await testDb.Driver.Captains.ReadAsync(coreTest.CaptainId!).ConfigureAwait(false);
-                    missionService.OnGetMissionOutput = _ => "core tests complete";
+                    missionService.OnGetMissionOutput = _ => "core tests complete\n[ARMADA:RESULT] COMPLETE";
                     await missionService.HandleCompletionAsync(activeTestCaptain!, coreTest.Id).ConfigureAwait(false);
 
                     coreJudge = await testDb.Driver.Missions.ReadAsync(coreJudge.Id).ConfigureAwait(false);

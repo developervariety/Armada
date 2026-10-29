@@ -39,9 +39,9 @@ namespace Armada.Core.Enums
         None,
 
         /// <summary>
-        /// Merge the mission branch into the vessel's default branch in the user's local working directory, then
-        /// push the working directory's branch to its remote. A failed push marks the landing failed and keeps the
-        /// mission branch. Requires the vessel to have a WorkingDirectory and LocalPath configured.
+        /// Integrate and verify in the isolated mission dock, then push the exact verified commit to the remote target.
+        /// A failed push preserves the mission branch. A developer checkout is synchronized only when safe and clean;
+        /// no WorkingDirectory is required for publication.
         /// </summary>
         [EnumMember(Value = "MergeAndPush")]
         MergeAndPush
