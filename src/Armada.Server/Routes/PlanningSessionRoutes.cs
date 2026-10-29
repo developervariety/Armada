@@ -75,42 +75,6 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<PlanningSession>>("One page"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/planning-sessions", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
-                {
-                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
-                    return new ApiErrorResponse
-                    {
-                        Error = ctx.IsAuthenticated ? ApiResultEnum.Forbidden : ApiResultEnum.NotAuthorized,
-                        Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required"
-                    };
-                }
-
-                try
-                {
-                    List<PlanningSession> sessions = await EnumerateSessionsAsync(ctx).ConfigureAwait(false);
-                    return sessions.OrderByDescending(s => s.LastUpdateUtc).ToList();
-                }
-                catch (NotSupportedException ex)
-                {
-                    req.Http.Response.StatusCode = 501;
-                    return new ApiStatusErrorResponse(ApiStatusErrorCodeEnum.NotImplemented, ex.Message);
-                }
-                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
-                {
-                    return RouteErrorMapper.ToResponse(req, ex, 409);
-                }
-            },
-            api => api
-                .WithTag("Planning")
-                .WithSummary("List planning sessions")
-                .WithDescription("Returns planning sessions visible to the authenticated user.")
-                .WithResponse(200, OpenApiJson.For<List<PlanningSession>>("Planning sessions"))
-                .WithResponse(501, OpenApiJson.For<ApiStatusErrorResponse>("Not supported for the captain's runtime (Error NotImplemented)"))
-                .WithSecurity("ApiKey"));
-
             app.Post<PlanningSessionCreateRequest>("/api/v1/planning-sessions", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

@@ -80,6 +80,7 @@ export default function TargetDetailDrawer({ runId, targetId, onClose }: TargetD
         {loading && !target && <LoadingState />}
         {target && badge && (
           <div className="target-detail">
+            {target.scanSummary && <p>{target.scanSummary}</p>}
             <dl className="detail-kv">
               <dt title={t('Outcome for this vessel. Hover the badge for what it means.')}>{t('Status')}</dt>
               <dd><CodeStatusBadge {...badge} /></dd>
@@ -91,7 +92,7 @@ export default function TargetDetailDrawer({ runId, targetId, onClose }: TargetD
               )}
               <dt>{t('Vessel')}</dt>
               <dd><Link to={`/vessels/${target.vesselId}`}>{target.vesselName}</Link></dd>
-              <dt title={t('Exit code of the command. 0 means success; anything else counts as failed. Blank for missions or when the command did not run.')}>{t('Exit code')}</dt>
+              <dt title={t('Exit code')}>{t('Exit code')}</dt>
               <dd className="mono">{target.exitCode ?? '-'}</dd>
               <dt title={t('How long this vessel took from start to finish.')}>{t('Duration')}</dt>
               <dd className="mono">{formatDurationMs(t, locale, target.durationMs)}</dd>

@@ -143,8 +143,16 @@ namespace Armada.Core.Database.Postgresql.Implementations
             bool written = await UpdateWhereAsync(mission, null, token).ConfigureAwait(false);
             // A cancelled mission stays cancelled: a stale full-row write (a completion still running when the mission was
             // cancelled) is refused, and the caller sees the stored status. Only a restart (to Pending) leaves Cancelled.
-            if (!written && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.Pending)
-                mission.Status = MissionStatusEnum.Cancelled;
+            if (!written)
+            {
+                Mission? current = await ReadAsync(mission.Id, token).ConfigureAwait(false);
+                if (current != null)
+                {
+                    mission.Status = current.Status;
+                    mission.LastUpdateUtc = current.LastUpdateUtc;
+                }
+                return current ?? mission;
+            }
             return mission;
         }
 
@@ -155,6 +163,14 @@ namespace Armada.Core.Database.Postgresql.Implementations
             if (expectedStatuses == null) throw new ArgumentNullException(nameof(expectedStatuses));
             if (expectedStatuses.Count == 0) throw new ArgumentException("At least one expected status is required.", nameof(expectedStatuses));
             return await UpdateWhereAsync(mission, expectedStatuses, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public Task<bool> TryUpdateIfUnchangedAsync(Mission mission, DateTime expectedLastUpdateUtc, IReadOnlyCollection<MissionStatusEnum> expectedStatuses, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (expectedStatuses == null || expectedStatuses.Count == 0) throw new ArgumentException("Expected statuses are required.", nameof(expectedStatuses));
+            return UpdateWhereAsync(mission, expectedStatuses, token, expectedLastUpdateUtc);
         }
 
         /// <inheritdoc />
@@ -224,6 +240,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
         /// <param name="token">Cancellation token.</param>
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(_Driver.Events, _Driver.StageOutcomes,
+                await ReadAsync(id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
             using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
@@ -449,6 +467,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
         /// <inheritdoc />
         public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(_Driver.Events, _Driver.StageOutcomes,
+                await ReadAsync(tenantId, id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
             using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
@@ -634,6 +654,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
         /// <inheritdoc />
         public async Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(_Driver.Events, _Driver.StageOutcomes,
+                await ReadAsync(tenantId, userId, id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
@@ -769,10 +791,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
         /// Write every mission column. When <paramref name="expectedStatuses"/> is supplied the write applies only
         /// while the stored status is one of them (a compare-and-set on status).
         /// </summary>
-        private async Task<bool> UpdateWhereAsync(Mission mission, IReadOnlyCollection<MissionStatusEnum>? expectedStatuses, CancellationToken token)
+        private async Task<bool> UpdateWhereAsync(Mission mission, IReadOnlyCollection<MissionStatusEnum>? expectedStatuses, CancellationToken token, DateTime? expectedLastUpdateUtc = null)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
-            mission.LastUpdateUtc = DateTime.UtcNow;
+            // PostgreSQL timestamps store microseconds; keep the returned optimistic version byte-for-byte round-trippable.
+            mission.LastUpdateUtc = new DateTime(DateTime.UtcNow.Ticks / 10 * 10, DateTimeKind.Utc);
             int rows = 0;
 
             using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
@@ -802,7 +825,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         redispatch_attempts = @redispatch_attempts, output_repair_attempts = @output_repair_attempts, noop_redispatch_attempts = @noop_redispatch_attempts, is_rescue = @is_rescue, is_evaluation = @is_evaluation, rework_round = @rework_round, rework_escalated = @rework_escalated, tier = @tier,
                         started_utc = @started_utc, completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
-                        WHERE id = @id" + ExpectedStatusClause(cmd, expectedStatuses) + ";";
+                        WHERE id = @id" + ExpectedStatusClause(cmd, expectedStatuses) + (expectedLastUpdateUtc.HasValue ? " AND last_update_utc = @expected_last_update_utc" : "") + ";";
+                    if (expectedLastUpdateUtc.HasValue) cmd.Parameters.AddWithValue("@expected_last_update_utc", expectedLastUpdateUtc.Value);
                     AddMissionParameters(cmd, mission);
                     rows = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -817,7 +841,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
         private static string ExpectedStatusClause(NpgsqlCommand cmd, IReadOnlyCollection<MissionStatusEnum>? expectedStatuses)
         {
             // A plain full-row update never moves a mission out of Cancelled, except to Pending (a restart).
-            if (expectedStatuses == null) return " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending'))";
+            if (expectedStatuses == null) return " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending')) AND (status <> 'Complete' OR @status IN ('Complete', 'Pending'))";
             List<string> placeholders = new List<string>();
             int index = 0;
             foreach (MissionStatusEnum expected in expectedStatuses)

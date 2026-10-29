@@ -138,6 +138,7 @@ namespace Armada.Runtimes
         private readonly object _DecoderLock = new object();
         private bool _DecodedAny = false;
         private MuxRunOutcomeTracker? _MuxOutcome = null;
+        private bool _PiProviderErrorRaised = false;
         private bool _ParseStructuredErrors = false;
 
         #endregion
@@ -183,6 +184,7 @@ namespace Armada.Runtimes
             _FinalMessageFilePath = finalMessageFilePath;
             _Decoder = StructuredProgress && MissionStreamDecoder.Supports(_RuntimeType) ? MissionStreamDecoder.For(_RuntimeType) : null;
             _MuxOutcome = _RuntimeType == AgentRuntimeEnum.Mux ? new MuxRunOutcomeTracker() : null;
+            _PiProviderErrorRaised = false;
             _ParseStructuredErrors = _Decoder != null;
             OpenLog(logFilePath, String.Empty, reattached: true);
             _ProcessId = alreadyExited
@@ -230,6 +232,7 @@ namespace Armada.Runtimes
                 _DecodedAny = false;
             }
             _MuxOutcome = _RuntimeType == AgentRuntimeEnum.Mux ? new MuxRunOutcomeTracker() : null;
+            _PiProviderErrorRaised = false;
             bool streamsJson = StreamJsonOutput && (_RuntimeType == AgentRuntimeEnum.ClaudeCode || _RuntimeType == AgentRuntimeEnum.Codex);
             _ParseStructuredErrors = decodeHere || streamsJson;
 
@@ -486,6 +489,14 @@ namespace Armada.Runtimes
                     return fromStdout ? _MuxOutcome?.ObserveLine(data) : null;
                 case AgentRuntimeEnum.Gemini:
                 case AgentRuntimeEnum.Cursor:
+                case AgentRuntimeEnum.Pi:
+                    // pi exits 0 on provider errors in JSON mode; the terminal stream records carry them. The same failure
+                    // appears in agent_end and auto_retry_end, so only the first is raised.
+                    if (!fromStdout) return RuntimeProviderErrorParser.TryParseCliStderrLine(data, _RuntimeType.ToString());
+                    RuntimeProviderError? piError = RuntimeProviderErrorParser.TryParsePiJsonLine(data);
+                    if (piError == null || _PiProviderErrorRaised) return null;
+                    _PiProviderErrorRaised = true;
+                    return piError;
                 case AgentRuntimeEnum.OpenCode:
                     return fromStdout ? null : RuntimeProviderErrorParser.TryParseCliStderrLine(data, _RuntimeType.ToString());
                 default:

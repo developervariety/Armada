@@ -171,6 +171,7 @@ namespace Armada.Core.Services
             AddPreview(results, CheckRunTypeEnum.Lint, profile.LintCommand);
             AddPreview(results, CheckRunTypeEnum.Build, profile.BuildCommand);
             AddPreview(results, CheckRunTypeEnum.UnitTest, profile.UnitTestCommand);
+            AddPreview(results, CheckRunTypeEnum.AbbreviatedUnitTest, profile.AbbreviatedUnitTestCommand);
             AddPreview(results, CheckRunTypeEnum.IntegrationTest, profile.IntegrationTestCommand);
             AddPreview(results, CheckRunTypeEnum.E2ETest, profile.E2ETestCommand);
             AddPreview(results, CheckRunTypeEnum.Migration, profile.MigrationCommand);
@@ -212,6 +213,8 @@ namespace Armada.Core.Services
                     return NullIfWhiteSpace(profile.BuildCommand);
                 case CheckRunTypeEnum.UnitTest:
                     return NullIfWhiteSpace(profile.UnitTestCommand);
+                case CheckRunTypeEnum.AbbreviatedUnitTest:
+                    return UnitTestScopeDirective.SelectCommand(profile, UnitTestScopeEnum.Abbreviated);
                 case CheckRunTypeEnum.IntegrationTest:
                     return NullIfWhiteSpace(profile.IntegrationTestCommand);
                 case CheckRunTypeEnum.E2ETest:
@@ -260,6 +263,7 @@ namespace Armada.Core.Services
             AddIfPresent(results, CheckRunTypeEnum.Lint, profile.LintCommand);
             AddIfPresent(results, CheckRunTypeEnum.Build, profile.BuildCommand);
             AddIfPresent(results, CheckRunTypeEnum.UnitTest, profile.UnitTestCommand);
+            AddIfPresent(results, CheckRunTypeEnum.AbbreviatedUnitTest, profile.AbbreviatedUnitTestCommand);
             AddIfPresent(results, CheckRunTypeEnum.IntegrationTest, profile.IntegrationTestCommand);
             AddIfPresent(results, CheckRunTypeEnum.E2ETest, profile.E2ETestCommand);
             AddIfPresent(results, CheckRunTypeEnum.Migration, profile.MigrationCommand);

@@ -95,7 +95,15 @@ namespace Armada.Core.Services
                     profile.LanguageHints = new List<string> { "C#", ".NET" };
                     profile.LintCommand = "dotnet format" + quoted + " --verify-no-changes";
                     profile.BuildCommand = "dotnet build" + quoted + " -c Release";
-                    profile.UnitTestCommand = "dotnet test" + quoted + " -c Release";
+                    profile.UnitTestCommand = layout?.Paths.Contains("src/Test.Xunit/Test.Xunit.csproj") == true
+                        && layout.Paths.Contains("src/Test.Automated/Test.Automated.csproj")
+                        && layout.Paths.Contains("src/Armada.sln")
+                        && layout.Paths.Contains("src/Armada.Core/Armada.Core.csproj")
+                        ? "dotnet run --project \"src/Test.Automated\" -c Release -f net10.0 -- --suites Services"
+                        : "dotnet test" + quoted + " -c Release";
+                    if (layout?.Paths.Contains("src/Armada.Core/Armada.Core.csproj") == true
+                        && layout.Paths.Contains("src/Test.Automated/Test.Automated.csproj"))
+                        profile.IntegrationTestCommand = LandingVerification.ArmadaCommand;
                     profile.PackageCommand = "dotnet pack" + quoted + " -c Release -o artifacts";
                     profile.ExpectedArtifacts = new List<string> { "artifacts/*.nupkg" };
                     profile.Description = "Created by Armada for a .NET repository" + (target.Length > 0 ? " built from " + target : "") + evidence + ". Edit the commands to match how this project is built and tested.";

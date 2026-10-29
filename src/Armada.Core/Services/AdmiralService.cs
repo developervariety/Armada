@@ -78,6 +78,9 @@ namespace Armada.Core.Services
         /// </summary>
         public Func<int, bool>? OnIsProcessTracked { get; set; }
 
+        /// <summary>Oldest outstanding runtime tool call for a process, or null. Does not refresh output heartbeats.</summary>
+        public Func<int, DateTime?>? OnGetToolWaitStartedUtc { get; set; }
+
         /// <summary>Whether a process is owned by a Harbor and can outlive this Admiral.</summary>
         public Func<int, bool>? OnIsRemoteProcessTracked { get; set; }
 
@@ -537,6 +540,8 @@ namespace Armada.Core.Services
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
+            await MissionArchive.RecordAsync(_Database.Events, _Database.StageOutcomes, mission, "Cancel", token).ConfigureAwait(false);
+
             Captain? captain = String.IsNullOrEmpty(mission.CaptainId)
                 ? null
                 : await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);
@@ -704,6 +709,8 @@ namespace Armada.Core.Services
                 }
             }, token).ConfigureAwait(false);
 
+            await RunHealthPhaseAsync("missing merge handoff recovery", () => FlagMissingMergeHandoffsAsync(DateTime.UtcNow, token), token).ConfigureAwait(false);
+
             // Check for completed voyages
             await RunHealthPhaseAsync("voyage completion", async () =>
             {
@@ -766,6 +773,8 @@ namespace Armada.Core.Services
                 {
                     currentMission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
                 }
+
+                if (currentMission?.Status == MissionStatusEnum.Verifying) continue; // Replayed by HealthCheckCaptainAsync after a restart.
 
                 DateTime? recordedStartUtc = captain.ProcessStartedUtc ?? currentMission?.ProcessStartedUtc;
                 bool processAlive = captain.ProcessId.HasValue &&
@@ -1027,6 +1036,10 @@ namespace Armada.Core.Services
             capture.DockId = mission.DockId;
             capture.EndedUtc = DateTime.UtcNow;
             mission.ProcessId = null;
+            Mission? exitSnapshot = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            if (exitSnapshot == null || exitSnapshot.ProcessId.HasValue || exitSnapshot.StartedUtc != mission.StartedUtc
+                || MissionStateMachine.IsTerminalOrPostWork(exitSnapshot.Status)) return;
+            mission = exitSnapshot;
 
             await EmitEventAsync("captain.process_exited",
                 "Agent process " + processId + " exited with code " + (exitCode?.ToString() ?? "unknown") + " for captain " + captain.Name,
@@ -1056,11 +1069,42 @@ namespace Armada.Core.Services
                 // instead of handing broken code to the next stage.
                 if (mission != null)
                 {
+                    Mission? claimed = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                    if (claimed == null || claimed.ProcessId.HasValue || claimed.StartedUtc != mission.StartedUtc
+                        || (claimed.Status != MissionStatusEnum.InProgress && claimed.Status != MissionStatusEnum.Testing)) return;
+                    DateTime claimVersion = claimed.LastUpdateUtc;
+                    claimed.Status = MissionStatusEnum.Verifying;
+                    claimed.LastUpdateUtc = DateTime.UtcNow;
+                    if (!await _Database.Missions.TryUpdateIfUnchangedAsync(claimed, claimVersion, new[] { MissionStatusEnum.InProgress, MissionStatusEnum.Testing }, token).ConfigureAwait(false)) return;
+                    mission = claimed;
+                    DateTime verificationVersion = mission.LastUpdateUtc;
+                    await EmitEventAsync("mission.stage_check_started", "Stage check queued or running for " + mission.Id,
+                        entityType: "mission", entityId: mission.Id, captainId: captain.Id, missionId: mission.Id,
+                        vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
                     StageCheckResult check = await _Missions.CheckStageWorkAsync(mission, captain, token).ConfigureAwait(false);
                     await RecordStageCheckAsync(mission, captain, check, token).ConfigureAwait(false);
                     capture.StageCheck = check;
-                    string? checkFailure = check.FailureMessage;
-                    if (checkFailure != null)
+                    Mission? afterCheck = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                    if (afterCheck == null || afterCheck.Status != MissionStatusEnum.Verifying || afterCheck.ProcessId.HasValue
+                        || afterCheck.LastUpdateUtc != verificationVersion || afterCheck.StartedUtc != mission.StartedUtc)
+                    {
+                        _Logging.Info(_Header + "ignoring a late stage check result for " + mission.Id);
+                        await EmitEventAsync("mission.stage_check_stale", "Ignoring a late stage check result for " + mission.Id,
+                            entityType: "mission", entityId: mission.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
+                        return;
+                    }
+                    afterCheck.Status = MissionStatusEnum.InProgress;
+                    afterCheck.LastUpdateUtc = DateTime.UtcNow;
+                    if (!await _Database.Missions.TryUpdateIfUnchangedAsync(afterCheck, verificationVersion, new[] { MissionStatusEnum.Verifying }, token).ConfigureAwait(false))
+                    {
+                        _Logging.Info(_Header + "stage check result lost its exit claim for " + mission.Id);
+                        await EmitEventAsync("mission.stage_check_stale", "Ignoring a stage check result whose exit claim changed for " + mission.Id,
+                            entityType: "mission", entityId: mission.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
+                        return;
+                    }
+                    mission = afterCheck;
+                    string checkFailure = check.FailureMessage ?? "The stage check failed (" + check.Status + "/" + check.Reason + "). Rerun the configured checks.";
+                    if (check.IsBlocking)
                     {
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts && await TryResumeInPlaceAsync(captain, mission, checkFailure, token).ConfigureAwait(false))
                             return;
@@ -1078,7 +1122,7 @@ namespace Armada.Core.Services
                 // Clean exit — delegate to the normal completion flow
                 _TransientOutageStarts.TryRemove(missionId, out DateTime _);
                 _Logging.Info(_Header + "agent process " + processId + " exited cleanly for mission " + missionId + " — handling completion");
-                await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
+                await _Missions.HandleClaimedCompletionAsync(captain, missionId, mission!.LastUpdateUtc, token).ConfigureAwait(false);
             }
             else
             {
@@ -1375,11 +1419,29 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task HealthCheckCaptainAsync(Captain captain, CancellationToken token)
         {
+            // Exit handling owns stage checks and resume, including the period with no replacement PID.
+            // Check before releasing a post-work captain, not only before probing its old process.
+            if ((!String.IsNullOrEmpty(captain.CurrentMissionId) && _ResumingMissions.ContainsKey(captain.CurrentMissionId))
+                || (captain.ProcessId.HasValue && _ExitsInProgress.ContainsKey(captain.ProcessId.Value))) return;
+
             // Look up the captain's single active mission
             Mission? mission = null;
             if (!String.IsNullOrEmpty(captain.CurrentMissionId))
             {
                 mission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
+            }
+
+            if (mission?.Status == MissionStatusEnum.Verifying)
+            {
+                // The exit handler owns queued and running verification. A server restart loses that owner;
+                // restore its process claim so the ordinary health path can replay verification safely.
+                if (captain.ProcessId.HasValue && _ExitsInProgress.ContainsKey(captain.ProcessId.Value)) return;
+                if (!captain.ProcessId.HasValue) return;
+                DateTime version = mission.LastUpdateUtc;
+                mission.Status = MissionStatusEnum.InProgress;
+                mission.ProcessId = captain.ProcessId;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, version, new[] { MissionStatusEnum.Verifying }, token).ConfigureAwait(false)) return;
             }
 
             if (mission != null && mission.Status == MissionStatusEnum.WorkProduced)
@@ -1487,7 +1549,7 @@ namespace Armada.Core.Services
 
             string missionId = captain.CurrentMissionId ?? "unknown";
 
-            if (!isAlive && mission != null && mission.ProcessId.HasValue)
+            if (!isAlive && exitCode != 0 && mission != null && mission.ProcessId.HasValue)
             {
                 // Claim the exit so the callback (or a second health check) cannot also handle it.
                 if (!await _Database.Missions.TryClaimProcessExitAsync(mission.Id, processId!.Value, token).ConfigureAwait(false))
@@ -1503,7 +1565,7 @@ namespace Armada.Core.Services
             {
                 if (exitCode == 0)
                 {
-                    // Clean exit = mission complete
+                    // A clean exit still needs the same stage check as a runtime callback.
                     _Logging.Info(_Header + "captain " + captain.Id + " process " + processId + " completed successfully for mission " + missionId);
 
                     // Emit captain.completed event
@@ -1511,7 +1573,7 @@ namespace Armada.Core.Services
                         entityType: "captain", entityId: captain.Id,
                         captainId: captain.Id, missionId: missionId, token: token).ConfigureAwait(false);
 
-                    await _Missions.HandleCompletionAsync(captain, missionId, token).ConfigureAwait(false);
+                    await HandleProcessExitAsync(processId!.Value, 0, captain.Id, missionId, token).ConfigureAwait(false);
                 }
                 else
                 {
@@ -1595,10 +1657,14 @@ namespace Armada.Core.Services
                 }
 
                 // Check for stall (no output for too long)
-                if (captain.LastHeartbeatUtc.HasValue)
+                DateTime? outputHeartbeat = captain.LastHeartbeatUtc ?? mission?.StartedUtc;
+                if (outputHeartbeat.HasValue)
                 {
-                    TimeSpan elapsed = DateTime.UtcNow - captain.LastHeartbeatUtc.Value;
-                    if (elapsed.TotalMinutes > _Settings.StallThresholdMinutes)
+                    DateTime nowUtc = DateTime.UtcNow;
+                    TimeSpan elapsed = nowUtc - outputHeartbeat.Value;
+                    DateTime? toolStarted = processId.HasValue ? OnGetToolWaitStartedUtc?.Invoke(processId.Value) : null;
+                    if (RuntimeToolWaitTracker.IsStalled(nowUtc, outputHeartbeat, toolStarted,
+                        _Settings.StallThresholdMinutes, _Settings.ToolWaitHardLimitMinutes))
                     {
                         _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
                         ArmadaMetrics.CaptainStalls.Add(1);
@@ -1774,8 +1840,15 @@ namespace Armada.Core.Services
                         // captain may have been released by the review-timeout watchdog).
                         List<Mission> pendingMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Pending, token).ConfigureAwait(false);
                         List<Mission> reviewMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Review, token).ConfigureAwait(false);
+                        List<Mission> failedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.Failed, token).ConfigureAwait(false);
+                        // Unlanded work keeps its worktree so retry_landing can land it.
+                        List<Mission> landingFailedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.LandingFailed, token).ConfigureAwait(false);
+                        List<Mission> workProducedMissions = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
                         bool preservedForMission = pendingMissions.Any(m => m.DockId == dock.Id) ||
-                                                   reviewMissions.Any(m => m.DockId == dock.Id);
+                                                   reviewMissions.Any(m => m.DockId == dock.Id) ||
+                                                   landingFailedMissions.Any(m => m.DockId == dock.Id) ||
+                                                   workProducedMissions.Any(m => m.DockId == dock.Id) ||
+                                                   failedMissions.Any(m => m.DockId == dock.Id && m.FailureKind == MissionFailureKindEnum.StallRecoveryExhausted);
                         if (preservedForMission)
                         {
                             _Logging.Debug(_Header + "skipping reclaim of dock " + dock.Id + " -- preserved for a pending re-dispatch or an in-review mission");
@@ -1866,6 +1939,41 @@ namespace Armada.Core.Services
             }
         }
 
+        // A restart or an exception after WorkProduced was persisted can lose the landing callback.
+        // Flag rather than retry: the dock may already be reclaimed or the branch may need review.
+        private async Task FlagMissingMergeHandoffsAsync(DateTime utcNow, CancellationToken token)
+        {
+            List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+            foreach (Mission mission in produced)
+            {
+                if (utcNow - mission.LastUpdateUtc < TimeSpan.FromMinutes(5)
+                    || _Missions.IsCompletionInFlight(mission.Id)
+                    || MissionModeContract.IsReadOnly(mission.Mode) || mission.RequiresReview) continue;
+                Vessel? vessel = String.IsNullOrEmpty(mission.VesselId) ? null : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                Voyage? voyage = String.IsNullOrEmpty(mission.VoyageId) ? null : await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false);
+                if ((voyage?.LandingMode ?? vessel?.LandingMode ?? _Settings.LandingMode ?? LandingModeEnum.MergeAndPush) != LandingModeEnum.MergeQueue) continue;
+                if (voyage != null && (await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false))
+                    .Any(m => m.DependsOnMissionId == mission.Id)) continue;
+                EnumerationResult<MergeEntry> entries = await _Database.MergeEntries.EnumerateAsync(new EnumerationQuery { MissionId = mission.Id, PageSize = 1 }, token).ConfigureAwait(false);
+                if (entries.Objects.Count > 0) continue;
+                EnumerationResult<ArmadaEvent> checks = await _Database.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = mission.Id, EventType = StageCheckEvents.EventType, PageSize = 1,
+                    Order = EnumerationOrderEnum.CreatedDescending
+                }, token).ConfigureAwait(false);
+                StageCheckResult? check = StageCheckEvents.Read(checks.Objects.FirstOrDefault());
+                if (check == null || check.IsBlocking) continue;
+                DateTime version = mission.LastUpdateUtc;
+                mission.Status = MissionStatusEnum.LandingFailed;
+                mission.FailureReason = "Stage check was nonblocking, but no merge queue entry was recorded within five minutes. Inspect the preserved branch and enqueue landing manually.";
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                if (await _Database.Missions.TryUpdateIfUnchangedAsync(mission, version, new[] { MissionStatusEnum.WorkProduced }, token).ConfigureAwait(false))
+                    await EmitEventAsync("mission.landing_handoff_missing", mission.FailureReason,
+                        entityType: "mission", entityId: mission.Id, missionId: mission.Id, vesselId: mission.VesselId,
+                        voyageId: mission.VoyageId, tenantId: mission.TenantId, userId: mission.UserId, token: token).ConfigureAwait(false);
+            }
+        }
+
         /// <summary>
         /// Reconcile missions in PullRequestOpen status by checking if their PRs have been merged.
         /// This replaces the fire-and-forget 5-minute poller with a persistent, restart-safe check.
@@ -1942,6 +2050,14 @@ namespace Armada.Core.Services
         private async Task RecoverOrphanedMissionAsync(Mission mission, CancellationToken token)
         {
             {
+                // A claimed exit clears ProcessId before checking the stage or relaunching. It is not evidence
+                // of a completed agent. In particular, do not race the gap before a resume attaches its new PID.
+                if (_ResumingMissions.ContainsKey(mission.Id)) return;
+                Mission? current = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                if (current == null || current.Status != mission.Status || current.ProcessId != mission.ProcessId) return;
+                if (mission.ProcessId.HasValue && _ExitsInProgress.ContainsKey(mission.ProcessId.Value)) return;
+                if (!mission.ProcessId.HasValue && mission.StartedUtc.HasValue) return;
+
                 if (mission.Status == MissionStatusEnum.Review &&
                     mission.RequiresReview &&
                     mission.ReviewRequestedUtc.HasValue &&
@@ -2030,17 +2146,52 @@ namespace Armada.Core.Services
                             return;
                         }
 
-                        // Complete the mission — the agent finished its work but the status was never updated
-                        _Logging.Info(_Header + "completing orphaned mission " + mission.Id + " (agent process exited, captain moved on)");
-                        await _Missions.HandleCompletionAsync(captain, mission.Id, token).ConfigureAwait(false);
+                        // A pi launch whose exit was never handled may have left its generated .pi/mcp.json in the dock
+                        // (it is git-excluded and holds no token, but it must not linger), and its generated
+                        // AGENTS.override.md, which pi would load ahead of the repository's AGENTS.md and the next mission
+                        // generation would read back as the dock's own instructions.
+                        if (captain.Runtime == AgentRuntimeEnum.Pi && dock != null && !String.IsNullOrEmpty(dock.WorktreePath))
+                        {
+                            if (PiProjectMcpConfig.RemoveGenerated(dock.WorktreePath))
+                                _Logging.Info(_Header + "removed the generated .pi/mcp.json left in orphaned mission " + mission.Id + "'s dock");
+                            if (RemoveGeneratedInstructionsFile(dock.WorktreePath, MissionPromptBuilder.GetInstructionsFileName(AgentRuntimeEnum.Pi.ToString())))
+                                _Logging.Info(_Header + "removed the generated mission instructions left in orphaned mission " + mission.Id + "'s dock");
+                        }
+
+                        // A vanished process has no confirmed exit result or stage check. Preserve its work for
+                        // operator recovery, rather than treating it as a clean exit and starting landing.
+                        Mission? recovered = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                        if (recovered == null || recovered.Status != mission.Status || recovered.ProcessId.HasValue) return;
+                        recovered.Status = MissionStatusEnum.WorkProduced;
+                        recovered.FailureReason = "Orphaned agent exit was not verified; stage checks and landing remain outstanding.";
+                        recovered.CompletedUtc = null;
+                        recovered.LastUpdateUtc = DateTime.UtcNow;
+                        if (!await _Database.Missions.TryUpdateIfStatusAsync(recovered, new MissionStatusEnum[] { mission.Status }, token).ConfigureAwait(false)) return;
 
                         await EmitEventAsync("mission.orphan_recovered",
-                            "Orphaned mission recovered: " + mission.Title + " (captain " + captain.Id + " had moved on)",
+                            "Orphaned mission held as WorkProduced with unverified work: " + mission.Title + " (captain " + captain.Id + " had moved on)",
                             entityType: "mission", entityId: mission.Id,
                             captainId: captain.Id, missionId: mission.Id,
                             vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
                     }
                 }
+            }
+        }
+
+        private static bool RemoveGeneratedInstructionsFile(string worktreePath, string fileName)
+        {
+            // Only a file Armada generated (it carries the mission instructions heading); never the repository's own.
+            try
+            {
+                string path = System.IO.Path.Combine(worktreePath, fileName);
+                if (!System.IO.File.Exists(path)) return false;
+                if (!System.IO.File.ReadAllText(path).Contains("# Mission Instructions", StringComparison.Ordinal)) return false;
+                System.IO.File.Delete(path);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
@@ -2184,6 +2335,13 @@ namespace Armada.Core.Services
             }
 
             if (String.IsNullOrEmpty(dockId)) return;
+            // A stalled captain may have valuable edits even after an earlier commit. Retain the entire dock,
+            // including untracked files, rather than relying on the best-effort leftover-work commit path.
+            if (mission?.FailureKind == MissionFailureKindEnum.StallRecoveryExhausted)
+            {
+                _Logging.Warn(_Header + "retaining dock " + dockId + " for stalled mission " + mission.Id + "; recover work before deleting the dock");
+                return;
+            }
 
             try
             {
@@ -2284,7 +2442,8 @@ namespace Armada.Core.Services
             // call is replacing): the stop this call reports is handled, so launching again would put a second agent into
             // the dock.
             Mission? latest = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
-            if (latest != null && latest.ProcessId.HasValue && latest.ProcessId != mission.ProcessId)
+            if (latest == null || MissionStateMachine.IsTerminalOrPostWork(latest.Status)) return true;
+            if (latest.ProcessId.HasValue && latest.ProcessId != mission.ProcessId)
             {
                 _Logging.Info(_Header + "mission " + mission.Id + " already has agent process " + latest.ProcessId.Value + "; not resuming again (" + failureReason + ")");
                 return true;
@@ -2301,9 +2460,10 @@ namespace Armada.Core.Services
             // An outage ridden out over many resumes repeats one failure; record it once instead of once per attempt.
             if (!(mission.Description ?? String.Empty).Contains(failureReason.Trim(), StringComparison.Ordinal))
                 mission.Description = (mission.Description ?? String.Empty) + note;
+            DateTime resumeVersion = mission.LastUpdateUtc;
             mission.ProcessId = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, resumeVersion, new[] { MissionStatusEnum.InProgress, MissionStatusEnum.Assigned, MissionStatusEnum.Testing }, token).ConfigureAwait(false)) return true;
 
             try
             {
@@ -2359,8 +2519,7 @@ namespace Armada.Core.Services
             }
 
             MissionStatusEnum observedStatus = mission.Status;
-            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
-            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+            DateTime escalationVersion = mission.LastUpdateUtc;
 
             mission.Description = (mission.Description ?? String.Empty) + "\n\n" + _EscalatedHeading + plannerCaptain.Name + "\n"
                 + captain.Name + " could not finish this mission (" + failureReason.Trim() + "). Its work so far is committed on this branch and may not build yet. "
@@ -2375,8 +2534,11 @@ namespace Armada.Core.Services
             mission.StartedUtc = null;
             mission.CompletedUtc = null;
             mission.LastUpdateUtc = DateTime.UtcNow;
-            if (!await _Database.Missions.TryUpdateIfStatusAsync(mission, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))
-                return false;
+            if (!await _Database.Missions.TryUpdateIfUnchangedAsync(mission, escalationVersion, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false))
+                return true;
+
+            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
 
             capture.EscalatedToCaptainId = plannerCaptain.Id;
             _Logging.Warn(_Header + "mission " + mission.Id + ": " + captain.Name + " could not finish after its resumes (" + failureReason + "); escalating to " + plannerCaptain.Name);
@@ -2475,6 +2637,7 @@ namespace Armada.Core.Services
             if (mission != null)
             {
                 MissionStatusEnum observedStatus = mission.Status;
+                DateTime observedVersion = mission.LastUpdateUtc;
                 mission.Status = MissionStatusEnum.Failed;
                 mission.FailureReason = failureReason;
                 // A transient endpoint failure that outlasted its resumes and the outage grace is the environment, not the
@@ -2484,12 +2647,13 @@ namespace Armada.Core.Services
                 mission.ProcessId = null;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
-                missionFailed = await _Database.Missions.TryUpdateIfStatusAsync(mission, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false);
+                missionFailed = await _Database.Missions.TryUpdateIfUnchangedAsync(mission, observedVersion, new MissionStatusEnum[] { observedStatus }, token).ConfigureAwait(false);
                 if (!missionFailed)
                 {
                     _Logging.Warn(_Header + "mission " + missionId + " left " + observedStatus + " before its failed process exit was recorded -- keeping the newer state");
-                    Mission? current = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
-                    if (current != null) mission = current;
+                    await EmitEventAsync("mission.exit_handler_stale", "Ignored a stale failure result for " + missionId,
+                        entityType: "mission", entityId: missionId, missionId: missionId, token: token).ConfigureAwait(false);
+                    return;
                 }
             }
 
@@ -2641,7 +2805,7 @@ namespace Armada.Core.Services
             {
                 List<Mission> after = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
                 bool anyActive = after.Any(m => m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Blocked || m.Status == MissionStatusEnum.Assigned
-                    || m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.WorkProduced || m.Status == MissionStatusEnum.Review
+                    || m.Status == MissionStatusEnum.InProgress || m.Status == MissionStatusEnum.Verifying || m.Status == MissionStatusEnum.WorkProduced || m.Status == MissionStatusEnum.Review
                     || m.Status == MissionStatusEnum.PullRequestOpen || m.Status == MissionStatusEnum.Testing);
                 if (!anyActive)
                 {

@@ -1,5 +1,5 @@
 import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { deletePlanningSession, listPlanningSessions, stopPlanningSession } from '@dashboard/api/client';
 import type { PlanningSession } from '@dashboard/types/models';
@@ -10,6 +10,7 @@ import { useLiveResource } from '../../build/useLiveResource';
 import { statusTone } from '../../components/ask/statusTone';
 import { AppText, Banner, Button, ConfirmDialog, EmptyState, ListRow, SplitView, StatusBadge, SwipeRow, type SwipeAction } from '../../components/ui';
 import { useLocale } from '../../i18n/LocaleContext';
+import { planningHref, PLANNING_PATH } from '../../navigation/legacyRedirects';
 import { useLayout } from '../../navigation/useLayout';
 import { useNotifications } from '../../notifications/NotificationContext';
 import { useTheme } from '../../theme/ThemeContext';
@@ -29,7 +30,7 @@ function param(value: string | string[] | undefined): string | undefined {
   return v ? v : undefined;
 }
 
-/** The start-form prefill carried by /planning route params (`new=1` opens the form). */
+/** The start-form prefill carried by the Planning tab's route params (`new=1` opens the form). */
 export function prefillFromParams(params: Record<string, string | string[] | undefined>): { open: boolean; source: PlanningPrefillSource | null; prefill: PlanningPrefill | null } {
   const prefill: PlanningPrefill = {
     title: param(params.title),
@@ -49,9 +50,11 @@ export function prefillFromParams(params: Record<string, string | string[] | und
 /**
  * Planning (the dashboard's Planning page): the sessions (live: started, ended, dispatched, and deleted ones update
  * in place), Start Session in a sheet, End Session and Delete as swipe actions, Delete All with the typed
- * confirmation. Phones open a session on its own route; tablets show it beside the list.
+ * confirmation. Phones open a session on its own screen (/dispatch?tab=planning&session=:id); tablets show it beside
+ * the list. It is the Dispatch hub's Planning tab: `embedded` leaves the header title to the hub, and `tabBar` (the
+ * hub's tabs) sits above the list.
  */
-export function PlanningScreen({ initialSessionId = null }: { initialSessionId?: string | null }) {
+export function PlanningScreen({ initialSessionId = null, embedded = false, tabBar = null }: { initialSessionId?: string | null; embedded?: boolean; tabBar?: ReactNode }) {
   const { t, formatRelativeTime } = useLocale();
   const { colors } = useTheme();
   const router = useRouter();
@@ -80,12 +83,12 @@ export function PlanningScreen({ initialSessionId = null }: { initialSessionId?:
   const open = (id: string, draft: string | null = null) => {
     if (draft) setDrafts((d) => ({ ...d, [id]: draft }));
     if (isTablet) setSelectedId(id);
-    else router.push((draft ? { pathname: '/planning/[id]', params: { id, prompt: draft } } : `/planning/${id}`) as Href);
+    else router.push(planningHref(id, draft ? { prompt: draft } : {}) as Href);
   };
 
   const closeSelected = () => {
     setSelectedId(null);
-    if (initialSessionId) router.replace('/planning' as Href);
+    if (initialSessionId) router.replace(PLANNING_PATH as Href);
     void sessions.reload();
   };
 
@@ -185,7 +188,8 @@ export function PlanningScreen({ initialSessionId = null }: { initialSessionId?:
 
   return (
     <View style={[styles.fill, { backgroundColor: colors.background }]}>
-      <Stack.Screen options={{ title: t('Planning') }} />
+      {embedded ? null : <Stack.Screen options={{ title: t('Planning') }} />}
+      {tabBar}
       {/* One tree for every width: a resize keeps the list's scroll and the open session (alone, with Back). */}
       <SplitView master={list} detail={detail} masterWidth={420} onBack={() => setSelectedId(null)} backLabel={t('Back')} />
       <PlanningStartSheet

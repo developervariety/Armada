@@ -53,9 +53,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
             await SqlServerCommandHelper.WriteAsync(_ConnectionString, _WriteLock, async (SqlConnection conn, SqlTransaction tx) =>
             {
                 await SqlServerCommandHelper.ExecuteAsync(conn, tx, @"INSERT INTO fleet_action_run_targets
-                    (id, tenant_id, run_id, vessel_id, vessel_name, status, skip_reason, failure_reason, rendered_text, exit_code, output_text, error_text, output_truncated, voyage_id, started_utc, completed_utc, duration_ms, created_utc, last_update_utc)
+                    (id, tenant_id, run_id, vessel_id, vessel_name, status, skip_reason, failure_reason, rendered_text, exit_code, output_text, error_text, output_truncated, voyage_id, started_utc, completed_utc, duration_ms, created_utc, last_update_utc, scan_summary)
                     VALUES
-                    (@id, @tenant_id, @run_id, @vessel_id, @vessel_name, @status, @skip_reason, @failure_reason, @rendered_text, @exit_code, @output_text, @error_text, @output_truncated, @voyage_id, @started_utc, @completed_utc, @duration_ms, @created_utc, @last_update_utc);",
+                    (@id, @tenant_id, @run_id, @vessel_id, @vessel_name, @status, @skip_reason, @failure_reason, @rendered_text, @exit_code, @output_text, @error_text, @output_truncated, @voyage_id, @started_utc, @completed_utc, @duration_ms, @created_utc, @last_update_utc, @scan_summary);",
                     cmd => Bind(cmd, target), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -104,7 +104,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     rendered_text = @rendered_text, exit_code = @exit_code, output_text = @output_text,
                     error_text = @error_text, output_truncated = @output_truncated, voyage_id = @voyage_id,
                     started_utc = @started_utc, completed_utc = @completed_utc, duration_ms = @duration_ms,
-                    created_utc = @created_utc, last_update_utc = @last_update_utc
+                    created_utc = @created_utc, scan_summary = @scan_summary, last_update_utc = @last_update_utc
                     WHERE id = @id;", cmd => Bind(cmd, target), token).ConfigureAwait(false);
             }, token).ConfigureAwait(false);
 
@@ -184,6 +184,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             SqlServerCommandHelper.AddDate(cmd, "@completed_utc", target.CompletedUtc);
             SqlServerCommandHelper.Add(cmd, "@duration_ms", target.DurationMs);
             SqlServerCommandHelper.AddDate(cmd, "@created_utc", target.CreatedUtc);
+            SqlServerCommandHelper.Add(cmd, "@scan_summary", target.ScanSummary);
             SqlServerCommandHelper.AddDate(cmd, "@last_update_utc", target.LastUpdateUtc);
         }
 
@@ -209,6 +210,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             target.DurationMs = SqlServerCommandHelper.ReadNullableLong(reader["duration_ms"]);
             target.CreatedUtc = SqlServerCommandHelper.ReadDate(reader["created_utc"]);
             target.LastUpdateUtc = SqlServerCommandHelper.ReadDate(reader["last_update_utc"]);
+            target.ScanSummary = SqlServerCommandHelper.ReadString(reader["scan_summary"]);
             return target;
         }
 

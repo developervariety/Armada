@@ -34,6 +34,11 @@ namespace Test.Shared.Infrastructure
         public TaskCompletionSource<bool>? Gate { get; set; } = null;
 
         /// <summary>
+        /// When set, runs after the default chunk and tool event and before the gate, to stream more events mid-turn.
+        /// </summary>
+        public Action<CaptainChatTurnOptions>? BeforeGate { get; set; } = null;
+
+        /// <summary>
         /// Tool calls returned by every turn.
         /// </summary>
         public List<AskMessageToolCall> ToolCalls { get; set; } = new List<AskMessageToolCall>();
@@ -44,6 +49,7 @@ namespace Test.Shared.Infrastructure
             lock (Calls) Calls.Add(options);
             options.OnChunk?.Invoke("partial ");
             options.OnTool?.Invoke(new CaptainToolActivity { Phase = "started", Id = "call_1", Name = "mcp__armada__status" });
+            BeforeGate?.Invoke(options);
             if (Gate != null)
             {
                 using (token.Register(() => Gate.TrySetCanceled()))
