@@ -120,6 +120,47 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Failed merges whose work is on the target branch show as delivered context; unproven ones stay Critical", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    StubGitService git = new StubGitService();
+                    MergeEntry delivered = await CreateFailedMergeAsync(testDb, vessel, git, true).ConfigureAwait(false);
+                    MergeEntry undelivered = await CreateFailedMergeAsync(testDb, vessel, git, false).ConfigureAwait(false);
+                    MergeEntry unknown = await CreateFailedMergeAsync(testDb, vessel, git, null).ConfigureAwait(false);
+                    LandingReconcileSweep sweep = CreateSweep(testDb, git);
+
+                    await sweep.SweepAsync().ConfigureAwait(false);
+                    await sweep.SweepAsync().ConfigureAwait(false);
+
+                    MergeEntry? deliveredAfter = await testDb.Driver.MergeEntries.ReadAsync(delivered.Id).ConfigureAwait(false);
+                    AssertEqual(MergeStatusEnum.Failed, deliveredAfter!.Status, "the failed outcome is kept");
+                    AssertNotNull(deliveredAfter.DeliveryEvidence, "the proof is stored on the entry");
+                    Mission deliveredMission = (await testDb.Driver.Missions.ReadAsync(delivered.MissionId!).ConfigureAwait(false))!;
+                    AssertEqual(deliveredMission.CommitHash!, deliveredAfter.DeliveryEvidence!.EvidenceCommit, "the proof names the mission commit");
+                    AssertEqual("origin/main", deliveredAfter.DeliveryEvidence.TargetRef, "the proof names the target it read");
+                    foreach (MergeEntry open in new[] { undelivered, unknown })
+                        AssertNull((await testDb.Driver.MergeEntries.ReadAsync(open.Id).ConfigureAwait(false))!.DeliveryEvidence, "no proof is stored for an unproven entry");
+
+                    List<ArmadaEvent> proven = (await testDb.Driver.Events.EnumerateByEntityAsync("merge_entry", delivered.Id, 50).ConfigureAwait(false))
+                        .Where(item => item.EventType == LandingReconcileSweep.MergeDeliveryProvenEventType).ToList();
+                    AssertEqual(1, proven.Count, "the proof is recorded once across sweeps");
+
+                    List<InboxItem> items = await new InboxService(testDb.Driver, CreateLogging()).GetInboxAsync().ConfigureAwait(false);
+                    InboxItem deliveredItem = items.Single(item => item.EntityId == delivered.Id);
+                    AssertEqual(InboxService.MergeFailedDeliveredKind, deliveredItem.Kind, "the delivered failure is context");
+                    AssertEqual(InboxSeverityEnum.Info, deliveredItem.Severity, "the delivered failure is not critical");
+                    AssertContains(deliveredMission.CommitHash!.Substring(0, 12), deliveredItem.Detail, "the item carries the evidence");
+                    foreach (MergeEntry open in new[] { undelivered, unknown })
+                    {
+                        InboxItem openItem = items.Single(item => item.EntityId == open.Id);
+                        AssertEqual("merge_failed", openItem.Kind, "an unproven failure keeps its kind");
+                        AssertEqual(InboxSeverityEnum.Critical, openItem.Severity, "an unproven failure stays critical");
+                    }
+                }
+            });
+
             await RunTest("Sweep fetches each vessel once per sweep and rotates through bounded pages", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -330,6 +371,25 @@ namespace Armada.Test.Unit.Suites.Services
                 CommitHash = Guid.NewGuid().ToString("N") + "00000000"
             };
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        private static async Task<MergeEntry> CreateFailedMergeAsync(TestDatabase testDb, Vessel vessel, StubGitService git, bool? onTarget)
+        {
+            Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Merged " + Guid.NewGuid().ToString("N").Substring(0, 6))
+            {
+                Status = MissionStatusEnum.Failed,
+                VesselId = vessel.Id,
+                FailureReason = "merge failed",
+                CommitHash = Guid.NewGuid().ToString("N") + "00000000"
+            }).ConfigureAwait(false);
+            git.AncestorResults[mission.CommitHash + "|" + TargetRef] = onTarget;
+            MergeEntry entry = new MergeEntry("armada/captain/" + mission.Id, "main")
+            {
+                MissionId = mission.Id,
+                VesselId = vessel.Id,
+                Status = MergeStatusEnum.Failed
+            };
+            return await testDb.Driver.MergeEntries.CreateAsync(entry).ConfigureAwait(false);
         }
 
         private static async Task<List<ArmadaEvent>> ProposalsAsync(TestDatabase testDb, Mission mission)

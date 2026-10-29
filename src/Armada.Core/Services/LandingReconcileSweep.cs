@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -15,7 +16,9 @@ namespace Armada.Core.Services
     /// operator. A landing that failed for a reason that later cleared, and was then published by another path, stays
     /// LandingFailed until someone notices; the sweep notices. It never changes a mission: the proposal is an event
     /// that raises one Needs You item, and the operator's confirmation completes the mission after the manual
-    /// completion proof passes.
+    /// completion proof passes. The same sweep reads the same proof for Failed merge entries and stores it on the entry
+    /// as its delivery evidence, so the inbox shows a failed merge whose work is already delivered as context and not as
+    /// a failure; the entry keeps its Failed outcome.
     /// </summary>
     /// <remarks>
     /// Each sweep reads one bounded page of LandingFailed missions, oldest first, and the next sweep reads the next page,
@@ -51,6 +54,12 @@ namespace Armada.Core.Services
         private readonly SemaphoreSlim _Gate = new SemaphoreSlim(1, 1);
         private int _MaxPerCycle = 25;
         private int _NextPage = 1;
+        private int _NextMergeOffset = 0;
+
+        /// <summary>
+        /// Event type recorded once per Failed merge entry when the sweep finds proof that its work is on the target branch.
+        /// </summary>
+        public const string MergeDeliveryProvenEventType = "merge.delivery_proven";
 
         #endregion
 
@@ -104,6 +113,7 @@ namespace Armada.Core.Services
                     }
                 }
 
+                await SweepFailedMergesAsync(fetched, token).ConfigureAwait(false);
                 return proposed;
             }
             finally
@@ -115,6 +125,70 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Examine the next page of Failed merge entries that have no delivery evidence and store the proof on each one
+        /// whose mission work is on its target branch. The page rotates like the LandingFailed page.
+        /// </summary>
+        private async Task SweepFailedMergesAsync(Dictionary<string, Vessel?> fetched, CancellationToken token)
+        {
+            List<MergeEntry> failed = await _Database.MergeEntries.EnumerateByStatusAsync(MergeStatusEnum.Failed, token).ConfigureAwait(false);
+            List<MergeEntry> unproven = failed
+                .Where(entry => entry.DeliveryEvidence == null && !String.IsNullOrEmpty(entry.MissionId) && !String.IsNullOrEmpty(entry.VesselId))
+                .OrderBy(entry => entry.CreatedUtc)
+                .ToList();
+            if (unproven.Count == 0)
+            {
+                _NextMergeOffset = 0;
+                return;
+            }
+
+            int start = _NextMergeOffset >= unproven.Count ? 0 : _NextMergeOffset;
+            int take = Math.Min(_MaxPerCycle, unproven.Count);
+            _NextMergeOffset = start + take >= unproven.Count ? 0 : start + take;
+            for (int i = 0; i < take; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                MergeEntry entry = unproven[(start + i) % unproven.Count];
+                try
+                {
+                    await StoreMergeDeliveryAsync(entry, fetched, token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                {
+                    _Logging.Warn(_Header + "error checking failed merge entry " + entry.Id + ": " + ex.Message);
+                }
+            }
+        }
+
+        private async Task StoreMergeDeliveryAsync(MergeEntry entry, Dictionary<string, Vessel?> fetched, CancellationToken token)
+        {
+            Mission? mission = await _Database.Missions.ReadAsync(entry.MissionId!, token).ConfigureAwait(false);
+            if (mission == null) return;
+
+            Vessel? vessel = await FetchVesselOnceAsync(entry.VesselId!, fetched, token).ConfigureAwait(false);
+            if (vessel == null) return;
+
+            LandingReconcileEvidence? evidence = await _Proof.ProveDeliveredAsync(mission, vessel, null, entry.TargetBranch, token).ConfigureAwait(false);
+            if (evidence == null) return;
+
+            // Write onto the current row, and only while the entry is still a failure.
+            MergeEntry? current = await _Database.MergeEntries.ReadAsync(entry.Id, token).ConfigureAwait(false);
+            if (current == null || current.Status != MergeStatusEnum.Failed || current.DeliveryEvidence != null) return;
+            current.DeliveryEvidence = evidence;
+            await _Database.MergeEntries.UpdateAsync(current, token).ConfigureAwait(false);
+
+            ArmadaEvent proven = new ArmadaEvent(MergeDeliveryProvenEventType,
+                "Failed merge " + current.Id + " carries work already on " + evidence.TargetRef + ": " + evidence.Describe());
+            proven.EntityType = "merge_entry";
+            proven.EntityId = current.Id;
+            proven.MissionId = mission.Id;
+            proven.VesselId = current.VesselId;
+            proven.VoyageId = mission.VoyageId;
+            EventOwnerScope.ApplyFromMission(proven, mission);
+            await _Database.Events.CreateAsync(proven, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "failed merge entry " + current.Id + " carries work already delivered: " + evidence.Describe());
+        }
 
         private async Task<List<MissionSummary>> ReadBatchAsync(CancellationToken token)
         {

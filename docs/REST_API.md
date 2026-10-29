@@ -5442,6 +5442,7 @@ An entry in the merge queue representing a branch to be tested and merged.
 | `LastUpdateUtc` | datetime | now | Last update timestamp (UTC) |
 | `TestStartedUtc` | datetime? | null | Test start timestamp (UTC) |
 | `CompletedUtc` | datetime? | null | Completion timestamp (UTC) |
+| `DeliveryEvidence` | object? | null | Proof (kind, commit, ref) that the entry's mission work is already on the target branch, stored by the landing sweep on a `Failed` entry |
 
 ---
 
@@ -5661,7 +5662,7 @@ A single actionable item in the operator's "needs you" inbox.
 
 | Field | Type | Description |
 |---|---|---|
-| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `landing_reconcile`, `failed`, `stalled_captain`, `ask_proposal`) |
+| `Kind` | string | Machine-readable kind (e.g. `review`, `landing_failed`, `landing_reconcile`, `merge_failed_delivered`, `failed`, `stalled_captain`, `ask_proposal`) |
 | `Severity` | [InboxSeverityEnum](#inboxseverityenum) | Severity of the item |
 | `Title` | string | Human-readable title |
 | `Detail` | string | Additional detail |

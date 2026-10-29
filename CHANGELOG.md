@@ -11,6 +11,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - A Judge held for its independent Checks, either a PASS or a NEEDS_REVISION, completes without a re-run when its reviewed commit is already on `origin/<default branch>` or a commit there carries its exact `Armada-Mission-Id` trailer, using the landing sweep's proof. The decision records `delivered` on `mission.check_hold_decided`, and the voyage ends by the ordinary completion rule, so it no longer holds a sibling-lane slot.
 
+### Failed merges with delivered work
+
+- The landing sweep also checks a rotating page of `Failed` merge entries per cycle. When the entry's mission commit is an ancestor of `origin/<target branch>`, or a commit there carries the mission's exact `Armada-Mission-Id` trailer, it stores the evidence on the entry (`DeliveryEvidence`, a new `merge_entries.delivery_evidence` column) and records `merge.delivery_proven`. The entry keeps its `Failed` outcome. The inbox lists it as an `Info` item of kind `merge_failed_delivered` with the evidence; an unproven entry stays a `Critical` `merge_failed` item.
+
 ### Cancelled missions keep no assignment hold
 
 - Storing a Cancelled mission clears its assignment hold reason and holder, so a cancelled mission no longer reads as waiting on a dependency or a continuation dock.

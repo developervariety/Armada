@@ -186,6 +186,13 @@ namespace Armada.Core.Models
         /// </summary>
         public int DiffLineCount { get; set; } = 0;
 
+        /// <summary>
+        /// The proof that the entry's mission work is already on the target branch, found by the landing sweep for a
+        /// Failed entry. The entry keeps its Failed outcome; the proof only says the work needs no rescue. Null when
+        /// no proof was found.
+        /// </summary>
+        public LandingReconcileEvidence? DeliveryEvidence { get; set; } = null;
+
         #endregion
 
         #endregion
