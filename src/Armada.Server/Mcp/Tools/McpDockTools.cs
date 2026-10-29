@@ -7,6 +7,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>
@@ -164,7 +165,7 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        ids = new { type = "array", items = new { type = "string" }, description = "List of dock IDs to delete (dck_ prefix)" }
+                        ids = new { type = "array", items = new { type = "string" }, description = "List of dock IDs to delete (dck_ prefix; at most 1000)" }
                     },
                     required = new[] { "ids" }
                 },
@@ -175,6 +176,7 @@ namespace Armada.Server.Mcp.Tools
                     DeleteMultipleArgs request = JsonSerializer.Deserialize<DeleteMultipleArgs>(args!.Value, _JsonOptions)!;
                     if (request.Ids == null || request.Ids.Count == 0)
                         return (object)McpToolError.InvalidArgument("ids is required and must not be empty");
+                    CollectionLimits.RequireRequestItems(request.Ids, "ids");
 
                     DeleteMultipleResult result = new DeleteMultipleResult();
                     foreach (string id in request.Ids)

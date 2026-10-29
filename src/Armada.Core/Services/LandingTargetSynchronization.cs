@@ -1,12 +1,15 @@
 namespace Armada.Core.Services
 {
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
 
     /// <summary>Integrate the latest known remote and local target before landing a mission branch.</summary>
     public static class LandingTargetSynchronization
     {
         /// <summary>Fetch current target refs and merge them into the mission dock. Return whether its head changed.</summary>
+        /// <exception cref="GitMergeConflictException">Thrown when git reports a merge conflict integrating the target.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the target cannot be resolved or merged for another reason.</exception>
         public static async Task<bool> SynchronizeAsync(IGitService git, string worktree, string targetBranch, string? targetCheckout, CancellationToken token = default)
         {
             string? before = await git.GetHeadCommitHashAsync(worktree, token).ConfigureAwait(false);
@@ -14,7 +17,9 @@ namespace Armada.Core.Services
             string? remoteTip = await git.ResolveBranchTipAsync(worktree, "origin/" + targetBranch, token).ConfigureAwait(false);
             if (!String.IsNullOrEmpty(remoteTip) && remoteTip != before)
             {
-                var merged = await git.MergeCommitAsync(worktree, remoteTip, targetBranch, "Integrate current landing target " + targetBranch, token).ConfigureAwait(false);
+                GitCommitMergeResult merged = await git.MergeCommitAsync(worktree, remoteTip, targetBranch, "Integrate current landing target " + targetBranch, token).ConfigureAwait(false);
+                if (merged.Outcome == GitCommitMergeOutcomeEnum.Conflicted)
+                    throw new GitMergeConflictException("Cannot integrate current landing target: " + merged.Message + " " + String.Join(", ", merged.ConflictedFiles), merged.ConflictedFiles);
                 if (merged.Outcome != GitCommitMergeOutcomeEnum.Merged && merged.Outcome != GitCommitMergeOutcomeEnum.AlreadyContained)
                     throw new InvalidOperationException("Cannot integrate current landing target: " + merged.Message + " " + String.Join(", ", merged.ConflictedFiles));
             }

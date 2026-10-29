@@ -11,7 +11,6 @@ import {
   deleteMission,
   purgeMission,
   getMissionDiff,
-  getMissionGitHubPullRequest,
   getMissionLog,
   getMissionInstructions,
   getMissionLandingPreview,
@@ -27,7 +26,9 @@ import {
   getHarbor,
 } from '../api/client';
 import { listAll } from '../api/paging';
-import type { Captain, CheckRun, Deployment, GitHubPullRequestDetail, Harbor, LandingPreviewResult, Mission, Vessel } from '../types/models';
+import type { Captain, CheckRun, Deployment, Harbor, LandingPreviewResult, Mission, Vessel } from '../types/models';
+
+import { loadPullRequestEvidence, type PullRequestEvidence } from '../lib/pullRequestEvidence';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -44,6 +45,7 @@ import CaptainRef from '../components/shared/CaptainRef';
 import AssignmentBlockerCard from '../components/missions/AssignmentBlockerCard';
 import BranchesModal from '../components/vessels/BranchesModal';
 import { useLocale } from '../context/LocaleContext';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 import { MISSION_TRANSITION_STATUSES, formatMissionDuration, isMissionLogCompleted, missionLandingState } from '../lib/missionActions';
 
 const MISSION_STATUSES = MISSION_TRANSITION_STATUSES;
@@ -60,7 +62,8 @@ export default function MissionDetail() {
   const [landingPreview, setLandingPreview] = useState<LandingPreviewResult | null>(null);
   const [linkedCheckRuns, setLinkedCheckRuns] = useState<CheckRun[]>([]);
   const [linkedDeployments, setLinkedDeployments] = useState<Deployment[]>([]);
-  const [gitHubPullRequest, setGitHubPullRequest] = useState<GitHubPullRequestDetail | null>(null);
+  const [pullRequestEvidence, setPullRequestEvidence] = useState<PullRequestEvidence | null>(null);
+  const gitHubPullRequest = pullRequestEvidence?.detail ?? null;
   const [loadingGitHubPullRequest, setLoadingGitHubPullRequest] = useState(false);
   const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -109,6 +112,8 @@ export default function MissionDetail() {
 
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  // Delete and purge run behind the "this may take some time" progress modal.
+  const deletion = useDeleteProgress();
 
   const formatDuration = useCallback((totalRuntimeMs: number | null | undefined): string => formatMissionDuration(totalRuntimeMs, t), [t]);
 
@@ -198,17 +203,17 @@ export default function MissionDetail() {
 
   useEffect(() => {
     if (!mission?.id || !mission.prUrl) {
-      setGitHubPullRequest(null);
+      setPullRequestEvidence(null);
       setLoadingGitHubPullRequest(false);
       return;
     }
 
     let cancelled = false;
     setLoadingGitHubPullRequest(true);
-    getMissionGitHubPullRequest(mission.id).then((result) => {
-      if (!cancelled) setGitHubPullRequest(result);
+    loadPullRequestEvidence(mission.id).then((result) => {
+      if (!cancelled) setPullRequestEvidence(result);
     }).catch(() => {
-      if (!cancelled) setGitHubPullRequest(null);
+      if (!cancelled) setPullRequestEvidence(null);
     }).finally(() => {
       if (!cancelled) setLoadingGitHubPullRequest(false);
     });
@@ -392,13 +397,14 @@ export default function MissionDetail() {
       message: t('Purge mission "{{title}}"? This will clean up all associated resources (branches, worktrees, etc.) and cannot be undone.', { title: mission.title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await purgeMission(mission.id);
-          pushToast('warning', t('Mission "{{title}}" purged.', { title: mission.title }));
-          loadMission();
-        } catch (e: unknown) {
-          setError(t('Purge failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
-        }
+        const done = await deletion.run({
+          kind: 'missionPurge',
+          action: () => purgeMission(mission.id),
+          errorMessage: (e) => t('Purge failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }),
+        });
+        if (!done) return;
+        pushToast('warning', t('Mission "{{title}}" purged.', { title: mission.title }));
+        loadMission();
       },
     });
   }
@@ -491,6 +497,7 @@ export default function MissionDetail() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+      {deletion.dialog}
 
       {mission.status === 'Pending' && mission.assignmentBlocker && (
         <AssignmentBlockerCard blocker={mission.assignmentBlocker} />
@@ -670,7 +677,7 @@ export default function MissionDetail() {
             <h3 title={t('Review and check status Armada read from GitHub for this mission\'s pull request.')}>{t('GitHub Pull Request')}</h3>
             <div className="inline-actions">
               <a className="btn btn-sm" href={mission.prUrl} target="_blank" rel="noreferrer" title={t('Open the pull request on GitHub in a new tab.')}>{t('Open GitHub')}</a>
-              <button className="btn btn-sm" disabled={loadingGitHubPullRequest} onClick={() => mission.id && void getMissionGitHubPullRequest(mission.id).then(setGitHubPullRequest).catch(() => setGitHubPullRequest(null))} title={t('Fetch the latest reviews, checks and mergeability for this pull request from GitHub.')}>
+              <button className="btn btn-sm" disabled={loadingGitHubPullRequest} onClick={() => mission.id && void loadPullRequestEvidence(mission.id).then(setPullRequestEvidence).catch(() => setPullRequestEvidence(null))} title={t('Fetch the latest reviews, checks and mergeability for this pull request from GitHub.')}>
                 {loadingGitHubPullRequest ? t('Refreshing...') : t('Refresh')}
               </button>
             </div>
@@ -692,10 +699,10 @@ export default function MissionDetail() {
               </div>
               <div className="detail-grid">
                 <div className="card">
-                  <h4 title={t('Each reviewer and the state of their latest review.')}>{t('Reviews')}</h4>
-                  {gitHubPullRequest.reviews.length === 0 ? <div className="text-dim">{t('No reviews')}</div> : (
+                  <h4 title={t('Each reviewer and the state of their latest review.')}>{t('Reviews')}{gitHubPullRequest.reviewCount > (pullRequestEvidence?.reviews.length ?? 0) ? ` (${pullRequestEvidence?.reviews.length ?? 0}/${gitHubPullRequest.reviewCount})` : ''}</h4>
+                  {(pullRequestEvidence?.reviews.length ?? 0) === 0 ? <div className="text-dim">{t('No reviews')}</div> : (
                     <div style={{ display: 'grid', gap: '0.45rem' }}>
-                      {gitHubPullRequest.reviews.map((review, index) => (
+                      {(pullRequestEvidence?.reviews ?? []).map((review, index) => (
                         <div key={`review-${index}`}>
                           <strong>{review.reviewerLogin || t('Unknown')}</strong> <span className="text-dim">{review.state}</span>
                         </div>
@@ -704,10 +711,10 @@ export default function MissionDetail() {
                   )}
                 </div>
                 <div className="card">
-                  <h4 title={t('CI checks GitHub reports for the pull request, with status and conclusion.')}>{t('Checks')}</h4>
-                  {gitHubPullRequest.checks.length === 0 ? <div className="text-dim">{t('No provider checks')}</div> : (
+                  <h4 title={t('CI checks GitHub reports for the pull request, with status and conclusion.')}>{t('Checks')}{gitHubPullRequest.checkCount > (pullRequestEvidence?.checks.length ?? 0) ? ` (${pullRequestEvidence?.checks.length ?? 0}/${gitHubPullRequest.checkCount})` : ''}</h4>
+                  {(pullRequestEvidence?.checks.length ?? 0) === 0 ? <div className="text-dim">{t('No provider checks')}</div> : (
                     <div style={{ display: 'grid', gap: '0.45rem' }}>
-                      {gitHubPullRequest.checks.map((check, index) => (
+                      {(pullRequestEvidence?.checks ?? []).map((check, index) => (
                         <div key={`check-${index}`}>
                           <strong>{check.name}</strong> <span className="text-dim">{check.status}{check.conclusion ? ` / ${check.conclusion}` : ''}</span>
                         </div>
@@ -778,8 +785,13 @@ export default function MissionDetail() {
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
               fontFamily: 'monospace'
-            }}>{mission.failureReason}</pre>
+            }} className="mission-failure-reason" data-failure-kind={mission.failureKind ?? undefined}>{mission.failureReason}</pre>
             <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+              {/* A landing blocked by the host (FailureKind Infra: a dirty checkout, a held lock) is fixed outside Armada
+                  and then retried; offer the retry next to the reason so it is one click away. */}
+              {mission.status === 'LandingFailed' && mission.failureKind === 'Infra' && showLand && (
+                <Button className="btn btn-sm btn-primary" onClick={handleLand} title={t('Rebase the mission branch onto its target branch and land it using the vessel\'s landing mode (merge, pull request or merge queue).')}>{t('Retry Landing')}</Button>
+              )}
               {mission.captainId && <Link className="btn btn-sm" to={`/captains/${mission.captainId}`}>{t('Open captain configuration')}</Link>}
               {missionCaptain?.modelEndpointId && <Link className="btn btn-sm" to="/configuration?tab=endpoints">{t('Open inference endpoints')}</Link>}
               {mission.vesselId && <Link className="btn btn-sm" to={`/vessels/${mission.vesselId}`}>{t('Open vessel configuration')}</Link>}

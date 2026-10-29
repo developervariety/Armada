@@ -181,10 +181,31 @@ namespace Armada.Core.Services.Interfaces
         Task RecallCaptainAsync(string captainId, CancellationToken token = default);
 
         /// <summary>
+        /// Stop a specific captain on an operator's request, recording who stopped it and through which surface on the
+        /// mission it was running.
+        /// </summary>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="stop">Who stopped the captain and how; null records a generic recall.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A task.</returns>
+        Task RecallCaptainAsync(string captainId, OperatorStopContext? stop, CancellationToken token = default)
+            => RecallCaptainAsync(captainId, token);
+
+        /// <summary>
         /// Emergency stop all captains.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
         Task RecallAllAsync(CancellationToken token = default);
+
+        /// <summary>
+        /// Emergency stop all captains on an operator's request, recording who stopped them and through which surface
+        /// on each mission they were running.
+        /// </summary>
+        /// <param name="stop">Who stopped the captains and how; null records a generic recall.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A task.</returns>
+        Task RecallAllAsync(OperatorStopContext? stop, CancellationToken token = default)
+            => RecallAllAsync(token);
 
         /// <summary>
         /// Stop Admiral-local agent processes without altering mission or dock state.
@@ -247,10 +268,12 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="pipelineId">Optional explicit pipeline id.</param>
         /// <param name="pipelineName">Optional pipeline name to resolve (used when no id is supplied).</param>
         /// <param name="vesselId">Target vessel id.</param>
-        /// <param name="missionCount">Number of missions in the request.</param>
+        /// <param name="missionCount">Number of missions in the request. At most CollectionLimits.MaxRequestItems.</param>
         /// <param name="allowBareVoyage">Whether a missing vessel / zero missions should be treated as a bare voyage rather than an error.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The typed validation result.</returns>
+        /// <exception cref="Armada.Core.Services.CollectionLimitExceededException">Thrown when the request carries more than
+        /// CollectionLimits.MaxRequestItems missions.</exception>
         Task<DispatchValidationResult> ValidateDispatchAsync(
             string? objectiveId,
             string? pipelineId,

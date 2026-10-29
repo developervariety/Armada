@@ -178,6 +178,7 @@ namespace Armada.Tui.Screens.Ask
         /// <param name="block">Block receiving row bookkeeping.</param>
         /// <param name="work">Tracked work, or null.</param>
         /// <param name="snapshot">Snapshot, or null.</param>
+        /// <param name="workRows">Rows read from the paged row enumeration, or null before they are read.</param>
         /// <param name="highlighted">Emphasize the card.</param>
         /// <param name="lineOffset">Lines that precede the card inside the block.</param>
         /// <param name="theme">Theme.</param>
@@ -185,7 +186,7 @@ namespace Armada.Tui.Screens.Ask
         /// <param name="nowUtc">Now.</param>
         /// <param name="width">Width.</param>
         /// <returns>Lines.</returns>
-        public static List<StyledText> WorkCard(AskBlock block, AskTrackedWork? work, AskWorkSnapshot? snapshot, bool highlighted, int lineOffset, ArmadaTheme theme, LocalizationService loc, DateTime nowUtc, int width)
+        public static List<StyledText> WorkCard(AskBlock block, AskTrackedWork? work, AskWorkSnapshot? snapshot, AskWorkRows? workRows, bool highlighted, int lineOffset, ArmadaTheme theme, LocalizationService loc, DateTime nowUtc, int width)
         {
             int inner = Math.Max(10, width - 4);
             AskTrackedEntityTypeEnum type = snapshot?.EntityType ?? work?.EntityType ?? AskTrackedEntityTypeEnum.Voyage;
@@ -225,8 +226,8 @@ namespace Armada.Tui.Screens.Ask
                 body.AddRange(TextWrapper.Wrap(line, inner));
             }
 
-            List<AskWorkMissionSnapshot> missions = snapshot?.Missions ?? new List<AskWorkMissionSnapshot>();
-            List<AskWorkTargetSnapshot> targets = snapshot?.Targets ?? new List<AskWorkTargetSnapshot>();
+            List<AskWorkMissionSnapshot> missions = workRows?.Missions ?? new List<AskWorkMissionSnapshot>();
+            List<AskWorkTargetSnapshot> targets = workRows?.Targets ?? new List<AskWorkTargetSnapshot>();
             int headerLines = 1;
             if (missions.Count > 0)
             {
@@ -257,6 +258,9 @@ namespace Armada.Tui.Screens.Ask
                 }
             }
 
+            int shownRows = missions.Count > 0 ? missions.Count : targets.Count;
+            if (workRows != null && workRows.TotalRecords > shownRows)
+                body.Add(StyledText.From(loc.T("Showing {{shown}} of {{total}} rows; Enter opens the full list", LocalizationArgs.Of("shown", shownRows, "total", workRows.TotalRecords)), theme.Muted));
             if (!String.IsNullOrEmpty(snapshot?.ErrorText)) body.AddRange(Para(snapshot!.ErrorText!, theme.Error, inner));
             if (snapshot == null) body.Add(StyledText.From(loc.T("Loading live status..."), theme.Muted));
             DateTime? updated = snapshot?.CapturedUtc ?? work?.LastChangeUtc;

@@ -105,8 +105,13 @@ export interface PasswordChangeRequest {
   NewPassword: string;
 }
 
+/** POST /api/v1/tenants/lookup: one page of the tenants where the email exists, ordered by name then id. */
 export interface TenantLookupResult {
   tenants: TenantListEntry[];
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+  totalRecords: number;
 }
 
 export interface TenantListEntry {
@@ -141,6 +146,12 @@ export interface Fleet {
   active: boolean;
   createdUtc: string;
   lastUpdateUtc: string;
+}
+
+/** GET /api/v1/fleets/{id}: the fleet and its vessel count (vessels are paged with listVessels and fleetId). */
+export interface FleetDetailResponse {
+  fleet: Fleet;
+  vesselCount: number;
 }
 
 export interface Vessel {
@@ -292,8 +303,24 @@ export interface CaptainToolAccessResult {
   reachableServerCount: number;
   /** True when Ask thread turns of this captain hold mutating Armada tool calls as approval cards. */
   askApprovalGated?: boolean;
+  /** Tool sources (at most 256). */
   servers: CaptainToolServerSummary[];
-  tools: CaptainToolSummary[];
+  /** Named tools of every kind in the snapshot. */
+  toolCount: number;
+  mcpToolCount: number;
+  runtimeBuiltInToolCount: number;
+  /** When the runtime was probed; paging within 60 seconds reuses this snapshot unless refresh is requested. */
+  snapshotUtc: string;
+  /** One page of the named tools (filtered by sourceKind when the request named one). */
+  tools: EnumerationResult<CaptainToolSummary>;
+}
+
+/** Paging and filter for GET /api/v1/captains/{id}/tools. */
+export interface CaptainToolsQuery {
+  pageNumber?: number;
+  pageSize?: number;
+  sourceKind?: 'McpServer' | 'RuntimeBuiltIn' | 'Internal';
+  refresh?: boolean;
 }
 
 /** Execution mode of a mission. Audit and Research are read-only modes that produce a report, not a commit. */
@@ -330,6 +357,8 @@ export interface Mission {
   prUrl: string | null;
   commitHash: string | null;
   failureReason: string | null;
+  /** Category of the failure (MissionFailureKindEnum), for example 'Infra' when the host blocked landing. */
+  failureKind?: string | null;
   diffSnapshot: string | null;
   createdUtc: string;
   startedUtc: string | null;
@@ -377,8 +406,12 @@ export interface MissionAssignmentBlocker {
   summary: string;
   untilUtc: string | null;
   dependsOnMissionId: string | null;
+  /** The first 25 holding missions; blockingMissionCount is the full count. */
   blockingMissionIds: string[];
+  blockingMissionCount?: number;
+  /** The first 25 captains by name; captainCount is the full count. */
   captains: MissionAssignmentCaptainStatus[];
+  captainCount?: number;
   computedUtc: string;
 }
 
@@ -454,7 +487,12 @@ export interface TokenUsageBucket {
   outputTokens: number;
   cachedTokens: number;
   totalTokens: number;
+  /** The summary's top models present in this bucket (at most modelLimit). */
   models: TokenUsageModelBreakdown[];
+  /** Distinct models summed into otherModels in this bucket. */
+  otherModelCount?: number;
+  /** This bucket's usage by models outside the top models (model "(other)"); null when none. */
+  otherModels?: TokenUsageModelBreakdown | null;
 }
 
 export interface TokenUsageSummaryResult {
@@ -467,9 +505,19 @@ export interface TokenUsageSummaryResult {
   outputTokens: number;
   cachedTokens: number;
   totalTokens: number;
+  /** At most 1000 buckets; a larger window and bucket size is rejected (400, CollectionLimitExceeded). */
   buckets: TokenUsageBucket[];
+  /** The modelLimit most-used models; the rest are summed into otherModels. */
   byModel: TokenUsageModelBreakdown[];
   syntheticCount?: number;
+  /** Most models broken out by name (default 10, 1 to 100). */
+  modelLimit?: number;
+  /** Distinct models in the window. */
+  modelCount?: number;
+  /** Distinct models summed into otherModels. */
+  otherModelCount?: number;
+  /** Whole-window usage by the models beyond modelLimit (model "(other)"); null when every model is listed. */
+  otherModels?: TokenUsageModelBreakdown | null;
 }
 
 export interface Voyage {
@@ -492,6 +540,32 @@ export interface Voyage {
   captainOverridesJson?: string | null;
   /** True for evaluation work (fixture battery, model evaluation); its stage outcomes never count as production data. */
   isEvaluation?: boolean;
+}
+
+/**
+ * GET /api/v1/voyages/{id} and each row of POST /api/v1/voyages/progress/enumerate: the voyage with counts of its
+ * missions. Missions are never embedded; page them with listMissions({ filters: { voyageId } }).
+ */
+export interface VoyageProgress {
+  voyage: Voyage;
+  totalMissions: number;
+  completedMissions: number;
+  failedMissions: number;
+  inProgressMissions: number;
+  /** Mission counts keyed by status name (only statuses with missions appear). */
+  missionCountsByStatus: Record<string, number>;
+  /** Vessel of the voyage's earliest mission, or null. */
+  vesselId: string | null;
+  /** Distinct vessels the voyage's missions target. */
+  vesselCount: number;
+}
+
+/** DELETE /api/v1/voyages/{id}: the cancelled voyage with counts. */
+export interface VoyageCancelResult {
+  voyage: Voyage;
+  cancelledMissions: number;
+  notCancelledMissions: number;
+  firstNotCancelledReason: string | null;
 }
 
 /** Capability tier used for fallback routing when a preferred captain is busy. */
@@ -642,6 +716,12 @@ export interface ObjectiveReorderRequest {
   items: ObjectiveReorderItem[];
 }
 
+/** Result of a reorder: how many objectives changed and each one's new rank (one item per request item). */
+export interface ObjectiveReorderResult {
+  updated: number;
+  items: ObjectiveReorderItem[];
+}
+
 export type GitHubObjectiveSourceType = 'Issue' | 'PullRequest';
 
 export interface GitHubObjectiveImportRequest {
@@ -663,15 +743,24 @@ export interface GitHubActionsSyncRequest {
   runStatus?: string | null;
   typeOverride?: CheckRunType | null;
   runCount?: number;
+  /** GitHub page of runs to read (1-based, newest first). */
+  pageNumber?: number;
 }
 
+/** Mutation result: counts and ids only; read imported runs through the check-run enumeration. */
 export interface GitHubActionsSyncResult {
   providerName: string;
   vesselId: string | null;
   deploymentId: string | null;
   createdCount: number;
   updatedCount: number;
-  checkRuns: CheckRun[];
+  pageNumber: number;
+  pageSize: number;
+  sourceTotalCount: number;
+  sourceTotalPages: number;
+  fetchedCount: number;
+  filteredOutCount: number;
+  checkRunIds: string[];
 }
 
 export interface GitHubPullRequestReview {
@@ -712,15 +801,22 @@ export interface GitHubPullRequestDetail {
   headSha: string | null;
   authorLogin: string | null;
   mergedByLogin: string | null;
+  /** The first 100 requested reviewers; requestedReviewerCount is the full count. */
   requestedReviewers: string[];
+  requestedReviewerCount: number;
+  /** The first 100 labels; labelCount is the full count. */
   labels: string[];
+  labelCount: number;
   changedFiles: number;
   additions: number;
   deletions: number;
   commitCount: number;
-  reviews: GitHubPullRequestReview[];
-  comments: GitHubPullRequestComment[];
-  checks: GitHubPullRequestCheck[];
+  /** Totals; the items are paged with enumerateMissionPullRequestReviews / Comments / Checks. */
+  reviewCount: number;
+  commentCount: number;
+  checkCount: number;
+  /** False when the review status was computed from the first 1000 reviews only. */
+  reviewStatusComplete: boolean;
   createdUtc: string | null;
   updatedUtc: string | null;
   mergedUtc: string | null;
@@ -761,11 +857,28 @@ export interface PlanningSessionMessage {
   metrics?: CaptainChatMetrics | null;
 }
 
+/** Planning session detail as the server returns it: counts instead of the transcript (paged separately). */
 export interface PlanningSessionDetail {
   session: PlanningSession;
-  messages: PlanningSessionMessage[];
+  /** Number of transcript messages; read them with listPlanningSessionMessages. */
+  messageCount: number;
+  /** Number of objectives linked to the session that the caller can see. */
+  linkedObjectiveCount?: number;
   captain: Captain | null;
   vessel: Vessel | null;
+}
+
+/** Client-side view of a planning session: the detail plus the transcript pages loaded so far, oldest first. */
+export interface PlanningSessionView extends PlanningSessionDetail {
+  messages: PlanningSessionMessage[];
+}
+
+/** Paging for the POST .../enumerate routes: page size 1 to 1000 (default 10); newest first unless CreatedAscending. */
+export interface PagedQuery {
+  pageNumber?: number;
+  pageSize?: number;
+  order?: 'CreatedAscending' | 'CreatedDescending';
+  status?: string;
 }
 
 export type ObjectiveRefinementSessionStatus =
@@ -809,12 +922,19 @@ export interface ObjectiveRefinementMessage {
   lastUpdateUtc: string;
 }
 
+/** Refinement session detail as the server returns it: a message count instead of the transcript (paged separately). */
 export interface ObjectiveRefinementSessionDetail {
   session: ObjectiveRefinementSession;
-  messages: ObjectiveRefinementMessage[];
+  /** Number of transcript messages; read them with listObjectiveRefinementMessages. */
+  messageCount: number;
   captain: Captain | null;
   vessel: Vessel | null;
   objective: Objective | null;
+}
+
+/** Client-side view of a refinement session: the detail plus the transcript pages loaded so far, oldest first. */
+export interface ObjectiveRefinementSessionView extends ObjectiveRefinementSessionDetail {
+  messages: ObjectiveRefinementMessage[];
 }
 
 export interface ObjectiveRefinementSessionCreateRequest {
@@ -1230,7 +1350,8 @@ export interface VesselHealthOverride {
 export interface VesselHealthDetail {
   health: VesselHealth;
   findings: VesselHealthFinding[];
-  dependencies: VesselDependency[];
+  /** Number of stored dependency rows; page them with listVesselDependencies (they are not embedded). */
+  dependencyCount: number;
   overrides: VesselHealthOverride[];
 }
 
@@ -2008,7 +2129,9 @@ export interface VesselReadinessResult {
   deploymentEnvironments: string[];
   deploymentMetadata: VesselDeploymentMetadata | null;
   setupChecklist: VesselSetupChecklistItem[];
+  /** At most 200 issues (most severe first when capped); issueCount is the full count. */
   issues: VesselReadinessIssue[];
+  issueCount?: number;
   setupChecklistSatisfiedCount: number;
   setupChecklistTotalCount: number;
   errorCount: number;
@@ -2189,13 +2312,12 @@ export interface MuxEndpointInfo {
   headers: Record<string, string>;
 }
 
-export interface MuxEndpointListResult {
+/** One page of the saved Mux endpoints, ordered by name (GET /api/v1/runtimes/mux/endpoints). */
+export interface MuxEndpointPage extends EnumerationResult<MuxEndpointInfo> {
   contractVersion: number;
-  success: boolean;
   configDirectory: string;
   errorCode: string;
   errorMessage: string;
-  endpoints: MuxEndpointInfo[];
   /** Harbor whose mux answered, or null when the Admiral ran mux itself. */
   harborId?: string | null;
 }
@@ -2223,7 +2345,12 @@ export interface WorkspaceTreeResult {
   rootPath: string;
   currentPath: string;
   parentPath: string | null;
+  /** One page of the directory's entries; the paging fields describe the whole directory. */
   entries: WorkspaceTreeEntry[];
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+  totalRecords: number;
 }
 
 export interface WorkspaceFileResponse {
@@ -2294,7 +2421,12 @@ export interface WorkspaceChangesResult {
   isDirty: boolean;
   commitsAhead: number;
   commitsBehind: number;
+  /** One page of changed files; totalRecords counts every changed file. */
   changes: WorkspaceChangeEntry[];
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+  totalRecords: number;
   error?: string | null;
 }
 
@@ -2302,7 +2434,9 @@ export interface WorkspaceActiveMission {
   missionId: string;
   title: string;
   status: string;
+  /** At most 256 paths; scopedFileCount is the full count. */
   scopedFiles: string[];
+  scopedFileCount: number;
 }
 
 export interface WorkspaceStatusResult {
@@ -2313,8 +2447,8 @@ export interface WorkspaceStatusResult {
   isDirty: boolean;
   commitsAhead?: number | null;
   commitsBehind?: number | null;
+  /** The missions themselves are paged with listWorkspaceActiveMissions. */
   activeMissionCount: number;
-  activeMissions: WorkspaceActiveMission[];
   error?: string | null;
 }
 
@@ -2716,6 +2850,10 @@ export interface HarborSlotMetrics {
 export interface HarborLaunchSpeed {
   runtime: string;
   jobCount: number;
+  /** True for the aggregate of the runtimes past the first 15 (runtime is "Other"). */
+  isOther?: boolean;
+  /** Runtimes this entry combines (1, or more for the Other aggregate). */
+  runtimeCount?: number;
   firstOutputCount: number;
   firstOutputMedianMs: number | null;
   firstOutputP95Ms: number | null;
@@ -2740,7 +2878,10 @@ export interface HarborRoundTripBucket {
 }
 
 export interface HarborLinkMetrics {
+  /** At most 1000; above that the timeline is shown at bucket resolution and segmentsCoalesced is true. */
   segments: HarborLinkSegment[];
+  segmentsCoalesced?: boolean;
+  rawSegmentCount?: number;
   roundTrip: HarborRoundTripBucket[];
   connectedPercent: number | null;
   disconnects: number;
@@ -2756,6 +2897,10 @@ export interface HarborTokenSeries {
   outputTokens: number;
   cachedTokens: number;
   totalTokens: number;
+  /** True for the aggregate of the series past the top 19 (runtime and model are "other"). */
+  isOther?: boolean;
+  /** Series this entry combines (1, or more for the other aggregate). */
+  seriesCount?: number;
 }
 
 export interface HarborTokenBucket {
@@ -2976,7 +3121,14 @@ export interface VesselBrowseEntry {
 export interface VesselBrowseResult {
   path: string | null;
   parent: string | null;
+  /** One page of subdirectories by name; the paging fields describe the whole directory. */
   entries: VesselBrowseEntry[];
+  pageNumber: number;
+  pageSize: number;
+  totalPages: number;
+  totalRecords: number;
+  /** True when the directory has more entries than the server examines; narrow the path to see the rest. */
+  truncated: boolean;
 }
 
 export interface VesselImportBatch {
@@ -3306,9 +3458,9 @@ export interface FleetActionRunTarget {
   lastUpdateUtc: string;
 }
 
+/** A run read: targets are not embedded; page them with enumerateFleetActionRunTargets. */
 export interface FleetActionRunDetail {
   run: FleetActionRun;
-  targets: FleetActionRunTargetSummary[];
 }
 
 // ---------------------------------------------------------------------------
@@ -3486,8 +3638,16 @@ export interface AskWorkSnapshot {
   totalCount?: number | null;
   completedCount?: number | null;
   failedCount?: number | null;
+  /** Number of mission rows (voyage or mission work); the rows are paged with enumerateAskWorkMissions. */
+  missionCount?: number | null;
+  /** Number of target rows (fleet action runs); the rows are paged with enumerateAskWorkTargets. */
+  targetCount?: number | null;
+  /** Client-side: the first page of mission rows, read with enumerateAskWorkMissions (the server never embeds them). */
   missions?: AskMissionSnapshot[] | null;
+  /** Client-side: the first page of target rows, read with enumerateAskWorkTargets (the server never embeds them). */
   targets?: AskTargetSnapshot[] | null;
+  /** Client-side: how many rows exist in all when only the first page is loaded. */
+  rowTotal?: number | null;
   errorText?: string | null;
   startedUtc?: string | null;
   completedUtc?: string | null;
@@ -3524,6 +3684,9 @@ export interface AskMessage {
   /** Telemetry of the captain turn that wrote this reply; null for user messages, cards, and older replies. */
   metrics?: CaptainChatMetrics | null;
   createdUtc?: string;
+  /** Number of tool calls the captain made while writing the message; the calls are paged with enumerateAskToolCalls. */
+  toolCallCount?: number;
+  /** Client-side: every tool call of the message, read from its pages (the server never embeds them). */
   toolCalls?: AskToolCall[] | null;
   proposal?: AskActionProposal | null;
   trackedWork?: AskTrackedWork | null;
@@ -3540,19 +3703,29 @@ export interface AskTurnProgress {
   messageId?: string | null;
   text?: string | null;
   thinkingText?: string | null;
-  /** Tool calls so far; a call still running has a null `ok` and no result. */
+  /** Number of tool calls so far; the calls are paged with enumerateAskTurnToolCalls. */
+  toolCallCount?: number;
+  /** Client-side: the running turn's tool calls read from their pages; a call still running has a null `ok`. */
   toolCalls?: AskToolCall[] | null;
   startedUtc?: string;
 }
 
+/** A thread as the server returns it: counts of its collections, which are paged separately. */
 export interface AskThreadDetail {
   thread: AskThread;
+  trackedWorkCount?: number;
+  pendingProposalCount?: number;
+  pendingCliPermissionCount?: number;
+  /** The running turn's streamed reply, thinking, and tool call count so far; null or absent when no turn is running. */
+  activeTurn?: AskTurnProgress | null;
+}
+
+/** Client-side view of a thread: the detail plus every tracked work item, pending proposal, and pending CLI
+ * permission request, each read from its paged enumeration (see lib/askPaging). */
+export interface AskThreadView extends AskThreadDetail {
   trackedWork?: AskTrackedWork[] | null;
   pendingProposals?: AskActionProposal[] | null;
-  /** Pending CLI permission requests of this thread's captain turns. */
   pendingCliPermissions?: CliPermissionRequest[] | null;
-  /** The running turn's streamed reply, tool calls, and thinking so far; null or absent when no turn is running. */
-  activeTurn?: AskTurnProgress | null;
 }
 
 export interface AskMessagePage {
@@ -3782,7 +3955,9 @@ export interface VesselCommit {
   committerEmail: string;
   /** Commit date; history is ordered and filtered by it. */
   committedUtc: string;
+  /** At most 64 entries; parentCount is the full count. */
   parentShas: string[];
+  parentCount?: number;
   isMerge: boolean;
   /** All changed files, even when `files` is truncated. */
   filesChanged: number;
