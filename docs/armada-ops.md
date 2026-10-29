@@ -96,6 +96,10 @@ For a premise check's selected fact and unknown identity, use
 role respects explicit objective limits on test changes and preserves required,
 permitted validation; see [pipelines and personas](../README.md#pipelines-and-personas).
 
+## Model evaluation
+
+Use the fixture Battery for controlled model tasks; see [Fixture Battery](BATTERY.md). Check the fixture vessel's workflow resolution before collecting results. Evaluation missions with a requested captain wait for that captain when it is unavailable and record `WaitForRequested`. Keep captain wait time separate from execution time, and keep setup failures separate from model-quality results.
+
 ## Judge lenses and bounded reviews
 
 Judge reviews use three lenses: correctness, safety and blast radius, and

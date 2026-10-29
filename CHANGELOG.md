@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Evaluation captain selection
+
+- An evaluation with a requested captain waits for that captain when it is unavailable. It records `WaitForRequested` instead of substituting a captain from the fallback tier.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

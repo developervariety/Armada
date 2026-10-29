@@ -14019,7 +14019,8 @@ namespace Armada.Core.Services
             string message;
             if (selected != null)
                 message = decision.Reason + " Selected captain " + selected.Id + ".";
-            else if (decision.Outcome == RequestedCaptainOutcomeEnum.WaitForTier)
+            else if (decision.Outcome == RequestedCaptainOutcomeEnum.WaitForTier
+                || decision.Outcome == RequestedCaptainOutcomeEnum.WaitForRequested)
                 message = decision.Reason;
             else
                 message = decision.Reason + " No eligible idle captain passed persona and model routing; waiting.";

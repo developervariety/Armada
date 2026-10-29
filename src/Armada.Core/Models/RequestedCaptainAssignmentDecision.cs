@@ -41,7 +41,7 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Why the requested captain was not assigned, naming the captain and the tier. Empty when the
+        /// Why the requested captain was not assigned, naming the captain and any fallback tier. Empty when the
         /// outcome is <see cref="RequestedCaptainOutcomeEnum.NotRequested"/> or
         /// <see cref="RequestedCaptainOutcomeEnum.AssignRequested"/>.
         /// </summary>

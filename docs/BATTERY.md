@@ -11,6 +11,8 @@ A run targets one captain and one pack. For each task the Admiral:
 3. Waits for the mission to finish or for the task timeout (60 minutes unless the task sets `timeoutMinutes`).
 4. Grades the mission's worktree on the Admiral host.
 
+Evaluation missions wait for their requested captain when it is busy or unavailable; they do not use another captain from the fallback tier. The normal eligibility and usage gates still apply. Captain wait time is included in `MissionDurationMs`, so use the mission's start and completion times when comparing execution time.
+
 The fixture vessel is named `battery-<pack id>` and is created on request. Fixture repositories live under the
 `battery` folder of the data directory.
 
@@ -89,3 +91,5 @@ The dashboard Battery page lists runs and shows each run's tasks.
 
 The shipped packs are `csharp` (needs the .NET SDK) and `javascript` (needs Node.js). Both need `git` on the Admiral
 host's `PATH`.
+
+When the installation's definition-of-done gate requires workflow commands, configure a workflow profile for the fixture vessel before collecting comparative results. For `battery-csharp`, use `dotnet build Inventory.sln -c Release` and `dotnet run --project tests/Inventory.Tests -c Release --no-build --no-restore`. A missing profile is an infrastructure failure before grading; retain that attempt separately from model-quality results.
