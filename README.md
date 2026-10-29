@@ -1002,3 +1002,5 @@ from `src/Armada.Dashboard`.
 Armada was created by [jchristn](https://github.com/jchristn) as [`jchristn/Armada`](https://github.com/jchristn/Armada). This repository is a private fork that builds on that work; all upstream copyright and attribution are retained.
 
 Armada is licensed under the terms in [LICENSE.md](LICENSE.md).
+
+Captain choice events (`mission.requested_captain`) record the requested and selected captain, routing mode, tier floor, capability hint, ranking inputs and reason, including normal unpinned choices. A choice precedes reservation and launch; mission attempts show which captain ran. Provider authentication, quota and transport faults affect availability and cooldown only; they do not revise configured capability scores.

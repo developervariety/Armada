@@ -14229,7 +14229,11 @@ namespace Armada.Core.Services
                             && usage.ClassifyCaptain(usagePolicy, mission, c, busy, now).Outcome != UsageRoutingService.OutcomeRemoved)
                         .ToList();
                     request = await DecideRequestedCaptainAsync(mission, usable, "not approved by Smart Routing", token).ConfigureAwait(false);
-                    if (request.Outcome == RequestedCaptainOutcomeEnum.AssignRequested) return request.Captain;
+                    if (request.Outcome == RequestedCaptainOutcomeEnum.AssignRequested)
+                    {
+                        await RecordRequestedCaptainOutcomeAsync(mission, request, request.Captain, token).ConfigureAwait(false);
+                        return request.Captain;
+                    }
                     idleCaptains = request.Candidates;
                     narrow = request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier;
                 }
@@ -14260,8 +14264,8 @@ namespace Armada.Core.Services
                     _Logging.Info(_Header + "smart routing selected captain " + usageSelected.Id + " for mission " + mission.Id + ": " + decision.Reason
                         + (decision.HasPersonaModels ? " (capacity " + decision.Capacity + ", " + decision.CapacitySource + ")" : String.Empty));
                 await PersonaModelListHealth.TryEmitAsync(_Database, mission, decision, token).ConfigureAwait(false);
-                if (request != null)
-                    await RecordRequestedCaptainOutcomeAsync(mission, request, usageSelected, token).ConfigureAwait(false);
+                await RecordRequestedCaptainOutcomeAsync(mission, request ?? new RequestedCaptainAssignmentDecision(),
+                    usageSelected, token, decision.Reason).ConfigureAwait(false);
                 if (usageSelected == null && decision.LegacyOrder.Count > 0)
                 {
                     mission.AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage;
@@ -14273,15 +14277,18 @@ namespace Armada.Core.Services
             if (hasRequest)
             {
                 request = await DecideRequestedCaptainAsync(mission, idleCaptains, null, token).ConfigureAwait(false);
-                if (request.Outcome == RequestedCaptainOutcomeEnum.AssignRequested) return request.Captain;
+                if (request.Outcome == RequestedCaptainOutcomeEnum.AssignRequested)
+                {
+                    await RecordRequestedCaptainOutcomeAsync(mission, request, request.Captain, token).ConfigureAwait(false);
+                    return request.Captain;
+                }
                 idleCaptains = request.Candidates;
             }
 
             Captain? selected = idleCaptains.Count == 0
                 ? null
                 : SelectByModelAndPersona(mission, idleCaptains, request != null && request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier, judgeChainAuthors);
-            if (request != null)
-                await RecordRequestedCaptainOutcomeAsync(mission, request, selected, token).ConfigureAwait(false);
+            await RecordRequestedCaptainOutcomeAsync(mission, request ?? new RequestedCaptainAssignmentDecision(), selected, token).ConfigureAwait(false);
             return selected;
         }
 
@@ -14411,18 +14418,16 @@ namespace Armada.Core.Services
             return null;
         }
 
-        // Records every substitution for, or wait on, a requested captain or tier as an event. An unchanged
-        // outcome is recorded once per mission so a waiting mission does not write an event every tick.
-        private async Task RecordRequestedCaptainOutcomeAsync(Mission mission, RequestedCaptainAssignmentDecision decision, Captain? selected, CancellationToken token)
+        // Record the selection inputs on the existing choice event. This precedes reservation and launch;
+        // mission attempts remain the authority for which captain actually ran. Unchanged waits are deduplicated.
+        private async Task RecordRequestedCaptainOutcomeAsync(Mission mission, RequestedCaptainAssignmentDecision decision, Captain? selected, CancellationToken token, string? routingReason = null)
         {
-            if (decision.Outcome == RequestedCaptainOutcomeEnum.NotRequested
-                || decision.Outcome == RequestedCaptainOutcomeEnum.AssignRequested)
-                return;
-
-            // A stored tier without a requested captain that found a captain is ordinary tier-floored routing.
-            if (String.IsNullOrEmpty(decision.RequestedCaptainId) && selected != null)
-                return;
-
+            if (decision.Outcome == RequestedCaptainOutcomeEnum.NotRequested && selected == null) return;
+            CaptainRankingFactors? factors = selected == null ? null : LegacyCaptainSelector.RankingFactors(_Settings.ModelTier, mission, selected);
+            string routingMode = _Settings.ModelTier.UsageRouting.Enabled ? "Smart" : "Legacy";
+            string reason = !String.IsNullOrWhiteSpace(routingReason) ? routingReason!
+                : decision.Outcome == RequestedCaptainOutcomeEnum.AssignRequested ? "Eligible requested captain"
+                : "Shared tier, capability and preference order";
             string message;
             if (selected != null)
                 message = decision.Reason + " Selected captain " + selected.Id + ".";
@@ -14432,6 +14437,9 @@ namespace Armada.Core.Services
             else
                 message = decision.Reason + " No eligible idle captain passed persona and model routing; waiting.";
 
+            message += " Routing=" + routingMode + "; tier=" + (factors?.Tier.ToString() ?? "none")
+                + "; hint=" + (mission.CapabilityHint ?? "none") + "; rank=" + (factors?.PreferenceRank.ToString() ?? "none")
+                + "; " + reason + ".";
             if (_RequestedCaptainNotices.TryGetValue(mission.Id, out string? previous)
                 && String.Equals(previous, message, StringComparison.Ordinal))
                 return;
@@ -14456,7 +14464,15 @@ namespace Armada.Core.Services
                     requestedCaptainId = decision.RequestedCaptainId,
                     persona = mission.Persona,
                     fallbackTier = decision.FallbackTier?.ToString(),
-                    selectedCaptainId = selected?.Id
+                    selectedCaptainId = selected?.Id,
+                    selectedModel = selected?.Model,
+                    routingMode,
+                    capabilityHint = mission.CapabilityHint,
+                    personaMinimumTier = _Settings.ModelTier.MinimumTierForPersona(mission.Persona).ToString(),
+                    preferredModel = mission.PreferredModel,
+                    ranking = factors,
+                    reason = String.IsNullOrWhiteSpace(decision.Reason) ? reason : decision.Reason + " " + reason,
+                    selectionOnly = true
                 });
                 await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
             }

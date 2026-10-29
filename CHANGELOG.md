@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Routing choice evidence
+
+- Existing captain choice events include normal selections, requested and selected captain ids, mode, tier floor, hint, ranking inputs and the selection or fallback reason. This adds provenance without changing routing order or capability scores.
+
 ### Bounded coordination windows
 
 - Host and suite claims have a fixed owner and expiry (15 minutes by default, at most two hours). Presence renews work claims only. The board shows native host holders and waiters beside advisory windows; expiry never stops a running suite.

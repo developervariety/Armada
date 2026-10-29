@@ -1,6 +1,8 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Linq;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Context;
@@ -134,7 +136,13 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "Normal routing must assign");
                     Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     AssertEqual(personaMatch.Id, read!.CaptainId, "With neither field set the PreferredPersona captain is still chosen");
-                    AssertEqual(0, (await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false)).Count, "No requested-captain event without a request");
+                    List<ArmadaEvent> choices = await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                    AssertEqual(1, choices.Count, "Ordinary selection also records routing provenance");
+                    using JsonDocument choice = JsonDocument.Parse(choices[0].Payload!);
+                    AssertEqual(personaMatch.Id, choice.RootElement.GetProperty("selectedCaptainId").GetString());
+                    AssertEqual(JsonValueKind.Null, choice.RootElement.GetProperty("requestedCaptainId").ValueKind);
+                    AssertEqual("Legacy", choice.RootElement.GetProperty("routingMode").GetString());
+                    AssertTrue(choice.RootElement.GetProperty("selectionOnly").GetBoolean(), "A choice event does not assert launch succeeded");
                 }
             });
 
@@ -233,6 +241,14 @@ namespace Armada.Test.Unit.Suites.Services
                         await testDb.Driver.Captains.UpdateAsync(requested).ConfigureAwait(false);
                         AssertTrue(await service.TryAssignAsync(mission, vessel).ConfigureAwait(false), "The evaluation starts when its requested captain becomes available");
                         AssertEqual(requested.Id, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.CaptainId, "The requested captain runs the evaluation");
+                        ArmadaEvent selectedEvent = (await RequestedCaptainEventsAsync(testDb.Driver, mission.Id).ConfigureAwait(false)).Last();
+                        using JsonDocument selectedPayload = JsonDocument.Parse(selectedEvent.Payload!);
+                        AssertEqual(requested.Id, selectedPayload.RootElement.GetProperty("requestedCaptainId").GetString());
+                        AssertEqual(requested.Id, selectedPayload.RootElement.GetProperty("selectedCaptainId").GetString());
+                        AssertEqual(smartRouting ? "Smart" : "Legacy", selectedPayload.RootElement.GetProperty("routingMode").GetString());
+                        AssertTrue(selectedPayload.RootElement.GetProperty("ranking").GetProperty("PreferenceRank").ValueKind == JsonValueKind.Number,
+                            "Selection records the actual shared ranking inputs");
+                        AssertContains("Eligible requested captain", selectedPayload.RootElement.GetProperty("reason").GetString()!);
                     }
                 }
             });
