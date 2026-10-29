@@ -618,7 +618,8 @@ namespace Armada.Server.Routes
                 statusRequest.Caller = ctx;
                 statusRequest.MissionId = id;
                 statusRequest.StatusText = transition.Status;
-                statusRequest.HandleMissionComplete = _handleMissionComplete;
+                statusRequest.Git = _git;
+                statusRequest.Settings = _settings;
                 statusRequest.Callbacks = callbacks;
 
                 MissionStatusTransitionResult result = await MissionStatusTransition.ApplyAsync(statusRequest).ConfigureAwait(false);
@@ -626,6 +627,11 @@ namespace Armada.Server.Routes
                 {
                     req.Http.Response.StatusCode = 404;
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = result.Message ?? "Mission not found" };
+                }
+                if (result.Error == MissionStatusTransitionErrorEnum.Conflict)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = result.Message ?? "Conflict" };
                 }
                 if (result.Error == MissionStatusTransitionErrorEnum.InvalidStatus || result.Error == MissionStatusTransitionErrorEnum.InvalidTransition)
                 {
@@ -892,10 +898,11 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.LandingFailed)
+                if (mission.Status != MissionStatusEnum.Pending && mission.Status != MissionStatusEnum.Failed
+                    && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.LandingFailed)
                 {
                     req.Http.Response.StatusCode = 409;
-                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Only Failed, LandingFailed, or Cancelled missions can be restarted (current: " + mission.Status + ")" };
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted (current: " + mission.Status + ")" };
                 }
 
                 MissionRestartRequest? body = null;
@@ -930,11 +937,11 @@ namespace Armada.Server.Routes
             },
             api => api
                 .WithTag("Missions")
-                .WithSummary("Restart a failed or cancelled mission")
-                .WithDescription("Resets a Failed or Cancelled mission back to Pending so it can be re-dispatched. Optionally update the title and description (instructions) before restarting. Clears captain assignment, branch, PR URL, and timing fields.")
+                .WithSummary("Restart a failed or cancelled mission, or start a pending one")
+                .WithDescription("Resets a Failed, LandingFailed, or Cancelled mission back to Pending (clearing captain assignment, branch, PR URL, and timing fields), or keeps a Pending mission as it is, then dispatches it at once when a captain is available. When no captain is available the mission stays Pending and the regular dispatcher picks it up later. Optionally update the title and description (instructions) before restarting. Any other status returns 409.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<MissionRestartRequest>("Optional updated instructions", false))
-                .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission"))
+                .WithResponse(200, OpenApiJson.For<Mission>("Restarted mission (Pending, Assigned, or InProgress)"))
                 .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
@@ -991,6 +998,10 @@ namespace Armada.Server.Routes
                                 + ". The mission's work is complete and its branch '" + branch + "' is available in the repository for manual integration. "
                                 + "To land it automatically, set a landing mode (Local Merge, Merge and Push, Pull Request, or Merge Queue) on the vessel or voyage and retry; "
                                 + "or merge the branch yourself from the vessel's Manage Branches view.";
+                        }
+                        else if (mission.Status == MissionStatusEnum.LandingFailed && !String.IsNullOrWhiteSpace(mission.FailureReason))
+                        {
+                            reason = mission.FailureReason;
                         }
                         else if (mission.Status == MissionStatusEnum.LandingFailed)
                         {

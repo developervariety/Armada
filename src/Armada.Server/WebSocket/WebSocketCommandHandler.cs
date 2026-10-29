@@ -580,6 +580,7 @@ namespace Armada.Server.WebSocket
                     statusRequest.Caller = caller;
                     statusRequest.MissionId = command.Id ?? "";
                     statusRequest.StatusText = command.Status ?? "";
+                    statusRequest.RefuseReviewExitExceptCancel = true;
                     statusRequest.Callbacks = callbacks;
 
                     MissionStatusTransitionResult result = await MissionStatusTransition.ApplyAsync(statusRequest).ConfigureAwait(false);
@@ -587,7 +588,7 @@ namespace Armada.Server.WebSocket
                         return WebSocketCommandError.Create("transition_mission_status", WebSocketCommandErrorCodeEnum.NotFound, result.Message ?? "Mission not found");
                     if (result.Error == MissionStatusTransitionErrorEnum.InvalidStatus)
                         return WebSocketCommandError.Create("transition_mission_status", WebSocketCommandErrorCodeEnum.InvalidArgument, result.Message ?? "Invalid status");
-                    if (result.Error == MissionStatusTransitionErrorEnum.InvalidTransition)
+                    if (result.Error == MissionStatusTransitionErrorEnum.InvalidTransition || result.Error == MissionStatusTransitionErrorEnum.Conflict)
                         return WebSocketCommandError.Create("transition_mission_status", WebSocketCommandErrorCodeEnum.Conflict, result.Message ?? "Invalid transition");
                     return new { type = "command.result", action = "transition_mission_status", data = (object)result.Mission! };
                 }
@@ -668,8 +669,9 @@ namespace Armada.Server.WebSocket
                     Mission? rmMission = await _Database.Missions.ReadAsync(rmId).ConfigureAwait(false);
                     if (rmMission == null)
                         return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.NotFound, "Mission not found");
-                    else if (rmMission.Status != MissionStatusEnum.Failed && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
-                        return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.Conflict, "Only Failed, LandingFailed, or Cancelled missions can be restarted");
+                    else if (rmMission.Status != MissionStatusEnum.Pending && rmMission.Status != MissionStatusEnum.Failed
+                        && rmMission.Status != MissionStatusEnum.Cancelled && rmMission.Status != MissionStatusEnum.LandingFailed)
+                        return WebSocketCommandError.Create("restart_mission", WebSocketCommandErrorCodeEnum.Conflict, "Only Pending, Failed, LandingFailed, or Cancelled missions can be restarted (current: " + rmMission.Status + ")");
                     else
                     {
                         if (Missions == null)
@@ -784,7 +786,9 @@ namespace Armada.Server.WebSocket
                     }
 
                     if (!String.IsNullOrWhiteSpace(command.CaptainId)) cliQuery.CaptainId = command.CaptainId;
-                    List<CliPermissionRequest> cliRequests = await CliPermissions.ListAsync(caller, cliQuery).ConfigureAwait(false);
+                    // One page (query.pageNumber, query.pageSize 1-1000, default 10), never the whole list.
+                    EnumerationQuery cliPage = command.Query ?? new EnumerationQuery();
+                    EnumerationResult<CliPermissionRequest> cliRequests = await CliPermissions.EnumerateAsync(caller, cliQuery, cliPage.PageNumber, cliPage.PageSize).ConfigureAwait(false);
                     return new { type = "command.result", action, data = (object)cliRequests };
                 }
 

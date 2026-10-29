@@ -118,7 +118,7 @@ namespace Armada.Harbor
 
             StackPanel leftBottom = HarborUi.ButtonRow();
             leftBottom.Margin = new Thickness(0, 6, 0, 0);
-            leftBottom.Children.Add(HarborUi.Button("Refresh", RefreshList, "Read the list of log files again"));
+            leftBottom.Children.Add(HarborUi.RefreshButton(RefreshList, "Read the list of log files again"));
             leftBottom.Children.Add(HarborUi.Button("Open Folder", OpenCategoryFolder, "Open the folder that holds this kind of log in Finder or Explorer"));
 
             DockPanel left = new DockPanel();

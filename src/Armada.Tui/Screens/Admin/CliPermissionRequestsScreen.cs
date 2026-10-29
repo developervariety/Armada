@@ -190,14 +190,16 @@ namespace Armada.Tui.Screens.Admin
         /// </summary>
         public void Load()
         {
-            CliPermissionRequestQuery query = new CliPermissionRequestQuery();
-            query.Limit = RequestLimit;
-            if (Enum.TryParse<CliPermissionRequestStatusEnum>(StatusFilter.Value ?? "", false, out CliPermissionRequestStatusEnum status)) query.Status = status;
+            // One page of the newest RequestLimit requests (the route pages; there is no unpaged list).
+            CliPermissionRequestEnumerateRequest query = new CliPermissionRequestEnumerateRequest();
+            query.PageNumber = 1;
+            query.PageSize = RequestLimit;
+            if (Enum.TryParse<CliPermissionRequestStatusEnum>(StatusFilter.Value ?? "", false, out CliPermissionRequestStatusEnum status)) query.Status = status.ToString();
             string? highlight = HighlightId;
             if (_Items.Count == 0) Grid.SetLoading();
             ScreenOps.Run(Context, async () =>
             {
-                List<CliPermissionRequest> list = await Context.Client.ListCliPermissionRequestsAsync(query).ConfigureAwait(false) ?? new List<CliPermissionRequest>();
+                List<CliPermissionRequest> list = (await Context.Client.ListCliPermissionRequestsAsync(query).ConfigureAwait(false))?.Objects ?? new List<CliPermissionRequest>();
                 if (highlight != null && !list.Any(r => r.Id == highlight))
                 {
                     try
@@ -215,7 +217,7 @@ namespace Armada.Tui.Screens.Admin
             }, rows =>
             {
                 _Items = rows;
-                Grid.EmptyText = query.Status == CliPermissionRequestStatusEnum.Pending ? "No CLI tool requests are waiting." : "No CLI tool requests match this filter.";
+                Grid.EmptyText = query.Status == CliPermissionRequestStatusEnum.Pending.ToString() ? "No CLI tool requests are waiting." : "No CLI tool requests match this filter.";
                 Grid.SetLocalRows(_Items);
                 if (!_Highlighted && highlight != null)
                 {

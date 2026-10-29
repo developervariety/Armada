@@ -66,7 +66,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
-                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.InProgress, true).ConfigureAwait(false);
+                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.WorkProduced, true).ConfigureAwait(false);
                     LandingProbe probe = new LandingProbe(testDb.Driver);
                     Mission returned = await fx.TransitionRestAsync(mission.Id, "Complete", probe).ConfigureAwait(false);
                     AssertEqual(1, probe.Calls, "landing callback count");
@@ -82,7 +82,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
-                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.InProgress, true).ConfigureAwait(false);
+                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.WorkProduced, true).ConfigureAwait(false);
                     LandingProbe probe = fx.AttachLandingProbe(testDb.Driver);
                     Mission returned = await fx.TransitionMcpAsync(mission.Id, "Complete").ConfigureAwait(false);
                     AssertEqual(1, probe.Calls, "landing callback count");
@@ -98,7 +98,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
-                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.InProgress, true).ConfigureAwait(false);
+                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.WorkProduced, true).ConfigureAwait(false);
                     LandingProbe probe = fx.AttachLandingProbe(testDb.Driver);
                     Mission returned = await fx.TransitionWebSocketAsync(mission.Id, "Complete").ConfigureAwait(false);
                     AssertEqual(1, probe.Calls, "landing callback count");
@@ -114,7 +114,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
-                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.InProgress, false).ConfigureAwait(false);
+                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.WorkProduced, false, MissionModeEnum.Audit).ConfigureAwait(false);
                     Mission returned = await fx.TransitionMcpAsync(mission.Id, "Complete").ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, returned.Status, "returned row");
                     await AssertNoDockAuditAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
@@ -128,7 +128,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
-                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.InProgress, false).ConfigureAwait(false);
+                    Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.WorkProduced, false, MissionModeEnum.Audit).ConfigureAwait(false);
                     Mission returned = await fx.TransitionWebSocketAsync(mission.Id, "Complete").ConfigureAwait(false);
                     AssertEqual(MissionStatusEnum.Complete, returned.Status, "returned row");
                     await AssertNoDockAuditAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
@@ -219,17 +219,18 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
-            cases.Add(CaseAsync("websocket_review_complete_with_active_dock_runs_landing", "WebSocket Complete from Review with an active dock runs landing", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("websocket_review_complete_is_refused", "WebSocket refuses to leave Review by writing Complete", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
                     Mission mission = await fx.CreateMissionAsync(MissionStatusEnum.Review, true).ConfigureAwait(false);
                     LandingProbe probe = fx.AttachLandingProbe(testDb.Driver);
-                    Mission returned = await fx.TransitionWebSocketAsync(mission.Id, "Complete").ConfigureAwait(false);
-                    AssertEqual(1, probe.Calls, "landing callback count");
-                    AssertEqual(MissionStatusEnum.WorkProduced, probe.StatusSeen, "status when landing starts");
-                    AssertEqual(MissionStatusEnum.PullRequestOpen, returned.Status, "returned row");
+                    WebSocketCommandError error = await fx.TransitionWebSocketErrorAsync(mission.Id, "Complete").ConfigureAwait(false);
+                    AssertTrue(error.Error.IndexOf("review gate", StringComparison.Ordinal) >= 0, error.Error);
+                    AssertEqual(0, probe.Calls, "landing callback count");
+                    Mission stored = await ReadMissionAsync(testDb.Driver, mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Review, stored.Status, "status");
                 }
             }));
 
@@ -277,34 +278,36 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
-                    DependentPair pair = await fx.CreateDependentPairAsync().ConfigureAwait(false);
+                    DependentPair pair = await fx.CreateDependentPairAsync(MissionStatusEnum.Review).ConfigureAwait(false);
                     LandingProbe probe = new LandingProbe(testDb.Driver);
                     await fx.TransitionRestAsync(pair.Parent.Id, "Complete", probe).ConfigureAwait(false);
                     await AssertHandoffAsync(testDb.Driver, pair, probe).ConfigureAwait(false);
                 }
             }));
 
-            cases.Add(CaseAsync("mcp_dependent_stage_hands_off_without_landing", "MCP Complete of a dependent stage hands off without landing", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("mcp_running_dependent_stage_is_refused", "MCP refuses Complete of a running dependent stage", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
-                    DependentPair pair = await fx.CreateDependentPairAsync().ConfigureAwait(false);
+                    DependentPair pair = await fx.CreateDependentPairAsync(MissionStatusEnum.InProgress).ConfigureAwait(false);
                     LandingProbe probe = fx.AttachLandingProbe(testDb.Driver);
-                    await fx.TransitionMcpAsync(pair.Parent.Id, "Complete").ConfigureAwait(false);
-                    await AssertHandoffAsync(testDb.Driver, pair, probe).ConfigureAwait(false);
+                    McpToolError error = await fx.TransitionMcpErrorAsync(pair.Parent.Id, "Complete").ConfigureAwait(false);
+                    AssertTrue(error.Error.IndexOf("still owns this mission", StringComparison.Ordinal) >= 0, error.Error);
+                    await AssertRefusedAsync(testDb.Driver, pair, probe).ConfigureAwait(false);
                 }
             }));
 
-            cases.Add(CaseAsync("websocket_dependent_stage_hands_off_without_landing", "WebSocket Complete of a dependent stage hands off without landing", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("websocket_running_dependent_stage_is_refused", "WebSocket refuses Complete of a running dependent stage", TestTags.Negative, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ChannelFixture fx = await ChannelFixture.OpenAsync(testDb.Driver).ConfigureAwait(false);
-                    DependentPair pair = await fx.CreateDependentPairAsync().ConfigureAwait(false);
+                    DependentPair pair = await fx.CreateDependentPairAsync(MissionStatusEnum.InProgress).ConfigureAwait(false);
                     LandingProbe probe = fx.AttachLandingProbe(testDb.Driver);
-                    await fx.TransitionWebSocketAsync(pair.Parent.Id, "Complete").ConfigureAwait(false);
-                    await AssertHandoffAsync(testDb.Driver, pair, probe).ConfigureAwait(false);
+                    WebSocketCommandError error = await fx.TransitionWebSocketErrorAsync(pair.Parent.Id, "Complete").ConfigureAwait(false);
+                    AssertTrue(error.Error.IndexOf("still owns this mission", StringComparison.Ordinal) >= 0, error.Error);
+                    await AssertRefusedAsync(testDb.Driver, pair, probe).ConfigureAwait(false);
                 }
             }));
 
@@ -337,6 +340,16 @@ namespace Test.Shared.Suites.Services
             string description = child.Description ?? "";
             AssertTrue(description.IndexOf("Prior Stage Output", StringComparison.Ordinal) >= 0, "dependent description");
             AssertTrue(description.IndexOf(pair.Parent.Id, StringComparison.Ordinal) >= 0, "dependent description names the parent");
+        }
+
+        private static async Task AssertRefusedAsync(DatabaseDriver database, DependentPair pair, LandingProbe probe)
+        {
+            AssertEqual(0, probe.Calls, "landing callback count");
+            Mission parent = await ReadMissionAsync(database, pair.Parent.Id).ConfigureAwait(false);
+            AssertEqual(MissionStatusEnum.InProgress, parent.Status, "parent status");
+            Mission child = await ReadMissionAsync(database, pair.Child.Id).ConfigureAwait(false);
+            AssertEqual(pair.Child.Description, child.Description, "dependent description");
+            AssertEqual(MissionStatusEnum.Pending, child.Status, "dependent status");
         }
 
         private static async Task AssertNoDockAuditAsync(DatabaseDriver database, string missionId)
@@ -645,6 +658,11 @@ namespace Test.Shared.Suites.Services
                 IMissionService missions = new MissionService(logging, database, settings, docks, captains);
                 IVoyageService voyages = new VoyageService(logging, database);
                 AdmiralService admiral = new AdmiralService(logging, database, settings, captains, missions, voyages, docks);
+                admiral.OnCaptureDiff = (Mission mission, Dock dock) =>
+                {
+                    mission.CommitHash = "0123456789abcdef0123456789abcdef01234567";
+                    return Task.CompletedTask;
+                };
                 ILandingService landing = new LandingService(logging, database, settings, git);
                 LandingPreviewService landingPreview = new LandingPreviewService(database, logging, settings);
                 WorkflowProfileService profiles = new WorkflowProfileService(database, logging);
@@ -690,7 +708,7 @@ namespace Test.Shared.Suites.Services
                 return probe;
             }
 
-            public async Task<Mission> CreateMissionAsync(MissionStatusEnum status, bool activeDock)
+            public async Task<Mission> CreateMissionAsync(MissionStatusEnum status, bool activeDock, MissionModeEnum mode = MissionModeEnum.Implementation)
             {
                 Vessel vessel = await CreateVesselAsync().ConfigureAwait(false);
                 Captain? captain = null;
@@ -698,10 +716,11 @@ namespace Test.Shared.Suites.Services
                 if (activeDock)
                 {
                     captain = await CreateCaptainAsync().ConfigureAwait(false);
-                    dock = await CreateDockAsync(vessel.Id, captain.Id, "").ConfigureAwait(false);
+                    dock = await CreateDockAsync(vessel.Id, captain.Id, System.IO.Path.Combine(_Settings.DocksDirectory, "manual-" + _Token)).ConfigureAwait(false);
                 }
 
                 Mission mission = new Mission("manual-status-" + _Token);
+                mission.Mode = mode;
                 mission.TenantId = Constants.DefaultTenantId;
                 mission.UserId = Constants.DefaultUserId;
                 mission.Status = status;
@@ -719,7 +738,7 @@ namespace Test.Shared.Suites.Services
                 return mission;
             }
 
-            public async Task<DependentPair> CreateDependentPairAsync()
+            public async Task<DependentPair> CreateDependentPairAsync(MissionStatusEnum parentStatus)
             {
                 Voyage voyage = new Voyage("stage-voyage-" + _Token);
                 voyage.TenantId = Constants.DefaultTenantId;
@@ -733,7 +752,7 @@ namespace Test.Shared.Suites.Services
                 Mission parent = new Mission("parent-stage-" + _Token);
                 parent.TenantId = Constants.DefaultTenantId;
                 parent.UserId = Constants.DefaultUserId;
-                parent.Status = MissionStatusEnum.InProgress;
+                parent.Status = parentStatus;
                 parent.VesselId = vessel.Id;
                 parent.VoyageId = voyage.Id;
                 parent.CaptainId = captain.Id;
@@ -798,6 +817,7 @@ namespace Test.Shared.Suites.Services
 
             public async Task<Mission> TransitionRestAsync(string missionId, string status, LandingProbe probe)
             {
+                Admiral.OnMissionComplete = probe.Callback;
                 int port;
                 using (TcpListener listener = new TcpListener(IPAddress.Loopback, 0))
                 {

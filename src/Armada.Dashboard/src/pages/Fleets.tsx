@@ -164,11 +164,6 @@ export default function Fleets() {
 
   const columns: DataTableColumn<FleetWithCount>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Fleet name. Click to sort; type in the box below to filter.'),
-      filter: <input type="text" className="col-filter" aria-label={t('Name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
-      render: (f) => <strong>{f.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), headerTitle: t('Fleet ID (flt_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (f) => (
         <span className="id-display">
@@ -176,6 +171,11 @@ export default function Fleets() {
           <CopyButton text={f.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Fleet name. Click to sort; type in the box below to filter.'),
+      filter: <input type="text" className="col-filter" aria-label={t('Name')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
+      render: (f) => <strong>{f.name}</strong>,
     },
     {
       key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('Fleet description. Click to sort; type in the box below to filter.'),

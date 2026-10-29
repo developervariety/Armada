@@ -5,6 +5,7 @@ namespace Armada.Server
     using Armada.Core.Database;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
 
     /// <summary>
     /// Inputs for one manual mission status change. REST, MCP, and WebSocket each fill this from their own caller.
@@ -19,7 +20,7 @@ namespace Armada.Server
         public DatabaseDriver? Database { get; set; }
 
         /// <summary>
-        /// Admiral whose diff and landing callbacks the active-dock path uses.
+        /// Admiral whose diff and landing callbacks the manual landing path uses.
         /// </summary>
         public IAdmiralService? Admiral { get; set; }
 
@@ -50,9 +51,14 @@ namespace Armada.Server
         public bool RefuseReviewExitExceptCancel { get; set; }
 
         /// <summary>
-        /// Landing callback. When null, <see cref="IAdmiralService.OnMissionComplete"/> is used.
+        /// Git service for the no-change containment check of a Complete without an active dock. Null disables that check.
         /// </summary>
-        public Func<Mission, Dock, Task>? HandleMissionComplete { get; set; }
+        public IGitService? Git { get; set; }
+
+        /// <summary>
+        /// Settings used to locate the vessel repository for the no-change containment check. Null disables that lookup.
+        /// </summary>
+        public ArmadaSettings? Settings { get; set; }
 
         /// <summary>
         /// Event, broadcast, and log callbacks. Null uses a direct event write and skips broadcasts.

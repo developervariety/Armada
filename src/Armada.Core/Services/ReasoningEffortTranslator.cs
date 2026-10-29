@@ -94,6 +94,28 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// The value for pi's <c>--thinking</c> flag. pi's levels are a superset of Armada's, so the mapping is
+        /// one to one: Off, Minimal, Low, Medium and High map to <c>off</c>, <c>minimal</c>, <c>low</c>,
+        /// <c>medium</c> and <c>high</c>. pi clamps the level to what the model supports. Null omits the flag
+        /// so pi keeps its default (or the <c>:level</c> suffix of the model).
+        /// </summary>
+        /// <param name="effort">Captain reasoning effort, or null.</param>
+        /// <returns>The pi thinking level, or null to omit the flag.</returns>
+        public static string? ToPiThinkingLevel(ReasoningEffortEnum? effort)
+        {
+            if (effort == null) return null;
+            switch (effort.Value)
+            {
+                case ReasoningEffortEnum.Off: return "off";
+                case ReasoningEffortEnum.Minimal: return "minimal";
+                case ReasoningEffortEnum.Low: return "low";
+                case ReasoningEffortEnum.Medium: return "medium";
+                case ReasoningEffortEnum.High: return "high";
+                default: return null;
+            }
+        }
+
         #endregion
     }
 }

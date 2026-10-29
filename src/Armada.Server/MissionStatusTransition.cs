@@ -12,7 +12,7 @@ namespace Armada.Server
 
     /// <summary>
     /// Manual mission status change shared by REST, MCP, and WebSocket.
-    /// Complete with an active dock is stored as WorkProduced and then handed to the landing callback.
+    /// WorkProduced and Complete of a mission that is not read-only land through <see cref="ManualMissionHandoff"/>.
     /// Complete of a claimable mission that still has a dependent voyage stage uses
     /// <see cref="IMissionService.HandleCompletionAsync(Captain, string, CancellationToken)"/> before any WorkProduced write.
     /// </summary>
@@ -62,6 +62,10 @@ namespace Armada.Server
                     "Mission " + missionId + " is waiting at a review gate; use approve_mission_review or deny_mission_review.");
             }
 
+            string? handoffRefusal = ManualMissionHandoff.Refusal(mission, newStatus);
+            if (handoffRefusal != null)
+                return Refuse(MissionStatusTransitionErrorEnum.Conflict, handoffRefusal);
+
             MissionStatusEnum previousStatus = mission.Status;
             MissionStatusTransitionCallbacks callbacks = request.Callbacks ?? new MissionStatusTransitionCallbacks();
 
@@ -96,51 +100,31 @@ namespace Armada.Server
                 }
             }
 
-            if (newStatus == MissionStatusEnum.Complete && !String.IsNullOrEmpty(mission.DockId))
+            if ((newStatus == MissionStatusEnum.WorkProduced || newStatus == MissionStatusEnum.Complete)
+                && !MissionModeContract.IsReadOnly(mission.Mode))
             {
-                Dock? landingDock = await ReadDockAsync(database, request.Caller, mission.DockId, token).ConfigureAwait(false);
-                if (landingDock != null && landingDock.Active)
+                Mission landed;
+                try
                 {
-                    if (request.Admiral.OnCaptureDiff != null)
-                    {
-                        try
-                        {
-                            await request.Admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
-                        }
-                        catch (Exception diffEx)
-                        {
-                            if (callbacks.Logging != null)
-                                callbacks.Logging.Warn(_Header + "error capturing diff during manual completion of " + missionId + ": " + diffEx.Message);
-                        }
-                    }
-
-                    mission.Status = MissionStatusEnum.WorkProduced;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    await database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-
-                    if (callbacks.Logging != null)
-                        callbacks.Logging.Info(_Header + "manual Complete transition for " + missionId + " — routing through landing pipeline");
-
-                    Func<Mission, Dock, Task>? callback = request.HandleMissionComplete ?? request.Admiral.OnMissionComplete;
-                    if (callback != null)
-                        await callback.Invoke(mission, landingDock).ConfigureAwait(false);
-
-                    Mission? landed = await database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
-                    if (landed == null)
-                        return Refuse(MissionStatusTransitionErrorEnum.NotFound, "Mission not found after landing");
-
-                    await RecordProgressAsync(
-                        database,
-                        callbacks,
-                        landed,
-                        previousStatus,
-                        "Mission " + missionId + " manual completion — landed as " + landed.Status,
-                        "Mission " + missionId + " manually completed - landed as " + landed.Status,
-                        landed.Status.ToString(),
-                        false,
-                        token).ConfigureAwait(false);
-                    return Stored(landed);
+                    landed = await ManualMissionHandoff.LandAsync(database, request.Admiral, mission, newStatus, request.Git, request.Settings).ConfigureAwait(false);
                 }
+                catch (InvalidOperationException ex)
+                {
+                    return Refuse(MissionStatusTransitionErrorEnum.Conflict, ex.Message);
+                }
+
+                string landedText = "Mission " + missionId + " manually completed - landed as " + landed.Status;
+                await RecordProgressAsync(
+                    database,
+                    callbacks,
+                    landed,
+                    previousStatus,
+                    "Mission " + missionId + " transitioned to " + newStatus,
+                    landedText,
+                    landed.Status.ToString(),
+                    false,
+                    token).ConfigureAwait(false);
+                return Stored(landed);
             }
 
             mission.Status = newStatus;
@@ -297,15 +281,6 @@ namespace Armada.Server
             if (caller.IsTenantAdmin)
                 return await database.Missions.ReadAsync(caller.TenantId!, missionId, token).ConfigureAwait(false);
             return await database.Missions.ReadAsync(caller.TenantId!, caller.UserId!, missionId, token).ConfigureAwait(false);
-        }
-
-        private static async Task<Dock?> ReadDockAsync(DatabaseDriver database, AuthContext? caller, string dockId, CancellationToken token)
-        {
-            if (caller == null || caller.IsAdmin)
-                return await database.Docks.ReadAsync(dockId, token).ConfigureAwait(false);
-            if (caller.IsTenantAdmin)
-                return await database.Docks.ReadAsync(caller.TenantId!, dockId, token).ConfigureAwait(false);
-            return await database.Docks.ReadAsync(caller.TenantId!, caller.UserId!, dockId, token).ConfigureAwait(false);
         }
 
         private static MissionStatusTransitionResult Stored(Mission mission)

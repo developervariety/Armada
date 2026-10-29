@@ -26,6 +26,11 @@ namespace Armada.Server
         /// <summary>
         /// The current status cannot move to the requested status.
         /// </summary>
-        InvalidTransition
+        InvalidTransition,
+
+        /// <summary>
+        /// The agent or its exit handoff still owns the mission, or landing could not be started or completed.
+        /// </summary>
+        Conflict
     }
 }

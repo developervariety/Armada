@@ -189,12 +189,6 @@ export default function Playbooks() {
 
   const columns: DataTableColumn<Playbook>[] = [
     {
-      key: 'fileName', label: t('File'), required: true, headerTitle: t('The playbook\'s file name (ends in .md). When a playbook is attached as a file, the captain reads it under this name.'),
-      clearFilter: () => setColFilters(f => ({ ...f, fileName: '' })),
-      filter: <input type="text" className="col-filter" aria-label={t('File')} title={t('Show only playbooks whose file name contains this text.')} value={colFilters.fileName} onChange={e => setColFilters(f => ({ ...f, fileName: e.target.value }))} placeholder={t('Filter...')} />,
-      render: (playbook) => <strong>{playbook.fileName}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique playbook ID, used when selecting playbooks through the API or MCP tools. Use the copy button to copy it.'), cellClassName: 'mono text-dim table-id-cell',
       render: (playbook) => (
         <span className="id-display">
@@ -202,6 +196,12 @@ export default function Playbooks() {
           <CopyButton text={playbook.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'fileName', label: t('File'), required: true, headerTitle: t('The playbook\'s file name (ends in .md). When a playbook is attached as a file, the captain reads it under this name.'),
+      clearFilter: () => setColFilters(f => ({ ...f, fileName: '' })),
+      filter: <input type="text" className="col-filter" aria-label={t('File')} title={t('Show only playbooks whose file name contains this text.')} value={colFilters.fileName} onChange={e => setColFilters(f => ({ ...f, fileName: e.target.value }))} placeholder={t('Filter...')} />,
+      render: (playbook) => <strong>{playbook.fileName}</strong>,
     },
     {
       key: 'description', label: t('Description'), headerTitle: t('Summary shown when people pick playbooks during dispatch.'), cellClassName: 'text-dim',

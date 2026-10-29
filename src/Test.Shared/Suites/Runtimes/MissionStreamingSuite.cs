@@ -100,6 +100,7 @@ namespace Test.Shared.Suites.Runtimes
                 AssertTrue(MissionStreamDecoder.Supports(AgentRuntimeEnum.ClaudeCode));
                 AssertTrue(MissionStreamDecoder.Supports(AgentRuntimeEnum.Codex));
                 AssertTrue(MissionStreamDecoder.Supports(AgentRuntimeEnum.Mux));
+                AssertTrue(MissionStreamDecoder.Supports(AgentRuntimeEnum.Pi));
                 foreach (AgentRuntimeEnum runtime in new AgentRuntimeEnum[] { AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.ApiEndpoint })
                 {
                     AssertFalse(MissionStreamDecoder.Supports(runtime), runtime + " has no structured mission output");
@@ -181,6 +182,25 @@ namespace Test.Shared.Suites.Runtimes
                 AssertEqual("Working on it", summaries[2]);
                 AssertEqual("Done and tested", summaries[3]);
                 AssertTrue(ShimArgs(record).Split('\n').Contains("--json"), "the CLI was asked for --json");
+            }));
+
+            cases.Add(CaseAsync("pi_json_mission_reads_as_text_with_activities", "A pi mission replaying the captured tool-call stream raises readable lines (no JSON), tool activities, the final message, and exit 0", TestTags.Positive, async () =>
+            {
+                if (OperatingSystem.IsWindows()) return;
+                string root = TestTemp.NewDirectory("mission_stream_pi");
+                string stubDirectory = Path.Combine(root, "stub");
+                string stub = StubAgentProcesses.WritePiStub(stubDirectory);
+                File.WriteAllText(Path.Combine(stubDirectory, "pi-replay.jsonl"), String.Join("\n", PiStreamFixtures.ToolCalls) + "\n");
+                PiRuntime runtime = new PiRuntime(Logging()) { ExecutablePath = stub, StructuredProgress = true };
+                string finalFile = Path.Combine(root, "final.txt");
+
+                RunCapture run = await RunAsync(runtime, root, Path.Combine(root, "mission.log"), finalFile).ConfigureAwait(false);
+
+                AssertEqual("I'll execute those commands in sequence.|Now I'll write the file:|Now I'll edit the file to change x to y:|DONE", String.Join("|", run.Stdout));
+                AssertFalse(run.Output.Any(l => l.TrimStart().StartsWith("{", StringComparison.Ordinal)), "no raw JSON reaches the output");
+                AssertEqual("DONE", File.ReadAllText(finalFile).Trim());
+                List<string> summaries = run.Activities.Select(a => a.Summary).ToList();
+                AssertTrue(summaries.Contains("Running echo hi") && summaries.Contains("Writing a.txt") && summaries.Contains("Editing a.txt"), String.Join(" | ", summaries));
             }));
 
             cases.Add(CaseAsync("plain_lines_in_structured_mode_pass_through", "A CLI that prints plain text although structured progress was asked for (an older CLI) reads exactly as text mode", TestTags.Negative, async () =>

@@ -383,7 +383,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "restart_mission",
-                "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. Optionally update title and description (instructions) before restarting.",
+                "Restart a Failed, LandingFailed, or Cancelled mission, resetting it to Pending for re-dispatch, or start a Pending mission as it is. A later pipeline stage keeps the previous stage's branch, a finished voyage is reopened, and the stages cancelled because this one failed are restored. The mission is then dispatched at once when a captain is available; otherwise it stays Pending for the regular dispatcher. Optionally update title and description (instructions) before restarting.",
                 new
                 {
                     type = "object",
@@ -442,7 +442,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)McpToolError.NotFound("Mission not found");
                     bool success = await landingService.RetryLandingAsync(request.MissionId).ConfigureAwait(false);
                     Mission? mission = await database.Missions.ReadAsync(request.MissionId).ConfigureAwait(false);
-                    return (object)new { Success = success, Mission = mission };
+                    return (object)new { Success = success, Reason = success ? null : (String.IsNullOrWhiteSpace(mission?.FailureReason) ? "Landing retry did not complete; mission status: " + mission?.Status : mission.FailureReason), Mission = mission };
                 });
 
             register(
@@ -473,6 +473,8 @@ namespace Armada.Server.Mcp.Tools
                     statusRequest.MissionId = missionId;
                     statusRequest.StatusText = statusStr;
                     statusRequest.RefuseReviewExitExceptCancel = true;
+                    statusRequest.Git = git;
+                    statusRequest.Settings = settings;
                     statusRequest.Callbacks = statusCallbacks;
 
                     MissionStatusTransitionResult result = await MissionStatusTransition.ApplyAsync(statusRequest).ConfigureAwait(false);
@@ -480,7 +482,7 @@ namespace Armada.Server.Mcp.Tools
                         return (object)McpToolError.NotFound(result.Message ?? "Mission not found");
                     if (result.Error == MissionStatusTransitionErrorEnum.InvalidStatus)
                         return (object)McpToolError.InvalidArgument(result.Message ?? "Invalid status");
-                    if (result.Error == MissionStatusTransitionErrorEnum.InvalidTransition)
+                    if (result.Error == MissionStatusTransitionErrorEnum.InvalidTransition || result.Error == MissionStatusTransitionErrorEnum.Conflict)
                         return (object)McpToolError.Conflict(result.Message ?? "Invalid transition");
                     return (object)result.Mission!;
                 });
