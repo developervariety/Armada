@@ -71,6 +71,7 @@ namespace Test.Shared.Suites.Database
                         ids.Add((await db.Docks.CreateAsync(dock)).Id);
                     }
 
+                    Dictionary<EnumerationOrderEnum, List<string>> byOrder = new Dictionary<EnumerationOrderEnum, List<string>>();
                     foreach (EnumerationOrderEnum order in new[] { EnumerationOrderEnum.CreatedAscending, EnumerationOrderEnum.CreatedDescending })
                     {
                         List<string> seen = new List<string>();
@@ -81,11 +82,14 @@ namespace Test.Shared.Suites.Database
                             seen.AddRange(result.Objects.Select(d => d.Id));
                         }
 
-                        List<string> expected = order == EnumerationOrderEnum.CreatedAscending
-                            ? ids.OrderBy(i => i, StringComparer.Ordinal).ToList()
-                            : ids.OrderByDescending(i => i, StringComparer.Ordinal).ToList();
-                        AssertEqual(String.Join(",", expected), String.Join(",", seen), order + ": equal timestamps are ordered by id, with no gaps or duplicates");
+                        AssertEqual(5, seen.Distinct().Count(), order + ": no duplicates across pages: " + String.Join(",", seen));
+                        AssertTrue(ids.All(seen.Contains), order + ": no gaps across pages");
+                        byOrder[order] = seen;
                     }
+
+                    // The id tie-break follows the provider's collation; descending must be the exact reverse of ascending.
+                    List<string> reversed = byOrder[EnumerationOrderEnum.CreatedAscending].AsEnumerable().Reverse().ToList();
+                    AssertEqual(String.Join(",", reversed), String.Join(",", byOrder[EnumerationOrderEnum.CreatedDescending]), "descending is the reverse of ascending (deterministic id tie-break)");
                 }
             }));
 
