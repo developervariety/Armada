@@ -6,6 +6,7 @@ namespace Armada.Core.Database
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database.Interfaces;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -34,6 +35,12 @@ namespace Armada.Core.Database
         /// Newest first.
         /// </summary>
         internal const string Order = "created_utc DESC";
+
+        /// <summary>
+        /// Order of a paged read: salience descending, then newest first, then identifier so a page boundary never
+        /// moves between requests.
+        /// </summary>
+        internal const string PageOrder = "salience DESC, created_utc DESC, id ASC";
 
         #endregion
 
@@ -184,6 +191,31 @@ namespace Armada.Core.Database
         }
 
         /// <inheritdoc />
+        public async Task<EnumerationResult<Memory>> EnumeratePageAsync(MemoryEnumerateRequest request, string? tenantId, string? viewerUserId, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+
+            EnumerationResult<Memory> page = await _Rows.PageAsync(
+                Page(Table.Filter(), request, tenantId, viewerUserId, _Rows.Dialect.Provider), PageOrder, request.PageNumber, request.PageSize, token).ConfigureAwait(false);
+            if (page.Objects.Count > 0)
+            {
+                List<string> names = new List<string>();
+                for (int i = 0; i < page.Objects.Count; i++) names.Add("@memory_" + i);
+                List<string> ids = page.Objects.ConvertAll(memory => memory.Id);
+                await WithTagsAsync(
+                    page.Objects,
+                    "SELECT memory_id, tag FROM memory_tags WHERE memory_id IN (" + String.Join(", ", names) + ");",
+                    command =>
+                    {
+                        for (int i = 0; i < ids.Count; i++) StoredValueBinder.Value(command, names[i], ids[i]);
+                    },
+                    token).ConfigureAwait(false);
+            }
+
+            return EnumerationResult<Memory>.Create(request, page.Objects, page.TotalRecords);
+        }
+
+        /// <inheritdoc />
         public async Task<List<Memory>> EnumerateAsync(CancellationToken token = default)
         {
             List<Memory> memories = await _Rows.ListAsync(Table.Filter(), Order, token).ConfigureAwait(false);
@@ -228,7 +260,71 @@ namespace Armada.Core.Database
 
         #endregion
 
+        #region Internal-Methods
+
+        /// <summary>
+        /// Add the tenant, viewer, type, topic, vessel, voyage, mission, creation-time and search conditions of a
+        /// paged read. A record is visible to a viewer when it is tenant-wide or belongs to that viewer, the same
+        /// rule as the ownership policy applies to one record.
+        /// </summary>
+        internal static StoredFilter Page(StoredFilter filter, MemoryEnumerateRequest request, string? tenantId, string? viewerUserId, DatabaseTypeEnum provider)
+        {
+            filter.Text("tenant_id", tenantId);
+            if (!String.IsNullOrWhiteSpace(viewerUserId))
+            {
+                // A record stored without a user belongs to the default user.
+                string ownedByDefault = String.Equals(viewerUserId, Constants.DefaultUserId, StringComparison.Ordinal)
+                    ? " OR user_id IS NULL OR user_id = ''"
+                    : String.Empty;
+                filter.Condition("(scope IS NULL OR scope <> '" + MemoryScopeEnum.UserSpecific + "' OR user_id = @viewer_user_id" + ownedByDefault + ")",
+                    p => p.Text("@viewer_user_id", "user_id", viewerUserId));
+            }
+
+            filter.Name("type", request.Type);
+            if (!String.IsNullOrWhiteSpace(request.Topic))
+            {
+                string topic = request.Topic.Trim().ToLowerInvariant();
+                filter.Condition("LOWER(topic) = @topic", p => p.Text("@topic", "topic", topic));
+            }
+            if (!String.IsNullOrWhiteSpace(request.VesselId))
+            {
+                string vesselId = request.VesselId;
+                filter.Condition("(vessel_id = @vessel_id OR source_vessel_id = @vessel_id)", p => p.Text("@vessel_id", "vessel_id", vesselId));
+            }
+            filter
+                .Text("source_voyage_id", "@voyage_id", request.VoyageId)
+                .Text("source_mission_id", "@mission_id", request.MissionId)
+                .Time("created_utc", ">", "@created_after", request.CreatedAfter)
+                .Time("created_utc", "<", "@created_before", request.CreatedBefore);
+
+            if (!String.IsNullOrWhiteSpace(request.Search))
+            {
+                // The needle is literal text: LIKE wildcards in it are escaped. PostgreSQL matches
+                // case-insensitively with ILIKE; the other providers lower both sides.
+                string needle = request.Search.Trim();
+                bool postgresql = provider == DatabaseTypeEnum.Postgresql;
+                string pattern = "%" + EscapeLike(postgresql ? needle : needle.ToLowerInvariant(), provider) + "%";
+                string like = postgresql ? " ILIKE @search ESCAPE '!'" : " LIKE @search ESCAPE '!'";
+                string Column(string name) => postgresql ? name : "LOWER(" + name + ")";
+                filter.Condition("(" + Column("content") + like + " OR " + Column("summary") + like + " OR " + Column("topic") + like
+                    + " OR " + Column("memory_key") + like
+                    + " OR EXISTS (SELECT 1 FROM memory_tags t WHERE t.memory_id = memories.id AND " + Column("t.tag") + like + "))",
+                    p => p.Text("@search", "content", pattern));
+            }
+
+            return filter;
+        }
+
+        #endregion
+
         #region Private-Methods
+
+        // '!' is the escape character of every search condition. SQL Server also reads '[' as a wildcard.
+        private static string EscapeLike(string text, DatabaseTypeEnum provider)
+        {
+            string escaped = text.Replace("!", "!!").Replace("%", "!%").Replace("_", "!_");
+            return provider == DatabaseTypeEnum.SqlServer ? escaped.Replace("[", "![") : escaped;
+        }
 
         private async Task<Memory?> WithTagsAsync(Memory? memory, CancellationToken token)
         {

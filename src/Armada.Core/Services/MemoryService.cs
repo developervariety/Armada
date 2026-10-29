@@ -19,8 +19,8 @@ namespace Armada.Core.Services
     ///
     /// Every call is scoped to the caller: a caller sees the tenant-wide records of its own tenant plus
     /// its own user-specific records, and never a record of another tenant. A tenant or global
-    /// administrator may also change tenant-wide records. Search and paging run over the caller-visible
-    /// set, which suits the modest volume of distilled records.
+    /// administrator may also change tenant-wide records. Search, filters and paging run in the database over
+    /// the caller-visible set.
     ///
     /// The service is self-contained and reads no global enable setting.
     /// </summary>
@@ -91,7 +91,7 @@ namespace Armada.Core.Services
         /// <param name="topic">Optional exact topic filter.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>One page of records.</returns>
-        public async Task<EnumerationResult<Memory>> EnumerateAsync(
+        public Task<EnumerationResult<Memory>> EnumerateAsync(
             AuthContext auth,
             EnumerationQuery query,
             string? search = null,
@@ -99,46 +99,29 @@ namespace Armada.Core.Services
             string? topic = null,
             CancellationToken token = default)
         {
+            return EnumerateAsync(auth, MemoryEnumerateRequest.From(query, search, type, topic), token);
+        }
+
+        /// <summary>
+        /// Enumerate the records visible to the caller, ordered by salience and then by recency. The database
+        /// applies the caller's visibility, the filters and the page, so only the page's records are read.
+        /// </summary>
+        /// <param name="auth">Authentication context.</param>
+        /// <param name="request">Paging and filters.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page of records.</returns>
+        public async Task<EnumerationResult<Memory>> EnumerateAsync(AuthContext auth, MemoryEnumerateRequest request, CancellationToken token = default)
+        {
             RequireCaller(auth);
-            if (query == null) query = new EnumerationQuery();
+            if (request == null) request = new MemoryEnumerateRequest();
+
+            // A global administrator reads every tenant, a tenant administrator its whole tenant, and any other
+            // caller its tenant's tenant-wide records plus its own.
+            string? tenantId = auth.IsAdmin ? null : TenantOf(auth);
+            string? viewerUserId = auth.IsAdmin || auth.IsTenantAdmin ? null : UserOf(auth);
 
             Stopwatch sw = Stopwatch.StartNew();
-            List<Memory> visible = await LoadVisibleAsync(auth, token).ConfigureAwait(false);
-
-            IEnumerable<Memory> filtered = visible;
-            if (type.HasValue) filtered = filtered.Where(memory => memory.Type == type.Value);
-            if (!String.IsNullOrWhiteSpace(topic)) filtered = filtered.Where(memory => String.Equals(memory.Topic, topic.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (!String.IsNullOrWhiteSpace(query.VesselId))
-                filtered = filtered.Where(memory => String.Equals(memory.VesselId, query.VesselId, StringComparison.Ordinal)
-                    || String.Equals(memory.SourceVesselId, query.VesselId, StringComparison.Ordinal));
-            if (!String.IsNullOrWhiteSpace(query.VoyageId)) filtered = filtered.Where(memory => String.Equals(memory.SourceVoyageId, query.VoyageId, StringComparison.Ordinal));
-            if (!String.IsNullOrWhiteSpace(query.MissionId)) filtered = filtered.Where(memory => String.Equals(memory.SourceMissionId, query.MissionId, StringComparison.Ordinal));
-            if (query.CreatedAfter.HasValue) filtered = filtered.Where(memory => memory.CreatedUtc > query.CreatedAfter.Value);
-            if (query.CreatedBefore.HasValue) filtered = filtered.Where(memory => memory.CreatedUtc < query.CreatedBefore.Value);
-
-            if (!String.IsNullOrWhiteSpace(search))
-            {
-                string needle = search.Trim();
-                filtered = filtered.Where(memory =>
-                    Contains(memory.Content, needle)
-                    || Contains(memory.Summary, needle)
-                    || Contains(memory.Topic, needle)
-                    || Contains(memory.Key, needle)
-                    || memory.Tags.Any(tag => Contains(tag, needle)));
-            }
-
-            List<Memory> ordered = filtered
-                .OrderByDescending(memory => memory.Salience)
-                .ThenByDescending(memory => memory.CreatedUtc)
-                .ThenBy(memory => memory.Id, StringComparer.Ordinal)
-                .ToList();
-
-            List<Memory> page = ordered
-                .Skip((query.PageNumber - 1) * query.PageSize)
-                .Take(query.PageSize)
-                .ToList();
-
-            EnumerationResult<Memory> result = EnumerationResult<Memory>.Create(query, page, ordered.Count);
+            EnumerationResult<Memory> result = await _Database.Memories.EnumeratePageAsync(request, tenantId, viewerUserId, token).ConfigureAwait(false);
             sw.Stop();
             result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
             return result;
@@ -376,16 +359,6 @@ namespace Armada.Core.Services
             return records.Where(memory => CanView(auth, memory)).ToList();
         }
 
-        internal async Task<List<Memory>> LoadVisibleAsync(AuthContext auth, CancellationToken token)
-        {
-            RequireCaller(auth);
-            if (auth.IsAdmin) return await _Database.Memories.EnumerateAsync(token).ConfigureAwait(false);
-
-            List<Memory> tenantRecords = await _Database.Memories.EnumerateAsync(TenantOf(auth), token).ConfigureAwait(false);
-            if (auth.IsTenantAdmin) return tenantRecords;
-            return tenantRecords.Where(memory => CanView(auth, memory)).ToList();
-        }
-
         // A captain connection carries its mission; refuse the write when that mission's objective
         // forbids native memory. Operators and other credentials carry no mission and are not limited.
         private async Task RequireNativeMemoryAllowedAsync(AuthContext auth, CancellationToken token)
@@ -432,11 +405,6 @@ namespace Armada.Core.Services
         private static bool CanEdit(AuthContext auth, Memory memory)
         {
             return OwnershipPolicy.CanEdit(auth, memory.TenantId, memory.UserId, OwnershipOf(memory));
-        }
-
-        private static bool Contains(string? haystack, string needle)
-        {
-            return !String.IsNullOrEmpty(haystack) && haystack!.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static string? EmptyToNull(string value)

@@ -22,6 +22,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The History timeline accepts `excludeReadRequests` to leave out request entries for `GET`, `HEAD` and `OPTIONS`, and `order` (`CreatedDescending` or `CreatedAscending`). The request-history query applies the exclusion in SQL on every provider, before the per-source read limit, so polling no longer fills the request source or marks it truncated. The History page hides read-only requests until `Show read requests` is checked, and its export reads at most 10 pages and says when more entries match. The whole-list routes are unchanged.
 
+### Database memory enumeration
+
+- `POST /api/v1/memories/enumerate` takes an `EnumerationQuery` body (or querystring) plus `search`, `type` and `topic`, and returns one `EnumerationResult` page. `GET /api/v1/memories` and the MCP memory tools share the same read. The database now applies caller visibility (global administrator: every tenant; tenant administrator: its tenant; other callers: tenant-wide records plus their own), the filters, the order (salience, then newest, then identifier) and the page, so a request no longer loads every visible memory. Search treats `%`, `_` and `[` as plain text. The whole-list reads and the single-record routes are unchanged.
+
 ### Judge blocking rule
 
 - The Judge persona carries a `## When To Block` section: NEEDS_REVISION is for a defect the Judge can show (a criterion whose behaviour is missing or wrong, a failing test, build or command, a regression, data-loss or security fault, or an out-of-scope behaviour change). Requests for more tests or evidence, report or commit hygiene, pending Checks and style are Suggested Follow-ups, not blocks. An existing built-in Judge row receives the section on the next start.

@@ -183,7 +183,7 @@ Mission-scoped credentials keep the owner's effective roles for internal workflo
 | `/api/v1/events` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/merge-queue` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/playbooks` | GET/POST/PUT/DELETE | Authenticated / TenantAdmin | Reads are tenant-scoped for any authenticated user. Mutations require tenant admin. |
-| `/api/v1/memories` | ALL | Authenticated | Tenant-scoped. A caller sees the tenant-wide records of its tenant plus its own; only a tenant admin changes a tenant-wide record. |
+| `/api/v1/memories` | ALL, POST `/enumerate` | Authenticated | Tenant-scoped. A caller sees the tenant-wide records of its tenant plus its own; only a tenant admin changes a tenant-wide record. |
 | `/api/v1/prompt-templates` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below. A user-specific template is never resolved into a mission prompt |
 | `/api/v1/prompt-templates` | POST/PUT, POST `/{name}/reset` | AdminOnly | Global admin only, because a change affects every tenant. Create records the caller's tenant and user |
 | `/api/v1/personas` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
@@ -3592,9 +3592,17 @@ Native captain memory records: episodic, semantic and procedural findings with p
 
 List or search records, highest salience first, then newest.
 
-**Query:** `search`, `type` (`Episodic`|`Semantic`|`Procedural`), `topic`, `vesselId`, `pageNumber`, `pageSize`
+**Query:** `search`, `type` (`Episodic`|`Semantic`|`Procedural`), `topic`, `vesselId`, `voyageId`, `missionId`, `createdAfter`, `createdBefore`, `pageNumber`, `pageSize`
 
 **Response:** `200 OK` - [EnumerationResult](#enumerationresultt)\<Memory\>
+
+#### POST /api/v1/memories/enumerate
+
+Read one page of the records visible to the caller, highest salience first, then newest, with ties broken by identifier. The database applies the caller's visibility, the filters and the page, so a request reads only its page and `TotalRecords` counts every visible record that matches.
+
+**Request Body:** an [EnumerationQuery](#enumerationquery) plus `search` (case-insensitive substring over content, summary, topic, key and tags; `%`, `_` and `[` match themselves), `type` and `topic` (exact, case-insensitive). `vesselId` matches a record's vessel or its source vessel; `voyageId` and `missionId` match its source voyage and mission. The same fields are accepted as query parameters, which override the body. The order is fixed.
+
+**Response:** `200 OK` - [EnumerationResult](#enumerationresultt)\<Memory\>. An unknown `type` returns `400 Bad Request`.
 
 #### POST /api/v1/memories
 

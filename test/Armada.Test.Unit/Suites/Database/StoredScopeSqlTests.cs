@@ -140,6 +140,31 @@ namespace Armada.Test.Unit.Suites.Database
                 AssertTableMatchesWriter(RequestHistoryMethods.Details, new RequestHistoryDetail());
             });
 
+            await RunTest("Memory page conditions keep their text, order and parameters on every provider", () =>
+            {
+                string others = "tenant_id = @tenant_id AND (scope IS NULL OR scope <> 'UserSpecific' OR user_id = @viewer_user_id)"
+                    + " AND type = @type AND LOWER(topic) = @topic AND (vessel_id = @vessel_id OR source_vessel_id = @vessel_id)"
+                    + " AND source_voyage_id = @voyage_id AND source_mission_id = @mission_id"
+                    + " AND created_utc > @created_after AND created_utc < @created_before"
+                    + " AND (LOWER(content) LIKE @search ESCAPE '!' OR LOWER(summary) LIKE @search ESCAPE '!' OR LOWER(topic) LIKE @search ESCAPE '!'"
+                    + " OR LOWER(memory_key) LIKE @search ESCAPE '!'"
+                    + " OR EXISTS (SELECT 1 FROM memory_tags t WHERE t.memory_id = memories.id AND LOWER(t.tag) LIKE @search ESCAPE '!'))";
+                string postgresql = others.Replace("LOWER(content) LIKE", "content ILIKE").Replace("LOWER(summary) LIKE", "summary ILIKE")
+                    .Replace("LOWER(topic) LIKE", "topic ILIKE").Replace("LOWER(memory_key) LIKE", "memory_key ILIKE").Replace("LOWER(t.tag) LIKE", "t.tag ILIKE");
+                MemoryEnumerateRequest everyFilter = new MemoryEnumerateRequest
+                {
+                    Type = MemoryTypeEnum.Procedural, Topic = "Build", VesselId = "vsl_x", VoyageId = "vyg_x", MissionId = "msn_x", Search = "Gate",
+                    CreatedAfter = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CreatedBefore = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+                };
+                AssertScope(p => p == DatabaseTypeEnum.Postgresql ? postgresql : others,
+                    p => MemoryMethods.Page(MemoryMethods.Table.Filter(), everyFilter, "ten_x", "usr_x", p),
+                    p => MemoryMethods.Page(MemoryMethods.Table.Filter(), new MemoryEnumerateRequest(), null, null, p));
+                AssertEqual("salience DESC, created_utc DESC, id ASC", MemoryMethods.PageOrder);
+                AssertScope(p => "tenant_id = @tenant_id AND (scope IS NULL OR scope <> 'UserSpecific' OR user_id = @viewer_user_id OR user_id IS NULL OR user_id = '')",
+                    p => MemoryMethods.Page(MemoryMethods.Table.Filter(), new MemoryEnumerateRequest(), "ten_x", Armada.Core.Constants.DefaultUserId, p),
+                    p => MemoryMethods.Page(MemoryMethods.Table.Filter(), new MemoryEnumerateRequest(), null, null, p));
+            });
+
             await RunTest("PromptTemplate range conditions keep their text, order and parameters on every provider", () =>
             {
                 string expected = "created_utc > @created_after AND created_utc < @created_before";

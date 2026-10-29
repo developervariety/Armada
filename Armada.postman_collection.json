@@ -10660,6 +10660,35 @@
 					}
 				},
 				{
+					"name": "Enumerate Memories",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/memories/enumerate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"memories",
+								"enumerate"
+							]
+						},
+						"description": "Returns one page of the records visible to the caller, highest salience first, then newest. The database applies visibility, filters and the page. Query parameters override body values.",
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"PageNumber\": 1,\n  \"PageSize\": 25,\n  \"Search\": \"gate\",\n  \"Type\": \"Procedural\",\n  \"Topic\": \"build\",\n  \"VesselId\": \"{{vesselId}}\"\n}"
+						}
+					}
+				},
+				{
 					"name": "Create or Update Memory by Key",
 					"request": {
 						"method": "POST",

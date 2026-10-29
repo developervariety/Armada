@@ -49,30 +49,49 @@ namespace Armada.Server.Routes
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
                 if (ctx == null) return AuthError(req);
 
-                EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
-                string? vesselId = Trimmed(QueryValueReader.Read(req, "vesselId"));
-                if (vesselId != null) query.VesselId = vesselId;
-
-                string? typeText = Trimmed(QueryValueReader.Read(req, "type"));
-                MemoryTypeEnum? type = null;
-                if (typeText != null)
+                MemoryEnumerateRequest request = new MemoryEnumerateRequest();
+                request.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
+                if (!TryApplyMemoryFilters(req, request, out string? filterError))
                 {
-                    if (!Enum.TryParse(typeText, true, out MemoryTypeEnum parsed))
-                    {
-                        req.Http.Response.StatusCode = 400;
-                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Unknown memory type: " + typeText };
-                    }
-                    type = parsed;
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = filterError };
                 }
 
-                return await _Memories.EnumerateAsync(ctx, query, Trimmed(QueryValueReader.Read(req, "search")), type, Trimmed(QueryValueReader.Read(req, "topic"))).ConfigureAwait(false);
+                return await _Memories.EnumerateAsync(ctx, request).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Memories")
                 .WithSummary("List or search memories")
                 .WithDescription("Returns the native memory records visible to the caller, highest salience first, then newest. Filter with type, topic, vesselId and search; page with pageNumber and pageSize.")
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<Memory>>("Paginated memory list"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/memories/enumerate", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return AuthError(req);
+
+                if (!EnumerationRequestReader.TryRead(req, _JsonOptions, out MemoryEnumerateRequest request, out string? queryError))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = queryError };
+                }
+
+                if (!TryApplyMemoryFilters(req, request, out string? filterError))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = filterError };
+                }
+
+                return await _Memories.EnumerateAsync(ctx, request).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Memories")
+                .WithSummary("Enumerate memories")
+                .WithDescription("Returns one page of the native memory records visible to the caller, highest salience first, then newest. The database applies visibility, filters and the page, so TotalRecords counts every visible record that matches. Filters come from the JSON body (EnumerationQuery plus search, type and topic) or the querystring, which overrides the body: pageNumber, pageSize (1 to 1000, default 10), search, type, topic, vesselId, voyageId, missionId, createdAfter, createdBefore. The order is fixed.")
+                .WithRequestBody(OpenApiJson.BodyFor<MemoryEnumerateRequest>("Paging and filters", false))
+                .WithResponse(200, OpenApiJson.For<EnumerationResult<Memory>>("One page of memories"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/memories", async (ApiRequest req) =>
@@ -198,6 +217,34 @@ namespace Armada.Server.Routes
                 req.Http.Response.StatusCode = 400;
                 return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
             }
+        }
+
+        // Apply the querystring's memory filters on top of the request, trimmed. An unknown type is refused.
+        private static bool TryApplyMemoryFilters(ApiRequest req, MemoryEnumerateRequest request, out string? error)
+        {
+            error = null;
+            string? vesselId = Trimmed(QueryValueReader.Read(req, "vesselId"));
+            if (vesselId != null) request.VesselId = vesselId;
+
+            string? search = Trimmed(QueryValueReader.Read(req, "search"));
+            if (search != null) request.Search = search;
+
+            string? topic = Trimmed(QueryValueReader.Read(req, "topic"));
+            if (topic != null) request.Topic = topic;
+
+            string? typeText = Trimmed(QueryValueReader.Read(req, "type"));
+            if (typeText != null)
+            {
+                if (!Enum.TryParse(typeText, true, out MemoryTypeEnum parsed))
+                {
+                    error = "Unknown memory type: " + typeText;
+                    return false;
+                }
+
+                request.Type = parsed;
+            }
+
+            return true;
         }
 
         private static string? Trimmed(string? value)
