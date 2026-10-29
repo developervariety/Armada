@@ -32,8 +32,6 @@ namespace Test.Shared.Suites.E2E
         private static readonly Dictionary<string, string> _UnpagedListRoutes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["GET /api/v1/ask/quick-actions"] = "Fixed catalog defined in code",
-            ["POST /api/v1/objectives/reorder"] = "Echoes the items in the request body",
-            ["POST /api/v1/backlog/reorder"] = "Echoes the items in the request body",
         };
 
         // GET routes shaped like a collection (no trailing path parameter) that are not paged, with why they are a

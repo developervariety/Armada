@@ -24,29 +24,30 @@ Nothing is deprecated right now. The whole-list APIs that were deprecated here w
 
 ## Bounded, not retired
 
-Armada exposes no API that returns a whole stored collection in one response. Every collection is read through a
-paged route or tool (`pageNumber`, `pageSize` 1 to 1000 or a lower route cap, `TotalRecords`), and every list route that
-had no `POST .../enumerate` form gained one. The guard suite `E2E.CollectionSurface` fails when a new REST route or MCP
-tool returns an unpaged list without an entry in its allowlist. The allowlisted items below return a list that is not a
-stored collection:
+Armada exposes no API that returns, embeds, or echoes an unbounded collection ([docs/ENUMERATION.md](docs/ENUMERATION.md)).
+Every stored collection is read through a paged route or tool (`pageNumber`, `pageSize` 1 to 1000 or a lower documented
+cap, exact `TotalRecords`), paged in the data source, and every paged `GET` list has a `POST .../enumerate` form. Growing
+children of one entity (voyage missions, fleet vessels, status voyages, planning and refinement transcripts, Ask
+tracked work, proposals and tool calls, vessel dependencies, cleanup resources, storage hosts, battery results, fleet
+action run targets, workspace directory entries and changes) are no longer embedded in the parent read: the parent
+carries a count and the children have their own paged enumeration. Lists that are not stored rows are limited by
+`CollectionLimits` and rejected with `CollectionLimitExceeded` when over the limit, never truncated silently.
+
+Two guard suites keep this true: `E2E.CollectionSurface` (no bare-list routes, paged `GET` lists have `POST` twins, list
+tools page, retired routes answer 410) and `E2E.ResponseShape` (every collection property of a response model declares
+`[CollectionBound]`, and every array in a live REST or MCP response is a page or a declared bounded property within its
+limit). The lists below are bounded by construction rather than by paging:
 
 | Surface | Item | Bound |
 |---|---|---|
-| REST, MCP | `GET /api/v1/ask/quick-actions`, `list_ask_quick_actions` | A fixed catalog defined in code (a handful of entries) |
+| REST, MCP | `GET /api/v1/ask/quick-actions`, `list_ask_quick_actions` | A fixed catalog defined in code (at most 10 entries) |
+| REST | `GET /api/v1/doctor` | One entry per diagnostic check (at most 11) |
 | REST, MCP, WebSocket | Captain and mission log reads (`.../log`, `get_captain_log`, `get_mission_log`) | `lines` 1 to 5000 per read; page with `offset` |
 | REST | `GET /api/v1/workspace/vessels/{vesselId}/search` | `maxResults` 1 to 1000 (default 200) |
-
-### Lists inside a single read (not retired)
-
-These are the children of one entity returned with its single-resource read, not collections of every row of a type.
-They stay, because the reads are single-resource lookups; each large one has a paged alternative.
-
-| Surface | Item | Paged alternative |
-|---|---|---|
-| REST, MCP | Targets in `GET /api/v1/fleet-action-runs/{id}`, `fleet_action_run_status` | `POST /api/v1/fleet-action-runs/{id}/targets/enumerate`, `enumerate` fleet_action_run_target |
-| REST, MCP | Items in `GET /api/v1/vessels/import/batches/{id}`; candidates of `POST /api/v1/vessels/import/discover`, `discover_vessels` | None (one import batch or one directory scan) |
-| REST, MCP | `Servers` in `GET /api/v1/captains/{id}/tools`, `get_captain_tools` (at most 256 tool sources; a runtime configuration with more is rejected with CollectionLimitExceeded) | Tools are one page in the same read (`pageNumber`, `pageSize`, `sourceKind`; `POST /api/v1/captains/{id}/tools/enumerate`) |
-| REST, MCP | Directory and change lists of the workspace routes | None (one directory or working tree) |
+| REST, MCP | Model probe results (`.../evaluate`, `get_model_probe_run`) | Exactly six probes (`ModelProbeCatalog.ProbeCount`) |
+| REST | `GET /api/v1/missions/{id}/landing-preview`, `GET /api/v1/vessels/{id}/landing-preview` | At most 12 issues (`LandingPreviewResult.MaxIssues`) |
+| REST, MCP | `Servers` in `GET /api/v1/captains/{id}/tools`, `get_captain_tools` | At most 256 tool sources; the tools themselves are one page |
+| REST, MCP | Model endpoint `HealthHistory` | Server-owned, at most 500 records |
 
 ## Removed
 
