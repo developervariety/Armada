@@ -1,3 +1,5 @@
+import { planningHref } from './navTargets';
+
 /**
  * Dashboard detail routes for entities. Routes are chosen from the entity's type field (an event's `entityType`,
  * or which typed id field a notification carries), never from the id's prefix.
@@ -25,7 +27,7 @@ const ENTITY_TYPE_ROUTES: Record<string, (id: string) => string> = {
   objective: (id) => `/objectives/${id}`,
   release: (id) => `/releases/${id}`,
   checkrun: (id) => `/checks/${id}`,
-  planningsession: (id) => `/planning/${id}`,
+  planningsession: (id) => planningHref(id),
   requesthistory: (id) => `/requests/${id}`,
   fleetactionrun: (id) => `/fleet-actions/runs/${id}`,
 };

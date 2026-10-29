@@ -12,6 +12,26 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Optional Windows shell command; falls back to CommandText.</summary>
+        public string? CommandWindows { get; set; }
+        /// <summary>Registered output parser identifier.</summary>
+        public string? OutputParser { get; set; }
+        /// <summary>Source action built-in key (or ID) for {{scan.summary}}.</summary>
+        public string? ScanSourceActionKey { get; set; }
+        /// <summary>Executable names required on the target host PATH.</summary>
+        public System.Collections.Generic.List<string> RequiredTools { get => _RequiredTools; set => _RequiredTools = value ?? new(); }
+        private System.Collections.Generic.List<string> _RequiredTools = new();
+        /// <summary>Whether execution requires network access.</summary>
+        public bool RequiresNetwork { get; set; }
+        /// <summary>Validated runtime values, snapshotted at dispatch.</summary>
+        public System.Collections.Generic.List<FleetActionInput> Inputs { get; set; } = new();
+        /// <summary>Validated runtime input values.</summary>
+        public System.Collections.Generic.Dictionary<string, string> InputValues { get => _InputValues; set => _InputValues = value ?? new(); }
+        private System.Collections.Generic.Dictionary<string, string> _InputValues = new();
+        /// <summary>Targets with parsed findings, counted separately from failures.</summary>
+        public int FindingsCount { get; set; }
+
+
         /// <summary>Per-run tool permission and mission review approval choices.</summary>
         public Armada.Core.Models.RunApprovalOptions? ApprovalOptions { get; set; } = null;
 

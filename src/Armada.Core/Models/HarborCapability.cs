@@ -12,7 +12,7 @@ namespace Armada.Core.Models
         #region Public-Members
 
         /// <summary>
-        /// Capability name, for example a runtime identifier ("claude", "codex", "opencode") or a tool
+        /// Capability name, for example a runtime identifier ("claude", "codex", "opencode", "pi") or a tool
         /// name ("git", "gh"). Required.
         /// </summary>
         public string Name

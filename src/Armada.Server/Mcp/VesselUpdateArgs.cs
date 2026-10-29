@@ -120,5 +120,20 @@ namespace Armada.Server.Mcp
         /// Per-phase timeout, in seconds, for each Definition-of-Done command (clamped to [30, 7200]).
         /// </summary>
         public int? DefinitionOfDoneTimeoutSeconds { get; set; }
+
+        /// <summary>
+        /// Per-vessel override for the Test intent (beats a repo script and the ecosystem default).
+        /// </summary>
+        public string? TestCommand { get; set; }
+
+        /// <summary>
+        /// Per-vessel override for the Lint intent (beats a repo script and the ecosystem default).
+        /// </summary>
+        public string? LintCommand { get; set; }
+
+        /// <summary>
+        /// Per-vessel override for the Audit intent (beats a repo script and the ecosystem default).
+        /// </summary>
+        public string? AuditCommand { get; set; }
     }
 }

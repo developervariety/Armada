@@ -82,8 +82,8 @@ namespace Armada.Core.Models
         /// </summary>
         /// <param name="getter">Returns a querystring value by name, or null. Values may be percent-encoded as they arrive
         /// on the wire (browsers send <c>status=Queued%2CRunning</c>); they are decoded before parsing.</param>
-        /// <param name="query">The query, or null when no paging or filter parameter was given (callers keep the legacy
-        /// unpaged list) or when a value is invalid.</param>
+        /// <param name="query">The query, or null when a value is invalid. With no paging or filter parameter the query is
+        /// the first page of the default size (there is no unpaged form).</param>
         /// <param name="error">Why a value was rejected, or null.</param>
         /// <returns>True when a query was built.</returns>
         /// <exception cref="ArgumentNullException">getter is null.</exception>
@@ -97,9 +97,6 @@ namespace Armada.Core.Models
             string? pageSize = Unescape(getter("pageSize"));
             string? status = Unescape(getter("status"));
             string? kind = Unescape(getter("kind"));
-            if (String.IsNullOrWhiteSpace(pageNumber) && String.IsNullOrWhiteSpace(pageSize) && String.IsNullOrWhiteSpace(status) && String.IsNullOrWhiteSpace(kind))
-                return false;
-
             JobQuery built = new JobQuery();
             if (!String.IsNullOrWhiteSpace(pageNumber))
             {

@@ -15,22 +15,23 @@ function profileScope(value: string): ProfileScope {
 
 // ------------------------------------------------------------------ Workflow profiles
 
-/** Top-level command fields of a workflow profile, in the editor's order, with their English labels. */
-export const WORKFLOW_COMMANDS: { key: keyof WorkflowProfile; label: string }[] = [
-  { key: 'lintCommand', label: 'Lint Command' },
-  { key: 'buildCommand', label: 'Build Command' },
-  { key: 'unitTestCommand', label: 'Unit Test Command' },
-  { key: 'integrationTestCommand', label: 'Integration Test Command' },
-  { key: 'e2eTestCommand', label: 'E2E Test Command' },
-  { key: 'migrationCommand', label: 'Migration Command' },
-  { key: 'securityScanCommand', label: 'Security Scan Command' },
-  { key: 'performanceCommand', label: 'Performance Command' },
-  { key: 'packageCommand', label: 'Package Command' },
-  { key: 'deploymentVerificationCommand', label: 'Deployment Verification Command' },
-  { key: 'rollbackVerificationCommand', label: 'Rollback Verification Command' },
-  { key: 'publishArtifactCommand', label: 'Publish Artifact Command' },
-  { key: 'releaseVersioningCommand', label: 'Release Versioning Command' },
-  { key: 'changelogGenerationCommand', label: 'Changelog Generation Command' },
+/** Top-level command fields of a workflow profile, in the editor's order, with their English labels and hints. */
+export const WORKFLOW_COMMANDS: { key: keyof WorkflowProfile; label: string; hint: string }[] = [
+  { key: 'lintCommand', label: 'Lint Command', hint: 'Runs for a Lint check in the vessel\'s working directory. Blank: no lint step.' },
+  { key: 'buildCommand', label: 'Build Command', hint: 'Runs for a Build check and first in every stage check. Blank: no build step.' },
+  { key: 'unitTestCommand', label: 'Unit Test Command (Full)', hint: 'Complete unit-test suite. Runs for a UnitTest check, and in stage checks unless the abbreviated suite is requested.' },
+  { key: 'abbreviatedUnitTestCommand', label: 'Unit Test Command (Abbreviated)', hint: 'Fast subset of the unit tests. Runs for an AbbreviatedUnitTest check, and in stage checks when the mission description or the stage persona\'s prompt has [ARMADA:UNIT-TESTS] abbreviated. Blank: the full command runs.' },
+  { key: 'integrationTestCommand', label: 'Integration Test Command', hint: 'Runs for an IntegrationTest check. Blank: no integration test step.' },
+  { key: 'e2eTestCommand', label: 'E2E Test Command', hint: 'Runs for an E2ETest check. Blank: no end-to-end test step.' },
+  { key: 'migrationCommand', label: 'Migration Command', hint: 'Runs for a Migration check, for example a schema update. Blank: no migration step.' },
+  { key: 'securityScanCommand', label: 'Security Scan Command', hint: 'Runs for a SecurityScan check, for example npm audit. Blank: no security scan step.' },
+  { key: 'performanceCommand', label: 'Performance Command', hint: 'Runs for a Performance check. Blank: no performance step.' },
+  { key: 'packageCommand', label: 'Package Command', hint: 'Runs for a Package check. Blank: no package step.' },
+  { key: 'deploymentVerificationCommand', label: 'Deployment Verification Command', hint: 'Default check that a deployment worked; an environment can set its own.' },
+  { key: 'rollbackVerificationCommand', label: 'Rollback Verification Command', hint: 'Default check that a rollback worked; an environment can set its own.' },
+  { key: 'publishArtifactCommand', label: 'Publish Artifact Command', hint: 'Runs for a PublishArtifact check, for example a package push.' },
+  { key: 'releaseVersioningCommand', label: 'Release Versioning Command', hint: 'Runs for a ReleaseVersioning check and is used to infer release versions.' },
+  { key: 'changelogGenerationCommand', label: 'Changelog Generation Command', hint: 'Runs for a Changelog check.' },
 ];
 
 /** Per-environment command fields with their English labels. */
@@ -48,7 +49,7 @@ export function blankWorkflowProfile(viewer: ScopeViewer, prefill: { scope?: str
   return {
     id: '', tenantId: null, userId: null, ownershipScope: resolveCreateScope(viewer), name: 'Default Workflow', description: null,
     scope: profileScope(prefill.scope ?? ''), fleetId: prefill.fleetId || null, vesselId: prefill.vesselId || null, isDefault: false, active: true,
-    languageHints: [], lintCommand: null, buildCommand: null, unitTestCommand: null, integrationTestCommand: null, e2eTestCommand: null,
+    languageHints: [], lintCommand: null, buildCommand: null, unitTestCommand: null, abbreviatedUnitTestCommand: null, integrationTestCommand: null, e2eTestCommand: null,
     migrationCommand: null, securityScanCommand: null, performanceCommand: null, packageCommand: null, deploymentVerificationCommand: null,
     rollbackVerificationCommand: null, publishArtifactCommand: null, releaseVersioningCommand: null, changelogGenerationCommand: null,
     requiredSecrets: [], requiredInputs: [], expectedArtifacts: [], environments: [], createdUtc: '', lastUpdateUtc: '',
@@ -121,15 +122,15 @@ export function workflowPayload(p: WorkflowProfile): Partial<WorkflowProfile> {
 
 export function workflowFields(t: Translate, viewer: ScopeViewer, values: FormValues, fleets: Fleet[], vessels: Vessel[]): FormField[] {
   return [
-    { kind: 'text', key: 'name', label: t('Name'), required: true },
-    { kind: 'multiline', key: 'description', label: t('Description') },
+    { kind: 'text', key: 'name', label: t('Name'), required: true, hint: t('Name for this profile, for example dotnet-service or web-frontend.') },
+    { kind: 'multiline', key: 'description', label: t('Description'), hint: t('Optional note on what kind of project this profile is for.') },
     ...profileScopeFields(t, values, fleets, vessels),
     scopeField(t, viewer, 'ownershipScope'),
-    { kind: 'switch', key: 'isDefault', label: t('Default for this scope') },
-    { kind: 'switch', key: 'active', label: t('Active') },
-    { kind: 'multiline', key: 'languageHints', label: t('Language / Runtime Hints'), placeholder: t('dotnet\nreact\npostgres') },
-    { kind: 'multiline', key: 'expectedArtifacts', label: t('Expected Artifacts'), placeholder: t('bin/Release/app.zip\ncoverage/summary.xml') },
-    ...WORKFLOW_COMMANDS.map((c) => ({ kind: 'text' as const, key: c.key, label: t(c.label) })),
+    { kind: 'switch', key: 'isDefault', label: t('Default for this scope'), hint: t('Wins when several active profiles match the same vessel at the same scope.') },
+    { kind: 'switch', key: 'active', label: t('Active'), hint: t('Off: Armada never chooses this profile, even when a vessel names it.') },
+    { kind: 'multiline', key: 'languageHints', label: t('Language / Runtime Hints'), placeholder: t('dotnet\nreact\npostgres'), hint: t('Languages and tools the project uses, one per line. For reference only.') },
+    { kind: 'multiline', key: 'expectedArtifacts', label: t('Expected Artifacts'), placeholder: t('bin/Release/app.zip\ncoverage/summary.xml'), hint: t('Files the checks produce, one path per line; collected onto each check run.') },
+    ...WORKFLOW_COMMANDS.map((c) => ({ kind: 'text' as const, key: c.key, label: t(c.label), hint: t(c.hint) })),
   ];
 }
 

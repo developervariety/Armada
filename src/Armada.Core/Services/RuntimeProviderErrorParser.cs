@@ -42,6 +42,12 @@ namespace Armada.Core.Services
             + @"|\b(?<status>[45]\d\d)\s+(?:Too Many Requests|Service Unavailable|Bad Gateway|Gateway Time-?out|Internal Server Error|Unauthorized|Forbidden|Request Timeout|Payload Too Large)\b",
             RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        // pi's assistant errorMessage for a provider HTTP error: the status, then usually the provider's JSON body
+        // ("401 {\"type\":\"error\",...}"). Only a leading status counts.
+        private static readonly Regex _PiStatusMessage = new Regex(
+            @"^(?<status>[45]\d\d)\b(?:\s+(?<body>\{.*\}))?",
+            RegexOptions.CultureInvariant | RegexOptions.Singleline | RegexOptions.Compiled);
+
         private static readonly Regex _CliNetworkError = new Regex(
             @"\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET)\b|\bfetch failed\b",
             RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -199,7 +205,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Try to read a provider error from one stderr line of a text-mode CLI that has no structured error channel
-        /// (Gemini, Cursor, OpenCode). Only explicit signals are read: an HTTP error status written as a status (never a
+        /// (Gemini, Cursor, OpenCode, and pi stderr). Only explicit signals are read: an HTTP error status written as a status (never a
         /// bare number), a Google RPC status name (RESOURCE_EXHAUSTED, UNAUTHENTICATED, PERMISSION_DENIED, UNAVAILABLE,
         /// DEADLINE_EXCEEDED), or a network error code. Callers pass stderr only, so the agent's own narration on stdout
         /// is never mistaken for a provider failure.
@@ -231,6 +237,71 @@ namespace Armada.Core.Services
             if (text.Contains("UNAVAILABLE", StringComparison.Ordinal) && text.Contains("\"status\"", StringComparison.Ordinal)) { error.ErrorType = "server_error"; return error; }
             if (_CliNetworkError.IsMatch(text)) { error.ErrorType = "llm_connection_error"; return error; }
             return null;
+        }
+
+        /// <summary>
+        /// Try to read a provider error from one line of <c>pi -p --mode json</c> output. pi exits 0 in JSON mode even when
+        /// the provider fails, so the stream is the only signal. Only terminal records are read, so a failure that pi
+        /// retries and then recovers from is never reported: an <c>agent_end</c> whose <c>willRetry</c> is not true and
+        /// whose last assistant message stopped with <c>error</c>, or an <c>auto_retry_end</c> with <c>success: false</c>
+        /// (which follows that <c>agent_end</c>; callers should raise only the first error of a run). The HTTP status is
+        /// taken only from the start of pi's error text (for example <c>401 {...}</c>), with the provider's error type
+        /// and message from the JSON body; other text is checked for network error codes.
+        /// </summary>
+        /// <param name="line">One stdout line.</param>
+        /// <returns>The provider error, or null when the line is not a terminal pi error record.</returns>
+        public static RuntimeProviderError? TryParsePiJsonLine(string? line)
+        {
+            if (!PiStreamEvent.TryParse(line, out PiStreamEvent? evt) || evt == null) return null;
+
+            string? errorText;
+            if (String.Equals(evt.Type, PiStreamEvent.TypeAgentEnd, StringComparison.Ordinal) && evt.WillRetry != true)
+            {
+                PiMessage? last = evt.LastAssistantMessage;
+                if (last == null || !String.Equals(last.StopReason, PiMessage.StopReasonError, StringComparison.Ordinal)) return null;
+                errorText = last.ErrorMessage;
+            }
+            else if (String.Equals(evt.Type, PiStreamEvent.TypeAutoRetryEnd, StringComparison.Ordinal) && evt.Success == false)
+            {
+                errorText = evt.FinalError;
+            }
+            else
+            {
+                return null;
+            }
+
+            RuntimeProviderError error = new RuntimeProviderError();
+            string text = String.IsNullOrWhiteSpace(errorText) ? String.Empty : errorText!.Trim();
+            if (text.Length > 4000) text = text.Substring(0, 4000);
+            error.Message = text.Length > 0 ? Shorten(text) : null;
+            error.Reason = "pi reported a provider error" + (error.Message != null ? ": " + error.Message : String.Empty);
+            if (text.Length == 0) return error;
+
+            Match status = _PiStatusMessage.Match(text);
+            if (status.Success)
+            {
+                error.HttpStatusCode = Int32.Parse(status.Groups["status"].Value, CultureInfo.InvariantCulture);
+                if (status.Groups["body"].Success)
+                {
+                    ProviderErrorEnvelope? envelope = DeserializeEnvelope(status.Groups["body"].Value);
+                    if (envelope?.Error != null)
+                    {
+                        error.ErrorType = envelope.Error.Type;
+                        if (!String.IsNullOrWhiteSpace(envelope.Error.Message)) error.Message = envelope.Error.Message;
+                    }
+                }
+
+                return error;
+            }
+
+            RuntimeProviderError? cli = TryParseCliStderrLine(text, "pi");
+            if (cli != null)
+            {
+                cli.Reason = error.Reason;
+                return cli;
+            }
+
+            return error;
         }
 
         #endregion
