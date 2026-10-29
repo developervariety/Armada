@@ -585,11 +585,33 @@ for that same criterion. Named duties must exist on the verified Pending path,
 including a separately named revising Worker. Separate unfinished current work
 or earlier review duties still block, even when future reviews are pending.
 
+A named pending clause can qualify its roles as the current reviews, give a
+separately named revising Worker stage its own pending verb, and end with a
+semicolon followed by positive process statements: an artifact-only report, no
+tracked change in the checkouts, and no copied body or restricted value. Any
+other text after the semicolon blocks.
+
 Only the final outcome `[ARMADA:RESULT] COMPLETE` counts, and the sentence must
 say the acceptance criteria themselves are not met; a finding that some code
 does not meet a limit is not matched. An Implementation Worker that ends
 COMPLETE with a `Remaining work:` list still hands off, because its reviewers
 continue the work.
+
+### A report-only Worker whose output is cut off
+
+A Research or Audit Worker whose output is truncated did not deliver the whole
+report, so it does not reach `WorkProduced`. The mission fails with a
+`report_incomplete:` failure reason when:
+
+- the captured stream kept only its tail (the output starts with the stream
+  truncation marker): reason `stream_capture_limit`; or
+- no `[ARMADA:RESULT]` or `[ARMADA:VERDICT]` marker starts a line, so the report
+  has no closing marker: reason `closing_marker_missing`.
+
+The failure reason names the truncation reason and quotes the last 200
+characters of the output. The pending stages after the Worker are cancelled, and
+recovery handles the failure as it handles an unfinished report. A closed report
+and an Implementation Worker are not read by this rule.
 
 ### Several markers in one output record
 

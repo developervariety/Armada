@@ -3146,17 +3146,28 @@ namespace Armada.Core.Services
             if (!failedForScopeViolation && !failedForBlockedResult && mission.IsReadOnlyMode
                 && String.Equals(mission.Persona ?? "Worker", "Worker", StringComparison.Ordinal))
                 incompleteStatement = await ReadIncompleteReportStatementAsync(mission, token).ConfigureAwait(false);
-            if (incompleteStatement != null)
+            string? truncationReason = null;
+            if (incompleteStatement == null && !failedForScopeViolation && !failedForBlockedResult && mission.IsReadOnlyMode
+                && String.Equals(mission.Persona ?? "Worker", "Worker", StringComparison.Ordinal)
+                && ReportIncompleteResult.TryReadTruncation(mission.AgentOutput, out string truncation))
+                truncationReason = truncation;
+            if (incompleteStatement != null || truncationReason != null)
             {
                 failedForIncompleteReport = true;
                 mission.Status = MissionStatusEnum.Failed;
                 mission.CompletedUtc = DateTime.UtcNow;
                 mission.LastUpdateUtc = DateTime.UtcNow;
-                mission.FailureReason = ReportIncompleteResult.BuildFailureReason(mission.Persona, incompleteStatement);
+                mission.FailureReason = incompleteStatement != null
+                    ? ReportIncompleteResult.BuildFailureReason(mission.Persona, incompleteStatement)
+                    : ReportIncompleteResult.BuildTruncatedFailureReason(mission.Persona, truncationReason!, mission.AgentOutput);
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                await AppendMissionActivityAsync(mission.Id, "report incomplete: the report states its acceptance criteria are not met; reviewer stages not run", token).ConfigureAwait(false);
+                await AppendMissionActivityAsync(mission.Id, incompleteStatement != null
+                    ? "report incomplete: the report states its acceptance criteria are not met; reviewer stages not run"
+                    : "report incomplete: the report output is truncated (" + truncationReason + "); reviewer stages not run", token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + mission.Id + " (" + (mission.Persona ?? "Worker") + ", " + mission.Mode
-                    + ") ended COMPLETE with a report that states its acceptance criteria are not met; failed as report_incomplete with no handoff");
+                    + (incompleteStatement != null
+                        ? ") ended COMPLETE with a report that states its acceptance criteria are not met; failed as report_incomplete with no handoff"
+                        : ") ended with a truncated report (" + truncationReason + "); failed as report_incomplete with no handoff"));
             }
 
             // Every gate below reads a stage that finished; a blocked stage and an unfinished report did not.
