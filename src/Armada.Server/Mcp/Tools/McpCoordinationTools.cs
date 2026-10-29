@@ -521,13 +521,15 @@ namespace Armada.Server.Mcp.Tools
                     bool wantsFull = args.HasValue
                         && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
                         && _full.ValueKind == JsonValueKind.True;
+                    List<CampaignCloseoutReport> closeouts = new List<CampaignCloseoutReport>();
+                    foreach (string rootId in rootIds)
+                        closeouts.Add(await CampaignCloseoutEvaluator.EvaluateAsync(database, rootId, allObjectives).ConfigureAwait(false));
                     return McpResultPreview.Apply(
                         new
                         {
                             Roots = rootIds, Tree = tree, ActiveClaims = claims, RecentNotes = notes, CampaignRooms = campaignRooms,
-                            Closeout = rootIds.Select(rootId =>
+                            Closeout = closeouts.Select(closeout =>
                             {
-                                CampaignCloseoutReport closeout = CampaignCloseoutEvaluator.Evaluate(rootId, allObjectives);
                                 return new
                                 {
                                     closeout.RootObjectiveId, ObjectiveCount = closeout.Objectives.Count,
@@ -535,6 +537,7 @@ namespace Armada.Server.Mcp.Tools
                                     Items = includeSlices ? closeout.Items : closeout.Items.Take(10).ToList(),
                                     ItemsTruncated = !includeSlices && closeout.Items.Count > 10,
                                     EvidenceReview = includeSlices ? closeout.EvidenceReview : null,
+                                    closeout.RecordedDeliveredWork,
                                     closeout.EvidenceReviewRequirement
                                 };
                             }).ToList()

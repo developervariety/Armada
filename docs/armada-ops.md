@@ -1,5 +1,7 @@
 # Armada Operator Guide
 
+Campaign closeout lists existing delivery proof for linked InProgress work; that proof never completes acceptance criteria by itself.
+
 Mission metadata updates reject unknown or non-patchable fields by name; a refused patch saves nothing.
 
 Objective dispatch records its participant and resolved source on the voyage event stream.

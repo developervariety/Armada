@@ -69,10 +69,10 @@ namespace Armada.Core.Services
                 MissionAttemptFact stored = await database.MissionAttemptFacts.CreateAsync(fact, token).ConfigureAwait(false);
                 if (factType == MissionAttemptFactTypeEnum.Failed)
                 {
-                    List<Mission> related = String.IsNullOrEmpty(mission.VoyageId)
+                    bool derivative = TerminalVoyageMissionRule.IsReconciledOutcome(mission);
+                    List<Mission> related = !derivative || String.IsNullOrEmpty(mission.VoyageId)
                         ? new List<Mission>()
                         : await database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
-                    bool derivative = TerminalVoyageMissionRule.IsReconciledOutcome(mission);
                     ArmadaEvent cause = new ArmadaEvent("mission.failure_cause", "Terminal mission failure cause: " + terminalReason);
                     EventOwnerScope.ApplyFromMission(cause, mission);
                     cause.EntityType = "mission";
@@ -86,17 +86,27 @@ namespace Armada.Core.Services
                         reasonCode = terminalReason,
                         subtype = derivative ? "upstream_work_unlanded" : terminalReason,
                         isDerivative = derivative,
-                        causeKnown = terminalReason != "unknown",
+                        reasonKnown = terminalReason != "unknown",
+                        cause = derivative ? "upstream_voyage_failure" : "unknown",
                         // A terminal voyage identifies related original failures, not a guessed model fault.
                         upstreamFailureMissionIds = derivative ? related.Where(item => item.Id != mission.Id
-                            && item.TenantId == mission.TenantId && item.UserId == mission.UserId
+                            && (item.TenantId ?? Constants.DefaultTenantId) == (mission.TenantId ?? Constants.DefaultTenantId)
+                            && (item.UserId ?? Constants.DefaultUserId) == (mission.UserId ?? Constants.DefaultUserId)
                             && (item.Status == MissionStatusEnum.Failed || item.Status == MissionStatusEnum.LandingFailed)
                             && !TerminalVoyageMissionRule.IsReconciledOutcome(item))
                             .Select(item => item.Id).OrderBy(id => id, StringComparer.Ordinal).ToList() : new List<string>(),
                         upstreamVoyageId = derivative ? mission.VoyageId : null,
                         attemptFactId = stored.Id
                     });
-                    await database.Events.CreateAsync(cause, token).ConfigureAwait(false);
+                    try
+                    {
+                        await database.Events.CreateAsync(cause, token).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (!(ex is OperationCanceledException && token.IsCancellationRequested))
+                    {
+                        logging?.Warn("[MissionAttemptFactRecorder] fact " + stored.Id
+                            + " is stored but its cause event could not be recorded: " + ex.Message);
+                    }
                 }
                 return stored;
             }

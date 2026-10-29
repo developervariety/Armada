@@ -4,12 +4,44 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Text.Json.Serialization;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>Checks structural campaign closure without treating links as proof of acceptance criteria.</summary>
     public static class CampaignCloseoutEvaluator
     {
+        /// <summary>Include existing delivery proof for unfinished linked work, without completing any criterion.</summary>
+        public static async Task<CampaignCloseoutReport> EvaluateAsync(DatabaseDriver database, string rootId,
+            IReadOnlyList<Objective> objectives, CancellationToken token = default)
+        {
+            CampaignCloseoutReport report = Evaluate(rootId, objectives);
+            foreach (Objective row in report.Objectives.Where(item => item.Status == ObjectiveStatusEnum.InProgress))
+            {
+                foreach (string missionId in row.MissionIds.Distinct(StringComparer.Ordinal))
+                {
+                    int page = 1;
+                    EnumerationResult<MergeEntry> entries;
+                    do
+                    {
+                        entries = await database.MergeEntries.EnumerateAsync(new EnumerationQuery
+                        { MissionId = missionId, PageNumber = page++, PageSize = 100 }, token).ConfigureAwait(false);
+                        foreach (MergeEntry entry in entries.Objects)
+                        {
+                            if (entry.DeliveryEvidence == null || entry.MissionId != missionId
+                                || (entry.TenantId ?? Constants.DefaultTenantId) != (row.TenantId ?? Constants.DefaultTenantId)
+                                || (entry.UserId ?? Constants.DefaultUserId) != (row.UserId ?? Constants.DefaultUserId)) continue;
+                            report.RecordedDeliveredWork.Add(new CampaignCloseoutDelivery
+                            { ObjectiveId = row.Id, MergeEntryId = entry.Id, Evidence = entry.DeliveryEvidence });
+                        }
+                    } while (page <= entries.TotalPages);
+                }
+            }
+            return report;
+        }
+
         /// <summary>Inspect every descendant, including levels omitted by a summary tree.</summary>
         /// <param name="rootId">Campaign root.</param>
         /// <param name="objectives">Objectives visible to the caller.</param>
@@ -76,6 +108,8 @@ namespace Armada.Core.Services
             row.MissionIds, row.CheckRunIds, row.VoyageIds,
             Source = row.Preparation?.Source, Target = row.Preparation?.Target
         });
+        /// <summary>Unfinished linked work with recorded delivery proof, awaiting criterion/source/check review.</summary>
+        public List<CampaignCloseoutDelivery> RecordedDeliveredWork { get; set; } = new List<CampaignCloseoutDelivery>();
         /// <summary>Conditions that prevent campaign completion.</summary>
         public List<CampaignCloseoutItem> Items { get; set; } = new List<CampaignCloseoutItem>();
         /// <summary>True only when every row is Completed with direct or completed-child evidence.</summary>

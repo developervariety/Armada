@@ -79,6 +79,23 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(5, report.Objectives.Count, "closeout reaches beyond the summary tree's two levels");
                 AssertEqual(0, report.Items.Count, "completed-child proof can support the parent");
                 AssertEqual("Deliver every scoped item", completed.AcceptanceCriteria.Single(), "criteria are not removed to close the parent");
+                Mission delivered = await testDb.Driver.Missions.CreateAsync(new Mission("Delivered work")
+                { TenantId = auth.TenantId, UserId = auth.UserId }).ConfigureAwait(false);
+                leaf.MissionIds.Add(delivered.Id);
+                leaf.Status = ObjectiveStatusEnum.InProgress;
+                await testDb.Driver.Objectives.UpdateAsync(leaf).ConfigureAwait(false);
+                MergeEntry entry = await testDb.Driver.MergeEntries.CreateAsync(new MergeEntry
+                {
+                    TenantId = auth.TenantId, UserId = auth.UserId, MissionId = delivered.Id,
+                    Status = MergeStatusEnum.Failed, DeliveryEvidence = new LandingReconcileEvidence
+                    { MissionId = delivered.Id, EvidenceCommit = new string('a', 40), TargetRef = "origin/main" }
+                }).ConfigureAwait(false);
+                report = await CampaignCloseoutEvaluator.EvaluateAsync(testDb.Driver, root.Id,
+                    await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(1, report.RecordedDeliveredWork.Count, "recorded delivery makes stranded unfinished work visible");
+                AssertEqual(entry.Id, report.RecordedDeliveredWork[0].MergeEntryId);
+                AssertTrue(report.Items.Any(item => item.ObjectiveId == leaf.Id && item.Reason == "objective_not_completed"),
+                    "delivery evidence alone cannot approve the objective's criteria");
                 leaf.Status = ObjectiveStatusEnum.Cancelled;
                 await testDb.Driver.Objectives.UpdateAsync(leaf).ConfigureAwait(false);
                 report = CampaignCloseoutEvaluator.Evaluate(root.Id, await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false));
