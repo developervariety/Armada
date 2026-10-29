@@ -186,10 +186,21 @@ namespace Armada.Core.Services
             for (int i = index; i < text.Length; i++)
             {
                 char c = text[i];
-                if (c == '\n') return i;
+                if (c == '\n' && StartsNewBlock(text, i + 1)) return i;
                 if (c == '.' || c == '!' || c == '?') return i + 1;
             }
             return text.Length;
+        }
+
+        private static bool StartsNewBlock(string text, int index)
+        {
+            while (index < text.Length && (text[index] == ' ' || text[index] == '\t' || text[index] == '\r')) index++;
+            if (index == text.Length || text[index] == '\n' || text[index] == '#') return true;
+            if ((text[index] == '-' || text[index] == '*' || text[index] == '+')
+                && index + 1 < text.Length && Char.IsWhiteSpace(text[index + 1])) return true;
+            return text.IndexOf("[ARMADA:", index, StringComparison.Ordinal) == index
+                || text.IndexOf("criterion ", index, StringComparison.OrdinalIgnoreCase) == index
+                || text.IndexOf("acceptance criteri", index, StringComparison.OrdinalIgnoreCase) == index;
         }
 
         #endregion
