@@ -302,7 +302,7 @@ When a mission's agent exits successfully, Armada sets the mission to `WorkProdu
 
 | Landing Mode | Behavior |
 |---|---|
-| `LocalMerge` | Merge the branch into the vessel's configured working directory without pushing. The vessel must have both `WorkingDirectory` and `LocalPath` configured. Mission transitions to `Complete` on success or `LandingFailed` on failure. If those vessel paths are not configured, the mission remains at `WorkProduced`. |
+| `LocalMerge` | Merge the branch into the vessel's configured working directory without pushing. The vessel must have both `WorkingDirectory` and `LocalPath` configured. Mission transitions to `Complete` on success or `LandingFailed` on failure. If those vessel paths are not configured, the mission remains at `WorkProduced`. A mission with an empty diff snapshot or a branch that is missing from the bare repository lands as a no-op only when no commit is on record past its start commit, or the recorded commit is already on the target branch. Otherwise the landing fails as `landing_source_unavailable`, naming the recorded and start commits, and the branch is kept for retry. |
 | `PullRequest` | Create a pull request. Mission transitions to `PullRequestOpen`. Armada polls for merge confirmation; once merged, transitions to `Complete`. |
 | `MergeQueue` | Enqueue the branch into Armada's merge queue for serialized testing and landing. |
 | `None` | No automated landing. The mission stays at `WorkProduced` for manual handling. |

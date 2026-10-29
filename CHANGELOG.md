@@ -166,6 +166,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - A landing merge, local or through the merge queue, that stops on `CHANGELOG.md` as its only unresolved path keeps both sides with a git union merge and completes the merge commit. Release-note entries added by concurrent missions no longer fail the landing. A conflict in any other file, or a `CHANGELOG.md` conflict missing its base, ours or theirs stage, fails as before.
 
+### No-changes landings need proof
+
+- A direct landing no longer completes a mission as a no-op on an empty diff snapshot or a branch missing from the bare repository when the mission recorded a commit past its start commit that the target branch does not hold. The landing fails as `landing_source_unavailable`, names the recorded and start commits, and keeps the branch for retry. A mission with no commits past its start still completes as before. A failed diff capture and a failed branch lookup are logged as warnings.
+
 ## v1.0.0 (2026-10-26)
 
 This is the fork's first 1.0 release. It includes the changes below since the
