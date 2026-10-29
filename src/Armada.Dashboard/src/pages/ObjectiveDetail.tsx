@@ -82,6 +82,7 @@ import { refinementSummaryFromEvent } from '../lib/refinementSummary';
 import { mergeSessionDetail, newerOf } from '../lib/liveMerge';
 import { sortByName } from '../lib/sortByName';
 import { PLANNING_PATH, planningHref } from '../lib/navTargets';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 function renderRouteLinks(ids: string[], prefix: string | ((id: string) => string), labelMap?: Map<string, string>) {
   if (ids.length < 1) return <span className="text-dim">None</span>;
@@ -103,6 +104,7 @@ export default function ObjectiveDetail() {
   const { isAdmin, isTenantAdmin } = useAuth();
   const { subscribe } = useWebSocket();
   const { t, formatDateTime, formatRelativeTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   const createMode = id === 'new';
@@ -619,13 +621,9 @@ export default function ObjectiveDetail() {
       message: t('Delete "{{title}}"? This removes the backlog item and its objective snapshot history only.', { title: objective.title }),
       onConfirm: async () => {
         setConfirm((current) => ({ ...current, open: false }));
-        try {
-          await deleteBacklogItem(objective.id);
-          pushToast('warning', t('Backlog item "{{title}}" deleted.', { title: objective.title }));
-          navigate(canonicalListPath);
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : t('Delete failed.'));
-        }
+        if (!(await deletion.run({ kind: 'backlogItem', action: () => deleteBacklogItem(objective.id), errorMessage: (err) => err instanceof Error ? err.message : t('Delete failed.') }))) return;
+        pushToast('warning', t('Backlog item "{{title}}" deleted.', { title: objective.title }));
+        navigate(canonicalListPath);
       },
     });
   }
@@ -749,17 +747,22 @@ export default function ObjectiveDetail() {
   async function handleDeleteRefinementSession() {
     if (!refinementDetail || !objective) return;
 
+    const sessionId = refinementDetail.session.id;
+    const objectiveId = objective.id;
     try {
       setDeletingRefinement(true);
-      await deleteObjectiveRefinementSession(refinementDetail.session.id);
-      setRefinementSessions((current) => removeRefinementSession(current, refinementDetail.session.id));
+      const done = await deletion.run({
+        kind: 'refinementSession',
+        action: () => deleteObjectiveRefinementSession(sessionId),
+        errorMessage: (err) => (err instanceof Error ? err.message : t('Failed to delete refinement session.')),
+      });
+      if (!done) return;
+      setRefinementSessions((current) => removeRefinementSession(current, sessionId));
       setSelectedRefinementSessionId('');
       setRefinementDetail(null);
       setRefinementSummaryDraft(null);
       pushToast('warning', t('Refinement session deleted.'));
-      await loadRefinementSessions(objective.id);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : t('Failed to delete refinement session.'));
+      await loadRefinementSessions(objectiveId);
     } finally {
       setDeletingRefinement(false);
     }
@@ -894,6 +897,7 @@ export default function ObjectiveDetail() {
 
       <ErrorModal error={error} onClose={() => setError('')} />
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
+      {deletion.dialog}
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}

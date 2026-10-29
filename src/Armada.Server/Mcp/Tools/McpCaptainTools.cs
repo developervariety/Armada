@@ -276,7 +276,7 @@ namespace Armada.Server.Mcp.Tools
                     if (captain == null) return (object)McpToolError.NotFound("Captain not found: " + captainId);
                     if (onStopCaptain != null)
                         await onStopCaptain(captainId).ConfigureAwait(false);
-                    await admiral.RecallCaptainAsync(captainId).ConfigureAwait(false);
+                    await admiral.RecallCaptainAsync(captainId, new OperatorStopContext(OperatorStopContext.SourceMcpStopCaptain, caller.UserId)).ConfigureAwait(false);
                     return (object)new { Status = "stopped", CaptainId = captainId };
                 });
 
@@ -289,7 +289,7 @@ namespace Armada.Server.Mcp.Tools
                     AuthContext caller = McpToolHelpers.ResolveCallerContext();
                     if (McpCallerScope.IsGlobal(caller))
                     {
-                        await admiral.RecallAllAsync().ConfigureAwait(false);
+                        await admiral.RecallAllAsync(new OperatorStopContext(OperatorStopContext.SourceMcpStopAll, caller.UserId)).ConfigureAwait(false);
                         return (object)new { Status = "all_stopped" };
                     }
 
@@ -300,7 +300,7 @@ namespace Armada.Server.Mcp.Tools
                         if (!McpCallerScope.CanAccess(caller, captain.TenantId, captain.UserId)) continue;
                         if (onStopCaptain != null)
                             await onStopCaptain(captain.Id).ConfigureAwait(false);
-                        await admiral.RecallCaptainAsync(captain.Id).ConfigureAwait(false);
+                        await admiral.RecallCaptainAsync(captain.Id, new OperatorStopContext(OperatorStopContext.SourceMcpStopAll, caller.UserId)).ConfigureAwait(false);
                     }
                     return (object)new { Status = "all_stopped" };
                 });
