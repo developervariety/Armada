@@ -339,9 +339,10 @@ The mission state machine (`MissionStateMachine`, documented with `transition_mi
 | Assigned | Pending | Assignment rollback when provisioning or launch fails (`RollbackAssignmentAsync`) |
 | InProgress, Assigned | Pending | Restart recovery after an interrupted process (`HandleInterruptedProcessExitAsync`), orphan recovery, and escalation to another captain (`TryEscalateToPlannerAsync`) |
 | WorkProduced | Pending | An output repair turn, a no-op re-dispatch, or a review denied with RetryStage |
-| WorkProduced | Failed | A completion gate refused the work: Judge or verifier rejection, scope violation, invalid output, stage check, no-op budget |
+| WorkProduced | Failed | A completion gate refused the work: Judge or verifier rejection, scope violation, invalid output, stage check, no-op budget, or a captain that reported BLOCKED with no work (`Blocked`) |
 | WorkProduced | Review | A review-gated stage waiting for a person |
 | Pending | Blocked, Cancelled | A dependency failed (`BlockDependentsOfFailedStages` picks which), or the voyage was cancelled |
+| LandingFailed | Complete | The landing reconciler proved the work is on `origin/<default branch>` (commit ancestry or the `Armada-Mission-Id` trailer; see MERGING.md) |
 | Failed, LandingFailed, Cancelled, Blocked | Pending | A restart of the mission, or of the failed stage a Blocked or cancelled stage waits on |
 
 One rule is enforced at the database for every plain update: a Cancelled mission is never moved to anything but Pending (a restart). A completion still running when its mission was cancelled therefore cannot revive it; its late write is refused and it sees the mission as Cancelled.
@@ -349,6 +350,12 @@ One rule is enforced at the database for every plain update: a Cancelled mission
 ### When a verifier finds a product defect
 
 A Test Engineer, Linter, or Usability Engineer that finds a defect in the product code its role may not fix does not report COMPLETE. It adds an `## Affected Case` section (a `File: <path>[:line]` or `Scenario: <inputs and wrong result>` line, the violated requirement, expected and actual behavior, and the correction), and ends with the standalone line `[ARMADA:STAGE-OUTCOME] BLOCKED`. Armada then sends the work back to the Worker on the same branch with that finding, as it does for a Judge's NEEDS_REVISION: the stages between the Worker and the verifier run again, a new verifier checks the rework, and the later stages (the Judge, the Recorder) wait for it, so a known defect never reaches them. The stage's build and test check is skipped for a blocked verifier, since a failing test can be its evidence. The rework budget and early escalation are the Judge's. A BLOCKED line without a concrete affected case gets one output repair turn; a review-gated verifier, or one whose rework cannot be scheduled, fails with the reason instead.
+
+### When a captain reports BLOCKED
+
+Any persona that cannot proceed because of an external prerequisite (for example work another mission has not landed yet) or a contradictory brief ends with the standalone line `[ARMADA:STAGE-OUTCOME] BLOCKED` (the spelling `[ARMADA:RESULT] BLOCKED` is accepted too) followed by one paragraph giving the reason, or reports it with a line `[ARMADA:MESSAGE] BLOCKED: <reason>`. Outside the verifier stages above, a run that reports BLOCKED, has no `[ARMADA:RESULT] COMPLETE` or verdict line, and left no diff or commit on its branch is a reported blocker, not an unfinished completion: it is not re-dispatched, and the mission fails with failure kind `Blocked` and the reason `Captain reported BLOCKED: <the captain's reason>` (bounded to 1000 characters). Armada records a `mission.blocked_by_captain` event with the captain and the reason, the mission appears in the inbox as a failed mission, and the stages after it are settled as for any failed stage. The failure-cause rule "Captain reported blocked" counts it as not the model's failure. Resolve the blocker, then restart the mission. A run that reports BLOCKED but did commit work is handled as produced work.
+
+An unfinished run (no commit, no diff, no completion line) that exhausts its re-dispatch budget fails with failure kind `NoOp`; its reason says the model is stopping mid-task only when the output had neither a result line nor a blocking message.
 
 ### When a stage crashes
 

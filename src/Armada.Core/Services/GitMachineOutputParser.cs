@@ -15,7 +15,9 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Split NUL-terminated output into its fields. A trailing terminator does not produce an empty field.
+        /// Split NUL-terminated output into its fields. A trailing terminator does not produce an empty field, and
+        /// neither does a final field that holds only line-ending characters (a transport that appended a newline
+        /// after the last terminator).
         /// </summary>
         /// <param name="output">Raw -z output.</param>
         /// <returns>The fields in order.</returns>
@@ -25,13 +27,14 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(output)) return fields;
             string[] parts = output!.Split('\0');
             int count = parts.Length;
-            if (count > 0 && parts[count - 1].Length == 0) count--;
+            if (count > 0 && parts[count - 1].Trim('\r', '\n').Length == 0) count--;
             for (int i = 0; i < count; i++) fields.Add(parts[i]);
             return fields;
         }
 
         /// <summary>
-        /// Split NUL-terminated path output (ls-files -z, diff --name-only -z) into non-empty paths.
+        /// Split NUL-terminated path output (ls-files -z, diff --name-only -z) into non-empty paths. A field that is
+        /// empty once carriage returns and line feeds are trimmed is skipped.
         /// </summary>
         /// <param name="output">Raw -z output.</param>
         /// <returns>Paths with forward slashes.</returns>
@@ -40,7 +43,7 @@ namespace Armada.Core.Services
             List<string> paths = new List<string>();
             foreach (string field in SplitNul(output))
             {
-                if (field.Length == 0) continue;
+                if (field.Trim('\r', '\n').Length == 0) continue;
                 paths.Add(field.Replace('\\', '/'));
             }
             return paths;

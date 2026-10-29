@@ -188,6 +188,7 @@ namespace Armada.Server
         private RunbookService _RunbookService = null!;
         private GitHubIntegrationService _GitHubIntegrationService = null!;
         private ManualLandingReconciler _ManualLandingReconciler = null!;
+        private LandingReconciler _LandingReconciler = null!;
         private LandingPreviewService _LandingPreviewService = null!;
         private HistoricalTimelineService _HistoricalTimelineService = null!;
         private ModelEndpointService _ModelEndpointService = null!;
@@ -355,6 +356,21 @@ namespace Armada.Server
                 _WebSocketHub?.BroadcastMissionChange(mission, mission.Status.ToString());
             };
             admiralService.OnReconcileManualLandings = (ct) => _ManualLandingReconciler.ReconcileAsync(null, ct);
+            _LandingReconciler = new LandingReconciler(_Database, _Git, _Logging);
+            _LandingReconciler.OnMissionReconciled = async (mission, evt) =>
+            {
+                await EmitMissionStatusChangedAsync(mission, MissionStatusEnum.LandingFailed, "Mission completed (landing reconciled: work is on the target branch): " + mission.Title).ConfigureAwait(false);
+                _WebSocketHub?.BroadcastMissionChange(mission, mission.Status.ToString());
+                _WebSocketHub?.BroadcastToTenant(mission.TenantId, evt.EventType, evt.Message, new
+                {
+                    entityType = "mission",
+                    entityId = mission.Id,
+                    missionId = mission.Id,
+                    vesselId = mission.VesselId,
+                    voyageId = mission.VoyageId
+                });
+            };
+            admiralService.OnReconcileLandingFailures = (ct) => _LandingReconciler.ReconcileAsync(ct);
             _HistoricalTimelineService = new HistoricalTimelineService(_Database);
             _ModelEndpointService = new ModelEndpointService(_Database, _Logging);
             _HarborService = new HarborService(_Database, _Logging, _Settings.Harbor);
@@ -375,6 +391,7 @@ namespace Armada.Server
             _VesselReadinessService.Hosts = _VesselHosts;
             healthEvaluator.Hosts = _VesselHosts;
             _ManualLandingReconciler.Hosts = _VesselHosts;
+            _LandingReconciler.Hosts = _VesselHosts;
             if (_FleetCategorizationService is FleetCategorizationService categorization) categorization.Hosts = _VesselHosts;
             _HarborMetricsService = new HarborMetricsService(_Database, _HarborService, _Settings.Harbor);
             _HarborJobControl = new HarborJobControlService(_HarborService, _Database, _HarborConnectionManager);
@@ -500,6 +517,16 @@ namespace Armada.Server
             missionService.ResolveDockPlacementAsync = _AgentLifecycle.ResolveDockPlacementAsync;
             _MissionLanding.DockHosts = dockHosts;
             _LandingService.DockHosts = dockHosts;
+            _LandingService.Docks = dockService;
+
+            // Keep unlanded work landable: recreate missing docks of unlanded missions, and retry LocalMerge landings
+            // that waited on a dirty checkout once it is clean (bounded per health tick).
+            LandingIntegrityService landingIntegrity = new LandingIntegrityService(_Logging, _Database, _Settings, dockService, _LandingService, _Git)
+            {
+                Hosts = dockHosts,
+                IsCompletionInFlight = missionService.IsCompletionInFlight
+            };
+            admiralService.OnLandingIntegritySweep = landingIntegrity.SweepAsync;
 
             // Evaluate (probe-only model probes): each probe runs through the captain's own runtime as a Harbor job,
             // under the evaluation budget and concurrency limits. Nothing it records changes routing or captain settings.
