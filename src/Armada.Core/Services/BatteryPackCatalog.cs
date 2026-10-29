@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Finds the battery directory and loads its packs. Packs are read from disk on every call so an edited manifest is
@@ -63,6 +64,17 @@ namespace Armada.Core.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// One page of packs, valid or not, ordered by pack directory name; only the page's manifests are read.
+        /// </summary>
+        /// <param name="pageNumber">Page number.</param>
+        /// <param name="pageSize">Page size (1 to 1000).</param>
+        /// <returns>One page.</returns>
+        public EnumerationResult<BatteryPack> LoadPage(int pageNumber, int pageSize)
+        {
+            return BatteryPackLoader.LoadPage(ResolveDirectory(), pageNumber, pageSize);
         }
 
         /// <summary>

@@ -427,7 +427,7 @@ namespace Test.Shared.Suites.Services
                 Objective objective = await CreateObjectiveWithMissingIncidentAsync(testDb, objectives, auth, "Reorder objective", incidentId).ConfigureAwait(false);
                 int rank = objective.Rank + 1000;
 
-                List<Objective> reordered = await objectives.ReorderAsync(auth, new ObjectiveReorderRequest
+                ObjectiveReorderResult reordered = await objectives.ReorderAsync(auth, new ObjectiveReorderRequest
                 {
                     Items = new List<ObjectiveReorderItem>
                     {
@@ -435,8 +435,13 @@ namespace Test.Shared.Suites.Services
                     }
                 }).ConfigureAwait(false);
 
-                AssertEqual(rank, reordered[0].Rank);
-                AssertTrue(reordered[0].IncidentIds.Contains(incidentId), "Expected the unresolved incident link to remain.");
+                AssertEqual(1, reordered.Updated);
+                AssertEqual(objective.Id, reordered.Items[0].ObjectiveId);
+                AssertEqual(rank, reordered.Items[0].Rank);
+                Objective? stored = await objectives.ReadAsync(auth, objective.Id).ConfigureAwait(false);
+                AssertNotNull(stored, "Expected the reordered objective to remain.");
+                AssertEqual(rank, stored!.Rank);
+                AssertTrue(stored.IncidentIds.Contains(incidentId), "Expected the unresolved incident link to remain.");
             }));
 
             cases.Add(CaseAsync("read_unknown_id_returns_null", "ReadAsync UnknownId ReturnsNull", TestTags.Negative, async () =>
