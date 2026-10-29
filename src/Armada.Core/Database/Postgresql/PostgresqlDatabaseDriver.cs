@@ -331,6 +331,7 @@ namespace Armada.Core.Database.Postgresql
             CliPermissionRequests = new CliPermissionRequestMethods(this, _Settings, _Logging);
             CliPermissionRules = new CliPermissionRuleMethods(this, _Settings, _Logging);
             StageOutcomes = new StageOutcomeMethods(this, _Settings, _Logging);
+            HandoffArtifacts = new HandoffArtifactMethods(this, _Settings, _Logging);
             FailureCauseRules = new FailureCauseRuleMethods(this, _Settings, _Logging);
             ModelProbeRuns = new ModelProbeRunMethods(this, _Settings, _Logging);
             ModelProbeResults = new ModelProbeResultMethods(this, _Settings, _Logging);

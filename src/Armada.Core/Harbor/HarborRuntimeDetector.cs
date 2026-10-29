@@ -5,10 +5,12 @@ namespace Armada.Core.Harbor
     using System.IO;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Decides which agent runtimes a Harbor can launch, so it advertises a runtime as available only when that runtime's
-    /// CLI resolves on the PATH (claude, codex, gemini, cursor-agent, mux, opencode). The Admiral routes a captain only to
+    /// CLI resolves on the PATH (claude, codex, gemini, cursor-agent, mux, opencode, pi; pi must also identify itself in
+    /// its <c>--help</c> output, see <see cref="Verifier"/>). The Admiral routes a captain only to
     /// a Harbor that has its runtime, so a Harbor without the CLI is skipped instead of failing every launch. Runtimes
     /// without a CLI (API endpoint, custom) are always available. The resolver is injectable for tests.
     /// </summary>
@@ -26,11 +28,23 @@ namespace Armada.Core.Harbor
             set => _Resolver = value ?? throw new ArgumentNullException(nameof(Resolver));
         }
 
+        /// <summary>
+        /// Confirms that a resolved executable really is the runtime's CLI, for runtimes whose command name is ambiguous.
+        /// Receives the runtime and the resolved path. Defaults to running <c>pi --help</c> for <see cref="AgentRuntimeEnum.Pi"/>
+        /// (<see cref="RuntimeDetectionService.IsPiCommand"/>) and accepting every other runtime.
+        /// </summary>
+        public Func<AgentRuntimeEnum, string, bool> Verifier
+        {
+            get => _Verifier;
+            set => _Verifier = value ?? throw new ArgumentNullException(nameof(Verifier));
+        }
+
         #endregion
 
         #region Private-Members
 
         private Func<string, string?> _Resolver = command => ResolveOnPath(command, Environment.GetEnvironmentVariable("PATH"), OperatingSystem.IsWindows());
+        private Func<AgentRuntimeEnum, string, bool> _Verifier = DefaultVerify;
 
         #endregion
 
@@ -62,6 +76,7 @@ namespace Armada.Core.Harbor
                 case AgentRuntimeEnum.Cursor: return "cursor-agent";
                 case AgentRuntimeEnum.Mux: return "mux";
                 case AgentRuntimeEnum.OpenCode: return "opencode";
+                case AgentRuntimeEnum.Pi: return "pi";
                 default: return null;
             }
         }
@@ -86,6 +101,23 @@ namespace Armada.Core.Harbor
                 string? resolved = null;
                 try { resolved = _Resolver(command); }
                 catch { resolved = null; }
+
+                if (!String.IsNullOrEmpty(resolved))
+                {
+                    bool verified = false;
+                    try { verified = _Verifier(runtime, resolved!); }
+                    catch { verified = false; }
+                    if (!verified)
+                    {
+                        capabilities.Add(new HarborCapability
+                        {
+                            Name = runtime.ToString(),
+                            Available = false,
+                            Detail = "'" + resolved + "' is not the " + runtime + " CLI"
+                        });
+                        continue;
+                    }
+                }
 
                 capabilities.Add(new HarborCapability
                 {
@@ -143,6 +175,12 @@ namespace Armada.Core.Harbor
         #endregion
 
         #region Private-Methods
+
+        private static bool DefaultVerify(AgentRuntimeEnum runtime, string resolvedPath)
+        {
+            if (runtime == AgentRuntimeEnum.Pi) return RuntimeDetectionService.IsPiCommand(resolvedPath);
+            return true;
+        }
 
         private static string? FindWithExtensions(string candidate, List<string> extensions, bool isWindows)
         {

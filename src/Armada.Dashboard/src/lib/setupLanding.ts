@@ -13,7 +13,7 @@ export const SETUP_LANDING_MODE_HINTS: Record<string, string> = {
   '': 'Uses the Admiral-wide landing settings.',
   None: 'Finished work stays on a branch for you to review. Choose Local Merge to land it automatically.',
   LocalMerge: 'Finished work is merged into the working directory. Nothing is pushed.',
-  MergeAndPush: 'Finished work is merged into the working directory and pushed to its origin remote, so the checkout needs one.',
+  MergeAndPush: 'Finished work is integrated and verified in its dock, then pushed to the target branch. Your checkout is left untouched if it has changes.',
   PullRequest: 'Finished work is pushed and opened as a pull request (needs the GitHub CLI).',
   MergeQueue: 'Finished work is queued; processing the merge queue tests and merges it.',
 };
@@ -24,12 +24,11 @@ export function setupLandingModeHint(mode: string): string {
 }
 
 /**
- * The English validation error when a landing mode that merges into the working directory (LocalMerge, MergeAndPush)
+ * The English validation error when a landing mode that merges into the working directory (LocalMerge)
  * has no working directory, or null when the combination is valid.
  */
 export function setupLandingWorkingDirectoryError(mode: string, workingDirectory: string): string | null {
   if (workingDirectory.trim()) return null;
   if (mode === 'LocalMerge') return 'Local Merge needs a working directory to merge into.';
-  if (mode === 'MergeAndPush') return 'Merge and Push needs a working directory to merge into.';
   return null;
 }

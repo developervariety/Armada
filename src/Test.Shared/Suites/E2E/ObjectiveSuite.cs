@@ -163,10 +163,11 @@ namespace Test.Shared.Suites.E2E
                 EnumerationResult<Objective> listed = await JsonHelper.DeserializeAsync<EnumerationResult<Objective>>(listResponse).ConfigureAwait(false);
                 AssertTrue(listed.Objects.Exists(current => current.Id == _ObjectiveId), "Expected backlog item in backlog list.");
 
-                HttpResponseMessage sessionsResponse = await authClient.GetAsync("/api/v1/backlog/" + _ObjectiveId + "/refinement-sessions").ConfigureAwait(false);
+                HttpResponseMessage sessionsResponse = await authClient.PostAsync("/api/v1/backlog/" + _ObjectiveId + "/refinement-sessions/enumerate", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, sessionsResponse.StatusCode);
-                List<ObjectiveRefinementSession> sessions = await JsonHelper.DeserializeAsync<List<ObjectiveRefinementSession>>(sessionsResponse).ConfigureAwait(false);
-                AssertEqual(0, sessions.Count);
+                EnumerationResult<ObjectiveRefinementSession> sessions = await JsonHelper.DeserializeAsync<EnumerationResult<ObjectiveRefinementSession>>(sessionsResponse).ConfigureAwait(false);
+                AssertEqual(0, sessions.Objects.Count);
+                AssertEqual(0L, sessions.TotalRecords, "empty first page counts zero");
 
                 HttpResponseMessage reorderResponse = await authClient.PostAsync("/api/v1/backlog/reorder",
                     JsonHelper.ToJsonContent(new
