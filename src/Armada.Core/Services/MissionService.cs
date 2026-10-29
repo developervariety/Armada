@@ -12568,13 +12568,14 @@ namespace Armada.Core.Services
                 if (restore.Status == DockWorkRestoreStatusEnum.NothingSaved) return;
 
                 bool applied = restore.Status == DockWorkRestoreStatusEnum.Applied;
-                string eventType = applied ? "mission.work_snapshot_applied" : "mission.work_snapshot_skipped";
                 string message = applied
                     ? "Uncommitted work of mission " + mission.Id + " was applied to the new checkout from " + restore.RefName + "."
                     : "Uncommitted work of mission " + mission.Id + " saved in " + restore.RefName + " was not applied to the new checkout: " + restore.Message + ".";
                 _Logging.Info(_Header + message);
 
-                ArmadaEvent evt = new ArmadaEvent(eventType, message);
+                ArmadaEvent evt = applied
+                    ? new ArmadaEvent("mission.work_snapshot_applied", message)
+                    : new ArmadaEvent("mission.work_snapshot_skipped", message);
                 evt.TenantId = mission.TenantId;
                 evt.UserId = mission.UserId;
                 evt.EntityType = "mission";
