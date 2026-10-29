@@ -55,6 +55,7 @@ import {
   sortWorkspacePathsByDepth,
 } from '../lib/workspace';
 import { PLANNING_PATH } from '../lib/navTargets';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 interface PersistedWorkspaceState {
   expandedPaths: Record<string, boolean>;
@@ -93,6 +94,7 @@ export default function Workspace() {
   const { vesselId } = useParams<{ vesselId?: string }>();
   const navigate = useNavigate();
   const { t, formatDateTime } = useLocale();
+  const deletion = useDeleteProgress();
   const { pushToast } = useNotifications();
 
   const [vessels, setVessels] = useState<Vessel[]>([]);
@@ -587,27 +589,32 @@ export default function Workspace() {
     const normalizedTargetPath = normalizeWorkspacePath(targetPath);
     if (!window.confirm(t('Delete {{path}}?', { path: normalizedTargetPath }))) return;
 
-    try {
-      await deleteWorkspaceEntry(vesselId, normalizedTargetPath);
-      const nextExpandedPaths = pruneWorkspacePathMap(expandedPaths, normalizedTargetPath);
-      setExpandedPaths(nextExpandedPaths);
-      setEntriesByDirectory((current) => pruneWorkspaceEntryDirectoryMap(current, normalizedTargetPath));
-      setTabs((current) => {
-        const next = current.filter((item) => !isWorkspacePathInScope(item, normalizedTargetPath));
-        if (activePath && isWorkspacePathInScope(activePath, normalizedTargetPath)) {
-          setActivePath(next[next.length - 1] || null);
-        }
-        return next;
-      });
-      setSelectedPaths((current) => current.filter((item) => !isWorkspacePathInScope(item, normalizedTargetPath)));
-      setRecentFiles((current) => current.filter((item) => !isWorkspacePathInScope(item, normalizedTargetPath)));
-      setFilesByPath((current) => pruneWorkspaceFileMap(current, normalizedTargetPath));
-      setDraftsByPath((current) => pruneWorkspaceStringMap(current, normalizedTargetPath));
-      if (metadataEntry && isWorkspacePathInScope(metadataEntry.relativePath, normalizedTargetPath)) {
-        setMetadataEntry(null);
+    const done = await deletion.run({
+      kind: 'workspaceEntry',
+      action: () => deleteWorkspaceEntry(vesselId, normalizedTargetPath),
+      errorMessage: (error) => (error instanceof Error ? error.message : t('Delete failed.')),
+    });
+    if (!done) return;
+    const nextExpandedPaths = pruneWorkspacePathMap(expandedPaths, normalizedTargetPath);
+    setExpandedPaths(nextExpandedPaths);
+    setEntriesByDirectory((current) => pruneWorkspaceEntryDirectoryMap(current, normalizedTargetPath));
+    setTabs((current) => {
+      const next = current.filter((item) => !isWorkspacePathInScope(item, normalizedTargetPath));
+      if (activePath && isWorkspacePathInScope(activePath, normalizedTargetPath)) {
+        setActivePath(next[next.length - 1] || null);
       }
-      setWorkspaceError('');
-      pushToast('warning', t('Deleted {{path}}', { path: normalizedTargetPath }));
+      return next;
+    });
+    setSelectedPaths((current) => current.filter((item) => !isWorkspacePathInScope(item, normalizedTargetPath)));
+    setRecentFiles((current) => current.filter((item) => !isWorkspacePathInScope(item, normalizedTargetPath)));
+    setFilesByPath((current) => pruneWorkspaceFileMap(current, normalizedTargetPath));
+    setDraftsByPath((current) => pruneWorkspaceStringMap(current, normalizedTargetPath));
+    if (metadataEntry && isWorkspacePathInScope(metadataEntry.relativePath, normalizedTargetPath)) {
+      setMetadataEntry(null);
+    }
+    setWorkspaceError('');
+    pushToast('warning', t('Deleted {{path}}', { path: normalizedTargetPath }));
+    try {
       await refreshWorkspace(getExpandedWorkspacePaths(nextExpandedPaths).filter((path) => path !== ''));
     } catch (error: unknown) {
       setWorkspaceError(error instanceof Error ? error.message : t('Delete failed.'));
@@ -803,6 +810,7 @@ export default function Workspace() {
 
   return (
     <div className="workspace-page">
+      {deletion.dialog}
       <div className="breadcrumbs">
         <Link to="/workspace" title={t('Back to the Workspace vessel picker.')}>{t('Workspace')}</Link>
         <span className="bc-sep">&gt;</span>

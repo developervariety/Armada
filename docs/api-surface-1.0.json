@@ -11803,7 +11803,7 @@
           "required": true
         }
       ],
-      "description": "Transition a mission to a new status with validation (the same rules as PUT /api/v1/missions/{id}/status). Valid transitions: Pending->Assigned/Cancelled/Blocked, Assigned->InProgress/Cancelled, InProgress->WorkProduced/Testing/Review/Complete/Failed/Cancelled, WorkProduced->PullRequestOpen/Complete/LandingFailed/Cancelled, PullRequestOpen->Complete/LandingFailed/Cancelled, Testing->InProgress/Review/Complete/Failed, Review->InProgress/Complete/Failed, LandingFailed->WorkProduced/Failed/Cancelled, Blocked->Pending/Cancelled, Verifying->InProgress/WorkProduced/Complete/Failed/Cancelled. Complete, Failed, and Cancelled are terminal.",
+      "description": "Transition a mission to a new status with validation (the same rules as PUT /api/v1/missions/{id}/status). Valid transitions: Pending->Assigned/Cancelled/Blocked, Assigned->InProgress/Cancelled, InProgress->WorkProduced/Testing/Review/Complete/Failed/Cancelled, WorkProduced->PullRequestOpen/Complete/LandingFailed/Cancelled, PullRequestOpen->Complete/LandingFailed/Cancelled, Testing->InProgress/Review/Complete/Failed, Review->InProgress/Complete/Failed, LandingFailed->WorkProduced/Complete/Failed/Cancelled, Blocked->Pending/Cancelled, Verifying->InProgress/WorkProduced/Complete/Failed/Cancelled. Complete, Failed, and Cancelled are terminal.",
       "experimental": false
     },
     {
@@ -20215,6 +20215,12 @@
       "key": "isolateCaptainLaunch",
       "type": "bool",
       "default": "false",
+      "experimental": false
+    },
+    {
+      "key": "landingDeferralDeadlineHours",
+      "type": "int",
+      "default": "24",
       "experimental": false
     },
     {
