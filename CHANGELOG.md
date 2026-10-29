@@ -11,6 +11,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 - The inbox `review` item and the `approval-needed` WebSocket broadcast list a mission in Review only when its stage requires review, the same rule approve and deny apply. A captain that reports Review as progress on a stage without a review gate no longer produces an "Awaiting your review" item.
 
+### Architect slice Judge acceptance scope
+
+- A Judge that reviews an intermediate Architect block is measured against that block's own acceptance criteria, read from the block's first stage (the `**Acceptance:**` list, an `## Acceptance Criteria` list, or a versioned `## Acceptance evidence contract`), instead of the whole linked objective's, so a correct intermediate review is not refused for criteria a later block delivers. The Judge brief and the acceptance-format correction list those criteria. The Judge of the final block, the integration mission, and any block whose scope cannot be determined still walk every live criterion of the linked objective.
+
 ### Architect dependencies on revising chains
 
 - A `Depends on: Mission N` edge moves the first Worker of the dependent block's chain, never a revising Worker with the same title later in that chain, on every database provider.

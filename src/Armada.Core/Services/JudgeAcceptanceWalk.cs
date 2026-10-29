@@ -49,6 +49,75 @@ namespace Armada.Core.Services
             return ReadFirstCriteriaSection(baseDescription);
         }
 
+        /// <summary>Heading of the versioned Architect plan's per-block acceptance items.</summary>
+        public const string EvidenceContractSectionName = "Acceptance evidence contract";
+
+        private static readonly Regex _SliceAcceptanceLabel = new Regex(
+            @"^\*\*Acceptance:?\*\*:?\s*$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        private static readonly Regex _BoldLabelLine = new Regex(
+            @"^\*\*.+\*\*:?\s*$", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        /// The acceptance criteria an Architect plan block declares for itself, read from the block text. The
+        /// forms are the ones the Architect plan defines: the bulleted list under the <c>**Acceptance:**</c> label,
+        /// the bullets under an <c>## Acceptance Criteria</c> heading, and the items of the versioned
+        /// <c>## Acceptance evidence contract</c> (the item's first line; indented continuation lines are not
+        /// criteria). Objective frames and handoff blocks are ignored.
+        /// </summary>
+        /// <param name="blockText">The description of the plan block's first stage.</param>
+        /// <returns>The block-local criteria; empty when the text declares none in a recognized form.</returns>
+        public static List<string> ExtractSliceBlockCriteria(string? blockText)
+        {
+            if (String.IsNullOrWhiteSpace(blockText)) return new List<string>();
+
+            Match handoff = _HandoffMarker.Match(blockText);
+            int baseLimit = handoff.Success ? handoff.Index : blockText.Length;
+            string baseText = StripObjectiveFrames(blockText.Substring(0, baseLimit));
+
+            List<string> items = ReadLabelBullets(baseText);
+            items.AddRange(ReadFirstCriteriaSection(baseText));
+            items.AddRange(ReadTopLevelBullets(ExtractSection(baseText, EvidenceContractSectionName)));
+            return Deduplicate(items);
+        }
+
+        private static List<string> ReadTopLevelBullets(string? block)
+        {
+            List<string> items = new List<string>();
+            if (String.IsNullOrWhiteSpace(block)) return items;
+            foreach (string raw in block.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (!(raw.StartsWith("- ", StringComparison.Ordinal) || raw.StartsWith("* ", StringComparison.Ordinal))) continue;
+                string item = Regex.Replace(raw.Substring(2).Trim(), @"\s+", " ");
+                if (item.Length > 0) items.Add(item);
+            }
+            return items;
+        }
+
+        private static List<string> ReadLabelBullets(string text)
+        {
+            List<string> items = new List<string>();
+            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            for (int index = 0; index < lines.Length; index++)
+            {
+                if (!_SliceAcceptanceLabel.IsMatch(lines[index].Trim())) continue;
+                int labelIndent = lines[index].Length - lines[index].TrimStart().Length;
+                for (int next = index + 1; next < lines.Length; next++)
+                {
+                    string line = lines[next];
+                    string trimmed = line.Trim();
+                    if (trimmed.Length == 0) continue;
+                    int indent = line.Length - line.TrimStart().Length;
+                    if (trimmed.StartsWith("#", StringComparison.Ordinal) || _BoldLabelLine.IsMatch(trimmed)) break;
+                    bool bullet = trimmed.StartsWith("- ", StringComparison.Ordinal) || trimmed.StartsWith("* ", StringComparison.Ordinal);
+                    if (indent > labelIndent) continue;
+                    if (!bullet) break;
+                    string item = Regex.Replace(trimmed.Substring(2).Trim(), @"\s+", " ");
+                    if (item.Length > 0) items.Add(item);
+                }
+            }
+            return items;
+        }
+
         internal static bool HasCompleteObjectiveBrief(string? description, string renderedBrief)
         {
             if (String.IsNullOrWhiteSpace(description) || String.IsNullOrWhiteSpace(renderedBrief)) return false;
