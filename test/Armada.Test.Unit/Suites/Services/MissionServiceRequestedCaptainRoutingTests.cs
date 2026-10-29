@@ -347,6 +347,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(requested.Id, read!.CaptainId, "A requested captain that usage routing approves wins over the route order");
                 }
             });
+
+            await RunCaptainEligibilityTestsAsync().ConfigureAwait(false);
         }
 
     }

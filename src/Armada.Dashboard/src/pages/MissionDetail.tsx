@@ -739,6 +739,12 @@ export default function MissionDetail() {
           <span className="detail-label">{t('Reviewed By')}</span>
           <span className="mono">{mission.reviewedByUserId || '-'}</span>
         </div>
+        {mission.failureKind && (
+          <div className="detail-field">
+            <span className="detail-label">{t('Failure Kind')}</span>
+            <span className="mono">{mission.failureKind}</span>
+          </div>
+        )}
         {mission.failureReason && (
           <div className="detail-field" style={{ gridColumn: '1 / -1' }}>
             <span className="detail-label">{t('Failure Reason')}</span>
@@ -827,6 +833,13 @@ export default function MissionDetail() {
                     ? <Link to={`/missions/${mission.assignmentHoldEntityId}`} className="mono">{mission.assignmentHoldEntityId}</Link>
                     : <span className="mono">{mission.assignmentHoldEntityId}</span>}
                 </>
+              )}
+              {mission.assignmentHoldCaptains && mission.assignmentHoldCaptains.length > 0 && (
+                <ul className="mono" style={{ margin: '0.25rem 0 0', paddingLeft: '1.25rem' }}>
+                  {mission.assignmentHoldCaptains.map((captain) => (
+                    <li key={captain.captainId}>{captain.captainName}: {captain.reason}</li>
+                  ))}
+                </ul>
               )}
             </span>
           </div>

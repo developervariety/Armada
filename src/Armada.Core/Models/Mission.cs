@@ -337,6 +337,20 @@ namespace Armada.Core.Models
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();
 
         /// <summary>
+        /// Why a failed mission failed, read from the reason code of its latest recorded attempt. Computed when the
+        /// mission is read and never stored; null for a mission that has not failed or whose latest attempt carries no
+        /// reason code.
+        /// </summary>
+        public string? FailureKind { get; set; } = null;
+
+        /// <summary>
+        /// The reason each captain of the tenant was passed over while the mission is held as
+        /// <c>no_eligible_captain</c>. Computed when the mission is read from the hold event and never stored; empty
+        /// otherwise.
+        /// </summary>
+        public List<AssignmentHoldCaptainReason> AssignmentHoldCaptains { get; set; } = new List<AssignmentHoldCaptainReason>();
+
+        /// <summary>
         /// Immutable snapshots of playbooks used for this mission.
         /// </summary>
         public List<MissionPlaybookSnapshot> PlaybookSnapshots { get; set; } = new List<MissionPlaybookSnapshot>();

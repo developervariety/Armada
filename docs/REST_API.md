@@ -5168,6 +5168,8 @@ An atomic unit of work assigned to a captain.
 | `Priority` | int | 100 | Priority (lower number = higher priority) |
 | `SelectedPlaybooks` | array\<[SelectedPlaybook](#selectedplaybook)\> | `[]` | Ordered playbook selections requested for the mission |
 | `PlaybookSnapshots` | array\<[MissionPlaybookSnapshot](#missionplaybooksnapshot)\> | `[]` | Immutable playbook materialization used for execution |
+| `FailureKind` | string? | null | Reason code of the latest recorded attempt of a failed mission, computed when `GET /api/v1/missions/{id}` reads it and never stored |
+| `AssignmentHoldCaptains` | array | `[]` | While the mission is held as `no_eligible_captain`, why each captain of the tenant was passed over (`CaptainId`, `CaptainName`, `Reason`); computed on the same read |
 | `ParentMissionId` | string? | null | Parent mission ID for sub-tasks |
 | `BranchName` | string? | null | Git branch name |
 | `DockId` | string? | null | Dock identifier for the mission's worktree |
