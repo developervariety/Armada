@@ -35,7 +35,7 @@ namespace Armada.Test.Unit.Suites.Routes
                         {
                             Mission mission = await SeedAsync(harness, surface + field).ConfigureAwait(false);
                             SurfaceReply reply = await UpdateAsync(harness, surface, mission.Id,
-                                new Dictionary<string, object?> { { "Priority", 7 }, { field, "high" } }).ConfigureAwait(false);
+                                new Dictionary<string, object?> { { "Priority", 7 }, { field, field == "RecoveryAttempts" ? (object)5 : "high" } }).ConfigureAwait(false);
                             AssertTrue(reply.Refused, surface + ": unsupported field must not report success: " + field);
                             AssertContains(field.ToLowerInvariant(), reply.Body.ToLowerInvariant(), "the refusal names the field");
                             Mission? stored = await harness.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
