@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System.Collections.Generic;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Predictive landing summary for a vessel or mission.
@@ -118,6 +119,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Landing preview issues and warnings.
         /// </summary>
+        [CollectionBound(16, Reason = "One per fixed AddIssue site in LandingPreviewService (13 sites, none in a loop)")]
         public List<LandingPreviewIssue> Issues { get; set; } = new List<LandingPreviewIssue>();
     }
 }

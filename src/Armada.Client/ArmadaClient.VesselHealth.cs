@@ -53,6 +53,20 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>listVesselDependencies</c>: POST `/api/v1/vessels/${encodeURIComponent(vesselId)}/health/dependencies/enumerate`.
+        /// One page of the vessel's outdated or vulnerable dependency rows (the health detail carries only DependencyCount).
+        /// </summary>
+        /// <param name="vesselId">vesselId.</param>
+        /// <param name="query">Paging (page size 1 to 1000); null is the first page of 10.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<VesselDependency>?> ListVesselDependenciesAsync(string vesselId, EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<VesselDependency>>($"/api/v1/vessels/{E(vesselId)}/health/dependencies/enumerate", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>evaluateVesselHealth</c>: POST '/api/v1/vessel-health/evaluate'. A 409 (an evaluation is already
         /// running) is returned like a success with <c>AlreadyRunning</c> set, as on the dashboard.
         /// </summary>

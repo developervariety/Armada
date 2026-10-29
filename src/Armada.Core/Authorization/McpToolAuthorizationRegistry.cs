@@ -82,6 +82,7 @@ namespace Armada.Core.Authorization
             Add("search_memory", "Memory", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("token_usage_summary", "TokenUsage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("vessel_health", "VesselHealth", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
+            Add("list_vessel_dependencies", "VesselHealth", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("voyage_status", "Voyage", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("fleet_action_run_status", "FleetActionRun", ResourceOperationEnum.Read, PermissionLevel.Authenticated);
             Add("evaluate_autoland", "Mission", ResourceOperationEnum.Read, PermissionLevel.Authenticated);

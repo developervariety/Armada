@@ -336,6 +336,18 @@ namespace Armada.Core
         public const int VesselHistoryMaxFilesPerCommit = 200;
 
         /// <summary>
+        /// Most parent SHAs listed per commit in vessel history (VesselCommit.ParentShas); VesselCommit.ParentCount
+        /// carries the full count, so an octopus merge with more parents is reported, not hidden.
+        /// </summary>
+        public const int VesselHistoryMaxParentsPerCommit = 64;
+
+        /// <summary>
+        /// Most issues listed in a vessel readiness report (VesselReadinessResult.Issues). IssueCount, ErrorCount, and
+        /// WarningCount count every issue; when there are more, the most severe are listed.
+        /// </summary>
+        public const int VesselReadinessMaxIssues = 200;
+
+        /// <summary>
         /// Default page size for vessel commit history.
         /// </summary>
         public const int VesselHistoryDefaultPageSize = 50;
