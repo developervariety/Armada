@@ -47,6 +47,38 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(0, incident.RecoveryAttempts, "suppression does not spend rescue budget");
             }));
 
+            cases.Add(CaseAsync("operator_recovery_referencing_parent_suppresses_rescue", "An open mission whose brief names the failed mission or its commit prevents another rescue", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.LandingConflict, "conflict").ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Land existing work on main", "Recover the work of " + failed.Id + " and land it.") { VesselId = vessel.Id, Status = MissionStatusEnum.InProgress }).ConfigureAwait(false);
+                MissionRecoveryCoordinator coordinator = new MissionRecoveryCoordinator(CreateLogging(), testDb.Driver, new ArmadaSettings { MaxMissionRecoveryAttempts = 2 });
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+                List<Mission> missions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                AssertEqual(2, missions.Count, "the operator's recovery is the only recovery");
+                List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(failed.Id).ConfigureAwait(false);
+                AssertTrue(events.Exists(e => e.EventType == "mission.rescue_deduplicated"), "the suppression is recorded");
+            }));
+
+            cases.Add(CaseAsync("rescue_with_recorded_commit_integrates_it", "A rescue for a mission that left a commit on its branch integrates that commit instead of re-implementing", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.LandingConflict, "Cannot integrate current landing target: conflict in a.txt").ConfigureAwait(false);
+                failed.Status = MissionStatusEnum.LandingFailed;
+                failed.CommitHash = "6add5c4f0a1b2c3d4e5f60718293a4b5c6d7e8f9";
+                failed.BranchName = "armada/worker/" + failed.Id;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+                MissionRecoveryCoordinator coordinator = new MissionRecoveryCoordinator(CreateLogging(), testDb.Driver, new ArmadaSettings { MaxMissionRecoveryAttempts = 2 });
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+                Mission rescue = (await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false)).Single(m => m.IsRescue);
+                AssertContains("Do NOT re-implement", rescue.Description ?? "");
+                AssertContains("git merge --no-edit " + failed.CommitHash, rescue.Description ?? "");
+                AssertContains(failed.BranchName, rescue.Description ?? "");
+                AssertFalse((rescue.Description ?? "").Contains("Re-implement the change correctly", StringComparison.Ordinal), "not the re-implementation brief");
+            }));
+
             cases.Add(CaseAsync("open_same_title_suppresses_rescue", "An open mission with the same title on the same vessel prevents another rescue", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

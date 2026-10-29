@@ -270,9 +270,12 @@ namespace Armada.Core.Services
             Mission? existing = peers.FirstOrDefault(m => m.Id != original.Id && m.TenantId == original.TenantId
                 && _ActiveStatuses.Contains(m.Status)
                 && (m.ParentMissionId == original.Id || String.Equals(m.Title, original.Title, StringComparison.OrdinalIgnoreCase)
-                    || String.Equals(m.Title, "[Rescue] " + original.Title, StringComparison.OrdinalIgnoreCase)));
+                    || String.Equals(m.Title, "[Rescue] " + original.Title, StringComparison.OrdinalIgnoreCase)
+                    || ReferencesOriginal(m, original)));
             if (existing != null)
             {
+                _Logging.Info(_Header + "not dispatching a rescue for " + original.Id + ": mission " + existing.Id + " (" + existing.Status
+                    + ") already recovers the same work");
                 ArmadaEvent evt = new ArmadaEvent("mission.rescue_deduplicated", "Rescue for " + original.Id + " suppressed because " + existing.Id + " is open")
                 {
                     TenantId = original.TenantId, UserId = original.UserId, EntityType = "mission", EntityId = original.Id,
@@ -293,11 +296,59 @@ namespace Armada.Core.Services
             rescue.Tier = original.Tier;
             rescue.Priority = Math.Max(0, original.Priority - 50);
             rescue.Title = "[Rescue] " + original.Title;
-            rescue.Description = BuildRescueBrief(original, incident);
+            rescue.Description = HasRecordedWork(original) ? BuildIntegrationRescueBrief(original, incident) : BuildRescueBrief(original, incident);
             rescue.Status = MissionStatusEnum.Pending;
 
             rescue = await _Database.Missions.CreateAsync(rescue, token).ConfigureAwait(false);
             return rescue;
+        }
+
+        /// <summary>
+        /// Whether a mission names the original (by id, or by its produced commit) in its brief, as an operator-dispatched
+        /// recovery of the same work does.
+        /// </summary>
+        private static bool ReferencesOriginal(Mission candidate, Mission original)
+        {
+            string text = (candidate.Title ?? "") + "\n" + (candidate.Description ?? "");
+            if (text.Contains(original.Id, StringComparison.Ordinal)) return true;
+            string? commit = original.CommitHash;
+            if (String.IsNullOrEmpty(commit) || commit.Length < 7) return false;
+            return text.Contains(commit.Substring(0, Math.Min(commit.Length, 9)), StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Whether the failed mission left a commit on a named branch: its work exists and needs integrating, not redoing.
+        /// </summary>
+        private static bool HasRecordedWork(Mission original)
+        {
+            return !String.IsNullOrWhiteSpace(original.CommitHash) && !String.IsNullOrWhiteSpace(original.BranchName);
+        }
+
+        private static string BuildIntegrationRescueBrief(Mission original, Incident incident)
+        {
+            string commit = original.CommitHash!.Trim();
+            string branch = original.BranchName!.Trim();
+            string brief =
+                "This is an autonomous RESCUE mission. A prior attempt at the work below already produced commit " + commit +
+                " on branch " + branch + ", but landing it failed. Do NOT re-implement the change: integrate that existing commit onto the current target.\n\n" +
+                "## Steps\n" +
+                "1. Start from the prior attempt's work: `git merge --no-edit " + commit + "` (if the commit is not in this checkout, first `git fetch origin " + branch + "`, then merge `FETCH_HEAD`). Stop and report BLOCKED if the commit cannot be found.\n" +
+                "2. Integrate the latest target head (fetch it, then merge it), resolving every conflict so both the target's changes and the prior commit's intent survive.\n" +
+                "3. Fix only what the failure below requires, stay strictly in scope, and rerun the relevant build and tests.\n\n" +
+                "## Original Mission\n" +
+                original.Title + "\n\n" +
+                (String.IsNullOrWhiteSpace(original.Description) ? "" : Trim(original.Description, 3000) + "\n\n") +
+                "## Failure To Fix\n" +
+                "Classified kind: " + (incident.FailureKind ?? "Unknown") + "\n" +
+                "Reason: " + Trim(original.FailureReason, 1500) + "\n\n";
+
+            if (!String.IsNullOrWhiteSpace(original.DiffSnapshot))
+            {
+                brief += "## Prior Attempt Diff (already in commit " + commit + ")\n```diff\n" + Trim(original.DiffSnapshot, MaxDiffExcerptChars) + "\n```\n\n";
+            }
+
+            brief += "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a brief summary of how the commit was integrated.";
+            return brief;
         }
 
         private static string BuildRescueBrief(Mission original, Incident incident)
