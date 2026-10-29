@@ -53,6 +53,8 @@ namespace Test.Shared.Suites.E2E
         private static readonly Dictionary<string, string> _InternalModels = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["CaptainChatTurnResult"] = "In-process result of an Ask turn; its tool calls are stored and read through the paged Ask tool-call enumerations",
+            ["DockLeaseState"] = "Landing's view of which missions hold a dock, used inside the landing pipeline",
+            ["LandingDeferral"] = "Landing pipeline decision to defer a landing, recorded in-process",
             ["DetectedEcosystem"] = "Workflow-profile provisioning input built from a repository scan",
             ["EcosystemCommand"] = "Workflow-profile provisioning input built from a repository scan",
             ["ResolvedEcosystemCommand"] = "Workflow-profile provisioning input built from a repository scan",
