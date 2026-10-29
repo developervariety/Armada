@@ -452,12 +452,13 @@ namespace Armada.Server.Routes
                 mission.DiffSnapshot = null;
                 mission.AgentOutput = null;
                 mission.PlaybookSnapshots = await _database.Playbooks.GetMissionSnapshotsAsync(mission.Id).ConfigureAwait(false);
+                await MissionReadDerivations.ApplyAsync(_database, mission, req.Http.Token).ConfigureAwait(false);
                 return (object)mission;
             },
             api => api
                 .WithTag("Missions")
                 .WithSummary("Get a mission")
-                .WithDescription("Returns a single mission by ID.")
+                .WithDescription("Returns a single mission by ID. failureKind is the reason code of the latest recorded attempt of a failed mission. assignmentHoldCaptains lists why each captain was passed over while the mission is held as no_eligible_captain.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<Mission>("Mission details"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())

@@ -63,6 +63,17 @@ may take the mission, and a count of idle captains per exclusion reason
 idle captains that eligibility admits but quarantine, a reservation, a retry
 exclusion or Smart Routing holds back.
 
+When captains of the tenant are idle but none may take the mission, the mission
+is held as `no_eligible_captain`. One per-captain rule decides which idle
+captains enter the assignment pool, and the hold reports the same rule's
+answer: `not_idle`, `quarantined`, `excluded_after_refusal`, `persona_not_allowed`, `model_pin_mismatch` or
+`below_tier_floor` for each captain of the tenant. A captain that only another
+assignment pass has reserved does not make the hold. The reasons are in the
+payload of the `mission.assignment_held` event, in the mission read
+(`AssignmentHoldCaptains`) and on the Assignment Hold line of the dashboard
+mission page. The hold records a new event only when the reasons change, and
+`mission.assignment_hold_released` when a captain takes the mission.
+
 A mission continued on another runtime after a policy refusal uses the same
 rules as assignment. A captain on another runtime is an approved alternate when
 it is not quarantined (a quarantine deadline still in the future counts), it is
@@ -911,6 +922,14 @@ the requested captain, why it was not used, and the tier; its payload carries
 the reason's `code` and the mission `persona`. Read these events
 when a mission with a requested captain waits. A wait that does not change is
 recorded once. A mission with neither field set is assigned by normal routing.
+
+A Judge stage prefers an admitted captain that ran no earlier non-Judge stage
+of its dependency chain. When every admitted captain is such an author, the
+author takes the Judge, so the Judge never waits for this reason. The
+preference runs after eligibility, the requested-captain rule and Smart
+Routing: it never admits a captain they exclude, and a requested captain still
+wins. `mission.judge_assigned` records the captain and `isChainAuthor` when the
+Judge is assigned.
 
 Dispatch refuses a captain assignment whose captain can never take the stage
 it names (see [MCP_API.md](MCP_API.md)), so these waits arise only when the

@@ -462,6 +462,10 @@ export interface Mission {
   assignmentHoldReason?: string | null;
   /** Record that holds the mission, such as the predecessor stage it waits on. */
   assignmentHoldEntityId?: string | null;
+  /** Why each captain of the tenant was passed over while the mission is held as no_eligible_captain. */
+  assignmentHoldCaptains?: Array<{ captainId: string; captainName: string; reason: string }>;
+  /** Reason code of the latest recorded attempt of a failed mission; computed on read. */
+  failureKind?: string | null;
   requiresReview: boolean;
   reviewDenyAction: 'RetryStage' | 'FailPipeline';
   reviewComment: string | null;

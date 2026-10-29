@@ -32,9 +32,23 @@ upstream integrations and excludes changes already present at that baseline.
 
 - A captain stop from REST, MCP or WebSocket (single and stop-all) ends the running mission Cancelled, not Failed. The reason starts with `operator_stopped:` and names who stopped it, the surface and the UTC time; it also names the `recover/<mission>-<n>` ref when the dock reclaim saved uncommitted work. A `mission.stopped_by_operator` event records the stop. Autonomous rescue and the Needs You failure feed no longer see these missions. Recalls made by the admiral itself (recovery, stall handling) still fail the mission. Restarting a stopped stage reopens its voyage when the voyage ended Failed or Cancelled.
 
+### Judge author preference and the no-eligible-captain hold
+
+- A Judge stage prefers an admitted captain that ran no earlier non-Judge stage of its dependency chain and falls back to an author when no other captain is admitted. A requested captain still wins. `mission.judge_assigned` records whether the Judge captain is a chain author. No setting controls it.
+- One per-captain eligibility rule (`CaptainAssignmentEligibility`) builds the assignment pool and explains an empty one. A Pending mission whose idle captains are all ineligible is held as `no_eligible_captain`; the `mission.assignment_held` payload names each captain's reason, and the mission read and the dashboard Assignment Hold line show them.
+
+### Mission failure kind
+
+- `GET /api/v1/missions/{id}` returns `failureKind` for a failed mission: the reason code of its latest recorded attempt, computed on read. Nothing is stored. The dashboard mission page shows it.
+
+### Scope check path normalization
+
+- The "Touch only" scope check drops a leading `./` and a trailing period from directive paths and skips empty paths. The mission scope check and the workspace route read one parser (`MissionScopedFiles`).
+
 ### Report completion
 
 - A complete report can retain an obligation for actual pending downstream review roles without cancelling them, with or without a stated count. The gate verifies the owned dependency chain, associates numbered statements with explicit pending-duty evidence, and still blocks unfinished work, unavailable reviewers and mismatched counts.
+
 ### Attempt provenance
 
 - Each captain process launch now records a row in the new `mission_attempt_provenance` table: the captain, persona, runtime, model, runtime version, process id, start and end times, and the outcome (`Running`, `Completed`, `Failed` or `Interrupted`) with an exit code and a reason code. A relaunch closes any row of the mission still running as `Interrupted` with reason `superseded_by_relaunch`. The attempt facts stay the record of what Armada did next; they hold none of these fields.
