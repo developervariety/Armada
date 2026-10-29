@@ -1231,6 +1231,17 @@ appear in the mission recovery report. Every completed reclaim also records
 `dock.reclaimed`, naming the calling code path, the dock's mission and the
 mission's status at that moment.
 
+A mission that continues a preserved branch -- a stage with an inherited branch, or a
+reassigned root mission -- gets the newest saved work back: after its checkout is
+provisioned and its base is verified, the work is applied as uncommitted changes
+(edits, deletions and new files) and no commit is made. The work is applied only
+when the new checkout is clean and its HEAD is the commit the saved work was made
+on. `mission.work_snapshot_applied` records the resume. When the work is not applied
+-- the checkout is on another commit, or the apply conflicts -- the checkout is left
+unchanged, `mission.work_snapshot_skipped` names the reason, and one `[work not
+restored]` note on the coordination board names the `recover/` ref that still holds
+the work. A mission with no saved work records nothing.
+
 Both families use one retention rule. The sweep keeps an anchor in these cases:
 
 - The dock or mission it names is live. A mission is live while its status is

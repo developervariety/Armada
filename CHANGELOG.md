@@ -13,6 +13,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 - A mission assigned to a different captain than its previous attempt posts one `[reassigned]` system note on the coordination board naming the mission and both captains.
 
+- A mission that continues a preserved branch (a stage with an inherited branch, or a reassigned root mission) gets its newest saved `recover/<missionId>-<n>` work back as uncommitted changes in the rebuilt checkout, with no commit. Work saved on a different commit than the new checkout's HEAD is not applied; `mission.work_snapshot_applied` or `mission.work_snapshot_skipped` records the outcome and a skip posts one `[work not restored]` board note. No migration.
+
 ### Dispatch hold across restarts
 
 - The dispatch hold is stored in the database and restored at startup before any dispatch path runs. A restart no longer opens dispatch while a hold is engaged. A restored hold posts one system note on the coordination board naming its reason and setter, and it stays engaged until `armada_dispatch_hold action=clear`. Migrations: SQLite 141, PostgreSQL 146, MySQL 134, SQL Server 137.

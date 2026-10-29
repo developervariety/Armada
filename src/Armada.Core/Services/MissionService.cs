@@ -1318,6 +1318,11 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            // A continued branch comes back with the uncommitted work its previous checkout held: the
+            // provisioning step saved that work to a recover ref and then rebuilt the checkout clean.
+            if (preserveInheritedBranch || preserveReassignedRootBranch)
+                await ResumeSavedDockWorkAsync(mission, dock, captain, token).ConfigureAwait(false);
+
             // Commit the assignment as two conditional writes, each undone explicitly when the other
             // fails, so no failure point leaves a half-assigned row. The captain claim goes first: it is
             // the compare-and-set that keeps one captain from serving two missions, and until it holds
@@ -12545,6 +12550,61 @@ namespace Armada.Core.Services
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "could not follow mission " + mission.Id + " to captain " + captain.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Applies the uncommitted work a mission's previous checkout held to its new checkout, when a git service
+        /// that can apply it is configured. An applied or skipped restore is recorded as an event; a skip that
+        /// leaves saved work behind is also announced once on the board. Neither outcome fails the assignment.
+        /// </summary>
+        private async Task ResumeSavedDockWorkAsync(Mission mission, Dock dock, Captain captain, CancellationToken token)
+        {
+            if (_Git is not IDockWorkSnapshotApplier applier || String.IsNullOrWhiteSpace(dock.WorktreePath)) return;
+
+            try
+            {
+                DockWorkRestore restore = await applier.ApplyDockWorkAsync(dock.WorktreePath!, mission.Id, token).ConfigureAwait(false);
+                if (restore.Status == DockWorkRestoreStatusEnum.NothingSaved) return;
+
+                bool applied = restore.Status == DockWorkRestoreStatusEnum.Applied;
+                string eventType = applied ? "mission.work_snapshot_applied" : "mission.work_snapshot_skipped";
+                string message = applied
+                    ? "Uncommitted work of mission " + mission.Id + " was applied to the new checkout from " + restore.RefName + "."
+                    : "Uncommitted work of mission " + mission.Id + " saved in " + restore.RefName + " was not applied to the new checkout: " + restore.Message + ".";
+                _Logging.Info(_Header + message);
+
+                ArmadaEvent evt = new ArmadaEvent(eventType, message);
+                evt.TenantId = mission.TenantId;
+                evt.UserId = mission.UserId;
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.CaptainId = captain.Id;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    DockId = dock.Id,
+                    WorktreePath = dock.WorktreePath,
+                    RefName = restore.RefName,
+                    Reason = applied ? null : restore.Message
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+
+                if (!applied && ReassignmentNotePoster != null)
+                    await ReassignmentNotePoster.PostBroadcastAsync(
+                        "[work not restored] Mission " + mission.Id + " (" + mission.Title + ") continues without its previous uncommitted work. It stays saved in "
+                        + restore.RefName + ": " + restore.Message + ".",
+                        mission.VesselId, mission.Id, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not resume the saved dock work of mission " + mission.Id + ": " + ex.Message);
             }
         }
 

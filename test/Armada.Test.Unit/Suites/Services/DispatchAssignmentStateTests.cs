@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -932,6 +933,64 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(newDock, "A dock must be provisioned for the reassigned mission");
                     string? provisionedHead = await git.GetHeadCommitHashAsync(newDock!.WorktreePath!).ConfigureAwait(false);
                     AssertEqual(savedHead, provisionedHead ?? "(null)", "The provisioned checkout must sit on the committed branch head, not on main (" + mainHead + ")");
+                }
+            });
+
+            // A stage-2 mission stopped with uncommitted work -- an edit, a deletion and a new file -- keeps
+            // its branch across the restart. The rebuilt checkout shows that work again as uncommitted
+            // changes, with no commit made for it.
+            await RunTest("TryAssign_ReassignedStageTwoMissionWithUncommittedWork_ResumesTheWorkAsUncommittedChanges", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StageTwoRestart restart = await StageTwoRestart.StopWithUncommittedWorkAsync(testDb, CreateLogging(), CreateSettings(), commitAfterSavingTheWork: false).ConfigureAwait(false);
+
+                    bool assigned = await restart.MissionService.TryAssignAsync(restart.Stage, restart.Vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(restart.Stage.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "The restarted stage must be assignable; reason: " + (readBack?.FailureReason ?? "(none)"));
+                    Dock? dock = await testDb.Driver.Docks.ReadAsync(readBack!.DockId ?? "").ConfigureAwait(false);
+                    string checkout = dock!.WorktreePath!;
+                    AssertEqual(restart.BranchHead, RunGitProcess(checkout, "rev-parse", "HEAD").Trim(), "No commit is made for the resumed work");
+                    AssertEqual("edited by the stopped captain", File.ReadAllText(Path.Combine(checkout, "README.md")).Trim(), "The edit is back");
+                    AssertFalse(File.Exists(Path.Combine(checkout, "work.txt")), "The deletion is back");
+                    AssertEqual("new file", File.ReadAllText(Path.Combine(checkout, "new.txt")).Trim(), "The new file is back");
+                    string status = RunGitProcess(checkout, "status", "--porcelain");
+                    AssertContains(" M README.md", status);
+                    AssertContains(" D work.txt", status);
+                    AssertContains("?? new.txt", status);
+                    AssertEqual(0, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "A resume posts no warning");
+
+                    List<ArmadaEvent> events = (await testDb.Driver.Events.EnumerateByMissionAsync(restart.Stage.Id, 50).ConfigureAwait(false));
+                    AssertEqual(1, events.Count(e => e.EventType == "mission.work_snapshot_applied"), "The resume is recorded once");
+                    AssertEqual(0, events.Count(e => e.EventType == "mission.work_snapshot_skipped"), "A resume is not a skip");
+                }
+            });
+
+            // Saved work made on an older commit than the rebuilt checkout's HEAD is not applied: it would land
+            // on a tree it was not made on. The skip is recorded and announced once, and the work stays saved.
+            await RunTest("TryAssign_ReassignedStageTwoMissionWhoseSavedWorkIsOnAnOlderCommit_AppliesNothingAndRecordsTheSkip", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StageTwoRestart restart = await StageTwoRestart.StopWithUncommittedWorkAsync(testDb, CreateLogging(), CreateSettings(), commitAfterSavingTheWork: true).ConfigureAwait(false);
+
+                    bool assigned = await restart.MissionService.TryAssignAsync(restart.Stage, restart.Vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(restart.Stage.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "The restarted stage must still be assignable; reason: " + (readBack?.FailureReason ?? "(none)"));
+                    Dock? dock = await testDb.Driver.Docks.ReadAsync(readBack!.DockId ?? "").ConfigureAwait(false);
+                    string checkout = dock!.WorktreePath!;
+                    AssertEqual("", RunGitProcess(checkout, "status", "--porcelain").Trim(), "Nothing is applied to a checkout on a different commit");
+                    AssertEqual(restart.BranchHead, RunGitProcess(checkout, "rev-parse", "HEAD").Trim(), "The checkout sits on the newer branch head");
+
+                    List<ArmadaEvent> events = (await testDb.Driver.Events.EnumerateByMissionAsync(restart.Stage.Id, 50).ConfigureAwait(false));
+                    ArmadaEvent skipped = events.Single(e => e.EventType == "mission.work_snapshot_skipped");
+                    AssertContains("recover/" + restart.Stage.Id + "-1", skipped.Message);
+                    AssertEqual(0, events.Count(e => e.EventType == "mission.work_snapshot_applied"), "Nothing was applied");
+                    AssertEqual(1, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "The skip is announced once on the board");
+                    AssertTrue(RunGitProcess(restart.BareRepo, "for-each-ref", "refs/heads/recover/" + restart.Stage.Id + "-1").Contains("recover/", StringComparison.Ordinal),
+                        "The saved work stays in its recover ref");
                 }
             });
 
@@ -2487,6 +2546,86 @@ namespace Armada.Test.Unit.Suites.Services
         #endregion
 
         #region Private-Types
+
+        /// <summary>
+        /// A stage-2 mission whose first checkout held uncommitted work when the admiral restarted: the mission is
+        /// back to Pending with its branch and its stopped dock, and one idle captain is free to take it.
+        /// </summary>
+        private sealed class StageTwoRestart
+        {
+            public IMissionService MissionService { get; private set; } = null!;
+            public FakeBoardNotePoster Poster { get; } = new FakeBoardNotePoster();
+            public Vessel Vessel { get; private set; } = null!;
+            public Mission Stage { get; private set; } = null!;
+            public string BareRepo { get; private set; } = "";
+            public string BranchHead { get; private set; } = "";
+
+            public static async Task<StageTwoRestart> StopWithUncommittedWorkAsync(TestDatabase testDb, LoggingModule logging, ArmadaSettings settings, bool commitAfterSavingTheWork)
+            {
+                StageTwoRestart restart = new StageTwoRestart();
+                GitService git = new GitService(logging);
+                IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                missionService.ReassignmentNotePoster = restart.Poster;
+                restart.MissionService = missionService;
+
+                restart.BareRepo = global::Test.Shared.Infrastructure.TestGitRepoHelper.CreateBareRepoCopy();
+                restart.Vessel = await testDb.Driver.Vessels.CreateAsync(NewRealGitVessel("stage-two-resume-vessel", restart.BareRepo)).ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("chain") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                string branch = "armada/chain/stage-one";
+                restart.BranchHead = CommitAheadOnBranch(restart.BareRepo, branch, "Stage one committed work");
+                Mission predecessor = await testDb.Driver.Missions.CreateAsync(new Mission("Earlier stage", "Produced the branch")
+                {
+                    VesselId = restart.Vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.Complete,
+                    BranchName = branch, CommitHash = restart.BranchHead
+                }).ConfigureAwait(false);
+                restart.Stage = await testDb.Driver.Missions.CreateAsync(new Mission("Next stage", "Continue on the branch")
+                {
+                    VesselId = restart.Vessel.Id, VoyageId = voyage.Id, Persona = "Worker", Status = MissionStatusEnum.Pending,
+                    DependsOnMissionId = predecessor.Id, BranchName = branch
+                }).ConfigureAwait(false);
+
+                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("stage-two-captain") { State = CaptainStateEnum.Idle }).ConfigureAwait(false);
+                if (!await missionService.TryAssignAsync(restart.Stage, restart.Vessel).ConfigureAwait(false))
+                    throw new InvalidOperationException("Fixture stage was not assigned");
+                restart.Stage = (await testDb.Driver.Missions.ReadAsync(restart.Stage.Id).ConfigureAwait(false))!;
+                Dock dock = (await testDb.Driver.Docks.ReadAsync(restart.Stage.DockId ?? "").ConfigureAwait(false))!;
+
+                File.WriteAllText(Path.Combine(dock.WorktreePath!, "README.md"), "edited by the stopped captain\n");
+                File.Delete(Path.Combine(dock.WorktreePath!, "work.txt"));
+                File.WriteAllText(Path.Combine(dock.WorktreePath!, "new.txt"), "new file\n");
+
+                if (commitAfterSavingTheWork)
+                {
+                    // The work was saved earlier and the captain has since committed on top, so the checkout the
+                    // restart leaves is clean and its HEAD is a newer commit than the one the saved work sits on.
+                    DockWorkSnapshot saved = await git.SnapshotDockWorkAsync(dock.WorktreePath!, restart.Stage.Id, "Example snapshot").ConfigureAwait(false);
+                    if (!saved.HasRef) throw new InvalidOperationException("Fixture snapshot was not saved: " + saved.Message);
+                    RunGitProcess(dock.WorktreePath!, "reset", "--hard", "HEAD");
+                    RunGitProcess(dock.WorktreePath!, "clean", "-fd");
+                    File.WriteAllText(Path.Combine(dock.WorktreePath!, "later.txt"), "committed later\n");
+                    RunGitProcess(dock.WorktreePath!, "add", "later.txt");
+                    RunGitProcess(dock.WorktreePath!, "-c", "user.name=Armada Tests", "-c", "user.email=armada-tests@example.com", "commit", "-m", "Committed after the snapshot");
+                    restart.BranchHead = RunGitProcess(dock.WorktreePath!, "rev-parse", "HEAD").Trim();
+                }
+
+                // The restart leaves the mission Pending with its branch and its stopped dock, and frees the captain.
+                restart.Stage.Status = MissionStatusEnum.Pending;
+                restart.Stage.AssignmentState = MissionAssignmentStateEnum.Pending;
+                restart.Stage.CaptainId = null;
+                restart.Stage.ProcessId = null;
+                await testDb.Driver.Missions.UpdateAsync(restart.Stage).ConfigureAwait(false);
+                Captain freed = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                freed.State = CaptainStateEnum.Idle;
+                freed.CurrentMissionId = null;
+                freed.ProcessId = null;
+                await testDb.Driver.Captains.UpdateAsync(freed).ConfigureAwait(false);
+                return restart;
+            }
+        }
 
         /// <summary>
         /// Mission service stub that returns false for configured mission ids and sets AssignmentState.
