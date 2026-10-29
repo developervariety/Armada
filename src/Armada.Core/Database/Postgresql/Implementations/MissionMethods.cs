@@ -316,6 +316,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new NpgsqlParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new NpgsqlParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -354,7 +359,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 {
                     cmd.Connection = conn;
                     cmd.CommandText = "SELECT * FROM missions" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (NpgsqlParameter p in parameters)
                         cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
@@ -533,6 +538,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new NpgsqlParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new NpgsqlParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -562,7 +572,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + ", id " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {
@@ -725,6 +735,11 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     conditions.Add("status = @status");
                     parameters.Add(new NpgsqlParameter("@status", query.Status));
                 }
+                if (query.ExcludeFailureKind.HasValue)
+                {
+                    conditions.Add("(failure_kind IS NULL OR failure_kind <> @exclude_failure_kind)");
+                    parameters.Add(new NpgsqlParameter("@exclude_failure_kind", MissionFailureKindColumn.ToDbValue(query.ExcludeFailureKind.Value)));
+                }
                 if (!string.IsNullOrEmpty(query.VoyageId))
                 {
                     conditions.Add("voyage_id = @voyage_id");
@@ -754,7 +769,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
+                    cmd.CommandText = "SELECT * FROM missions" + whereClause + " ORDER BY created_utc " + orderDirection + ", id " + orderDirection + " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (NpgsqlParameter p in parameters) cmd.Parameters.Add(new NpgsqlParameter(p.ParameterName, p.Value));
                     using (NpgsqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
                     {

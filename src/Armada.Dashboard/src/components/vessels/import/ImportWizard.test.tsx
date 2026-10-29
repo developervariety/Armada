@@ -18,6 +18,7 @@ import { onlyCallArgs } from '../../../test/mockCalls';
 vi.mock('../../../api/client', () => ({
   apiErrorCode: vi.fn(() => null),
   browseVesselImport: vi.fn(),
+  browseAllVesselImport: vi.fn(),
   discoverVesselImport: vi.fn(),
   enumerateVesselImportBatches: vi.fn(),
   getVesselImportBatch: vi.fn(),

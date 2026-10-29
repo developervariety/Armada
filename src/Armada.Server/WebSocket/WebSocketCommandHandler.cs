@@ -148,6 +148,12 @@ namespace Armada.Server.WebSocket
                 // A taken name (or any unique value) is a Conflict reply for this action, never provider text.
                 return WebSocketCommandError.FromException(action, ex);
             }
+            catch (CollectionLimitExceededException ex)
+            {
+                // A collection over its limit (for example a persona's CaptainPriorities) is InvalidArgument naming the
+                // field and the limit, never an internal error.
+                return WebSocketCommandError.FromException(action, ex);
+            }
         }
 
         private async Task<object> DispatchCommandAsync(string action, WebSocketCommand command, string rawBody, AuthContext? caller)
@@ -167,11 +173,11 @@ namespace Armada.Server.WebSocket
 
                 case "stop_captain":
                     string captainId = command.CaptainId ?? "";
-                    await _Admiral.RecallCaptainAsync(captainId).ConfigureAwait(false);
+                    await _Admiral.RecallCaptainAsync(captainId, new OperatorStopContext(OperatorStopContext.SourceWebSocketStopCaptain, caller?.UserId)).ConfigureAwait(false);
                     return new { type = "command.result", action = "stop_captain", data = (object)new { status = "stopped", captainId = captainId } };
 
                 case "stop_all":
-                    await _Admiral.RecallAllAsync().ConfigureAwait(false);
+                    await _Admiral.RecallAllAsync(new OperatorStopContext(OperatorStopContext.SourceWebSocketStopAll, caller?.UserId)).ConfigureAwait(false);
                     return new { type = "command.result", action = "stop_all", data = (object)new { status = "all_stopped" } };
 
                 case "stop_server":
@@ -201,8 +207,9 @@ namespace Armada.Server.WebSocket
                         return WebSocketCommandError.Create("get_fleet", WebSocketCommandErrorCodeEnum.NotFound, "Fleet not found");
                     else
                     {
-                        List<Vessel> fleetVessels = await _Database.Vessels.EnumerateByFleetAsync(getFleetId).ConfigureAwait(false);
-                        return new { type = "command.result", action = "get_fleet", data = (object)new { Fleet = foundFleet, Vessels = fleetVessels } };
+                        // Vessels are not embedded: page them with list_vessels and query.fleetId.
+                        EnumerationResult<Vessel> fleetVesselPage = await _Database.Vessels.EnumerateAsync(new EnumerationQuery { FleetId = getFleetId, PageSize = 1 }).ConfigureAwait(false);
+                        return new { type = "command.result", action = "get_fleet", data = (object)new FleetDetailResponse { Fleet = foundFleet, VesselCount = fleetVesselPage.TotalRecords } };
                     }
 
                 case "create_fleet":
@@ -358,9 +365,20 @@ namespace Armada.Server.WebSocket
                         return WebSocketCommandError.Create("get_voyage", WebSocketCommandErrorCodeEnum.NotFound, "Voyage not found");
                     else
                     {
-                        List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(getVoyageId).ConfigureAwait(false);
-                        return new { type = "command.result", action = "get_voyage", data = (object)new { voyage = foundVoyage, missions = voyageMissions } };
+                        // The voyage with mission counts; its missions are paged with list_missions (query.voyageId).
+                        VoyageProgress voyageProgress = await VoyageProgressReader.ReadAsync(_Database, foundVoyage).ConfigureAwait(false);
+                        return new { type = "command.result", action = "get_voyage", data = (object)voyageProgress };
                     }
+
+                case "list_voyage_progress":
+                {
+                    if (caller == null)
+                        return WebSocketCommandError.Create(action, WebSocketCommandErrorCodeEnum.Unavailable, "Voyage progress needs an authenticated connection.");
+                    EnumerationQuery progressQuery = command.Query ?? new EnumerationQuery();
+                    if (!String.IsNullOrWhiteSpace(command.Status)) progressQuery.Status = command.Status;
+                    EnumerationResult<VoyageProgress> progressPage = await VoyageProgressReader.EnumerateAsync(_Database, caller, progressQuery).ConfigureAwait(false);
+                    return new { type = "command.result", action, data = (object)progressPage };
+                }
 
                 case "create_voyage":
                     WebSocketVoyageData voyageData = JsonSerializer.Deserialize<WebSocketDataCommand<WebSocketVoyageData>>(rawBody, _JsonOptions)?.Data ?? new WebSocketVoyageData();
@@ -369,6 +387,7 @@ namespace Armada.Server.WebSocket
                     string voyVesselId = voyageData.VesselId ?? "";
 
                     List<MissionDescription> missionDescs = voyageData.Missions ?? new List<MissionDescription>();
+                    CollectionLimits.RequireRequestItems(missionDescs, "Missions");
 
                     Voyage createdVoyage;
                     if (String.IsNullOrEmpty(voyVesselId) || missionDescs.Count == 0)
@@ -390,37 +409,13 @@ namespace Armada.Server.WebSocket
                         return WebSocketCommandError.Create("cancel_voyage", WebSocketCommandErrorCodeEnum.NotFound, "Voyage not found");
                     else
                     {
-                        cvVoyage.Status = VoyageStatusEnum.Cancelled;
-                        cvVoyage.CompletedUtc = DateTime.UtcNow;
-                        cvVoyage.LastUpdateUtc = DateTime.UtcNow;
-                        await _Database.Voyages.UpdateAsync(cvVoyage).ConfigureAwait(false);
-                        List<Mission> cvMissions = await _Database.Missions.EnumerateByVoyageAsync(cvId).ConfigureAwait(false);
-                        List<object> cvNotCancelled = new List<object>();
-                        foreach (Mission m in cvMissions)
+                        VoyageCancelResult cvResult = await VoyageCancellation.CancelAsync(_Database, _Admiral, cvVoyage, null).ConfigureAwait(false);
+                        _BroadcastVoyageChange(cvResult.Voyage, VoyageStatusEnum.Cancelled.ToString());
+                        foreach (Mission cvCm in cvResult.Cancelled)
                         {
-                            if (m.Status == MissionStatusEnum.Pending || m.Status == MissionStatusEnum.Assigned || m.Status == MissionStatusEnum.Blocked)
-                            {
-                                try
-                                {
-                                    Mission cancelled = await _Admiral.CancelMissionAsync(m).ConfigureAwait(false);
-                                    m.Status = cancelled.Status;
-                                }
-                                catch (InvalidOperationException ex)
-                                {
-                                    cvNotCancelled.Add(new { MissionId = m.Id, Reason = ex.Message });
-                                }
-                            }
+                            _BroadcastMissionChange(cvCm, MissionStatusEnum.Cancelled.ToString());
                         }
-                        int cvCancelled = cvMissions.Count(m => m.Status == MissionStatusEnum.Cancelled);
-                        _BroadcastVoyageChange(cvVoyage, VoyageStatusEnum.Cancelled.ToString());
-                        foreach (Mission cvCm in cvMissions)
-                        {
-                            if (cvCm.Status == MissionStatusEnum.Cancelled)
-                            {
-                                _BroadcastMissionChange(cvCm, MissionStatusEnum.Cancelled.ToString());
-                            }
-                        }
-                        return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cvVoyage, CancelledMissions = cvCancelled, NotCancelled = cvNotCancelled } };
+                        return new { type = "command.result", action = "cancel_voyage", data = (object)cvResult };
                     }
                 }
 
@@ -942,10 +937,8 @@ namespace Armada.Server.WebSocket
                 {
                     EnumerationQuery mergeQuery = command.Query ?? new EnumerationQuery();
                     Stopwatch mergeSw = Stopwatch.StartNew();
-                    List<MergeEntry> mergeAll = await _MergeQueue.ListAsync().ConfigureAwait(false);
-                    int mergeTotal = mergeAll.Count;
-                    List<MergeEntry> mergePage = mergeAll.Skip(mergeQuery.Offset).Take(mergeQuery.PageSize).ToList();
-                    EnumerationResult<MergeEntry> mergeResult = EnumerationResult<MergeEntry>.Create(mergeQuery, mergePage, mergeTotal);
+                    // Paged in the database (LIMIT/OFFSET with a COUNT), never loaded whole and sliced.
+                    EnumerationResult<MergeEntry> mergeResult = await _Database.MergeEntries.EnumerateAsync(mergeQuery).ConfigureAwait(false);
                     mergeResult.TotalMs = Math.Round(mergeSw.Elapsed.TotalMilliseconds, 2);
                     return new { type = "command.result", action = "list_merge_queue", data = (object)mergeResult };
                 }
@@ -1034,10 +1027,7 @@ namespace Armada.Server.WebSocket
                         case "merge_queue":
                         case "merge-queue":
                         case "mergequeue":
-                            List<MergeEntry> enumMqAll = await _MergeQueue.ListAsync().ConfigureAwait(false);
-                            int enumMqTotal = enumMqAll.Count;
-                            List<MergeEntry> enumMqPage = enumMqAll.Skip(enumQuery.Offset).Take(enumQuery.PageSize).ToList();
-                            EnumerationResult<MergeEntry> enumMerge = EnumerationResult<MergeEntry>.Create(enumQuery, enumMqPage, enumMqTotal);
+                            EnumerationResult<MergeEntry> enumMerge = await _Database.MergeEntries.EnumerateAsync(enumQuery).ConfigureAwait(false);
                             enumMerge.TotalMs = Math.Round(enumSw.Elapsed.TotalMilliseconds, 2);
                             enumData = enumMerge;
                             break;
@@ -1145,6 +1135,7 @@ namespace Armada.Server.WebSocket
 
                 case "create_pipeline":
                     Pipeline newPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
+                    CollectionBounds.Validate(newPipeline);
                     await DuplicateEntityGuard.EnsurePipelineNameAvailableAsync(_Database, newPipeline).ConfigureAwait(false);
                     newPipeline = await _Database.Pipelines.CreateAsync(newPipeline).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_pipeline", data = (object)newPipeline };
@@ -1164,6 +1155,7 @@ namespace Armada.Server.WebSocket
                             foreach (PipelineStage stage in existPipeline.Stages)
                                 stage.PipelineId = existPipeline.Id;
                         }
+                        CollectionBounds.Validate(existPipeline);
                         existPipeline = await _Database.Pipelines.UpdateAsync(existPipeline).ConfigureAwait(false);
                         return new { type = "command.result", action = "update_pipeline", data = (object)existPipeline };
                     }

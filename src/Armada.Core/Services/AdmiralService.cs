@@ -70,6 +70,20 @@ namespace Armada.Core.Services
         public Func<CancellationToken, Task<int>>? OnReconcileManualLandings { get; set; }
 
         /// <summary>
+        /// Optional health-check hook that keeps unlanded work landable (LandingIntegrityService): it recreates missing
+        /// dock worktrees of unlanded missions from their branches and retries landings deferred on a dirty checkout.
+        /// Returns the number of repairs and retries. Concrete hook, so the orchestration interface does not change.
+        /// </summary>
+        public Func<CancellationToken, Task<int>>? OnLandingIntegritySweep { get; set; }
+
+        /// <summary>
+        /// Optional health-check hook that completes LandingFailed missions whose work is proven to be on the vessel's
+        /// remote default branch (see <see cref="LandingReconciler"/>). Returns the number reconciled. Concrete hook, like
+        /// <see cref="OnReconcileManualLandings"/>, so the orchestration interface does not change.
+        /// </summary>
+        public Func<CancellationToken, Task<int>>? OnReconcileLandingFailures { get; set; }
+
+        /// <summary>
         /// Optional hook reporting whether an agent process was launched by this admiral and is still running under
         /// its runtime's exit callback. Such a process is owned by that callback: the health check and the orphan
         /// sweep treat it as alive instead of probing the operating system, which cannot see in-process captains
@@ -222,6 +236,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            RequireDispatchLimits(missionDescriptions, selectedPlaybooks);
 
             // Verify vessel exists
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
@@ -324,6 +339,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
                 throw new ArgumentException("At least one mission is required", nameof(missionDescriptions));
+            RequireDispatchLimits(missionDescriptions, selectedPlaybooks);
 
             // Verify vessel exists
             Vessel? vessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
@@ -439,6 +455,7 @@ namespace Armada.Core.Services
         public async Task<Mission> DispatchMissionAsync(Mission mission, CancellationToken token = default)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
+            CollectionBounds.Validate(mission);
             if (mission.SelectedPlaybooks != null && mission.SelectedPlaybooks.Count > 0 && !String.IsNullOrEmpty(mission.TenantId))
             {
                 await _Playbooks.ResolveSelectionsAsync(mission.TenantId, mission.SelectedPlaybooks, token).ConfigureAwait(false);
@@ -480,6 +497,12 @@ namespace Armada.Core.Services
             }
 
             return mission;
+        }
+
+        private static void RequireDispatchLimits(List<MissionDescription> missionDescriptions, List<SelectedPlaybook>? selectedPlaybooks)
+        {
+            CollectionLimits.RequireRequestItems(missionDescriptions, "Missions");
+            CollectionLimits.RequireConfigItems(selectedPlaybooks, "SelectedPlaybooks");
         }
 
         private List<SelectedPlaybook> ClonePlaybookSelections(List<SelectedPlaybook>? selections)
@@ -588,13 +611,25 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task RecallCaptainAsync(string captainId, CancellationToken token = default)
+        public Task RecallCaptainAsync(string captainId, CancellationToken token = default)
         {
-            await _Captains.RecallAsync(captainId, token: token).ConfigureAwait(false);
+            return RecallCaptainAsync(captainId, null, token);
         }
 
         /// <inheritdoc />
-        public async Task RecallAllAsync(CancellationToken token = default)
+        public async Task RecallCaptainAsync(string captainId, OperatorStopContext? stop, CancellationToken token = default)
+        {
+            await _Captains.RecallAsync(captainId, null, stop, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public Task RecallAllAsync(CancellationToken token = default)
+        {
+            return RecallAllAsync(null, token);
+        }
+
+        /// <inheritdoc />
+        public async Task RecallAllAsync(OperatorStopContext? stop, CancellationToken token = default)
         {
             _Logging.Warn(_Header + "RECALLING ALL CAPTAINS");
 
@@ -605,7 +640,7 @@ namespace Armada.Core.Services
             {
                 try
                 {
-                    await _Captains.RecallAsync(captain.Id, token: token).ConfigureAwait(false);
+                    await _Captains.RecallAsync(captain.Id, null, stop, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -736,6 +771,19 @@ namespace Armada.Core.Services
                 }, token).ConfigureAwait(false);
             }
 
+            if (OnLandingIntegritySweep != null)
+            {
+                await RunHealthPhaseAsync("landing integrity", async () =>
+                {
+                    int repaired = await OnLandingIntegritySweep.Invoke(token).ConfigureAwait(false);
+                    if (repaired > 0) _Logging.Info(_Header + "landing integrity repaired or retried " + repaired + " mission dock(s) or landing(s)");
+                }, token).ConfigureAwait(false);
+            }
+
+            // Complete stale LandingFailed missions whose work reached the remote default branch by another path.
+            if (OnReconcileLandingFailures != null)
+                await RunHealthPhaseAsync("landing failure reconciliation", () => OnReconcileLandingFailures.Invoke(token), token).ConfigureAwait(false);
+
             // Release captains held by missions whose review has gone overdue (dock preserved).
             await RunHealthPhaseAsync("overdue review recovery", () => RecoverOverdueReviewsAsync(token), token).ConfigureAwait(false);
 
@@ -862,6 +910,9 @@ namespace Armada.Core.Services
             bool allowBareVoyage,
             CancellationToken token = default)
         {
+            // One dispatch request carries at most MaxRequestItems missions (REST, MCP, and every other caller).
+            CollectionLimits.RequireCount(missionCount, "Missions", CollectionLimits.MaxRequestItems);
+
             // Objective link must exist when supplied.
             if (!String.IsNullOrWhiteSpace(objectiveId))
             {
@@ -1332,26 +1383,17 @@ namespace Armada.Core.Services
                 if (kvp.Value > 0) status.MissionsByStatus[kvp.Key.ToString()] = kvp.Value;
             }
 
-            // Active voyages
-            List<Voyage> activeVoyages = scoped
-                ? await _Database.Voyages.EnumerateByStatusAsync(tenantId!, VoyageStatusEnum.InProgress, token).ConfigureAwait(false)
-                : await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false);
-            List<Voyage> openVoyages = scoped
-                ? await _Database.Voyages.EnumerateByStatusAsync(tenantId!, VoyageStatusEnum.Open, token).ConfigureAwait(false)
-                : await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false);
-            status.ActiveVoyages = activeVoyages.Count + openVoyages.Count;
+            // Active voyage counts, counted in the database (a one-row page carries the exact total). The voyages
+            // themselves are read one page at a time through IVoyageService.EnumerateProgressAsync.
+            status.InProgressVoyages = await CountVoyagesAsync(tenantId, VoyageStatusEnum.InProgress, token).ConfigureAwait(false);
+            status.OpenVoyages = await CountVoyagesAsync(tenantId, VoyageStatusEnum.Open, token).ConfigureAwait(false);
+            status.ActiveVoyages = status.InProgressVoyages + status.OpenVoyages;
             status.MemoryPressureDeferrals = System.Threading.Interlocked.Read(ref _MemoryPressureDeferrals);
-
-            foreach (Voyage voyage in activeVoyages.Concat(openVoyages))
-            {
-                VoyageProgress? progress = await _Voyages.GetProgressAsync(voyage.Id, tenantId, token).ConfigureAwait(false);
-                if (progress != null) status.Voyages.Add(progress);
-            }
 
             // Recent signals
             status.RecentSignals = scoped
-                ? await _Database.Signals.EnumerateRecentAsync(tenantId!, 10, token).ConfigureAwait(false)
-                : await _Database.Signals.EnumerateRecentAsync(10, token).ConfigureAwait(false);
+                ? await _Database.Signals.EnumerateRecentAsync(tenantId!, ArmadaStatus.RecentSignalCount, token).ConfigureAwait(false)
+                : await _Database.Signals.EnumerateRecentAsync(ArmadaStatus.RecentSignalCount, token).ConfigureAwait(false);
 
             if (OnGetRemoteTunnelStatus != null)
             {
@@ -1359,6 +1401,15 @@ namespace Armada.Core.Services
             }
 
             return status;
+        }
+
+        private async Task<int> CountVoyagesAsync(string? tenantId, VoyageStatusEnum voyageStatus, CancellationToken token)
+        {
+            EnumerationQuery query = new EnumerationQuery { PageNumber = 1, PageSize = CollectionLimits.MinPageSize, Status = voyageStatus.ToString() };
+            EnumerationResult<Voyage> page = !String.IsNullOrEmpty(tenantId)
+                ? await _Database.Voyages.EnumerateAsync(tenantId!, query, token).ConfigureAwait(false)
+                : await _Database.Voyages.EnumerateAsync(query, token).ConfigureAwait(false);
+            return (int)Math.Min(int.MaxValue, page.TotalRecords);
         }
 
         /// <summary>
@@ -2324,7 +2375,8 @@ namespace Armada.Core.Services
         /// Clears CurrentDockId on the captain and DockId on the mission after reclaim.
         /// Handles gracefully if the dock or worktree is already gone.
         /// </summary>
-        private async Task ReclaimDockAsync(Captain captain, Mission? mission, CancellationToken token)
+        private async Task ReclaimDockAsync(Captain captain, Mission? mission, CancellationToken token,
+            [System.Runtime.CompilerServices.CallerMemberName] string caller = "")
         {
             string? dockId = captain.CurrentDockId;
             if (String.IsNullOrEmpty(dockId) && mission != null)
@@ -2341,10 +2393,11 @@ namespace Armada.Core.Services
                 return;
             }
 
+            bool reclaimed = true;
             try
             {
-                await _Docks.ReclaimAsync(dockId, token: token).ConfigureAwait(false);
-                _Logging.Info(_Header + "reclaimed dock " + dockId + " for captain " + captain.Id);
+                reclaimed = await _Docks.ReclaimAsync(dockId, token: token, caller: caller).ConfigureAwait(false);
+                if (reclaimed) _Logging.Info(_Header + "reclaimed dock " + dockId + " for captain " + captain.Id);
             }
             catch (Exception ex)
             {
@@ -2358,7 +2411,8 @@ namespace Armada.Core.Services
                 await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
             }
 
-            if (mission != null && !String.IsNullOrEmpty(mission.DockId))
+            // A refused reclaim means the dock still holds unlanded work (its lease); the mission keeps pointing at it.
+            if (reclaimed && mission != null && !String.IsNullOrEmpty(mission.DockId))
             {
                 // Conditional on the status this caller holds: a stale copy must never move the mission back.
                 mission.DockId = null;
