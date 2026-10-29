@@ -1234,6 +1234,32 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HostFaultHold_SweepStartsOneGateRerun", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    WireDefinitionOfDoneGate(missions, testDb.Driver);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Mission worker = await CreateProducedWorkerAsync(testDb.Driver, vessel, "armada/worker-host-fault").ConfigureAwait(false);
+                    worker.HeldForOperatorReview = true;
+                    worker.HeldForOperatorReviewReason = MissionService.DefinitionOfDoneHostFaultHoldPrefix
+                        + "Timeout. The gate failed as a host fault with no failing test.";
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+
+                    AssertEqual(1, await missions.StartInterruptedDefinitionOfDoneGateRerunsAsync().ConfigureAwait(false),
+                        "A host-fault hold is picked up by the existing gate re-run sweep");
+                    for (int i = 0; i < 100 && MissionService.GateRerunsInFlight().Contains(worker.Id); i++)
+                        await Task.Delay(50).ConfigureAwait(false);
+                    AssertFalse(MissionService.GateRerunsInFlight().Contains(worker.Id), "The re-run finishes");
+                    Mission stillHeld = (await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false))!;
+                    AssertTrue(MissionService.IsDefinitionOfDoneGateRerunHold(stillHeld),
+                        "A host-fault hold with no dock stays held after the sweep cannot re-gate it");
+                }
+            });
+
             await RunTest("TryAssign_UpstreamGatePassedThisLaunch_SelfHealsAndAssigns", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

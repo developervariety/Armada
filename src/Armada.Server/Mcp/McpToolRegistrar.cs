@@ -198,6 +198,7 @@ namespace Armada.Server.Mcp
             McpPipelineTools.Register(register, database);
             ContextRecallBudget contextRecallBudget = new ContextRecallBudget(database, effectiveSettings);
             McpMemoryTools.Register(register, database, logging, effectiveSettings, contextRecallBudget);
+            McpSuiteLeaseTools.Register(register, database, logging);
 
             McpContextSearchTools.Register(register,
                 new ContextSearchService(database, contextRetrieval, effectiveSettings.CodeIndex.Enabled ? codeIndexService : null, logging,

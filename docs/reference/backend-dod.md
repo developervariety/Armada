@@ -149,7 +149,16 @@ recovery"). A second time limit on a silent command fails the mission as a
 plain `Timeout`.
 
 A time limit hit at normal load on a silent command that held the host alone
-fails at once. While the gate waits for load or for the host it is still a
+fails at once. When the first evaluation fails as a host-fault Timeout (no
+failing tests) or as Infra with a signal or timeout, and the result is not a
+`HostLoadTimeout`, completion holds the produced work with
+`definition_of_done_host_fault:` and records
+`mission.definition_of_done_host_fault_hold`. The dispatch-hold GateReruns
+sweep re-runs only the gate once, without relaunching the captain. A second
+host-fault fails the mission with the existing failure. A `HostLoadTimeout`
+fails at once: the inline load re-run already consumed that retry.
+
+While the gate waits for load or for the host it is still a
 running gate: it shows in `RunningGates` with a `SlotWait` that reads `Running`
 while it holds a slot, `WaitingForSlot` with its `Position` in line while it
 waits for one, or `Queued` before its first command, so a gate queued behind
@@ -225,16 +234,23 @@ before the gate began runs first. A count above 1 lets several full suites run
 at once, which risks false `Timeout` failures on a host without the CPU, memory
 and disk to run them inside `CommandTimeoutSeconds`.
 
-A gate, check run or merge-queue test names the vessel whose suite it runs. One
-vessel's suite is serialized outside Armada by a file lock the vessel's own
-command takes (a `flock` around the suite), so two of a vessel's suite commands
-cannot run at once however many slots are free: the second blocks inside its
-command on that file lock. So a command that names its vessel takes an
-in-process per-vessel suite lock before it queues for a slot, and a command that
-would then only block on its vessel's file lock holds no slot meanwhile — the
-slot stays free for another vessel's command. The per-vessel lock is always
-taken before the slot and released after it, and a command holds at most one, so
-the order never deadlocks. A gate's one re-run after
+A gate, check run, merge-queue test, or captain suite lease names the vessel
+whose suite it runs. `DefinitionOfDone.VesselSuiteSlots`
+(`definitionOfDone.vesselSuiteSlots`) sets how many of one vessel's full suites
+may run at once: default 1, clamped to 1-8, applied at startup and on every
+settings reload. The host-wide cap remains `HostCommandSlots`. One vessel's
+suite is also serialized outside Armada by a file lock the vessel's own command
+takes (a `flock` around the suite), so two of a vessel's suite commands cannot
+run at once however many slots are free: the second blocks inside its command
+on that file lock. So a command that names its vessel takes an in-process
+per-vessel suite slot before it queues for a host slot, and a command that
+would then only block on its vessel's file lock holds no host slot meanwhile —
+the slot stays free for another vessel's command. The per-vessel slot is always
+taken before the host slot and released after it, and a command holds at most
+one, so the order never deadlocks. A captain that runs a full suite takes the
+same slots through `armada_suite_lease` (`docs/MCP_API.md`). A wait for that
+lease records `captain.suite_lease_wait` and is not a stall. The lease is
+released when the captain releases it or the mission ends. A gate's one re-run after
 a host-load time limit holds the whole host: it is granted when no slot is
 held, no other request is granted while it runs, and the requests behind it
 keep their order. Its holder entry reads `definition-of-done gate re-run, alone

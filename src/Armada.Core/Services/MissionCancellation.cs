@@ -127,6 +127,7 @@ namespace Armada.Core.Services
             // build and test command under the host-wide slot, so stop it: work nobody will land must not hold the
             // slot other gates are waiting for. The completion handler records the gate as cancelled.
             DefinitionOfDoneGateRuns.Cancel(stored.Id);
+            CaptainSuiteLeaseRegistry.ReleaseForMission(stored.Id);
 
             List<Mission> dependents = await MissionDependentCancellation.CancelBlockedAsync(
                 database,

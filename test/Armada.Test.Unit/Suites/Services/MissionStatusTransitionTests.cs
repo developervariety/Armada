@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Linq;
+    using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -413,6 +414,304 @@ namespace Armada.Test.Unit.Suites.Services
                         "A mission that reached WorkProduced must not still report why an earlier attempt failed");
                 }
             });
+
+            await RunTest("HandleCompletion holds a host-fault Timeout once, keeps the dock, and does not cancel the next stage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    await using HostFaultScene scene = await HostFaultScene.CreateAsync(testDb.Driver, HangCommand()).ConfigureAwait(false);
+                    try
+                    {
+                        await scene.Service.HandleCompletionAsync(scene.Captain).ConfigureAwait(false);
+
+                        Mission held = (await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.WorkProduced, held.Status, "A host-fault Timeout must not fail the mission on the first attempt");
+                        AssertTrue(held.HeldForOperatorReview, "The first host-fault Timeout holds the produced work for a gate-only re-run");
+                        AssertStartsWith("definition_of_done_host_fault:", held.HeldForOperatorReviewReason ?? "",
+                            "The hold names the host-fault Timeout");
+                        AssertNull(held.FailureReason, "The first host-fault Timeout records no mission failure");
+
+                        Dock dock = (await testDb.Driver.Docks.ReadAsync(scene.Dock.Id).ConfigureAwait(false))!;
+                        AssertTrue(dock.Active, "The dock stays until the re-run ends");
+
+                        Mission dependent = (await testDb.Driver.Missions.ReadAsync(scene.Dependent.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Pending, dependent.Status, "The next stage is held, not cancelled");
+
+                        Captain captain = (await testDb.Driver.Captains.ReadAsync(scene.Captain.Id).ConfigureAwait(false))!;
+                        AssertEqual(CaptainStateEnum.Idle, captain.State, "The captain is released, not restarted");
+                        AssertNull(captain.CurrentMissionId, "No new mission is assigned to the captain");
+
+                        EnumerationResult<ArmadaEvent> evaluations = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                        {
+                            MissionId = scene.Mission.Id,
+                            EventType = DefinitionOfDoneEvaluationRecord.EventType,
+                            PageNumber = 1,
+                            PageSize = 10
+                        }).ConfigureAwait(false);
+                        AssertTrue(evaluations.Objects.Count >= 1, "The first attempt is recorded");
+                        AssertContains("\"FailureClass\":\"Timeout\"", evaluations.Objects[0].Payload ?? "",
+                            "The recorded evaluation names the Timeout");
+
+                        EnumerationResult<ArmadaEvent> holds = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                        {
+                            MissionId = scene.Mission.Id,
+                            EventType = "mission.definition_of_done_host_fault_hold",
+                            PageNumber = 1,
+                            PageSize = 10
+                        }).ConfigureAwait(false);
+                        AssertEqual(1, holds.Objects.Count, "The hold records its reason and load reading");
+                    }
+                    finally
+                    {
+                        await scene.CleanupAsync().ConfigureAwait(false);
+                    }
+                }
+            });
+
+            await RunTest("A host-fault hold that passes on the gate re-run continues the pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    await using HostFaultScene scene = await HostFaultScene.CreateAsync(testDb.Driver, HangCommand()).ConfigureAwait(false);
+                    try
+                    {
+                        await scene.Service.HandleCompletionAsync(scene.Captain).ConfigureAwait(false);
+                        Mission held = (await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
+                        AssertStartsWith("definition_of_done_host_fault:", held.HeldForOperatorReviewReason ?? "", "The first host-fault holds for a re-run");
+
+                        scene.Profile.BuildCommand = "exit 0";
+                        scene.Profile.UnitTestCommand = "exit 0";
+                        await testDb.Driver.WorkflowProfiles.UpdateAsync(scene.Profile).ConfigureAwait(false);
+
+                        DefinitionOfDoneEvaluationOutcomeEnum? outcome = await scene.Service.RerunInterruptedDefinitionOfDoneGateAsync(
+                            scene.Mission.Id, CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Passed, outcome, "The re-run passes");
+
+                        Mission released = (await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
+                        AssertFalse(released.HeldForOperatorReview, "A passing re-run releases the hold");
+                        Mission dependent = (await testDb.Driver.Missions.ReadAsync(scene.Dependent.Id).ConfigureAwait(false))!;
+                        AssertContains(MissionService.BuildHandoffMarker(scene.Mission.Id), dependent.Description ?? "",
+                            "The released work is handed to the next stage");
+                    }
+                    finally
+                    {
+                        await scene.CleanupAsync().ConfigureAwait(false);
+                    }
+                }
+            });
+
+            await RunTest("A second host-fault Timeout on the gate re-run fails the mission and cancels the next stage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    await using HostFaultScene scene = await HostFaultScene.CreateAsync(testDb.Driver, HangCommand()).ConfigureAwait(false);
+                    try
+                    {
+                        await scene.Service.HandleCompletionAsync(scene.Captain).ConfigureAwait(false);
+                        Mission held = (await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
+                        AssertStartsWith("definition_of_done_host_fault:", held.HeldForOperatorReviewReason ?? "", "The first host-fault holds for a re-run");
+
+                        DefinitionOfDoneEvaluationOutcomeEnum? outcome = await scene.Service.RerunInterruptedDefinitionOfDoneGateAsync(
+                            scene.Mission.Id, CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Failed, outcome, "The second host-fault fails");
+
+                        Mission failed = (await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Failed, failed.Status, "A second host-fault takes the existing failure path");
+                        AssertFalse(failed.HeldForOperatorReview, "The failed mission is no longer held");
+                        AssertStartsWith("DoD gate failed", failed.FailureReason ?? "", "The failure carries the gate's reason");
+
+                        Mission dependent = (await testDb.Driver.Missions.ReadAsync(scene.Dependent.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Cancelled, dependent.Status, "The next stage is cancelled only after the re-run fails");
+                    }
+                    finally
+                    {
+                        await scene.CleanupAsync().ConfigureAwait(false);
+                    }
+                }
+            });
+
+            await RunTest("HandleCompletion fails a HostLoadTimeout immediately because the gate already used its re-run", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DateTime now = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                    HostLoadMonitor overloaded = new HostLoadMonitor(
+                        () => 100.0,
+                        () => 1,
+                        clock: () => now,
+                        delay: (interval, _) =>
+                        {
+                            now = now.Add(interval);
+                            return Task.CompletedTask;
+                        },
+                        longLoadReader: () => 100.0);
+                    await using HostFaultScene scene = await HostFaultScene.CreateAsync(testDb.Driver, HangCommand(), overloaded).ConfigureAwait(false);
+                    try
+                    {
+                        await scene.Service.HandleCompletionAsync(scene.Captain).ConfigureAwait(false);
+
+                        Mission failed = (await testDb.Driver.Missions.ReadAsync(scene.Mission.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Failed, failed.Status, "A host-load time limit the gate already re-ran fails at once");
+                        AssertFalse(failed.HeldForOperatorReview, "The inline re-run consumed the one retry");
+                        AssertStartsWith("DoD gate failed", failed.FailureReason ?? "", "The failure carries the gate's reason");
+
+                        Mission dependent = (await testDb.Driver.Missions.ReadAsync(scene.Dependent.Id).ConfigureAwait(false))!;
+                        AssertEqual(MissionStatusEnum.Cancelled, dependent.Status, "The next stage is cancelled with the failed mission");
+                    }
+                    finally
+                    {
+                        await scene.CleanupAsync().ConfigureAwait(false);
+                    }
+                }
+            });
+        }
+
+        private static string HangCommand()
+        {
+            return OperatingSystem.IsWindows()
+                ? "echo run >> gate-runs.log & ping -n 999 127.0.0.1 >nul"
+                : "echo run >> gate-runs.log; sleep 999";
+        }
+
+        /// <summary>
+        /// A gate whose command timeout is shorter than the production floor, so a host-fault Timeout
+        /// can be proven without waiting out 30 seconds. Unknown host load is the default, so a loaded
+        /// test host never sends the timeout into the gate's own load wait.
+        /// </summary>
+        private sealed class FastTimeoutGate : DefinitionOfDoneGate
+        {
+            private readonly TimeSpan _Timeout;
+
+            public FastTimeoutGate(
+                DefinitionOfDoneSettings settings,
+                DatabaseDriver database,
+                LoggingModule logging,
+                TimeSpan timeout,
+                HostLoadMonitor? hostLoad = null)
+                : base(settings, database, logging, null, null, null, hostLoad ?? new HostLoadMonitor(() => null))
+            {
+                _Timeout = timeout;
+            }
+
+            protected override TimeSpan ResolveCommandTimeout(int configuredSeconds)
+            {
+                return _Timeout;
+            }
+        }
+
+        private sealed class HostFaultScene : IAsyncDisposable
+        {
+            public MissionService Service = null!;
+            public Captain Captain = null!;
+            public Mission Mission = null!;
+            public Mission Dependent = null!;
+            public Dock Dock = null!;
+            public WorkflowProfile Profile = null!;
+            public ArmadaSettings Settings = null!;
+
+            public static async Task<HostFaultScene> CreateAsync(
+                SqliteDatabaseDriver db,
+                string buildCommand,
+                HostLoadMonitor? hostLoad = null)
+            {
+                HostFaultScene scene = new HostFaultScene();
+                StubGitService git = new StubGitService();
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                scene.Settings = new ArmadaSettings();
+                scene.Settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                scene.Settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                scene.Settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_host_fault_" + Guid.NewGuid().ToString("N"));
+
+                IDockService dockService = new DockService(logging, db, scene.Settings, git);
+                ICaptainService captainService = new CaptainService(logging, db, scene.Settings, git, dockService);
+                scene.Service = new MissionService(logging, db, scene.Settings, dockService, captainService, git: git,
+                    resourcePressureAdmission: TestResourcePressure.Unconstrained(scene.Settings));
+                scene.Service.DefinitionOfDone = new FastTimeoutGate(
+                    new DefinitionOfDoneSettings
+                    {
+                        Enabled = true,
+                        AppliedPersonas = new List<string> { "Worker" },
+                        RunRestoreBeforeBuild = false,
+                        RerunFailingClassesOnce = false
+                    },
+                    db,
+                    logging,
+                    TimeSpan.FromSeconds(1),
+                    hostLoad);
+
+                Vessel vessel = new Vessel("host-fault-vessel", "https://github.com/test/repo.git");
+                vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
+                vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
+                vessel.DefaultBranch = "main";
+                await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                Captain captain = new Captain("host-fault-captain");
+                captain.State = CaptainStateEnum.Working;
+                captain = await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                Dock dock = new Dock(vessel.Id);
+                dock.CaptainId = captain.Id;
+                dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_test_wt_" + Guid.NewGuid().ToString("N"));
+                dock.BranchName = "armada/host-fault-captain/msn_hostfault";
+                dock.Active = true;
+                dock = await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+                Directory.CreateDirectory(dock.WorktreePath!);
+
+                Voyage voyage = await db.Voyages.CreateAsync(new Voyage("host-fault voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+
+                Mission mission = new Mission("Host-fault worker");
+                mission.Status = MissionStatusEnum.InProgress;
+                mission.CaptainId = captain.Id;
+                mission.DockId = dock.Id;
+                mission.VesselId = vessel.Id;
+                mission.VoyageId = voyage.Id;
+                mission.Persona = "Worker";
+                mission.DiffSnapshot = "diff --git a/src/Example.cs b/src/Example.cs\n+class Example {}";
+                mission = await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                captain.CurrentMissionId = mission.Id;
+                captain.CurrentDockId = dock.Id;
+                await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                Mission dependent = new Mission("Next stage", "Original next-stage brief.");
+                dependent.Status = MissionStatusEnum.Pending;
+                dependent.VoyageId = voyage.Id;
+                dependent.VesselId = vessel.Id;
+                dependent.DependsOnMissionId = mission.Id;
+                dependent.Persona = "TestEngineer";
+                dependent.AssignmentState = MissionAssignmentStateEnum.WaitingForDependency;
+                dependent = await db.Missions.CreateAsync(dependent).ConfigureAwait(false);
+
+                scene.Profile = await db.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                {
+                    Name = "Host Fault Profile",
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    VesselId = vessel.Id,
+                    BuildCommand = buildCommand,
+                    UnitTestCommand = "echo ok",
+                    IsDefault = true,
+                    Active = true
+                }).ConfigureAwait(false);
+
+                scene.Captain = captain;
+                scene.Mission = mission;
+                scene.Dependent = dependent;
+                scene.Dock = dock;
+                return scene;
+            }
+
+            public Task CleanupAsync()
+            {
+                if (Dock.WorktreePath != null && Directory.Exists(Dock.WorktreePath)) Directory.Delete(Dock.WorktreePath, true);
+                if (Settings.LogDirectory != null && Directory.Exists(Settings.LogDirectory)) Directory.Delete(Settings.LogDirectory, true);
+                return Task.CompletedTask;
+            }
+
+            public async ValueTask DisposeAsync()
+            {
+                await CleanupAsync().ConfigureAwait(false);
+            }
         }
     }
 }

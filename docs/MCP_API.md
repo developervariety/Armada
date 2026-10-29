@@ -806,7 +806,7 @@ What a caller may use:
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
 | Mission captain (a mission session token), whatever its owner's role | The caller-scoped tools below, plus the read-only voyage tools `armada_enumerate`, `armada_mission_status`, `armada_get_mission_log`, `armada_voyage_status`, `armada_mission_output` and `get_objective`. An administrator owner's mission still reaches no operator tool, and its model is sent only these definitions with each request |
-| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, `armada_mission_attempts`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_score_items`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_change_quality`, `armada_corpus_prelabel`, `armada_run_custom_decision`, `armada_search_context`, `armada_mission_change_summary`, `armada_mission_attempts`, `armada_suite_lease`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -1409,6 +1409,18 @@ task; an unknown run answers `{"Error": "Battery run not found"}`.
 The tools are read-only and answer a global administrator only; any other caller, including a mission credential,
 receives a refusal. No MCP tool starts a run, because a run dispatches real missions and spends captain tokens; start
 one with `POST /api/v1/battery/runs`.
+
+### armada_suite_lease
+
+Acquire or release the Armada suite lease before a full-suite run (for example
+`scripts/check.sh`). Args: `action` (`acquire` or `release`). The lease takes
+the per-vessel suite slot and then a host command slot, the same slots the
+definition-of-done gate and armed checks use (`docs/reference/backend-dod.md`).
+A mission credential acts only for its own mission; a caller with no mission
+credential is refused (`mission_required`). `acquire` waits if the slots are
+held and records `captain.suite_lease_wait` with the wait position; that wait
+is not a stall. `release` frees the slots. The lease is also released when the
+mission ends.
 
 ### armada_mission_change_summary
 

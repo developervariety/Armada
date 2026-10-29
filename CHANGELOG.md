@@ -7,6 +7,14 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Definition-of-done host-fault re-run
+
+- When the definition-of-done gate fails as a host-fault Timeout (no failing tests) or as Infra with a signal or timeout, and the result is not a `HostLoadTimeout`, completion holds the produced work. The GateReruns sweep re-runs only the gate once, without relaunching the captain. A second host-fault records the existing failure.
+
+### Captain suite lease
+
+- Captains acquire `armada_suite_lease` around a full-suite run. The lease takes the same per-vessel and host-wide slots the definition-of-done gate and armed checks use. Defaults: one per vessel (`definitionOfDone.vesselSuiteSlots`), host-wide equal to `hostCommandSlots`. A wait records `captain.suite_lease_wait` and is not a stall. The lease is released when the mission ends.
+
 ### Routing preview and planning storage
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.

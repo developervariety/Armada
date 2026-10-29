@@ -486,7 +486,9 @@ and finds its checkout gone makes it again at the same source; when that fails,
 the Check fails with a reason that names the removed checkout.
 
 A definition-of-done gate runs the same full build and unit-test commands as the
-Build and UnitTest Checks armed for its voyage. While a gate of one of the
+Build and UnitTest Checks armed for its voyage. A captain that runs that suite
+by hand takes the same per-vessel and host-wide slots first through
+`armada_suite_lease` (`docs/MCP_API.md`). While a gate of one of the
 voyage's missions (or of the Check's own mission) runs on the Check's vessel, the
 heartbeat does not start such a Check: it waits, its `SlotWait.QueueReason` names
 the gate, and the wait is reported as `check.gate_overlap_*`. A gate that passes
