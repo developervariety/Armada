@@ -1,6 +1,7 @@
 import type { BadgeIcon, BadgeTone } from './badgeTypes';
 import type { Job, VesselImportBatch, VesselImportBatchStatus, VesselImportCandidateStatus, VesselImportCategorizationStatus, VesselImportOutcome } from '../types/models';
 import type { StatusMeta, Translate } from './fleetActionLabels';
+import { JOBS_PATH } from './navTargets';
 
 export const CANDIDATE_STATUSES: VesselImportCandidateStatus[] = ['New', 'AlreadyOnboarded', 'Worktree', 'ArmadaManaged', 'NotFound', 'NotGit', 'AccessDenied'];
 export const BATCH_STATUSES: VesselImportBatchStatus[] = ['Discovering', 'Discovered', 'Importing', 'Completed', 'CompletedWithFailures', 'Failed'];
@@ -129,13 +130,13 @@ export function jobFriendlyName(t: Translate, job: Pick<Job, 'kind' | 'name'>): 
   return label ? t(label) : job.name;
 }
 
-/** Dashboard route for a background job: import-related jobs open their batch, everything else the Jobs page. */
+/** Dashboard route for a background job: import-related jobs open their batch, everything else the Jobs tab of Activity. */
 export function jobRoute(job: Pick<Job, 'kind' | 'name'>): string {
   const batchId = jobBatchId(job);
   if (batchId && (job.kind === 'VesselDiscovery' || job.kind === 'VesselImport' || job.kind === 'FleetCategorization')) {
     return `/vessels/import?batch=${encodeURIComponent(batchId)}`;
   }
-  return '/jobs';
+  return JOBS_PATH;
 }
 
 export function outcomeReasonLabel(t: Translate, code: string | null | undefined): string {

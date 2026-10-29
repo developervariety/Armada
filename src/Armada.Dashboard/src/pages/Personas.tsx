@@ -141,11 +141,6 @@ export default function Personas() {
 
   const columns: DataTableColumn<Persona>[] = [
     {
-      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Persona name, the role a mission or pipeline stage asks for, such as Worker or Judge. Click to sort.'), cellClassName: 'cell-ident',
-      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only personas whose name contains this text (not case sensitive).')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
-      render: (p) => <strong>{p.name}</strong>,
-    },
-    {
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique persona ID. Personas are usually referred to by name; use the copy button to copy the ID.'), cellClassName: 'mono text-dim table-id-cell',
       render: (p) => (
         <span className="id-display">
@@ -153,6 +148,11 @@ export default function Personas() {
           <CopyButton text={p.id} onClick={e => e.stopPropagation()} />
         </span>
       ),
+    },
+    {
+      key: 'name', label: t('Name'), required: true, sortKey: 'name', headerTitle: t('Persona name, the role a mission or pipeline stage asks for, such as Worker or Judge. Click to sort.'), cellClassName: 'cell-ident',
+      filter: <input type="text" className="col-filter" aria-label={t('Name')} title={t('Show only personas whose name contains this text (not case sensitive).')} value={table.colFilters.name ?? ''} onChange={e => table.setColFilter('name', e.target.value)} placeholder={t('Filter...')} />,
+      render: (p) => <strong>{p.name}</strong>,
     },
     {
       key: 'description', label: t('Description'), sortKey: 'description', headerTitle: t('What this persona does. Hover a value for the full text; click to sort.'), cellClassName: 'text-dim truncate-cell',
