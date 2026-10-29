@@ -11,6 +11,8 @@ upstream integrations and excludes changes already present at that baseline.
 
 - PostgreSQL startup recognizes the zone-aware Battery run times used by the UTC writer.
 
+- SQL Server startup recognizes the `datetime2` times of Ask tool permissions, Battery runs and incidents, and incidents write those times as `datetime2`.
+
 - PostgreSQL upgrades add the optional objective link to existing planning tables and preserve stored sessions across restart.
 
 - Routing preview accepts capability hints and shows the ranking inputs used by the Legacy selector.
