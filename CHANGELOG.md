@@ -7,6 +7,23 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Attempt provenance
+
+- Each captain process launch now records a row in the new `mission_attempt_provenance` table: the captain, persona, runtime, model, runtime version, process id, start and end times, and the outcome (`Running`, `Completed`, `Failed` or `Interrupted`) with an exit code and a reason code. A relaunch closes any row of the mission still running as `Interrupted` with reason `superseded_by_relaunch`. The attempt facts stay the record of what Armada did next; they hold none of these fields.
+- The runtime version is the first line of the executable's `--version` output. It is probed once per executable, cached for 30 minutes (5 minutes when empty), and a launch waits at most 3 seconds for it. No model digest is recorded, and a Harbor-routed attempt records no version.
+- `GET /api/v1/missions/{id}/attempts` and the MCP tool `armada_mission_attempts` list the attempts of a mission through one reader that resolves the mission through the caller's scope first. A mission credential reads only its own mission over REST, and the tool is not offered to mission callers.
+- Attempt rows are deleted with their mission by every mission delete and by the data-retention sweep.
+- Migrations: SQLite 133, PostgreSQL 137, MySQL 126, SQL Server 129.
+
+### Lean and Compact persona prompts
+
+- A project profile's persona override accepts `promptVariant` (`Current`, `Lean` or `Compact`). The Worker, Test Engineer, Judge and Architect personas have a Lean body (one demand per line, output contract first and last) and a Compact body, both written for this fork and both keeping the personas' output formats and Armada tool rules. A named prompt template wins over a variant; `Current` is the default. The dashboard profile editor sets the variant. See [Personas](docs/PERSONAS.md#lean-and-compact-prompt-variants).
+
+### Rework prompt layout
+
+- A mission sent back for rework, by a review denial or by an autonomous rescue, receives its reviewer findings as a numbered list with one demand per finding. The demands, the fixed rework rules and the output contract (`[ARMADA:RESULT] COMPLETE` with a per-finding summary) come last. A review denial whose comment holds no structured findings carries the comment whole as finding 1. See [Pipelines](docs/PIPELINES.md).
+- A findings list that does not fit its bound drops whole lower-priority findings and states how many it dropped. It no longer cuts a finding short. A Judge review comment longer than the stored limit keeps whole blocking findings instead of a head cut.
+
 ### Mission captain tier
 
 - `armada_create_mission` accepts an optional `tier` (`Economy`, `Standard` or `Premium`). Only captains at or above that tier are assigned. Omitting it keeps the default routing. An unrecognized value is rejected and creates nothing. See [Captain Writes](docs/MCP_API.md#captain-writes).

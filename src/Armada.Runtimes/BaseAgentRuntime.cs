@@ -632,6 +632,22 @@ namespace Armada.Runtimes
         #region Private-Methods
 
         /// <summary>
+        /// The executable this runtime launches, for a version probe. Null when the runtime cannot name one.
+        /// </summary>
+        /// <returns>Executable name or path, or null.</returns>
+        public string? TryGetExecutable()
+        {
+            try
+            {
+                return GetCommand();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Get the command to execute for this runtime.
         /// </summary>
         protected abstract string GetCommand();

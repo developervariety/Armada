@@ -107,6 +107,7 @@ namespace Armada.Core.Database.Mysql
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_ConnectionString);
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            MissionAttempts = new MissionAttemptProvenanceMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             ResearchReplays = new Armada.Core.Database.ResearchReplayMethods(_Stored);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MemoryProposals = new MemoryProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
@@ -735,7 +736,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(123, "Persist the shared mission context recall budget",
                     @"ALTER TABLE missions ADD COLUMN context_recall_calls INT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(124, "Persist local context search vectors", ContextEmbeddingSchema.MysqlStatements),
-                new SchemaMigration(125, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.MysqlStatements)
+                new SchemaMigration(125, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.MysqlStatements),
+                new SchemaMigration(126, "Persist per-attempt provenance records", MissionAttemptProvenanceSchema.MysqlStatements)
             };
         }
 

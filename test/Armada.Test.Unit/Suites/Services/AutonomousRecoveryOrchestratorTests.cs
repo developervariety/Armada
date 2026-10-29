@@ -3055,7 +3055,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string findingBlock = description.Substring(findingStart, feedbackStart - findingStart);
                 AssertFalse(findingBlock.Contains("optional follow-up", StringComparison.Ordinal), "Explicitly non-blocking commentary is excluded from required fixes.");
                 AssertFalse(findingBlock.Contains("optional cleanup", StringComparison.Ordinal), "A bold Non-blocking label is excluded from required fixes.");
-                AssertContains("- **R1:", findingBlock, "The R1 item has its own finding entry.");
+                AssertContains("1. **R1:", findingBlock, "The R1 item has its own numbered finding entry.");
                 AssertContains("src/Example.cs:78", findingBlock, "An unbulleted bold R1 finding retains its evidence anchor in the findings list.");
                 AssertContains("Preserve existing sidecars", findingBlock, "An unbulleted bold R1 finding carries its required correction in the findings list.");
                 AssertContains("P2: 10 passed, 0 failed", findingBlock, "An explicitly labeled finding takes priority over a passing-summary shape.");
@@ -4793,8 +4793,10 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildRescueDescription_LongDescription_KeepsTheNewestReportEssentials).ConfigureAwait(false);
             await RunTest("BuildRescueDescription qualifies a do-not-re-implement line with the fixes the review requires and the non-goal rule",
                 BuildRescueDescription_DoNotReimplementScope_RequiresTheReviewFixesAndLetsANonGoalWin).ConfigureAwait(false);
-            await RunTest("BuildBlockingFindingsForBrief keeps every finding's opening inside its bound when the findings are long",
-                BuildBlockingFindingsForBrief_ManyLongFindings_KeepsEveryOpeningInsideTheBound).ConfigureAwait(false);
+            await RunTest("BuildBlockingFindingsForBrief drops whole findings and counts them when the findings are long",
+                BuildBlockingFindingsForBrief_ManyLongFindings_DropsWholeFindingsAndCountsThem).ConfigureAwait(false);
+            await RunTest("BuildRescueDescription numbers the blocking findings and ends with one demand per finding",
+                BuildRescueDescription_ReviewRejection_NumbersFindingsAndEndsWithTheDemands).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief carries a required revision written as a paragraph",
                 BuildBlockingFindingsForBrief_RequiredRevisionInAParagraph_IsCarried).ConfigureAwait(false);
             await RunTest("BuildBlockingFindingsForBrief carries test and failure-mode gaps written as paragraphs",
@@ -6231,20 +6233,65 @@ namespace Armada.Test.Unit.Suites.Services
             await Task.CompletedTask;
         }
 
-        public async Task BuildBlockingFindingsForBrief_ManyLongFindings_KeepsEveryOpeningInsideTheBound()
+        public async Task BuildBlockingFindingsForBrief_ManyLongFindings_DropsWholeFindingsAndCountsThem()
         {
             StringBuilder review = new StringBuilder();
             review.AppendLine("## Correctness");
             for (int i = 0; i < 12; i++)
-                review.AppendLine((i + 1) + ". **Blocking. Finding number " + i + " opens here.** " + new string('x', 900));
+                review.AppendLine((i + 1) + ". **Blocking. Finding number " + i + " opens here.** " + new string('x', 900) + " End of finding " + i + ".");
             string block = AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief(review.ToString(), 4000);
 
-            for (int i = 0; i < 12; i++)
-                AssertContains("Finding number " + i + " opens here.", block, "Every finding keeps its opening");
             AssertTrue(block.Length <= 4000, "The block respects its exact bound. Actual: " + block.Length);
-            AssertContains("[detail omitted]", block, "A cut finding says its details were omitted.");
+            AssertFalse(block.Contains("[detail omitted]", StringComparison.Ordinal), "No finding is cut.");
+            int kept = 0;
+            while (kept < 12 && block.Contains("End of finding " + kept + ".", StringComparison.Ordinal))
+            {
+                AssertContains("Finding number " + kept + " opens here.", block, "A kept finding keeps its opening.");
+                kept++;
+            }
+            AssertTrue(kept > 0 && kept < 12, "Some findings fit and some do not. Kept: " + kept);
+            for (int i = kept; i < 12; i++)
+                AssertFalse(block.Contains("Finding number " + i + " opens here.", StringComparison.Ordinal), "A finding that does not fit is dropped whole, not started.");
+            AssertContains((12 - kept) + " lower-priority findings are omitted whole", block, "The block names how many findings it dropped.");
             AssertContains(StageReportEssentials.IncompleteFindingsMarker, block, "The shortened list says it is incomplete.");
             AssertEqual(String.Empty, AutonomousRecoveryOrchestrator.BuildBlockingFindingsForBrief("## Verdict\nPASS", 4000), "A review with no blocking item yields nothing");
+            await Task.CompletedTask;
+        }
+
+        public async Task BuildRescueDescription_ReviewRejection_NumbersFindingsAndEndsWithTheDemands()
+        {
+            Mission failed = new Mission
+            {
+                Id = "msn_test_numbered_findings",
+                Title = "review the change",
+                Status = MissionStatusEnum.Failed,
+                Persona = "Judge",
+                FailureReason = "Judge verdict: NEEDS_REVISION",
+                Description = "title: review the change",
+                AgentOutput = String.Join("\n", new[]
+                {
+                    "## Correctness",
+                    "- **Blocking.** The retry loop never stops after a cancelled token.",
+                    "- **Blocking.** The parser accepts a negative length.",
+                    "## Verdict",
+                    "[ARMADA:VERDICT] NEEDS_REVISION"
+                })
+            };
+            Incident incident = new Incident { Id = "inc_test_numbered_findings", Title = "synthetic", Summary = "synthetic", Status = IncidentStatusEnum.Open, Severity = IncidentSeverityEnum.Medium };
+
+            string brief = AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+            int findingsStart = brief.IndexOf("Blocking findings to fix", StringComparison.Ordinal);
+            AssertTrue(findingsStart >= 0, "The brief carries the findings block.");
+            AssertContains("1. **Blocking.** The retry loop never stops after a cancelled token.", brief.Substring(findingsStart), "The first finding is numbered 1.");
+            AssertContains("2. **Blocking.** The parser accepts a negative length.", brief.Substring(findingsStart), "The second finding is numbered 2.");
+            int demandsStart = brief.LastIndexOf("Demands:", StringComparison.Ordinal);
+            AssertTrue(demandsStart > findingsStart, "The demands follow the findings.");
+            string demands = brief.Substring(demandsStart);
+            AssertContains("1. Finding 1:", demands, "Demand 1 answers finding 1.");
+            AssertContains("2. Finding 2:", demands, "Demand 2 answers finding 2.");
+            AssertFalse(demands.Contains("3. Finding 3", StringComparison.Ordinal), "There is one demand per finding and no more.");
+            AssertTrue(demands.TrimEnd().EndsWith(ReworkPromptBuilder.OutputContract, StringComparison.Ordinal), "The output contract is the last line of the brief.");
             await Task.CompletedTask;
         }
 

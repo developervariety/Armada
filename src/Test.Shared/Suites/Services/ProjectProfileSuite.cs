@@ -145,7 +145,7 @@ namespace Test.Shared.Suites.Services
                     profile.Description = "desc";
                     profile.DefaultPipelineId = "ppl_test";
                     profile.WorkflowProfileId = "wfp_test";
-                    profile.PersonaOverrides.Add(new PersonaOverride { PersonaName = "Worker", PromptTemplateName = "persona.worker.custom" });
+                    profile.PersonaOverrides.Add(new PersonaOverride { PersonaName = "Worker", PromptTemplateName = "persona.worker.custom", PromptVariant = PersonaPromptVariantEnum.Lean });
                     profile.Skills.Add("dotnet");
 
                     await db.ProjectProfiles.CreateAsync(profile);
@@ -158,6 +158,7 @@ namespace Test.Shared.Suites.Services
                     AssertEqual(1, read.PersonaOverrides.Count);
                     AssertEqual("Worker", read.PersonaOverrides[0].PersonaName);
                     AssertEqual("persona.worker.custom", read.PersonaOverrides[0].PromptTemplateName);
+                    AssertEqual(PersonaPromptVariantEnum.Lean, read.PersonaOverrides[0].PromptVariant, "The prompt variant survives the round trip");
                     AssertEqual(1, read.Skills.Count);
                     AssertEqual("dotnet", read.Skills[0]);
 
@@ -309,6 +310,78 @@ namespace Test.Shared.Suites.Services
                 string prompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(
                     "Worker", new Dictionary<string, string>(), null, ovr, CancellationToken.None);
                 AssertContains("Always write ADRs.", prompt);
+            }));
+
+            cases.Add(CaseAsync("persona_prompt_variants_are_shorter_and_keep_the_protocol", "ResolvePersonaPrompt LeanAndCompact AreShorterAndKeepTheProtocol", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, CreateLogging());
+                    Dictionary<string, string[]> protocol = new Dictionary<string, string[]>
+                    {
+                        ["Worker"] = new[] { "[ARMADA:RESULT] COMPLETE", "[ARMADA:RESULT] BLOCKED", "armada_check_premise", "armada_check_prior_art", "armada_score_items", "armada_change_quality", "armada_run_custom_decision" },
+                        ["Test Engineer"] = new[] { "## Coverage Added", "## Negative Paths", "## Residual Risks", "[ARMADA:RESULT] COMPLETE", "armada_score_items" },
+                        ["Judge"] = new[] { "[ARMADA:VERDICT] PASS", "[ARMADA:VERDICT] FAIL", "[ARMADA:VERDICT] NEEDS_REVISION", "## Acceptance Criteria", " -- MET.", " -- NOT MET.", JudgeCriterionConflicts.LinePrefix, "armada_change_quality", "FOREGROUND" },
+                        ["Architect"] = new[] { "[ARMADA:MISSION]", "Depends on:", "OBJECTIVE-TEXT" }
+                    };
+
+                    foreach (KeyValuePair<string, string[]> persona in protocol)
+                    {
+                        // An Architect mission carries no test-ownership directive.
+                        bool owned = persona.Key != "Architect";
+                        Dictionary<string, string> templateParams = new Dictionary<string, string>
+                        {
+                            ["TestOwnership"] = owned ? "OWNERSHIP-DIRECTIVE" : "",
+                            ["MissionDescription"] = "OBJECTIVE-TEXT"
+                        };
+                        string full = await MissionPromptBuilder.ResolvePersonaPromptAsync(persona.Key, templateParams, templates, null, CancellationToken.None);
+                        foreach (PersonaPromptVariantEnum variant in new[] { PersonaPromptVariantEnum.Lean, PersonaPromptVariantEnum.Compact })
+                        {
+                            PersonaOverride ovr = new PersonaOverride { PersonaName = persona.Key, PromptVariant = variant };
+                            string prompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(persona.Key, templateParams, templates, ovr, CancellationToken.None);
+                            string label = persona.Key + " " + variant;
+                            AssertTrue(prompt.Length < full.Length, label + " is shorter than the full prompt (" + prompt.Length + " vs " + full.Length + ")");
+                            foreach (string token in persona.Value)
+                                AssertContains(token, prompt, label + " keeps " + token);
+                            AssertFalse(prompt.Contains("{TestOwnership}") || prompt.Contains("{MissionDescription}"), label + " leaves no unrendered placeholder");
+                            if (owned)
+                                AssertContains("OWNERSHIP-DIRECTIVE", prompt, label + " carries the test-ownership directive");
+                        }
+
+                        PersonaOverride lean = new PersonaOverride { PersonaName = persona.Key, PromptVariant = PersonaPromptVariantEnum.Lean };
+                        string[] leanLines = (await MissionPromptBuilder.ResolvePersonaPromptAsync(persona.Key, templateParams, templates, lean, CancellationToken.None))
+                            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                        AssertTrue(leanLines[1].StartsWith("Output contract:", StringComparison.Ordinal), persona.Key + " Lean opens with its output contract");
+                        AssertTrue(leanLines[leanLines.Length - 1].StartsWith("Output contract again:", StringComparison.Ordinal), persona.Key + " Lean closes with its output contract");
+                    }
+                }
+            }));
+
+            cases.Add(CaseAsync("persona_prompt_variant_selection_rules", "ResolvePersonaPrompt VariantSelection FollowsTheRules", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, CreateLogging());
+                    Dictionary<string, string> templateParams = new Dictionary<string, string> { ["TestOwnership"] = "", ["MissionDescription"] = "x" };
+                    string full = await MissionPromptBuilder.ResolvePersonaPromptAsync("Worker", templateParams, templates, null, CancellationToken.None);
+
+                    PersonaOverride current = new PersonaOverride { PersonaName = "Worker", PromptVariant = PersonaPromptVariantEnum.Current };
+                    AssertEqual(full, await MissionPromptBuilder.ResolvePersonaPromptAsync("Worker", templateParams, templates, current, CancellationToken.None), "Current renders the full prompt");
+
+                    PersonaOverride disabled = new PersonaOverride { PersonaName = "Worker", PromptVariant = PersonaPromptVariantEnum.Compact, Enabled = false };
+                    AssertEqual(full, await MissionPromptBuilder.ResolvePersonaPromptAsync("Worker", templateParams, templates, disabled, CancellationToken.None), "A disabled override selects no variant");
+
+                    PersonaOverride named = new PersonaOverride { PersonaName = "Worker", PromptVariant = PersonaPromptVariantEnum.Compact, PromptTemplateName = "persona.architect" };
+                    string namedPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync("Worker", templateParams, templates, named, CancellationToken.None);
+                    AssertContains("[ARMADA:MISSION]", namedPrompt, "A named template wins over a variant");
+
+                    PersonaOverride noBody = new PersonaOverride { PersonaName = "Linter", PromptVariant = PersonaPromptVariantEnum.Lean };
+                    string linterFull = await MissionPromptBuilder.ResolvePersonaPromptAsync("Linter", templateParams, templates, null, CancellationToken.None);
+                    AssertEqual(linterFull, await MissionPromptBuilder.ResolvePersonaPromptAsync("Linter", templateParams, templates, noBody, CancellationToken.None), "A persona with no shorter body renders its full prompt");
+
+                    PersonaOverride extra = new PersonaOverride { PersonaName = "Worker", PromptVariant = PersonaPromptVariantEnum.Lean, AdditionalInstructions = "Always write ADRs." };
+                    AssertContains("Always write ADRs.", await MissionPromptBuilder.ResolvePersonaPromptAsync("Worker", templateParams, templates, extra, CancellationToken.None), "Additional instructions still append to a variant");
+                }
             }));
 
             cases.Add(CaseAsync("persona_prompt_disabled_override_not_applied", "ResolvePersonaPrompt DisabledOverride NotApplied", TestTags.Negative, async () =>

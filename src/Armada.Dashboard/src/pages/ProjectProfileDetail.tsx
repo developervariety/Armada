@@ -9,7 +9,7 @@ import {
   previewPersonaPrompt,
   updateProjectProfile,
 } from '../api/client';
-import type { Fleet, PersonaOverride, PersonaPromptPreview, ProjectProfile, Vessel } from '../types/models';
+import type { Fleet, PersonaOverride, PersonaPromptPreview, PersonaPromptVariant, ProjectProfile, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useLatestRequest } from '../lib/useLatestRequest';
@@ -28,7 +28,7 @@ function splitList(value: string): string[] {
 }
 
 function blankOverride(): PersonaOverride {
-  return { personaName: 'Architect', promptTemplateName: null, additionalInstructions: null, enabled: true };
+  return { personaName: 'Architect', promptTemplateName: null, promptVariant: 'Current', additionalInstructions: null, enabled: true };
 }
 
 export default function ProjectProfileDetail() {
@@ -110,6 +110,7 @@ export default function ProjectProfileDetail() {
       personaOverrides: overrides.map((o) => ({
         personaName: o.personaName.trim(),
         promptTemplateName: o.promptTemplateName || null,
+        promptVariant: o.promptVariant || 'Current',
         additionalInstructions: o.additionalInstructions || null,
         enabled: o.enabled,
       })),
@@ -309,6 +310,14 @@ export default function ProjectProfileDetail() {
                 <label>
                   <span>{t('Prompt Template Name')}</span>
                   <input type="text" value={o.promptTemplateName || ''} onChange={(e) => updateOverride(index, { promptTemplateName: e.target.value || null })} placeholder="persona.architect" disabled={!canManage} />
+                </label>
+                <label>
+                  <span>{t('Prompt Variant')}</span>
+                  <select value={o.promptVariant || 'Current'} onChange={(e) => updateOverride(index, { promptVariant: e.target.value as PersonaPromptVariant })} disabled={!canManage}>
+                    <option value="Current">{t('Current')}</option>
+                    <option value="Lean">{t('Lean')}</option>
+                    <option value="Compact">{t('Compact')}</option>
+                  </select>
                 </label>
                 <label className="checkbox-row">
                   <input type="checkbox" checked={o.enabled} onChange={(e) => updateOverride(index, { enabled: e.target.checked })} disabled={!canManage} />

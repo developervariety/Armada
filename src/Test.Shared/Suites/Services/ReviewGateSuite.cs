@@ -122,7 +122,9 @@ namespace Test.Shared.Suites.Services
                     AssertEqual("usr_reviewer", retried.ReviewedByUserId, "Reviewer should be recorded");
                     AssertEqual("Add tests before continuing", retried.ReviewComment, "Denial comment should be recorded");
                     AssertContains("## Review Feedback", retried.Description ?? "", "Retry description should embed review feedback");
-                    AssertContains("Add tests before continuing", retried.Description ?? "", "Retry description should include reviewer comment");
+                    AssertContains("1. Add tests before continuing", retried.Description ?? "", "Retry description should number the reviewer comment as finding 1");
+                    AssertContains("1. Finding 1: ", retried.Description ?? "", "Retry description should carry one demand for the finding");
+                    AssertContains(ReworkPromptBuilder.OutputContract, retried.Description ?? "", "Retry description should restate the output contract");
                     AssertNotNull(downstream, "Downstream stage should still exist");
                     AssertEqual(MissionStatusEnum.Pending, downstream!.Status, "Denied review should keep downstream work blocked");
                 }

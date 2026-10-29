@@ -1025,7 +1025,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(126, "Persist the shared mission context recall budget",
                     @"IF COL_LENGTH('missions', 'context_recall_calls') IS NULL ALTER TABLE missions ADD context_recall_calls INT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(127, "Persist local context search vectors", ContextEmbeddingSchema.SqlServerStatements),
-                new SchemaMigration(128, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.SqlServerStatements)
+                new SchemaMigration(128, "Archive and atomically replay a full Research review chain", ResearchReplaySchema.SqlServerStatements),
+                new SchemaMigration(129, "Persist per-attempt provenance records", MissionAttemptProvenanceSchema.SqlServerStatements)
             };
         }
 

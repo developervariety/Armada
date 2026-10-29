@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// A per-project customization of a pipeline persona. Points a persona (by name) at a different
@@ -33,6 +34,13 @@ namespace Armada.Core.Models
         /// Optional additional instructions appended to the persona's resolved prompt for this project.
         /// </summary>
         public string? AdditionalInstructions { get; set; } = null;
+
+        /// <summary>
+        /// Which body the persona prompt renders for this project. <see cref="PersonaPromptVariantEnum.Current"/>
+        /// keeps the full prompt. A prompt template named by <see cref="PromptTemplateName"/> takes precedence over
+        /// a Lean or Compact body. A persona with no Lean or Compact body renders its full prompt.
+        /// </summary>
+        public PersonaPromptVariantEnum PromptVariant { get; set; } = PersonaPromptVariantEnum.Current;
 
         /// <summary>
         /// Whether this override is enabled. Disabled overrides are retained but not applied.

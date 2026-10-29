@@ -183,6 +183,15 @@ denied, when a mission fails or its landing fails, and when work lands.
 A mission that ran before facts existed has no `AttemptStarted` fact. The
 summary classifies it as historical and does not guess its history.
 
+### Attempt provenance
+
+Armada also records who ran each captain process. The `mission_attempt_provenance` table holds one row per launch:
+the mission, voyage, vessel, captain, persona, runtime, model, runtime version, process id, start and end times, the
+outcome and an exit code. It is separate from the attempt facts: a fact records what Armada decided next, a provenance
+row records what ran. Provenance rows are deleted with their mission and follow `dataRetentionDays`, not
+`productionFactRetentionDays`. `GET /api/v1/missions/{id}/attempts` and the MCP tool `armada_mission_attempts` read them
+through the caller's mission scope.
+
 ### First-pass acceptance
 
 The denominator is a verified slice whose every run in the attempt chain has

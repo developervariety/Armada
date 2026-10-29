@@ -14640,7 +14640,8 @@ namespace Armada.Core.Services
         /// Build the ReviewComment stored on a Judge mission that did not pass. The Judge's full
         /// written review (AgentOutput) is the actionable critique; the one-line FailureReason is
         /// only a status. Prefer the review body, fall back to the failure reason, and bound the
-        /// length so the downstream rescue brief stays a reasonable size.
+        /// length so the downstream rescue brief stays a reasonable size. An over-long review keeps
+        /// whole blocking findings; a finding is never cut.
         /// </summary>
         private static string BuildJudgeReviewComment(string? agentOutput, string? failureReason)
         {
@@ -14650,7 +14651,15 @@ namespace Armada.Core.Services
 
             const int maxChars = 8000;
             if (review.Length > maxChars)
-                review = review.Substring(0, maxChars) + "\n...(truncated)";
+            {
+                // A head cut can drop the findings that sit late in the review. Keep whole blocking findings
+                // instead, and let the stored output carry the rest.
+                const string findingsHeader = "Blocking findings (the full review is longer than the stored comment; read the complete output):\n";
+                string findings = StageReportEssentials.BlockingFindings(review, maxChars - findingsHeader.Length);
+                review = findings.Length > 0
+                    ? findingsHeader + findings
+                    : review.Substring(0, maxChars) + "\n...(truncated)";
+            }
 
             return review;
         }
@@ -14717,9 +14726,7 @@ namespace Armada.Core.Services
 
             string feedbackSection =
                 ReviewFeedbackMarker + "\n" +
-                "## Review Feedback\n" +
-                reviewComment.Trim() + "\n\n" +
-                "Address this feedback and continue the mission on the existing branch.\n";
+                ReworkPromptBuilder.Build(reviewComment) + "\n";
 
             if (String.IsNullOrWhiteSpace(existing))
             {
