@@ -29,6 +29,18 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// POST /api/v1/users/enumerate: one page of the users visible to the caller, redacted, with the total.
+        /// </summary>
+        /// <param name="query">Paging and filters, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<UserMaster>?> EnumerateUsersAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<UserMaster>>("/api/v1/users/enumerate", query ?? new EnumerationQuery(), null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>createUser</c>: POST '/api/v1/users'.
         /// </summary>
         /// <param name="data">data.</param>

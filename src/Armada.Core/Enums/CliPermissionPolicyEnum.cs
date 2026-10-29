@@ -22,7 +22,7 @@ namespace Armada.Core.Enums
         ApproveInArmada,
 
         /// <summary>
-        /// The runtime's own permission-bypass flag is used (Claude Code --dangerously-skip-permissions, Codex full-auto or bypass, Gemini yolo, Cursor --force, OpenCode --auto, Mux --yolo). Only admins can choose it.
+        /// The runtime's own permission-bypass flag is used (Claude Code --dangerously-skip-permissions, Codex full-auto or bypass, Gemini yolo, Cursor --force, OpenCode --auto, Mux --yolo, Pi default with no prompts). Only admins can choose it.
         /// </summary>
         [EnumMember(Value = "Bypass")]
         Bypass

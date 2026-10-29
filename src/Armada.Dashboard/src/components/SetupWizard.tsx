@@ -23,6 +23,7 @@ import type { Captain, DeploymentEnvironment, Fleet, Mission, Vessel, VesselRead
 import { useLocale } from '../context/LocaleContext';
 import MissionFailureDetails, { FAILED_MISSION_STATUSES } from './shared/MissionFailureDetails';
 import CopyButton from './shared/CopyButton';
+import { PLANNING_PATH } from '../lib/navTargets';
 
 const STORAGE_KEY = 'armada_setup_completed';
 
@@ -289,7 +290,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       2: ['/vessels'],
       3: ['/captains'],
       4: ['/dispatch'],
-      5: ['/vessels', '/dispatch', '/planning', '/configuration', '/delivery'],
+      5: ['/vessels', '/dispatch', '/configuration', '/delivery'],
     };
 
     onHighlightChange?.(highlightsByStep[current] || []);
@@ -1115,7 +1116,7 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
           <button
             type="button"
             className="btn"
-            onClick={() => finishAndNavigate('/planning', { state: handoffPlanningState })}
+            onClick={() => finishAndNavigate(PLANNING_PATH, { state: handoffPlanningState })}
             title={t('Close the wizard and start a planning session with a captain for this vessel.')}
           >
             {t('Open Planning')}

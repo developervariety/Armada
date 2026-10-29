@@ -40,6 +40,11 @@ namespace Armada.Server.Ask
         /// </summary>
         public DateTime StartedUtc { get; } = DateTime.UtcNow;
 
+        /// <summary>
+        /// What the turn has streamed so far (reply text, thinking, tool calls).
+        /// </summary>
+        public AskTurnLiveState Live { get; } = new AskTurnLiveState();
+
         #endregion
 
         #region Constructors-and-Factories
