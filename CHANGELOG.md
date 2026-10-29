@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Mission branch check at completion
+
+- When completion captures a mission's commit, it records `mission.branch_verified` when the mission branch holds that commit and `mission.branch_unverified` when it does not or git cannot answer. The event payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch.
+
 ### Needs You landing failures
 
 - A `landing_failed` row in the Needs You inbox shows the failure reason preformatted and has a Retry Landing button. The button calls the same retry-landing API as the mission page, reports its error in place and reloads the list.

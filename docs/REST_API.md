@@ -5306,6 +5306,9 @@ A recorded event representing a state change in the system.
 - `captain.stall_cleared` - The stall evaluator found a signal inside the window, so a quiet captain is not stalled
 - `mission.work_snapshot_saved` - A captain's uncommitted dock work was saved before the final stall relaunch or before a dock removal (reclaim, unstick, delete, purge, or a re-provision over a previous attempt's checkout); the message names the `recover/<missionId>-<n>` branch
 - `mission.work_snapshot_failed` - A captain's uncommitted dock work could not be saved; the message names why. The dock is kept on disk and not removed; only a stall relaunch, which keeps the dock, continues
+- `mission.stopped_by_operator` - An operator stop from REST, MCP or WebSocket ended the captain's running mission Cancelled; the message carries the `operator_stopped:` reason (who, surface, UTC time, and the `recover/<missionId>-<n>` ref when one was written) and the payload repeats them
+- `mission.branch_verified` - At completion capture, the mission branch holds the captured commit
+- `mission.branch_unverified` - At completion capture, the mission branch does not hold the captured commit, or git could not answer; the payload names the commit and the branch tip. The check only reads: it never moves or pushes the branch
 - `voyage.dispatched` - A voyage was created: by a dispatch with all of its missions, by an autonomous rescue with its missions, or without missions (the message then counts 0 missions)
 - `voyage.completed` - The voyage completion rule wrote the voyage Complete: every mission done without failure, a cancelled stage only beside a `Complete` mission, and its Checks green or absent
 - `voyage.deleted` - Voyage permanently deleted
