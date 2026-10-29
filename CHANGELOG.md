@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Saved dock work reports
+
+- A later assignment of a mission that finds a `recover/` ref already applied or reported for that mission records no second `mission.work_snapshot_skipped` event and posts no second `[work not restored]` note.
+
 ### Signal recipient tenant
 
 - `armada_send_signal` and `POST /api/v1/signals` refuse a recipient captain outside the caller's tenant, unless the caller is a global administrator. MCP answers `captain_not_found` and REST answers `404`; nothing is stored.

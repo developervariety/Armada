@@ -991,6 +991,15 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "The skip is announced once on the board");
                     AssertTrue(RunGitProcess(restart.BareRepo, "for-each-ref", "refs/heads/recover/" + restart.Stage.Id + "-1").Contains("recover/", StringComparison.Ordinal),
                         "The saved work stays in its recover ref");
+
+                    // A later reassignment finds the same saved ref; it was reported once and is not reported again.
+                    await restart.FreeAgainAsync(testDb).ConfigureAwait(false);
+                    bool reassigned = await restart.MissionService.TryAssignAsync(restart.Stage, restart.Vessel).ConfigureAwait(false);
+                    Mission? again = await testDb.Driver.Missions.ReadAsync(restart.Stage.Id).ConfigureAwait(false);
+                    AssertTrue(reassigned, "The stage must be assignable a second time; reason: " + (again?.FailureReason ?? "(none)"));
+                    List<ArmadaEvent> laterEvents = await testDb.Driver.Events.EnumerateByMissionAsync(restart.Stage.Id, 50).ConfigureAwait(false);
+                    AssertEqual(1, laterEvents.Count(e => e.EventType == "mission.work_snapshot_skipped"), "The same saved ref records one skip across assignments");
+                    AssertEqual(1, restart.Poster.Posts.Count(post => post.Contains("[work not restored]", StringComparison.Ordinal)), "The same saved ref is announced once across assignments");
                 }
             });
 
@@ -2714,6 +2723,23 @@ namespace Armada.Test.Unit.Suites.Services
                 freed.ProcessId = null;
                 await testDb.Driver.Captains.UpdateAsync(freed).ConfigureAwait(false);
                 return restart;
+            }
+
+            public async Task FreeAgainAsync(TestDatabase testDb)
+            {
+                Stage = (await testDb.Driver.Missions.ReadAsync(Stage.Id).ConfigureAwait(false))!;
+                string? captainId = Stage.CaptainId;
+                Stage.Status = MissionStatusEnum.Pending;
+                Stage.AssignmentState = MissionAssignmentStateEnum.Pending;
+                Stage.CaptainId = null;
+                Stage.ProcessId = null;
+                await testDb.Driver.Missions.UpdateAsync(Stage).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(captainId)) return;
+                Captain freed = (await testDb.Driver.Captains.ReadAsync(captainId).ConfigureAwait(false))!;
+                freed.State = CaptainStateEnum.Idle;
+                freed.CurrentMissionId = null;
+                freed.ProcessId = null;
+                await testDb.Driver.Captains.UpdateAsync(freed).ConfigureAwait(false);
             }
         }
 

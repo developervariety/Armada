@@ -1258,7 +1258,9 @@ on. `mission.work_snapshot_applied` records the resume. When the work is not app
 -- the checkout is on another commit, or the apply conflicts -- the checkout is left
 unchanged, `mission.work_snapshot_skipped` names the reason, and one `[work not
 restored]` note on the coordination board names the `recover/` ref that still holds
-the work. A mission with no saved work records nothing.
+the work. A `recover/` ref that an earlier assignment of the same mission already
+applied or reported is not reported again. A mission with no saved work records
+nothing.
 
 Both families use one retention rule. The sweep keeps an anchor in these cases:
 
