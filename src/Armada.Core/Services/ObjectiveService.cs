@@ -2573,6 +2573,15 @@ namespace Armada.Core.Services
         {
             preparation.Preflight ??= new ObjectivePreflight();
             preparation.Preflight.Questions ??= new List<ObjectivePreflightAnswer>();
+            ObjectiveReviewRetry? retry = preparation.Preflight.ReviewRetry;
+            if (retry != null)
+            {
+                EnsureMaximumLength(retry.JudgeMissionId, _MaxPreparationIdChars, "Review retry Judge");
+                EnsureMaximumLength(retry.CandidateHash, 40, "Review retry candidate hash");
+                EnsureMaximumLength(retry.InputHash, 64, "Review retry input hash");
+                EnsureMaximumLength(retry.ChangedInput, _MaxPreparationClaimTextChars, "Review retry changed input");
+                EnsureMaximumLength(retry.FindingsEvidence, _MaxPreparationClaimTextChars, "Review retry findings evidence");
+            }
 
             HashSet<int> seen = new HashSet<int>();
             foreach (ObjectivePreflightAnswer answer in preparation.Preflight.Questions)

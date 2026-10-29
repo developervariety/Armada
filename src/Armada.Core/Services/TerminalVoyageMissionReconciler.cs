@@ -250,6 +250,10 @@ namespace Armada.Core.Services
             mission.LastUpdateUtc = now;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
+            if (target == MissionStatusEnum.Failed)
+                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed,
+                    decision.Reason, _Logging, token).ConfigureAwait(false);
+
             ArmadaEvent evt = new ArmadaEvent
             {
                 TenantId = mission.TenantId,

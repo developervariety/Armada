@@ -4,6 +4,9 @@ namespace Armada.Server
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
+    using Armada.Core.Database;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using SyslogLogging;
 
@@ -23,6 +26,7 @@ namespace Armada.Server
         private const string _AuthorName = "Typed Decision";
 
         private readonly CoordinationService _Coordination;
+        private readonly DatabaseDriver? _Database;
         private readonly Func<string?> _ResolveOwnerParticipantKey;
         private readonly LoggingModule _Logging;
 
@@ -39,8 +43,9 @@ namespace Armada.Server
         public CoordinationOwnerDecisionNotePoster(
             CoordinationService coordination,
             Func<string?> resolveOwnerParticipantKey,
-            LoggingModule logging)
+            LoggingModule logging, DatabaseDriver? database = null)
         {
+            _Database = database;
             _Coordination = coordination ?? throw new ArgumentNullException(nameof(coordination));
             _ResolveOwnerParticipantKey = resolveOwnerParticipantKey ?? throw new ArgumentNullException(nameof(resolveOwnerParticipantKey));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -74,6 +79,26 @@ namespace Armada.Server
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "failed to post owner-decision note: " + ex.Message);
+            }
+        }
+
+        /// <summary>Wake the dispatching operator for a blocked stage; unknown origin stays on the board.</summary>
+        public async Task PostBlockedQuestionAsync(Mission mission, string content, CancellationToken token)
+        {
+            try
+            {
+                string? participant = _Database == null ? null
+                    : await VoyageDispatchOrigin.ReadAsync(_Database, mission, token).ConfigureAwait(false);
+                await _Coordination.PostMessageAsync(
+                    CoordinationService.DefaultRoomKey, CoordinationAuthorTypeEnum.System,
+                    authorId: null, authorName: "Mission Blocked", content: content,
+                    voyageId: mission.VoyageId, missionId: mission.Id, vesselId: mission.VesselId,
+                    incidentId: null, tenantId: mission.TenantId, toParticipantKey: participant,
+                    token: token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to post blocked-stage question: " + ex.Message);
             }
         }
 

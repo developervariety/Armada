@@ -10,6 +10,10 @@ namespace Armada.Server
     /// </summary>
     public sealed class SharedVoyageDispatchRequest
     {
+        /// <summary>Server-resolved source used to bind dispatch provenance.</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? ResolvedSourceCommit { get; set; }
+
         /// <summary>
         /// Voyage title.
         /// </summary>

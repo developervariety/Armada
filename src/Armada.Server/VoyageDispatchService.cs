@@ -176,7 +176,17 @@ namespace Armada.Server
                         request.Missions,
                         token).ConfigureAwait(false);
                     VoyageDispatchResult? gate = PreflightGateResult(preview, request.ForcePreflight, objectiveId);
-                    if (gate != null) return gate;
+                    if (gate != null)
+                    {
+                        ObjectiveDispatchPreviewIssue? stop = preview.Issues.FirstOrDefault(item => item.Code == ObjectiveReviewRepeatGuard.IssueCode);
+                        if (stop != null)
+                        {
+                            await ReviewRepeatStopNotice.PostAsync(_Database, _Logging ?? new LoggingModule(),
+                                objective, stop, request.DispatcherParticipantKey, token).ConfigureAwait(false);
+                        }
+                        return gate;
+                    }
+                    request.ResolvedSourceCommit = preview.ResolvedStartCommit;
                     request.PreparationAnchorMoves = preview.PreparationAnchorMoves ?? new List<ObjectivePreparationAnchorMove>();
                     request.PreflightModelFlaggedQuestions = request.ForcePreflight
                         ? ObjectivePreflightGate.ModelFlaggedQuestions(preview)
@@ -521,6 +531,8 @@ namespace Armada.Server
                 if (dispatchResult is not Voyage createdVoyage)
                     return VoyageDispatchResult.BadRequest(dispatchResult);
                 voyage = createdVoyage;
+                await VoyageDispatchOrigin.RecordAsync(_Database, voyage, request.DispatcherParticipantKey, token, dispatchObjective == null ? null
+                    : ObjectiveReviewRepeatGuard.InputHash(dispatchObjective, request.ResolvedSourceCommit), request.ResolvedSourceCommit).ConfigureAwait(false);
 
                 if (admission != null)
                     await admission.RecordVoyageCreatedAsync(voyage, token).ConfigureAwait(false);

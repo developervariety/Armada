@@ -33,6 +33,28 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Blocked questions wake their dispatching operator and unknown origins stay on the board", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    CoordinationService service = CreateService(testDb);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Operator dispatch")).ConfigureAwait(false);
+                    Mission mission = new Mission("Blocked", "work") { VoyageId = voyage.Id };
+                    await VoyageDispatchOrigin.RecordAsync(testDb.Driver, voyage, "dispatch-operator").ConfigureAwait(false);
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    CoordinationOwnerDecisionNotePoster poster = new CoordinationOwnerDecisionNotePoster(service, () => "owner", logging, testDb.Driver);
+                    await poster.PostBlockedQuestionAsync(mission, "Run the Docker proof", CancellationToken.None).ConfigureAwait(false);
+                    mission.VoyageId = null;
+                    await poster.PostBlockedQuestionAsync(mission, "Unknown dispatch origin", CancellationToken.None).ConfigureAwait(false);
+                    await poster.PostOwnerDecisionAsync("Explicit approval", null, CancellationToken.None).ConfigureAwait(false);
+                    List<CoordinationMessage> notes = await service.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
+                    AssertEqual("dispatch-operator", notes.Single(item => item.Content == "Run the Docker proof").ToParticipantKey);
+                    AssertNull(notes.Single(item => item.Content == "Unknown dispatch origin").ToParticipantKey);
+                    AssertEqual("owner", notes.Single(item => item.Content == "Explicit approval").ToParticipantKey, "explicit owner gates are unchanged");
+                }
+            });
+
             await RunTest("EnsureRoomAsync creates the default room exactly once", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

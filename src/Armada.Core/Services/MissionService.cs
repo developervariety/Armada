@@ -222,6 +222,10 @@ namespace Armada.Core.Services
         /// </summary>
         public IOwnerDecisionNotePoster? HandoffOwnerNotePoster { get; set; }
 
+        /// <summary>Posts a blocked-stage question to the dispatching operator, or to the board when unknown.</summary>
+        public Func<Mission, string, CancellationToken, Task>? BlockedQuestionNotePoster { get; set; }
+
+
         /// <summary>
         /// Broadcast board-note poster for a mission that moves to a different captain. Null skips the note. Set
         /// by the server after construction so existing construction sites and tests are unchanged.
@@ -3246,10 +3250,10 @@ namespace Armada.Core.Services
                 mission.LastUpdateUtc = DateTime.UtcNow;
                 mission.FailureReason = CaptainBlockedResult.BuildFailureReason(mission.Persona, blockedQuestion);
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
-                await AppendMissionActivityAsync(mission.Id, "captain blocked: stage ended with [ARMADA:RESULT] BLOCKED; held for the owner", token).ConfigureAwait(false);
+                await AppendMissionActivityAsync(mission.Id, "captain blocked: stage ended with [ARMADA:RESULT] BLOCKED; held for operator triage", token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + mission.Id + " (" + (mission.Persona ?? "Worker") + ", " + mission.Mode
                     + ") ended with [ARMADA:RESULT] BLOCKED; failed as captain_blocked with no handoff and no rescue");
-                await RaiseBlockedQuestionForOwnerAsync(mission, blockedQuestion, token).ConfigureAwait(false);
+                await RaiseBlockedQuestionAsync(mission, blockedQuestion, token).ConfigureAwait(false);
             }
 
             // Current-stage work must be complete before review. A criterion that explicitly awaits
@@ -7858,14 +7862,14 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Put a blocked stage's question in front of the owner: one open incident for the mission carrying
-        /// the question, and an owner-addressed board note when a poster is wired. Idempotent per mission: an
+        /// Put a blocked stage's question in front of its dispatching operator: one open incident for the mission
+        /// and a visible board note, addressed to that participant when known. Idempotent per mission: an
         /// open blocked-question incident for the same mission is not duplicated. Never throws into completion.
         /// </summary>
         /// <param name="mission">The blocked mission, already failed with its captain_blocked reason.</param>
         /// <param name="question">The captain's question.</param>
         /// <param name="token">Cancellation token.</param>
-        private async Task RaiseBlockedQuestionForOwnerAsync(Mission mission, string question, CancellationToken token)
+        private async Task RaiseBlockedQuestionAsync(Mission mission, string question, CancellationToken token)
         {
             const int maxNoteQuestionLength = 1500;
             string stage = mission.Persona ?? "Worker";
@@ -7890,36 +7894,36 @@ namespace Armada.Core.Services
                     if (title.Length > 96) title = title.Substring(0, 96);
                     await incidents.CreateAutomaticallyAsync(auth, new IncidentUpsertRequest
                     {
-                        Title = "Owner question: " + title,
+                        Title = "Blocked stage question: " + title,
                         Summary = "The " + stage + " stage of " + mission.Mode + " mission " + mission.Id
-                            + " ended with [ARMADA:RESULT] BLOCKED. It needs an owner answer; it was not completed, handed off, or retried.",
+                            + " ended with [ARMADA:RESULT] BLOCKED. It needs operator triage; it was not completed, handed off, or retried.",
                         Status = IncidentStatusEnum.Open,
                         Severity = IncidentSeverityEnum.High,
                         VesselId = mission.VesselId,
                         MissionId = mission.Id,
                         VoyageId = mission.VoyageId,
                         Impact = "The voyage stops at this stage and does not complete as a success.",
-                        RootCause = CaptainBlockedResult.FailureReasonPrefix + " " + stage + " stage blocked on an owner question",
+                        RootCause = CaptainBlockedResult.FailureReasonPrefix + " " + stage + " stage blocked on a question requiring operator triage",
                         RecoveryNotes = "Answer the captain's question, then re-dispatch the stage with the answer in its brief.\n\n"
                             + CaptainBlockedResult.QuestionHeading + "\n" + question,
                         DetectedUtc = DateTime.UtcNow
                     }, token).ConfigureAwait(false);
                 }
 
-                if (HandoffOwnerNotePoster != null)
+                if (BlockedQuestionNotePoster != null)
                 {
                     string noteQuestion = question.Length > maxNoteQuestionLength
                         ? question.Substring(0, maxNoteQuestionLength) + "..."
                         : question;
-                    string content = "A " + stage + " stage is blocked on an owner question (mission " + mission.Id
+                    string content = "A " + stage + " stage is blocked and needs operator triage (mission " + mission.Id
                         + (String.IsNullOrEmpty(mission.VoyageId) ? String.Empty : ", voyage " + mission.VoyageId)
                         + "). It was not completed, handed off, or retried. Answer it, then re-dispatch.\n"
                         + CaptainBlockedResult.QuestionHeading + " " + noteQuestion;
-                    await HandoffOwnerNotePoster.PostOwnerDecisionAsync(content, mission.VesselId, token).ConfigureAwait(false);
+                    await BlockedQuestionNotePoster(mission, content, token).ConfigureAwait(false);
                 }
                 else
                 {
-                    _Logging.Info(_Header + "blocked question for mission " + mission.Id + " raised as an incident only: no owner note poster is wired");
+                    _Logging.Info(_Header + "blocked question for mission " + mission.Id + " raised as an incident only: no blocked-question note poster is wired");
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -7928,7 +7932,7 @@ namespace Armada.Core.Services
             }
             catch (Exception ex)
             {
-                _Logging.Warn(_Header + "could not raise the blocked question for mission " + mission.Id + " to the owner: " + ex.Message);
+                _Logging.Warn(_Header + "could not raise the blocked question for mission " + mission.Id + " to the board: " + ex.Message);
             }
         }
 

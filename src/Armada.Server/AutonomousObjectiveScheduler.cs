@@ -1367,6 +1367,9 @@ namespace Armada.Server
             bool dependencyBlocked,
             CancellationToken token)
         {
+            ObjectiveDispatchPreviewIssue? repeat = preview.Issues.FirstOrDefault(item => item.Code == ObjectiveReviewRepeatGuard.IssueCode);
+            if (repeat != null)
+                await ReviewRepeatStopNotice.PostAsync(_Database, _Logging, objective, repeat, null, token).ConfigureAwait(false);
             string issueCodes = ErrorCodes(preview);
             string chains = preview.BlockingChains.Count > 0
                 ? " Blocking chains: " + String.Join("; ", preview.BlockingChains.Select(chain => String.Join(" -> ", chain))) + "."
@@ -1646,6 +1649,9 @@ namespace Armada.Server
 
                 try
                 {
+                    await VoyageDispatchOrigin.RecordAsync(_Database, voyage, null, token,
+                        ObjectiveReviewRepeatGuard.InputHash(objective, admittedPreview?.ResolvedStartCommit),
+                        admittedPreview?.ResolvedStartCommit).ConfigureAwait(false);
                     await admission.RecordVoyageCreatedAsync(voyage, token).ConfigureAwait(false);
                     admission.ThrowIfOwnershipLost();
                     await _Objectives.LinkVoyageAsync(objectiveAuth, objective.Id, voyage.Id, token, false, admission).ConfigureAwait(false);

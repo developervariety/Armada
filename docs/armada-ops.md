@@ -1,5 +1,25 @@
 # Armada Operator Guide
 
+Objective dispatch records its participant and resolved source on the voyage event stream.
+Blocked-stage questions go to that participant for triage; an unknown participant
+leaves the question on the shared board. Explicit owner approval gates keep their
+owner destination.
+
+Two consecutive Judge NEEDS_REVISION verdicts on an objective at the same frozen
+source add `objective_repeat_review_stop` to dispatch preview. This issue is not
+subject to `forcePreflight`. Preflight `ReviewRetry` records the latest Judge id,
+the exact rejected candidate hash, the current prepared input hash, the changed
+input, and evidence addressing every named finding. Preview reports the hashes.
+A receipt admits a retry only when the prepared input changed. Legacy dispatches
+without an input hash require a changed source commit as well. The next Judge
+still checks all findings and acceptance criteria.
+
+Terminal failed attempts store a bounded reason code and a `mission.failure_cause`
+event linked to the fact. Derivative reconciliation events name the original
+failed missions in that voyage. Unknown causes remain `unknown`; these factual
+codes do not modify capability scores.
+
+
 Routing preview accepts a mission capability hint and shows the Legacy selector's
 ranking factors beside each candidate. Use Settings > Routing > Preview Smart
 Routing to inspect tier, active capability score, rank and tie preferences.

@@ -1240,6 +1240,16 @@ namespace Armada.Server
                 if (decision.DispatchRescue && !latest.IsReadOnlyMode)
                 {
                     owningObjective = await ResolveOwningObjectiveAsync(latest, token).ConfigureAwait(false);
+                    if (owningObjective != null)
+                    {
+                        ObjectiveDispatchPreviewIssue? repeat = await ObjectiveReviewRepeatGuard.EvaluateAsync(
+                            _Database, owningObjective, owningObjective.StartFromRef, token).ConfigureAwait(false);
+                        if (repeat != null)
+                        {
+                            await ReviewRepeatStopNotice.PostAsync(_Database, _Logging, owningObjective, repeat, null, token).ConfigureAwait(false);
+                            decision = RecoveryDecision.Blocked(repeat.Code + ": " + repeat.Message);
+                        }
+                    }
                     List<ObjectiveDispatchPreviewIssue> executionIssues = ObjectiveExecutionRequirementsValidator.Evaluate(
                         owningObjective?.Preparation?.ExecutionRequirements,
                         _ExecutionEnvironment);

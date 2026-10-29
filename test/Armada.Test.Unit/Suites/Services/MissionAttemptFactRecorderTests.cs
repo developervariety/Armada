@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Text.Json;
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -91,6 +92,26 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(validFact, "the valid fact is stored");
                 AssertEqual("review_denied_retrystage", validFact!.ReasonCode,
                     "a declared review action remains a stable reason code");
+            }).ConfigureAwait(false);
+
+            await RunTest("Terminal causes preserve post-test subtype and keep stream endings unknown", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Terminal", "work")
+                    { Status = MissionStatusEnum.Failed, FailureReason = "stream ended unexpectedly" }).ConfigureAwait(false);
+                    MissionAttemptFact? unknown = await MissionAttemptFactRecorder.RecordAsync(testDb.Driver, mission,
+                        MissionAttemptFactTypeEnum.Failed).ConfigureAwait(false);
+                    AssertEqual("unknown", unknown!.ReasonCode, "an ambiguous ending never becomes a model error");
+                    MissionAttemptFact? post = await MissionAttemptFactRecorder.RecordAsync(testDb.Driver, mission,
+                        MissionAttemptFactTypeEnum.Failed,
+                        MissionAttemptFactReasonCode.FromDefinitionOfDoneFailure(DefinitionOfDoneFailureClassEnum.PostTestStep)).ConfigureAwait(false);
+                    AssertEqual("dod_post_test_step", post!.ReasonCode, "the typed subtype survives normalization");
+                    EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                    { EventType = "mission.failure_cause", PageSize = 10 }).ConfigureAwait(false);
+                    AssertEqual(2, events.Objects.Count, "every terminal cause has a stored event linked to its fact");
+                    AssertTrue(events.Objects.All(item => item.MissionId == mission.Id && item.Payload!.Contains("attemptFactId")));
+                }
             }).ConfigureAwait(false);
 
             await RunTest("RestartRecordsRestartedFact", async () =>

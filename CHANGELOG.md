@@ -7,6 +7,12 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Terminal failure facts and bounded review retries
+
+- Terminal failure facts preserve typed reason codes, including post-test failures. Failure-cause events link derivative unlanded work to original failed stages; ambiguous endings remain unknown and do not imply a model error.
+- Two consecutive Judge NEEDS_REVISION verdicts for one objective at frozen source stop a third full-chain dispatch. A retry requires changed prepared input, the exact rejected candidate, and recorded evidence for every named finding. Other objectives and required review stages continue.
+- Blocked-stage questions wake the recorded dispatching participant and remain visible on the board. Unknown dispatch origins use a broadcast; explicit owner approval gates retain their owner routing.
+
 ### Routing choice evidence
 
 - Existing captain choice events include normal selections, requested and selected captain ids, mode, tier floor, hint, ranking inputs and the selection or fallback reason. This adds provenance without changing routing order or capability scores.

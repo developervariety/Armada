@@ -29,9 +29,10 @@ namespace Armada.Core.Models
         /// </summary>
         public const int GreenTipQuestionNumber = 14;
 
-        /// <summary>
-        /// Recorded answers, at most one per question number.
-        /// </summary>
+        /// <summary>Evidence for a changed-input retry after a repeated review stop.</summary>
+        public ObjectiveReviewRetry? ReviewRetry { get; set; }
+
+        /// <summary>Recorded answers, at most one per question number.</summary>
         public List<ObjectivePreflightAnswer> Questions { get; set; } = new List<ObjectivePreflightAnswer>();
     }
 }

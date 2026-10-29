@@ -11,7 +11,7 @@ namespace Armada.Core.Services
     /// are not blocked.
     /// </summary>
     /// <remarks>
-    /// A blocked stage asks a question only the owner can answer. It did not finish, so it does not
+    /// A blocked stage asks a question that the dispatching operator must triage. It did not finish, so it does not
     /// complete, does not hand off, and does not land, and a rescue that re-runs the same stage without
     /// the answer would ask the same question again. The completion path fails the mission with a
     /// <see cref="FailureReasonPrefix"/> reason that carries the question, and recovery reads that prefix
@@ -121,7 +121,7 @@ namespace Armada.Core.Services
         public static string BuildFailureReason(string? persona, string question)
         {
             string stage = String.IsNullOrWhiteSpace(persona) ? "Worker" : persona!.Trim();
-            return FailureReasonPrefix + " the " + stage + " stage ended with [ARMADA:RESULT] BLOCKED on a question only the owner can answer."
+            return FailureReasonPrefix + " the " + stage + " stage ended with [ARMADA:RESULT] BLOCKED on a question requiring operator triage."
                 + " The stage did not complete and was not handed off or retried; answer the question, then re-dispatch.\n"
                 + QuestionHeading + "\n" + (question ?? String.Empty);
         }

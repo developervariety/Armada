@@ -48,6 +48,38 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Repeated rejected frozen-source chains stop only their objective", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    const string source = "0123456789abcdef0123456789abcdef01234567";
+                    harness.Git.RevisionCommitShaResult = source;
+                    Objective objective = harness.CreateReadyObjective("repeat-review");
+                    objective.StartFromRef = source;
+                    for (int attempt = 0; attempt < 2; attempt++)
+                    {
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Rejected chain")
+                        { TenantId = objective.TenantId, UserId = objective.UserId, Status = VoyageStatusEnum.Failed }).ConfigureAwait(false);
+                        objective.VoyageIds.Add(voyage.Id);
+                        await testDb.Driver.Missions.CreateAsync(new Mission("Worker", "report")
+                        { TenantId = objective.TenantId, UserId = objective.UserId, VoyageId = voyage.Id,
+                            Persona = "Worker", StartFromRef = source, Status = MissionStatusEnum.Complete }).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(new Mission("Judge", "review")
+                        { TenantId = objective.TenantId, UserId = objective.UserId, VoyageId = voyage.Id,
+                            Persona = "Judge", Status = MissionStatusEnum.Failed,
+                            FailureReason = "Judge verdict: NEEDS_REVISION", CompletedUtc = DateTime.UtcNow.AddMinutes(attempt) }).ConfigureAwait(false);
+                    }
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreview stopped = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(stopped.Issues.Any(item => item.Code == "objective_repeat_review_stop"), "a third full-chain reissue is refused");
+                    AssertEqual(PreflightGateOutcomeEnum.BlockedByOther, ObjectivePreflightGate.Classify(stopped, true), "forcePreflight cannot bypass the review stop");
+                    Objective other = harness.CreateReadyObjective("unrelated-review");
+                    ObjectiveDispatchPreview open = await harness.Service.PreviewAsync(harness.Auth, other).ConfigureAwait(false);
+                    AssertFalse(open.Issues.Any(item => item.Code == "objective_repeat_review_stop"), "another objective is unaffected");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("A configured busy captain proves role readiness without idle capacity", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

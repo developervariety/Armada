@@ -3449,7 +3449,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
                 rig.MissionService = new MissionService(logging, db, settings, dockService, captainService,
                     resourcePressureAdmission: global::Test.Shared.Infrastructure.TestResourcePressure.Unconstrained(settings));
-                rig.MissionService.HandoffOwnerNotePoster = rig.OwnerNotes;
+                rig.MissionService.BlockedQuestionNotePoster = (mission, content, token) => rig.OwnerNotes.PostOwnerDecisionAsync(content, mission.VesselId, token);
                 rig.MissionService.OnGetMissionOutput = rig.Handler.GetAndClearMissionOutput;
 
                 AutonomousRecoveryOrchestrator recovery = new AutonomousRecoveryOrchestrator(

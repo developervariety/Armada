@@ -935,7 +935,7 @@ using WatsonWebserver.Core.Routing;
                 CoordinationOwnerDecisionNotePoster ownerNotePoster = new CoordinationOwnerDecisionNotePoster(
                     _CoordinationService,
                     () => _RemoteTriggerService.GetAgentWakeSession()?.ParticipantKey,
-                    _Logging);
+                    _Logging, _Database);
                 _ObjectiveDispatchPreviewService.PreflightAdapter = new PreflightTextAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Logging);
 
@@ -946,6 +946,7 @@ using WatsonWebserver.Core.Routing;
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOwnerNotePoster = ownerNotePoster;
+                missionService.BlockedQuestionNotePoster = ownerNotePoster.PostBlockedQuestionAsync;
                 missionService.ReassignmentNotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging, "Mission Assignment");
                 // D3 runtime_failure reports a fleet-wide provider fault as a broadcast board note. The
                 // adapter was built before the coordination service existed, so the poster is set here.

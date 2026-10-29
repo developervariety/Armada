@@ -26,6 +26,11 @@ Routing preview accepts a mission capability hint and shows each captain's effec
 tier, capability score, rank and tie preferences. PostgreSQL upgrades preserve
 objective links on existing planning sessions. See [Smart Routing](docs/USAGE_ROUTING.md).
 
+Objective dispatch stops repeated frozen-source Judge rejection loops until the
+operator records changed input and finding evidence in preflight. Blocked-stage
+questions wake the dispatching operator. Terminal failure facts retain typed
+causes and derivative links without changing routing scores.
+
 ## Why Armada
 
 Armada is an Admiral process that coordinates AI coding agents, called captains, across registered git repositories, called vessels. It gives humans a control plane for dispatching, monitoring, reviewing, and landing agent work without losing context between repositories or terminal sessions.

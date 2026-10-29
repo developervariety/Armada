@@ -2,6 +2,8 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
+    using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
     using SyslogLogging;
@@ -43,6 +45,12 @@ namespace Armada.Core.Services
             try
             {
                 LineageResult lineage = await ResolveLineageAsync(database, mission, token).ConfigureAwait(false);
+                string? terminalReason = factType == MissionAttemptFactTypeEnum.Failed
+                    ? MissionAttemptFactReasonCode.Normalize(mission.ReconciledReason)
+                        ?? MissionAttemptFactReasonCode.Normalize(reasonCode)
+                        ?? (mission.FailureReason == "Judge verdict: NEEDS_REVISION" ? "judge_needs_revision" : null)
+                        ?? (CaptainBlockedResult.IsBlockedFailure(mission.FailureReason) ? "captain_blocked" : "unknown")
+                    : MissionAttemptFactReasonCode.Normalize(reasonCode);
                 MissionAttemptFact fact = new MissionAttemptFact
                 {
                     TenantId = mission.TenantId,
@@ -54,11 +62,43 @@ namespace Armada.Core.Services
                     ParentMissionId = lineage.ParentMissionId,
                     FactType = factType,
                     IsRescue = RescueMissionMarker.CarriesDescriptionMarker(mission.Description),
-                    ReasonCode = MissionAttemptFactReasonCode.Normalize(reasonCode)
+                    ReasonCode = terminalReason
                         ?? MissionAttemptFactReasonCode.Normalize(lineage.ReasonCode),
                     CreatedUtc = DateTime.UtcNow
                 };
-                return await database.MissionAttemptFacts.CreateAsync(fact, token).ConfigureAwait(false);
+                MissionAttemptFact stored = await database.MissionAttemptFacts.CreateAsync(fact, token).ConfigureAwait(false);
+                if (factType == MissionAttemptFactTypeEnum.Failed)
+                {
+                    List<Mission> related = String.IsNullOrEmpty(mission.VoyageId)
+                        ? new List<Mission>()
+                        : await database.Missions.EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
+                    bool derivative = TerminalVoyageMissionRule.IsReconciledOutcome(mission);
+                    ArmadaEvent cause = new ArmadaEvent("mission.failure_cause", "Terminal mission failure cause: " + terminalReason);
+                    EventOwnerScope.ApplyFromMission(cause, mission);
+                    cause.EntityType = "mission";
+                    cause.EntityId = mission.Id;
+                    cause.MissionId = mission.Id;
+                    cause.VoyageId = mission.VoyageId;
+                    cause.VesselId = mission.VesselId;
+                    cause.CaptainId = mission.CaptainId;
+                    cause.Payload = JsonSerializer.Serialize(new
+                    {
+                        reasonCode = terminalReason,
+                        subtype = derivative ? "upstream_work_unlanded" : terminalReason,
+                        isDerivative = derivative,
+                        causeKnown = terminalReason != "unknown",
+                        // A terminal voyage identifies related original failures, not a guessed model fault.
+                        upstreamFailureMissionIds = derivative ? related.Where(item => item.Id != mission.Id
+                            && item.TenantId == mission.TenantId && item.UserId == mission.UserId
+                            && (item.Status == MissionStatusEnum.Failed || item.Status == MissionStatusEnum.LandingFailed)
+                            && !TerminalVoyageMissionRule.IsReconciledOutcome(item))
+                            .Select(item => item.Id).OrderBy(id => id, StringComparer.Ordinal).ToList() : new List<string>(),
+                        upstreamVoyageId = derivative ? mission.VoyageId : null,
+                        attemptFactId = stored.Id
+                    });
+                    await database.Events.CreateAsync(cause, token).ConfigureAwait(false);
+                }
+                return stored;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
