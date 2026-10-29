@@ -9,6 +9,7 @@ namespace Armada.Tui.Screens.Operations
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Tui.Routing;
+    using Armada.Tui.Screens.Kit;
     using Armada.Tui.Services;
     using Armada.Tui.Widgets;
     using TUIKit.Input;
@@ -488,7 +489,7 @@ namespace Armada.Tui.Screens.Operations
             ObjectiveRefinementSessionDetail? d = Detail;
             if (d == null) return;
             string sessionId = d.Session.Id;
-            Run((c, t) => c.DeleteObjectiveRefinementSessionAsync(sessionId, t), () =>
+            DeleteProgress.RunVoid(Context, "Deleting refinement session", t => Context.Client.DeleteObjectiveRefinementSessionAsync(sessionId, t), () =>
             {
                 _SessionList = _SessionList.Where(s => s.Id != sessionId).ToList();
                 _SelectedSessionId = "";
@@ -497,7 +498,7 @@ namespace Armada.Tui.Screens.Operations
                 _SummaryView.Invalidate();
                 Toast(NotificationSeverityEnum.Warning, Tr("Refinement session deleted."));
                 LoadSessions(null);
-            }, null, ex => ShowMessage(String.IsNullOrEmpty(ex.Message) ? Tr("Failed to delete refinement session.") : ex.Message));
+            }, "Failed to delete refinement session.");
         }
 
         /// <summary>
@@ -1241,12 +1242,12 @@ namespace Armada.Tui.Screens.Operations
             if (o == null || !CanManage) return;
             Confirm("Delete Backlog Item", Tr("Delete \"{{title}}\"? This removes the backlog item and its objective snapshot history only.", LocalizationArgs.Of("title", o.Title)), () =>
             {
-                Run((c, t) => c.DeleteBacklogItemAsync(o.Id, t), () =>
+                DeleteProgress.RunVoid(Context, "Deleting backlog item", t => Context.Client.DeleteBacklogItemAsync(o.Id, t), () =>
                 {
                     Toast(NotificationSeverityEnum.Warning, Tr("Backlog item \"{{title}}\" deleted.", LocalizationArgs.Of("title", o.Title)));
                     Form.MarkClean();
                     Context.Navigate("/backlog");
-                }, null, ex => ShowMessage(String.IsNullOrEmpty(ex.Message) ? Tr("Delete failed.") : ex.Message));
+                }, "Delete failed.");
             }, "Delete");
         }
 

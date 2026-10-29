@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getMergeEntry, deleteMergeEntry, processMergeEntry, cancelMergeEntry, listVessels, getMissionDiff, getMissionLog, getVesselLandingPreview } from '../api/client';
+import { apiErrorMessage, getMergeEntry, deleteMergeEntry, processMergeEntry, cancelMergeEntry, listVessels, getMissionDiff, getMissionLog, getVesselLandingPreview } from '../api/client';
 import { listAll } from '../api/paging';
 import type { MergeEntry, Vessel, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -14,10 +14,12 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useDeleteProgress } from '../lib/useDeleteProgress';
 
 export default function MergeQueueDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
+  const deletion = useDeleteProgress();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [entry, setEntry] = useState<MergeEntry | null>(null);
@@ -113,11 +115,9 @@ export default function MergeQueueDetail() {
       message: t('Delete merge entry {{id}}? This cannot be undone.', { id: entry.id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
-        try {
-          await deleteMergeEntry(entry.id);
-          pushToast('warning', t('Merge entry {{id}} deleted.', { id: entry.id }));
-          navigate('/merge-queue');
-        } catch { setError(t('Delete failed.')); }
+        if (!(await deletion.run({ kind: 'mergeEntry', action: () => deleteMergeEntry(entry.id), errorMessage: (err) => apiErrorMessage(err, t('Delete failed.')) }))) return;
+        pushToast('warning', t('Merge entry {{id}} deleted.', { id: entry.id }));
+        navigate('/merge-queue');
       },
     });
   }
@@ -202,6 +202,7 @@ export default function MergeQueueDetail() {
       <JsonViewer open={jsonData.open} title={jsonData.title} data={jsonData.data} onClose={() => setJsonData({ open: false, title: '', data: null })} />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+      {deletion.dialog}
       <DiffViewer
         open={diffModal.open}
         title={diffModal.title}
