@@ -13275,7 +13275,7 @@ namespace Armada.Core.Services
         /// The accepted acceptance-criteria line form. Every Judge prompt that asks for the section states
         /// it, and the format correction repeats it.
         /// </summary>
-        internal const string AcceptanceCriteriaLineForm =
+        public const string AcceptanceCriteriaLineForm =
             "Under `## Acceptance Criteria`, write one line per criterion in the brief. Start the line with `- `, then the criterion's text copied exactly " +
             "as the brief lists it, then ` -- MET.` or ` -- NOT MET.`, then on the SAME line at least one piece of evidence: a location written " +
             "`path/File.ext:LINE`, or a command written `command: `the exact command`` followed by its result. " +
