@@ -73,6 +73,8 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(s.CaptainName, job.Display.CaptainName);
                 AssertNotNull(job.LogPath, "the job has a log");
                 Mission? running = await s.Db.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                int runningPid = running!.ProcessId!.Value;
+                AssertNotNull(s.Handler.GetToolWaitStartedUtc(runningPid), "raw runtime tool start reaches the watchdog locally and over Harbor");
                 AssertTrue(running!.Status == MissionStatusEnum.InProgress || running.Status == MissionStatusEnum.Assigned, "still running: " + running.Status);
 
                 List<HarborLaunchRequest> launches = harbor.Runner.LaunchSnapshot();
@@ -98,6 +100,7 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(FinalReply, (done.AgentOutput ?? String.Empty).Trim(), "the final message is the captain's reply, as in text mode");
                 AssertTrue(await HarborDockGitFixture.TreeHasFileAsync(git.Checkout, "refs/heads/main", "captain-work.txt").ConfigureAwait(false), "the work landed");
                 AssertNull(s.Handler.MissionActivity.Get(mission.Id), "no activity once the captain stopped");
+                AssertNull(s.Handler.GetToolWaitStartedUtc(runningPid), "exited launches cannot leave stale tool waits");
 
                 string harborLog = File.ReadAllText(logPath);
                 AssertContains("> Running tests: dotnet test", harborLog, "the Harbor's job log shows the activity");
@@ -124,6 +127,8 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(await WaitUntilAsync(() => Task.FromResult(Summary(s.Handler.MissionActivity.Get(mission.Id)) == "Editing README.md")).ConfigureAwait(false),
                     "the activity changed: " + Summary(s.Handler.MissionActivity.Get(mission.Id)));
                 Mission? running = await s.Db.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                int runningPid = running!.ProcessId!.Value;
+                AssertNotNull(s.Handler.GetToolWaitStartedUtc(runningPid), "raw runtime tool start reaches the watchdog locally and over Harbor");
                 Captain? captain = await s.Db.Driver.Captains.ReadAsync(running!.CaptainId!).ConfigureAwait(false);
                 AssertTrue(await WaitUntilAsync(async () =>
                 {
@@ -136,6 +141,7 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(done!.Status == MissionStatusEnum.WorkProduced || done.Status == MissionStatusEnum.Complete, "the captain's work was produced: " + done.Status + " " + done.FailureReason);
                 AssertEqual(FinalReply, (done.AgentOutput ?? String.Empty).Trim(), "the final message is the captain's reply, as in text mode");
                 AssertNull(s.Handler.MissionActivity.Get(mission.Id), "no activity once the captain stopped");
+                AssertNull(s.Handler.GetToolWaitStartedUtc(runningPid), "exited launches cannot leave stale tool waits");
             }));
 
             return new TestSuiteDescriptor(

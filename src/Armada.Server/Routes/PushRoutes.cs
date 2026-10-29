@@ -106,32 +106,6 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<PushDevice>>("One page"))
                 .WithSecurity("ApiKey"));
 
-            app.Get("/api/v1/push/devices", async (ApiRequest req) =>
-            {
-                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
-                ApiErrorResponse? denied = Deny(req, ctx, authz);
-                if (denied != null) return denied;
-                try
-                {
-                    string? userId = Blank(req.Query.GetValueOrDefault("userId"));
-                    string? tenantId = Blank(req.Query.GetValueOrDefault("tenantId"));
-                    return await _Devices.ListAsync(ctx, userId, tenantId).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (RouteErrorMapper.IsMapped(ex))
-                {
-                    return RouteErrorMapper.ToResponse(req, ex);
-                }
-            },
-            api => api
-                .WithTag("Push")
-                .WithSummary("List push devices")
-                .WithDescription("Lists the caller's own devices (oldest first, active and inactive). A tenant admin may pass userId to list a user of their tenant; a global admin may pass userId and/or tenantId. Other callers get 403 when naming another user. Tokens are masked.")
-                .WithParameter(OpenApiParameterMetadata.Query("userId", "User filter (usr_ prefix; admins only for other users)", false))
-                .WithParameter(OpenApiParameterMetadata.Query("tenantId", "Tenant filter (ten_ prefix; global admins only)", false))
-                .WithResponse(200, OpenApiJson.For<List<PushDevice>>("Devices"))
-                .WithResponse(403, OpenApiJson.For<ApiErrorResponse>("Not allowed to list another user's devices"))
-                .WithSecurity("ApiKey"));
-
             app.Put("/api/v1/push/devices/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

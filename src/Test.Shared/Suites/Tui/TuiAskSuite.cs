@@ -512,7 +512,7 @@ namespace Test.Shared.Suites.Tui
                     AssertEqual("/missions/msn_1", host.Tui.Context.Router.Current!.FullPath, "Enter opens the mission");
                     AssertEqual("/fleet-actions/runs/far_1", AskWorkLogic.Route(AskTrackedEntityTypeEnum.FleetActionRun, "far_1"), "run route");
                     AssertEqual("/vessels/import?batch=vib_1", AskWorkLogic.Route(AskTrackedEntityTypeEnum.VesselImportBatch, "vib_1"), "import route");
-                    AssertEqual("/jobs", AskWorkLogic.Route(AskTrackedEntityTypeEnum.Job, "job_1"), "job route");
+                    AssertEqual("/activity?source=jobs", AskWorkLogic.Route(AskTrackedEntityTypeEnum.Job, "job_1"), "job route");
                 }
             }));
 

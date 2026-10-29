@@ -95,6 +95,19 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(12.0, completed.ElapsedMs!.Value);
             }));
 
+            cases.Add(Case("pi_records_only_known_types", "Only JSON objects with a pi record type are pi protocol lines; JSON a model printed is not", TestTags.Negative, () =>
+            {
+                AssertFalse(PiRuntime.IsProtocolEventLine("{\"type\":\"object\",\"properties\":{}}"), "a JSON schema the model printed");
+                AssertFalse(PiRuntime.IsProtocolEventLine("{\"message\":{\"role\":\"assistant\"}}"), "no type at all");
+                AssertFalse(PiRuntime.IsProtocolEventLine("{\"type\":\"message_end\",\"message\":{\"content\":7}}"), "content of the wrong shape");
+                AssertTrue(PiRuntime.IsProtocolEventLine("{\"type\":\"agent_settled\",\"aborted\":false}"), "known pi type");
+                AssertTrue(PiStreamEvent.TryParse("{\"type\":\"message_end\",\"message\":{\"role\":\"system\",\"content\":\"\"}}", out PiStreamEvent? system), "string content (system message)");
+                AssertEqual(0, system!.Message!.Content!.Count);
+                AssertTrue(PiStreamEvent.TryParse("{\"type\":\"message_update\",\"assistantMessageEvent\":{\"type\":\"text_delta\",\"contentIndex\":0,\"delta\":\"Hello \"}}", out PiStreamEvent? delta));
+                AssertEqual("Hello ", delta!.TextDelta);
+                AssertNull(delta.ThinkingDelta);
+            }));
+
             cases.Add(Case("opencode_events_typed", "OpenCode text, reasoning, and tool_use events parse into typed parts", TestTags.Positive, () =>
             {
                 AssertTrue(OpenCodeStreamEvent.TryParse("{\"type\":\"tool_use\",\"part\":{\"type\":\"tool\",\"tool\":\"bash\",\"callID\":\"call-1\",\"state\":{\"status\":\"error\",\"input\":{\"command\":\"false\"},\"error\":\"exit 1\",\"metadata\":{\"exit\":1}}}}", out OpenCodeStreamEvent? tool));

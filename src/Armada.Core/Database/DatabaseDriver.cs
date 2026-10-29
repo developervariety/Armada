@@ -430,6 +430,15 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
+        /// Handoff artifact methods (one row per stage attempt that handed work on).
+        /// </summary>
+        public IHandoffArtifactMethods HandoffArtifacts
+        {
+            get => _HandoffArtifacts;
+            protected set => _HandoffArtifacts = DuplicateEntityTranslationProxy.Wrap(value);
+        }
+
+        /// <summary>
         /// Failure-cause rule methods.
         /// </summary>
         public IFailureCauseRuleMethods FailureCauseRules
@@ -623,6 +632,7 @@ namespace Armada.Core.Database
         private ICliPermissionRequestMethods _CliPermissionRequests = null!;
         private ICliPermissionRuleMethods _CliPermissionRules = null!;
         private IStageOutcomeMethods _StageOutcomes = null!;
+        private IHandoffArtifactMethods _HandoffArtifacts = null!;
         private IFailureCauseRuleMethods _FailureCauseRules = null!;
         private IModelProbeRunMethods _ModelProbeRuns = null!;
         private IModelProbeResultMethods _ModelProbeResults = null!;

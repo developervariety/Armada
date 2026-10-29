@@ -41,6 +41,7 @@ namespace Test.Shared.Suites.Tui
         private const string Suite = "Tui.CliPermissionFlows";
         private const string RulesPath = "/api/v1/cli-permissions/rules";
         private const string RulesListPath = "/api/v1/cli-permissions/rules/enumerate";
+        private const string RequestsListPath = "/api/v1/cli-permissions/requests/enumerate";
         private const string DecidePath = "/api/v1/cli-permissions/requests/cpr_1/decide";
         private const string ThreadPolicyPath = "/api/v1/ask/threads/ath_1/cli-permission-policy";
 
@@ -72,7 +73,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "rules_create_validates_and_posts", "New rule validates pattern and the scope target, then posts the rule with the picked vessel", () =>
             {
                 StubHttpHandler stub = RulesStub();
-                using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/cli-permissions?tab=rules", stub))
+                using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/server?tab=cli-permissions&section=rules", stub))
                 {
                     CliPermissionRulesScreen screen = Content<CliPermissionRulesScreen>(host);
                     AssertTrue(WaitForRules(host, screen), "loaded");
@@ -112,7 +113,7 @@ namespace Test.Shared.Suites.Tui
             cases.Add(TuiCase.Sync(Suite, "rules_edit_and_delete", "Enter edits a rule's pattern, action, and description; Del asks with the dashboard's message and deletes", () =>
             {
                 StubHttpHandler stub = RulesStub();
-                using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/cli-permissions?tab=rules", stub))
+                using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/server?tab=cli-permissions&section=rules", stub))
                 {
                     CliPermissionRulesScreen screen = Content<CliPermissionRulesScreen>(host);
                     AssertTrue(WaitForRules(host, screen), "loaded");
@@ -150,7 +151,7 @@ namespace Test.Shared.Suites.Tui
             {
                 StubHttpHandler stub = RulesStub();
                 NotAdmin(stub);
-                using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/cli-permissions?tab=rules", stub))
+                using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/server?tab=cli-permissions&section=rules", stub))
                 {
                     CliPermissionRulesScreen screen = Content<CliPermissionRulesScreen>(host);
                     AssertTrue(WaitForRules(host, screen), "loaded");
@@ -217,13 +218,18 @@ namespace Test.Shared.Suites.Tui
                 other.CreatedUtc = DateTime.UtcNow.AddMinutes(-1);
                 CliPermissionRequest linked = Request("cpr_1", null, true, true);
                 linked.CreatedUtc = DateTime.UtcNow.AddMinutes(-5);
-                stub.Json("GET", "/api/v1/cli-permissions/requests", ArmadaJson.Serialize(new List<CliPermissionRequest> { other, linked }));
+                stub.Page(RequestsListPath, ArmadaJson.Serialize(new List<CliPermissionRequest> { other, linked }));
                 stub.Json("POST", DecidePath, ArmadaJson.Serialize(Decided(linked, CliPermissionRequestStatusEnum.Allowed)));
                 using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/cli-permissions?request=cpr_1", stub))
                 {
                     CliPermissionRequestsScreen screen = Content<CliPermissionRequestsScreen>(host);
+                    AssertEqual("/server?request=cpr_1&tab=cli-permissions", host.Tui.Context.Router.Current!.FullPath, "the legacy deep link lands on the Settings tab");
                     AssertTrue(host.WaitForText("Bash: git push origin main"), "listed\n" + host.Screen());
-                    AssertTrue(stub.Saw("GET", "/api/v1/cli-permissions/requests", r => r.QueryValue("status") == "Pending"), "pending by default");
+                    CliPermissionRequestEnumerateRequest sent = stub.LastBody<CliPermissionRequestEnumerateRequest>("POST", RequestsListPath);
+                    AssertEqual("Pending", sent.Status, "pending by default");
+                    AssertEqual(1, sent.PageNumber, "first page");
+                    AssertEqual(200, sent.PageSize, "bounded page size");
+                    AssertFalse(stub.Saw("GET", "/api/v1/cli-permissions/requests"), "the retired whole-collection GET is not called");
                     AssertTrue(host.PumpUntil(() => screen.Grid.Current?.Id == "cpr_1"), "the linked request is selected");
                     string frame = host.Screen();
                     TuiCase.Contains(frame, "[ Allow once a ]", "allow once button");
@@ -237,17 +243,47 @@ namespace Test.Shared.Suites.Tui
                 }
             }));
 
-            cases.Add(TuiCase.Sync(Suite, "nav_and_palette", "CLI Tool Permissions is in the SYSTEM section, the palette, and the route map", () =>
+            cases.Add(TuiCase.Sync(Suite, "nav_and_palette", "CLI Tool Permissions is a Settings tab (not a sidebar item), keeps its Go command, and the old route redirects", () =>
             {
-                Armada.Tui.Routing.NavItem? item = Armada.Tui.Routing.NavCatalog.Sections.First(s => s.Label == "SYSTEM").Items.FirstOrDefault(i => i.To == "/cli-permissions");
-                AssertNotNull(item, "sidebar item");
-                AssertEqual("CLI Tool Permissions", item!.Label, "label");
+                AssertFalse(Armada.Tui.Routing.NavCatalog.AllItems().Any(i => i.To.StartsWith("/cli-permissions", StringComparison.Ordinal)), "no sidebar item");
+                Armada.Tui.Routing.NavItem settings = Armada.Tui.Routing.NavCatalog.Sections.First(s => s.Label == "SYSTEM").Items.First(i => i.To == "/server");
+                AssertTrue(settings.Tooltip.Contains("CLI Tool Permissions", StringComparison.Ordinal), "Settings tooltip names the tab");
                 Armada.Tui.Routing.RouteMatch match = Armada.Tui.Routing.Router.Resolve("/cli-permissions?tab=rules");
-                AssertNull(match.Route.RedirectTo, "a screen, not a redirect");
-                AssertEqual("rules", match.Tab?.Key, "rules tab");
+                AssertEqual("/server", match.Path, "redirected to Settings");
+                AssertEqual("cli-permissions", match.Tab?.Key, "CLI Tool Permissions tab");
+                AssertEqual("rules", match.Query["section"], "old tab became the section");
+                AssertEqual("rules", Armada.Tui.Routing.RouteTable.CliPermissionSections.Find(match.Query["section"])?.Key, "rules section");
                 using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/missions", RulesStub()))
                 {
-                    AssertNotNull(host.Tui.Context.Commands.All().FirstOrDefault(c => c.Id == "go.clipermissions"), "go command");
+                    Armada.Tui.Input.ArmadaCommand? go = host.Tui.Context.Commands.All().FirstOrDefault(c => c.Id == "go.clipermissions");
+                    AssertNotNull(go, "go command");
+                    go!.Handler();
+                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.FullPath == "/server?tab=cli-permissions"), "go opens the Settings tab: " + host.Tui.Context.Router.Current!.FullPath);
+                    Content<CliPermissionRequestsScreen>(host);
+                }
+            }));
+
+            cases.Add(TuiCase.Sync(Suite, "settings_tab_sections", "Settings, CLI Tool Permissions shows Requests and Rules sections; switching sections keeps the Settings tab", () =>
+            {
+                StubHttpHandler stub = RulesStub();
+                using (TuiTestHost host = TuiCase.SignedIn(170, 48, "/server?tab=cli-permissions", stub))
+                {
+                    HubScreen outer = (HubScreen)host.Tui.Shell.Screen!;
+                    AssertEqual("cli-permissions", outer.SelectedTab.Key, "outer tab");
+                    HubScreen sections = (HubScreen)outer.Content;
+                    AssertTrue(sections.IsNested, "nested section strip");
+                    AssertEqual("requests", sections.SelectedTab.Key, "requests by default");
+                    AssertTrue(sections.Content is CliPermissionRequestsScreen, "requests content");
+                    AssertTrue(host.WaitForText("CLI Tool Permissions"), "settings tab strip\n" + host.Screen());
+                    TuiCase.Contains(host.Screen(), "Requests", "requests section label");
+                    TuiCase.Contains(host.Screen(), "Rules", "rules section label");
+                    host.Tui.Context.Router.Navigate("/server?section=rules&tab=cli-permissions", true);
+                    CliPermissionRulesScreen rules = Content<CliPermissionRulesScreen>(host);
+                    AssertTrue(WaitForRules(host, rules), "rules listed\n" + host.Screen());
+                    AssertEqual("/server", host.Tui.Context.Router.Current!.Path, "still on Settings");
+                    AssertEqual("cli-permissions", host.Tui.Context.Router.Current!.Tab?.Key, "still on the CLI tab");
+                    host.Press("]");
+                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.Tab?.Key != "cli-permissions"), "] switches the outer Settings tab, not the section: " + host.Tui.Context.Router.Current!.FullPath);
                 }
             }));
 
@@ -897,7 +933,7 @@ namespace Test.Shared.Suites.Tui
             stub.On("DELETE", RulesPath + "/cpl_1", body => StubHttpHandler.Response(HttpStatusCode.NoContent, ""));
             stub.Json("GET", "/api/v1/vessels", "{\"Objects\":[{\"Id\":\"vsl_1\",\"Name\":\"web\"}],\"TotalRecords\":1}");
             stub.Json("GET", "/api/v1/captains", "{\"Objects\":[{\"Id\":\"cpt_1\",\"Name\":\"claude-1\",\"Runtime\":\"ClaudeCode\"}],\"TotalRecords\":1}");
-            stub.Json("GET", "/api/v1/cli-permissions/requests", "[]");
+            stub.Page(RequestsListPath, "[]");
             return stub;
         }
 
@@ -977,7 +1013,7 @@ namespace Test.Shared.Suites.Tui
             host.PumpUntil(() =>
             {
                 ScreenBase? s = host.Tui.Shell.Screen;
-                if (s is HubScreen hub) s = hub.Content;
+                while (s is HubScreen hub && !(s is T)) s = hub.Content;
                 found = s as T;
                 return found != null;
             }, 5000);

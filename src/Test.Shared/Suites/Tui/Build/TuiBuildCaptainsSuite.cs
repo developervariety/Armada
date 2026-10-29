@@ -41,7 +41,7 @@ namespace Test.Shared.Suites.Tui.Build
                     AssertTrue(host.WaitForText("Start Planning"), "row menu has Start Planning for idle captain");
                     host.Press("esc");
                     host.Press("P");
-                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.Path == "/planning"), "start planning");
+                    AssertTrue(host.PumpUntil(() => host.Tui.Context.Router.Current!.Path == "/dispatch" && host.Tui.Context.Router.Current!.Tab?.Key == "planning"), "start planning: " + host.Tui.Context.Router.Current!.FullPath);
                     AssertEqual("cpt_1", host.Tui.Context.Router.Current!.Query["captainId"], "captain handoff");
                     host.Tui.Context.Navigate("/captains");
                     AssertTrue(host.WaitForText("mux-1"), "back");
