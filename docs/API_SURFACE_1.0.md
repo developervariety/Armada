@@ -30,7 +30,7 @@ administrator).
 | WebSocket commands | 61 | 0 |
 | WebSocket event types | 68 | 0 |
 | CLI commands | 63 | 0 |
-| Settings keys | 217 | 12 |
+| Settings keys | 218 | 12 |
 
 ## REST API
 
@@ -928,6 +928,7 @@ install with the home directory written as `~`; defaults are not frozen (see COM
 | `import.inlineBatchLimit` | int | `25` |  |
 | `import.maxDepth` | int | `6` |  |
 | `isolateCaptainLaunch` | bool | `false` |  |
+| `landingDeferralDeadlineHours` | int | `24` |  |
 | `landingMode` | enum LandingModeEnum (LocalMerge\|PullRequest\|MergeQueue\|None\|MergeAndPush)? | `"MergeAndPush"` |  |
 | `logDirectory` | string | `"~/.armada/logs"` |  |
 | `loginRateLimit` | object |  |  |
