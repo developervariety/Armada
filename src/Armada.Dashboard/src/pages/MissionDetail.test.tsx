@@ -143,6 +143,35 @@ describe('MissionDetail waiting and landing', () => {
     expect(screen.queryByText('Ready To Land')).not.toBeInTheDocument();
   });
 
+  it('dims idle captains that may not take the mission and keeps eligible ones plain', async () => {
+    const idle = { missionId: null, planningSessionId: null, refinementSessionId: null, objectiveId: null, quarantineUntilUtc: null, quarantineReason: null };
+    vi.mocked(getMission).mockResolvedValue(mission({
+      status: 'Pending',
+      assignmentBlocker: {
+        reason: 'NoEligibleCaptain',
+        summary: 'Waiting for a captain: no idle captain may take this mission.',
+        untilUtc: null,
+        dependsOnMissionId: null,
+        blockingMissionIds: [],
+        captains: [
+          { ...idle, captainId: 'cpt_flint', captainName: 'Mux flint', state: 'Idle', detail: 'idle (not assigned: persona not allowed)', eligibleForMission: false },
+          { ...idle, captainId: 'cpt_opus', captainName: 'Opus', state: 'Idle', detail: 'idle (assigned)', eligibleForMission: true },
+        ],
+        computedUtc: '2026-10-05T00:00:00Z',
+      },
+    }));
+    vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ isReadyToLand: false, missionStatus: 'Pending' }));
+
+    renderPage();
+
+    const notAssigned = await screen.findByText('idle (not assigned: persona not allowed)');
+    expect(notAssigned).toHaveClass('text-dim');
+    expect(notAssigned.closest('li')).toHaveAttribute('data-eligible', 'false');
+    const assigned = screen.getByText('idle (assigned)');
+    expect(assigned).not.toHaveClass('text-dim');
+    expect(assigned.closest('li')).toHaveAttribute('data-eligible', 'true');
+  });
+
   it('offers Merge in Manage Branches instead of Land when landing is manual only (F12)', async () => {
     vi.mocked(getMission).mockResolvedValue(mission({ status: 'WorkProduced' }));
     vi.mocked(getMissionLandingPreview).mockResolvedValue(preview({ landingMode: 'None', effectiveLandingMode: 'None', manualLandingOnly: true, isReadyToLand: false, missionStatus: 'WorkProduced' }));

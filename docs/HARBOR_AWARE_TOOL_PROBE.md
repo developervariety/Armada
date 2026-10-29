@@ -15,7 +15,7 @@ This document describes the fix: route the probe through the existing host-comma
 the captain actually runs.
 
 > **Current state (1.0.0).** The probe no longer decides the Ask Armada banner for most captains. Ask turns
-> connect every Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, and ApiEndpoint captain to Armada's MCP
+> connect every Claude Code, Codex, Gemini, Cursor, Mux, OpenCode, pi, and ApiEndpoint captain to Armada's MCP
 > server with a per-turn, thread-scoped configuration (`CaptainThreadMcpPlanner`), and
 > `GET /api/v1/captains/{id}/tools` reports `askApprovalGated: true` for those runtimes. The dashboard shows
 > the "not connected to Armada over MCP" banner only when `askApprovalGated` is false and
@@ -100,6 +100,10 @@ Admiral: whether the `opencode` CLI has a subcommand that dumps its MCP servers/
 How an OpenCode captain reaches Armada is settled: for Ask turns `OpenCodeRuntime` passes
 `OPENCODE_CONFIG_CONTENT` with a thread-scoped Armada entry (`CaptainThreadMcpPlanner`), so Ask approvals
 work for OpenCode captains without this probe.
+
+pi is in the same position: it has no probe branch, and for Ask turns `PiRuntime` writes a thread-scoped
+`.pi/mcp.json` in the turn's working directory (`CaptainThreadMcpPlanner`), so Ask approvals work for pi captains
+without a probe. A future probe could run `pi mcp list --json` over the seam.
 
 ## The remaining gap: per-server tool enumeration over the link
 

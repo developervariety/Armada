@@ -133,8 +133,16 @@ namespace Armada.Core.Database.Mysql.Implementations
             bool written = await UpdateWhereAsync(mission, null, token).ConfigureAwait(false);
             // A cancelled mission stays cancelled: a stale full-row write (a completion still running when the mission was
             // cancelled) is refused, and the caller sees the stored status. Only a restart (to Pending) leaves Cancelled.
-            if (!written && mission.Status != MissionStatusEnum.Cancelled && mission.Status != MissionStatusEnum.Pending)
-                mission.Status = MissionStatusEnum.Cancelled;
+            if (!written)
+            {
+                Mission? current = await ReadAsync(mission.Id, token).ConfigureAwait(false);
+                if (current != null)
+                {
+                    mission.Status = current.Status;
+                    mission.LastUpdateUtc = current.LastUpdateUtc;
+                }
+                return current ?? mission;
+            }
             return mission;
         }
 
@@ -145,6 +153,14 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (expectedStatuses == null) throw new ArgumentNullException(nameof(expectedStatuses));
             if (expectedStatuses.Count == 0) throw new ArgumentException("At least one expected status is required.", nameof(expectedStatuses));
             return await UpdateWhereAsync(mission, expectedStatuses, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public Task<bool> TryUpdateIfUnchangedAsync(Mission mission, DateTime expectedLastUpdateUtc, IReadOnlyCollection<MissionStatusEnum> expectedStatuses, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (expectedStatuses == null || expectedStatuses.Count == 0) throw new ArgumentException("Expected statuses are required.", nameof(expectedStatuses));
+            return UpdateWhereAsync(mission, expectedStatuses, token, expectedLastUpdateUtc);
         }
 
         /// <inheritdoc />
@@ -212,6 +228,8 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <returns>Task.</returns>
         public async Task DeleteAsync(string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(new EventMethods(_ConnectionString), new StageOutcomeMethods(_ConnectionString),
+                await ReadAsync(id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
             using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
@@ -501,6 +519,8 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// </summary>
         public async Task DeleteAsync(string tenantId, string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(new EventMethods(_ConnectionString), new StageOutcomeMethods(_ConnectionString),
+                await ReadAsync(tenantId, id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
 
@@ -771,6 +791,8 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// <inheritdoc />
         public async Task DeleteAsync(string tenantId, string userId, string id, CancellationToken token = default)
         {
+            await Armada.Core.Services.MissionArchive.RecordAsync(new EventMethods(_ConnectionString), new StageOutcomeMethods(_ConnectionString),
+                await ReadAsync(tenantId, userId, id, token).ConfigureAwait(false), "Delete", token).ConfigureAwait(false);
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
             if (string.IsNullOrEmpty(userId)) throw new ArgumentNullException(nameof(userId));
             if (string.IsNullOrEmpty(id)) throw new ArgumentNullException(nameof(id));
@@ -958,7 +980,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         /// Write every mission column. When <paramref name="expectedStatuses"/> is supplied the write applies only
         /// while the stored status is one of them (a compare-and-set on status).
         /// </summary>
-        private async Task<bool> UpdateWhereAsync(Mission mission, IReadOnlyCollection<MissionStatusEnum>? expectedStatuses, CancellationToken token)
+        private async Task<bool> UpdateWhereAsync(Mission mission, IReadOnlyCollection<MissionStatusEnum>? expectedStatuses, CancellationToken token, DateTime? expectedLastUpdateUtc = null)
         {
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             mission.LastUpdateUtc = DateTime.UtcNow;
@@ -1008,7 +1030,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                         started_utc = @started_utc,
                         completed_utc = @completed_utc,
                         last_update_utc = @last_update_utc
-                        WHERE id = @id" + ExpectedStatusClause(cmd, expectedStatuses) + ";";
+                        WHERE id = @id" + ExpectedStatusClause(cmd, expectedStatuses) + (expectedLastUpdateUtc.HasValue ? " AND last_update_utc = @expected_last_update_utc" : "") + ";";
+                    if (expectedLastUpdateUtc.HasValue) cmd.Parameters.AddWithValue("@expected_last_update_utc", ToIso8601(expectedLastUpdateUtc.Value));
                     cmd.Parameters.AddWithValue("@id", mission.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)mission.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)mission.UserId ?? DBNull.Value);
@@ -1067,7 +1090,7 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static string ExpectedStatusClause(MySqlCommand cmd, IReadOnlyCollection<MissionStatusEnum>? expectedStatuses)
         {
             // A plain full-row update never moves a mission out of Cancelled, except to Pending (a restart).
-            if (expectedStatuses == null) return " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending'))";
+            if (expectedStatuses == null) return " AND (status <> 'Cancelled' OR @status IN ('Cancelled', 'Pending')) AND (status <> 'Complete' OR @status IN ('Complete', 'Pending'))";
             List<string> placeholders = new List<string>();
             int index = 0;
             foreach (MissionStatusEnum expected in expectedStatuses)

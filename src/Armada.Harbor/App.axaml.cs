@@ -168,9 +168,10 @@ namespace Armada.Harbor
                 case HarborMenuCommandEnum.Activity:
                 case HarborMenuCommandEnum.Logs:
                 case HarborMenuCommandEnum.CopyHarborId:
-                case HarborMenuCommandEnum.OpenDashboard:
                 case HarborMenuCommandEnum.CopyDiagnostics:
                     return _Session != null;
+                case HarborMenuCommandEnum.OpenDashboard:
+                    return _Settings != null && !String.IsNullOrEmpty(_Settings.DashboardUrl);
                 case HarborMenuCommandEnum.Connect:
                     return _Window != null && !_Window.IsLinkRunning;
                 case HarborMenuCommandEnum.Disconnect:
@@ -263,7 +264,8 @@ namespace Armada.Harbor
                     Report(PlatformShell.Open(HarborAppSettings.SettingsDirectory(), out string? harborError), "open the Harbor folder", harborError);
                     break;
                 case HarborMenuCommandEnum.OpenDashboard:
-                    Report(PlatformShell.Open(_Settings!.DashboardUrl, out string? dashboardError), "open the dashboard", dashboardError);
+                    if (_Settings == null || String.IsNullOrEmpty(_Settings.DashboardUrl)) break;
+                    Report(PlatformShell.Open(_Settings.DashboardUrl, out string? dashboardError), "open the dashboard", dashboardError);
                     break;
                 case HarborMenuCommandEnum.Documentation:
                     Report(PlatformShell.Open(_DocumentationUrl, out string? docsError), "open the documentation", docsError);
