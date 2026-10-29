@@ -95,7 +95,8 @@ namespace Armada.Core.Services.Ask
 
             // Fixture battery readers
             "list_battery_packs",
-            "get_battery_run"
+            "get_battery_run",
+            "list_battery_results"
         };
 
         private static readonly HashSet<string> _GateExempt = new HashSet<string>(StringComparer.Ordinal)

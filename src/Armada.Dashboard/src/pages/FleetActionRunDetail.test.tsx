@@ -77,9 +77,9 @@ describe('FleetActionRunDetail', () => {
 
   it('auto-refreshes every 5 s while active and stops once the run completes', async () => {
     vi.mocked(getFleetActionRun)
-      .mockResolvedValueOnce({ run: run('Running'), targets: [] })
-      .mockResolvedValueOnce({ run: run('Running'), targets: [] })
-      .mockResolvedValue({ run: run('Completed'), targets: [] });
+      .mockResolvedValueOnce({ run: run('Running') })
+      .mockResolvedValueOnce({ run: run('Running') })
+      .mockResolvedValue({ run: run('Completed') });
 
     renderPage();
     expect(await screen.findByText('Live: refreshing every 5 s.')).toBeInTheDocument();
@@ -99,7 +99,7 @@ describe('FleetActionRunDetail', () => {
   });
 
   it('pauses auto-refresh while the output drawer is open', async () => {
-    vi.mocked(getFleetActionRun).mockResolvedValue({ run: run('Running'), targets: [] });
+    vi.mocked(getFleetActionRun).mockResolvedValue({ run: run('Running') });
     vi.mocked(getFleetActionRunTarget).mockResolvedValue({
       ...target, tenantId: 'ten', renderedText: 'dotnet build', outputText: 'Build succeeded.', errorText: null,
     });
@@ -115,7 +115,7 @@ describe('FleetActionRunDetail', () => {
   });
 
   it('cancels an active run after confirmation', async () => {
-    vi.mocked(getFleetActionRun).mockResolvedValue({ run: run('Running'), targets: [] });
+    vi.mocked(getFleetActionRun).mockResolvedValue({ run: run('Running') });
     vi.mocked(cancelFleetActionRun).mockResolvedValue(run('Cancelled'));
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel run' }));
@@ -128,7 +128,7 @@ describe('FleetActionRunDetail', () => {
 
   it('puts the targets pager and refresh in the shared table toolbar and keeps the vessel ID off a second line', async () => {
     localStorage.clear();
-    vi.mocked(getFleetActionRun).mockResolvedValue({ run: run('Completed'), targets: [] });
+    vi.mocked(getFleetActionRun).mockResolvedValue({ run: run('Completed') });
     renderPage();
     const vesselLink = await screen.findByRole('link', { name: 'api' });
     const wrap = document.querySelector('[data-table="fleet-action-run-targets"]') as HTMLElement;

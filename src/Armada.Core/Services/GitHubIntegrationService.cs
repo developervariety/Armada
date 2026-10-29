@@ -140,11 +140,18 @@ namespace Armada.Core.Services
                     throw new InvalidOperationException("The selected deployment does not belong to the supplied vessel.");
             }
 
-            List<GitHubWorkflowRunDto> runs = await ReadWorkflowRunsAsync(repository, request, token).ConfigureAwait(false);
+            GitHubWorkflowRunPage page = await ReadWorkflowRunsAsync(repository, request, token).ConfigureAwait(false);
+            List<GitHubWorkflowRunDto> runs = page.Runs;
             GitHubActionsSyncResult result = new GitHubActionsSyncResult
             {
                 VesselId = repository.Vessel.Id,
-                DeploymentId = deployment?.Id
+                DeploymentId = deployment?.Id,
+                PageNumber = page.PageNumber,
+                PageSize = page.PageSize,
+                SourceTotalCount = page.TotalCount,
+                SourceTotalPages = page.TotalCount <= 0 ? 0 : (int)Math.Ceiling(page.TotalCount / (double)page.PageSize),
+                FetchedCount = page.FetchedCount,
+                FilteredOutCount = page.FetchedCount - runs.Count
             };
             List<string> linkedCheckRunIds = new List<string>();
 
@@ -153,7 +160,7 @@ namespace Armada.Core.Services
                 CheckRun? existing = await ReadExistingImportedRunAsync(auth, repository.Vessel.Id, Convert.ToString(workflowRun.Id, CultureInfo.InvariantCulture), token).ConfigureAwait(false);
                 CheckRunImportRequest importRequest = BuildImportRequest(request, deployment, repository.Vessel, workflowRun);
                 CheckRun imported = await _CheckRuns.ImportOrUpdateAsync(auth, importRequest, token).ConfigureAwait(false);
-                result.CheckRuns.Add(imported);
+                result.CheckRunIds.Add(imported.Id);
                 linkedCheckRunIds.Add(imported.Id);
                 if (existing == null)
                     result.CreatedCount++;
@@ -300,15 +307,19 @@ namespace Armada.Core.Services
             };
         }
 
-        private async Task<List<GitHubWorkflowRunDto>> ReadWorkflowRunsAsync(
+        private async Task<GitHubWorkflowRunPage> ReadWorkflowRunsAsync(
             GitHubRepositoryContext repository,
             GitHubActionsSyncRequest request,
             CancellationToken token)
         {
+            // One bounded GitHub page (per_page at most 100); the caller reads further pages with PageNumber, and the
+            // result reports GitHub's total_count so nothing is cut short silently.
             int runCount = Math.Clamp(request.RunCount, 1, 100);
+            int pageNumber = request.PageNumber < 1 ? 1 : request.PageNumber;
             List<string> queryParts = new List<string>
             {
-                "per_page=" + runCount.ToString(CultureInfo.InvariantCulture)
+                "per_page=" + runCount.ToString(CultureInfo.InvariantCulture),
+                "page=" + pageNumber.ToString(CultureInfo.InvariantCulture)
             };
             if (!String.IsNullOrWhiteSpace(request.BranchName))
                 queryParts.Add("branch=" + Uri.EscapeDataString(request.BranchName.Trim()));
@@ -320,7 +331,8 @@ namespace Armada.Core.Services
             string url = repository.ApiBaseUrl + "/repos/" + Uri.EscapeDataString(repository.Owner) + "/" + Uri.EscapeDataString(repository.Repository) + "/actions/runs?" + String.Join("&", queryParts);
             GitHubWorkflowRunsEnvelopeDto response = await GetAsync<GitHubWorkflowRunsEnvelopeDto>(url, repository.Token, token).ConfigureAwait(false);
 
-            IEnumerable<GitHubWorkflowRunDto> filtered = response.WorkflowRuns ?? new List<GitHubWorkflowRunDto>();
+            List<GitHubWorkflowRunDto> fetched = (response.WorkflowRuns ?? new List<GitHubWorkflowRunDto>()).Take(runCount).ToList();
+            IEnumerable<GitHubWorkflowRunDto> filtered = fetched;
             if (!String.IsNullOrWhiteSpace(request.WorkflowName))
             {
                 string workflowName = request.WorkflowName.Trim();
@@ -333,7 +345,14 @@ namespace Armada.Core.Services
                 filtered = filtered.Where(run => String.Equals(run.HeadSha, commitHash, StringComparison.OrdinalIgnoreCase));
             }
 
-            return filtered.ToList();
+            return new GitHubWorkflowRunPage
+            {
+                Runs = filtered.ToList(),
+                PageNumber = pageNumber,
+                PageSize = runCount,
+                TotalCount = response.TotalCount,
+                FetchedCount = fetched.Count
+            };
         }
 
         private CheckRunImportRequest BuildImportRequest(
@@ -1099,8 +1118,24 @@ namespace Armada.Core.Services
             public string? Login { get; set; } = null;
         }
 
+        private sealed class GitHubWorkflowRunPage
+        {
+            public List<GitHubWorkflowRunDto> Runs { get; set; } = new List<GitHubWorkflowRunDto>();
+
+            public int PageNumber { get; set; } = 1;
+
+            public int PageSize { get; set; } = 20;
+
+            public long TotalCount { get; set; } = 0;
+
+            public int FetchedCount { get; set; } = 0;
+        }
+
         private sealed class GitHubWorkflowRunsEnvelopeDto
         {
+            [JsonPropertyName("total_count")]
+            public long TotalCount { get; set; } = 0;
+
             [JsonPropertyName("workflow_runs")]
             public List<GitHubWorkflowRunDto> WorkflowRuns { get; set; } = new List<GitHubWorkflowRunDto>();
         }

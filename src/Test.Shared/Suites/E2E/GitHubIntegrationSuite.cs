@@ -139,11 +139,21 @@ namespace Test.Shared.Suites.E2E
                         })).ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.OK, firstSyncResponse.StatusCode);
 
-                    GitHubActionsSyncResult firstSync = await JsonHelper.DeserializeAsync<GitHubActionsSyncResult>(firstSyncResponse).ConfigureAwait(false);
+                    string firstSyncBody = await firstSyncResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    GitHubActionsSyncResult firstSync = JsonHelper.Deserialize<GitHubActionsSyncResult>(firstSyncBody);
                     AssertEqual(1, firstSync.CreatedCount);
                     AssertEqual(0, firstSync.UpdatedCount);
-                    AssertEqual(1, firstSync.CheckRuns.Count);
-                    AssertEqual("GitHubActions", firstSync.CheckRuns[0].ProviderName);
+                    AssertEqual(1, firstSync.CheckRunIds.Count);
+                    AssertEqual(1, firstSync.PageNumber);
+                    AssertEqual(10, firstSync.PageSize);
+                    AssertEqual(1, firstSync.FetchedCount);
+                    AssertEqual(0, firstSync.FilteredOutCount);
+                    AssertEqual(1L, firstSync.SourceTotalCount);
+                    AssertEqual(1, firstSync.SourceTotalPages);
+                    AssertFalse(firstSyncBody.Contains("\"CheckRuns\"", StringComparison.Ordinal), "the sync result carries ids, not embedded check runs");
+                    HttpResponseMessage importedRunResponse = await authClient.GetAsync("/api/v1/check-runs/" + firstSync.CheckRunIds[0]).ConfigureAwait(false);
+                    CheckRun importedRun = await JsonHelper.DeserializeAsync<CheckRun>(importedRunResponse).ConfigureAwait(false);
+                    AssertEqual("GitHubActions", importedRun.ProviderName);
 
                     HttpResponseMessage secondSyncResponse = await authClient.PostAsync("/api/v1/check-runs/sync/github-actions",
                         JsonHelper.ToJsonContent(new
@@ -545,7 +555,7 @@ namespace Test.Shared.Suites.E2E
 
                     if (String.Equals(path, "/api/v3/repos/octo/armada-test/actions/runs", StringComparison.OrdinalIgnoreCase))
                     {
-                        string body = "{\"workflow_runs\":[{\"id\":9001,\"name\":\"CI Build\",\"display_title\":\"CI Build\",\"status\":\"completed\",\"conclusion\":\"success\",\"event\":\"push\",\"html_url\":\"http://localhost:" + Port + "/octo/armada-test/actions/runs/9001\",\"head_branch\":\"main\",\"head_sha\":\"abc123\",\"created_at\":\"2026-05-06T09:00:00Z\",\"run_started_at\":\"2026-05-06T09:01:00Z\",\"updated_at\":\"2026-05-06T09:02:00Z\"}]}";
+                        string body = "{\"total_count\":1,\"workflow_runs\":[{\"id\":9001,\"name\":\"CI Build\",\"display_title\":\"CI Build\",\"status\":\"completed\",\"conclusion\":\"success\",\"event\":\"push\",\"html_url\":\"http://localhost:" + Port + "/octo/armada-test/actions/runs/9001\",\"head_branch\":\"main\",\"head_sha\":\"abc123\",\"created_at\":\"2026-05-06T09:00:00Z\",\"run_started_at\":\"2026-05-06T09:01:00Z\",\"updated_at\":\"2026-05-06T09:02:00Z\"}]}";
                         await WriteJsonAsync(context.Response, body).ConfigureAwait(false);
                         return;
                     }

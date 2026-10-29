@@ -2,6 +2,7 @@ namespace Armada.Core.Models
 {
     using System;
     using Armada.Core.Enums;
+    using Armada.Core.Services;
 
     /// <summary>
     /// A reusable, named action that can be applied across many vessels. A Command action runs
@@ -20,11 +21,13 @@ namespace Armada.Core.Models
         /// <summary>Source action built-in key (or ID) for {{scan.summary}}.</summary>
         public string? ScanSourceActionKey { get; set; }
         /// <summary>Executable names required on the target host PATH.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public System.Collections.Generic.List<string> RequiredTools { get => _RequiredTools; set => _RequiredTools = value ?? new(); }
         private System.Collections.Generic.List<string> _RequiredTools = new();
         /// <summary>Whether execution requires network access.</summary>
         public bool RequiresNetwork { get; set; }
         /// <summary>Typed runtime input definitions.</summary>
+        [CollectionBound(CollectionLimits.MaxConfigItems)]
         public System.Collections.Generic.List<FleetActionInput> Inputs { get => _Inputs; set => _Inputs = value ?? new(); }
         private System.Collections.Generic.List<FleetActionInput> _Inputs = new();
 

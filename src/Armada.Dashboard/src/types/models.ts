@@ -663,15 +663,24 @@ export interface GitHubActionsSyncRequest {
   runStatus?: string | null;
   typeOverride?: CheckRunType | null;
   runCount?: number;
+  /** GitHub page of runs to read (1-based, newest first). */
+  pageNumber?: number;
 }
 
+/** Mutation result: counts and ids only; read imported runs through the check-run enumeration. */
 export interface GitHubActionsSyncResult {
   providerName: string;
   vesselId: string | null;
   deploymentId: string | null;
   createdCount: number;
   updatedCount: number;
-  checkRuns: CheckRun[];
+  pageNumber: number;
+  pageSize: number;
+  sourceTotalCount: number;
+  sourceTotalPages: number;
+  fetchedCount: number;
+  filteredOutCount: number;
+  checkRunIds: string[];
 }
 
 export interface GitHubPullRequestReview {
@@ -3306,9 +3315,9 @@ export interface FleetActionRunTarget {
   lastUpdateUtc: string;
 }
 
+/** A run read: targets are not embedded; page them with enumerateFleetActionRunTargets. */
 export interface FleetActionRunDetail {
   run: FleetActionRun;
-  targets: FleetActionRunTargetSummary[];
 }
 
 // ---------------------------------------------------------------------------

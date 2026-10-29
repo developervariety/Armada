@@ -147,8 +147,17 @@ namespace Test.Shared.Suites.E2E
 
                 AssertNotNull(detail, "detail");
                 AssertNotNull(detail!.Run.CompletedUtc, "run completed");
-                AssertEqual(1, detail.Targets.Count);
-                FleetActionRunTargetSummary summary = detail.Targets[0];
+                AssertEqual(1, detail.Run.TargetCount);
+                HttpResponseMessage rawRun = await _AdminA!.GetAsync("/api/v1/fleet-action-runs/" + _RunId).ConfigureAwait(false);
+                string rawRunBody = await rawRun.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertFalse(rawRunBody.Contains("\"Targets\"", StringComparison.Ordinal), "the run read does not embed its targets");
+                HttpResponseMessage firstPage = await _AdminA!.PostAsync("/api/v1/fleet-action-runs/" + _RunId + "/targets/enumerate",
+                    JsonHelper.ToJsonContent(new { pageSize = 1 })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.OK, firstPage);
+                EnumerationResult<FleetActionRunTargetSummary> firstTargets = await JsonHelper.DeserializeAsync<EnumerationResult<FleetActionRunTargetSummary>>(firstPage).ConfigureAwait(false);
+                AssertEqual(1, firstTargets.Objects.Count);
+                AssertEqual(1L, firstTargets.TotalRecords);
+                FleetActionRunTargetSummary summary = firstTargets.Objects[0];
                 AssertTrue(summary.Status == FleetActionTargetStatusEnum.Succeeded
                     || (summary.Status == FleetActionTargetStatusEnum.Skipped && summary.SkipReason == "NoWorkingDirectory"),
                     "target succeeded or was skipped for lack of a working directory, got " + summary.Status);

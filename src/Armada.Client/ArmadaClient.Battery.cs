@@ -62,7 +62,8 @@ namespace Armada.Client
         }
 
         /// <summary>
-        /// GET /api/v1/battery/runs/{id}: one run with its per-task results.
+        /// GET /api/v1/battery/runs/{id}: one run with its outcome counts. The per-task results are not embedded; page
+        /// them with <see cref="EnumerateBatteryRunResultsAsync"/>.
         /// </summary>
         /// <param name="id">Run id (bat_ prefix).</param>
         /// <param name="token">Cancellation token.</param>
@@ -71,6 +72,20 @@ namespace Armada.Client
         public Task<BatteryRun?> GetBatteryRunAsync(string id, CancellationToken token = default)
         {
             return GetAsync<BatteryRun>($"/api/v1/battery/runs/{E(id)}", null, token);
+        }
+
+        /// <summary>
+        /// POST /api/v1/battery/runs/{id}/results/enumerate: one page of a run's per-task results (grader evidence and
+        /// raw output), with the total. Status filters by outcome; Order orders by creation.
+        /// </summary>
+        /// <param name="id">Run id (bat_ prefix).</param>
+        /// <param name="query">Paging query, or null for the first page of 10.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>One page of results.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<BatteryTaskResult>?> EnumerateBatteryRunResultsAsync(string id, EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<BatteryTaskResult>>($"/api/v1/battery/runs/{E(id)}/results/enumerate", query ?? new EnumerationQuery(), null, token);
         }
 
         #endregion

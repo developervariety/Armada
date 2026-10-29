@@ -28,12 +28,13 @@ namespace Armada.Core.Services
         #region Public-Members
 
         /// <summary>
-        /// Maximum number of target vessels in one run. Default 500, minimum 1, maximum 5000.
+        /// Maximum number of target vessels in one run. Default 500, minimum 1, maximum
+        /// <see cref="CollectionLimits.MaxRequestItems"/> (the request id limit, docs/ENUMERATION.md).
         /// </summary>
         public int MaxTargetsPerRun
         {
             get => _MaxTargetsPerRun;
-            set => _MaxTargetsPerRun = value < 1 ? 1 : (value > 5000 ? 5000 : value);
+            set => _MaxTargetsPerRun = value < 1 ? 1 : (value > CollectionLimits.MaxRequestItems ? CollectionLimits.MaxRequestItems : value);
         }
 
         #endregion
@@ -211,6 +212,7 @@ namespace Armada.Core.Services
 
             RequireKindPermission(auth, definition.Kind);
             request.Overrides?.ApprovalOptions?.ValidateFor(auth);
+            CollectionLimits.RequireRequestItems(request.VesselIds, "VesselIds");
             Dictionary<string, string> inputValues = FleetActionInputValidator.Resolve(definition.Inputs, request.InputValues);
 
             List<string> vesselIds = request.VesselIds
@@ -264,6 +266,7 @@ namespace Armada.Core.Services
                     run.PipelineId = String.IsNullOrWhiteSpace(request.Overrides.PipelineId) ? null : request.Overrides.PipelineId.Trim();
             }
 
+            CollectionBounds.Validate(run);
             run = await _Database.FleetActionRuns.CreateAsync(run, token).ConfigureAwait(false);
 
             DateTime created = DateTime.UtcNow;
@@ -310,7 +313,8 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Read a run with summaries of its targets (no output).
+        /// Read a run. Its targets are not embedded (docs/ENUMERATION.md): the run carries the target counts, and the
+        /// targets are read one page at a time with <see cref="EnumerateTargetSummariesAsync"/>.
         /// </summary>
         /// <param name="auth">Caller.</param>
         /// <param name="runId">Run identifier.</param>
@@ -320,15 +324,9 @@ namespace Armada.Core.Services
         public async Task<FleetActionRunDetail> ReadRunAsync(AuthContext auth, string runId, CancellationToken token = default)
         {
             FleetActionRun run = await ReadRunOnlyAsync(auth, runId, token).ConfigureAwait(false);
-            List<FleetActionRunTarget> targets = await _Database.FleetActionRunTargets.ReadAllByRunAsync(run.Id, token).ConfigureAwait(false);
             return new FleetActionRunDetail
             {
-                Run = run,
-                Targets = targets
-                    .OrderBy(t => t.CreatedUtc)
-                    .ThenBy(t => t.Id, StringComparer.Ordinal)
-                    .Select(FleetActionRunTargetSummary.FromTarget)
-                    .ToList()
+                Run = run
             };
         }
 
@@ -467,6 +465,8 @@ namespace Armada.Core.Services
             if (request.CommandWindows != null) action.CommandWindows = request.CommandWindows;
             if (request.OutputParser != null) action.OutputParser = String.IsNullOrWhiteSpace(request.OutputParser) ? null : request.OutputParser.Trim();
             if (request.ScanSourceActionKey != null) action.ScanSourceActionKey = request.ScanSourceActionKey;
+            CollectionLimits.RequireConfigItems(request.RequiredTools, "RequiredTools");
+            CollectionLimits.RequireConfigItems(request.Inputs, "Inputs");
             if (request.RequiredTools != null) action.RequiredTools = request.RequiredTools;
             if (request.RequiresNetwork.HasValue) action.RequiresNetwork = request.RequiresNetwork.Value;
             if (request.Inputs != null) action.Inputs = request.Inputs;
@@ -486,6 +486,8 @@ namespace Armada.Core.Services
 
             if (String.IsNullOrWhiteSpace(action.Name)) throw new ArgumentException("Name is required.", nameof(request));
             if (action.Name.Length > 200) throw new ArgumentException("Name must be 200 characters or fewer.", nameof(request));
+
+            CollectionBounds.Validate(action);
 
             if (action.Kind == FleetActionKindEnum.Command)
             {

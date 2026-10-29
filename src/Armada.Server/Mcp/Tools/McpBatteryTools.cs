@@ -4,6 +4,7 @@ namespace Armada.Server.Mcp.Tools
     using System.Collections.Generic;
     using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
 
@@ -94,7 +95,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "get_battery_run",
-                "Get one fixture battery run visible to the caller: its provenance (seed, sampling settings, battery version, configuration revision), counts, and one result per task attempt (Passed, Failed, CouldNotRun or PendingEvaluation) with the grader's evidence and the captain's raw output.",
+                "Get one fixture battery run visible to the caller: its provenance (seed, sampling settings, battery version, configuration revision) and outcome counts. The per-task results are not embedded: page them with list_battery_results.",
                 new
                 {
                     type = "object",
@@ -107,6 +108,40 @@ namespace Armada.Server.Mcp.Tools
                     AuthContext caller = McpToolHelpers.ResolveCallerContext();
                     BatteryRunIdArgs request = Read<BatteryRunIdArgs>(args);
                     return (object)await service.GetRunAsync(caller, request.Id).ConfigureAwait(false);
+                });
+
+            register(
+                "list_battery_results",
+                "List one page of a fixture battery run's per-task results (Passed, Failed, CouldNotRun or PendingEvaluation), each with the grader's evidence and the captain's raw output. Paged in the database; returns an enumeration result (objects, totalRecords, totalPages).",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        runId = new { type = "string", description = "Run ID (bat_ prefix)" },
+                        pageNumber = new { type = "integer", description = "Page number (default 1)" },
+                        pageSize = new { type = "integer", description = "Page size (1-1000, default 10)" },
+                        status = new { type = "string", @enum = new[] { "Passed", "Failed", "CouldNotRun", "PendingEvaluation" }, description = "Outcome filter" },
+                        order = new { type = "string", @enum = new[] { "CreatedDescending", "CreatedAscending" }, description = "Order by creation (default CreatedDescending)" }
+                    },
+                    required = new[] { "runId" }
+                },
+                async (args) =>
+                {
+                    if (service == null) return (object)McpToolError.Unavailable(UnavailableMessage);
+                    AuthContext caller = McpToolHelpers.ResolveCallerContext();
+                    BatteryResultListArgs request = Read<BatteryResultListArgs>(args);
+                    EnumerationQuery query = new EnumerationQuery { Status = request.Status };
+                    if (request.PageNumber.HasValue) query.PageNumber = request.PageNumber.Value;
+                    if (request.PageSize.HasValue) query.PageSize = request.PageSize.Value;
+                    if (!String.IsNullOrWhiteSpace(request.Order))
+                    {
+                        if (!Enum.TryParse(request.Order.Trim(), true, out EnumerationOrderEnum order) || !Enum.IsDefined(order))
+                            return (object)McpToolError.InvalidArgument("order must be CreatedDescending or CreatedAscending.");
+                        query.Order = order;
+                    }
+
+                    return (object)await service.EnumerateResultsAsync(caller, request.RunId, query).ConfigureAwait(false);
                 });
         }
 
