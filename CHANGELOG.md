@@ -32,6 +32,15 @@ Part of the bounded enumeration contract ([docs/ENUMERATION.md](docs/ENUMERATION
 - Failure-cause rules are paged in the database (all four providers) instead of loaded whole.
 - Handoff artifacts bound `Findings`, `AcceptanceCriteria` and `CompletionLines` to 256 entries at build time, ending a
   longer list with a marker entry that names the omitted count.
+### Bounded enumeration: configuration catalogs and MCP enumerate
+
+- Pipelines, playbooks, prompt templates, workflow profiles, project profiles and skills (REST list and enumerate routes, MCP `enumerate`) apply the caller's visibility in the database before counting. A regular user's pages are now full and `TotalRecords` counts only rows the caller can see; previously the page was cut first and invisible rows were dropped afterwards. Ordering breaks ties by id.
+- Breaking: the default page size of the workflow-profile, project-profile and skill queries is 10 (was 25), and their querystring `pageSize` is normalized into 1..1000 (was 1..500), matching the shared contract.
+- Breaking: MCP `list_prompt_templates` pages in the database with the standard contract: `pageSize` defaults to 10 (was 25) and is normalized into 1..1000 (was capped at 100).
+- Breaking: configuration lists are limited to 256 entries (`CollectionLimits.MaxConfigItems`) on every write path: workflow-profile `LanguageHints`, `RequiredInputs`, `ExpectedArtifacts`, `Environments` (REST create/update/validate, MCP create/update/validate); pipeline `Stages` (REST, MCP, WebSocket create/update); project-profile `PersonaOverrides` and `Skills` (create/update/validate). More is REST `400` / MCP `InvalidArgument` with `Code` `CollectionLimitExceeded`, and nothing is stored.
+- Breaking: `POST /api/v1/workflow-profiles/delete/multiple` and MCP `delete_workflow_profiles` reject more than 1000 ids with `CollectionLimitExceeded`.
+- Breaking: MCP `enumerate` rows for `missions` and `voyages` with `includeDescription=true` are scalar rows (the summary fields plus `Description`) instead of full Mission / Voyage models, so a page never embeds playbook snapshots, selected playbooks or assignment blockers. `harbors` and `model_endpoints` pages now carry `TotalPages` like every other entity type.
+- Helm `playbook show`, `playbook remove` and `voyage create --playbook` resolve playbooks across every page instead of the first page; TUI pipeline, playbook and workflow-profile pickers read every page.
 
 ### Handoff and landing integrity
 

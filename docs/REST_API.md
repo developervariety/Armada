@@ -5817,6 +5817,8 @@ expiry); both are null for other kinds. Their `EntityName` is the tool name.
 
 Skills are Category B shared configuration entities (`scope`: `TenantWide` or `UserSpecific`). Reads return tenant-wide plus the caller's own user-specific skills; a regular user creates/edits/deletes only their own user-specific skills, and a tenant-wide skill requires a tenant admin.
 
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap.
+
 #### GET /api/v1/skills
 
 List skills scoped to the authenticated tenant.
@@ -5904,6 +5906,9 @@ Delete a skill.
 ### Project Profiles
 
 Project profiles are Category B shared configuration entities that bundle a project's pipeline, workflow profile, persona overrides, and skills. Ownership is expressed via `ownershipScope` (`TenantWide` or `UserSpecific`), while `scope` carries the application scope (`Global`, `Fleet`, or `Vessel`). Reads return tenant-wide plus the caller's own user-specific profiles.
+
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap. `PersonaOverrides` and `Skills` hold at most 256 entries each (`CollectionLimits.MaxConfigItems`): create, update and
+validate reject more with `400 Bad Request`, `Data.Code` `CollectionLimitExceeded` (`Field`, `Limit`, `Actual`).
 
 #### GET /api/v1/project-profiles
 
@@ -6039,6 +6044,8 @@ Delete a project profile.
 
 Playbooks are tenant-scoped markdown documents that can be attached to voyages or standalone missions. Each selection carries its own delivery mode so the model receives either the full content inline or a file path it should read.
 
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap.
+
 #### GET /api/v1/playbooks
 
 List playbooks with pagination.
@@ -6098,6 +6105,8 @@ Delete a playbook. Existing mission snapshots remain immutable.
 ### Prompt Templates
 
 Prompt templates define the instruction text used when generating captain mission briefs. Armada ships with built-in templates that can be customized. Custom templates can also be created per tenant.
+
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap.
 
 The built-in **`ask.system`** template (category `ask`) is the system prompt prepended to every **Ask Armada** dashboard chat turn. It is seeded automatically on first run and is editable exactly like any other template - through **Configuration > Prompts** in the dashboard, through these REST endpoints (`GET`/`PUT /api/v1/prompt-templates/ask.system`, `POST /api/v1/prompt-templates/ask.system/reset`), or through the MCP tools (`get_prompt_template`, `update_prompt_template`, `reset_prompt_template` with `name = "ask.system"`).
 
@@ -6384,6 +6393,9 @@ curl -X DELETE http://localhost:7890/api/v1/personas/reviewer
 ### Pipelines
 
 A pipeline defines an ordered sequence of stages, each associated with a persona. Pipelines control the multi-stage workflow that missions progress through. Armada ships with built-in pipelines that cannot be deleted.
+
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap. `Stages` holds at most 256 entries (`CollectionLimits.MaxConfigItems`): `POST` and `PUT` (and the MCP and WebSocket
+create/update forms) reject more with `400 Bad Request`, `Data.Code` `CollectionLimitExceeded`, and store nothing.
 
 #### GET /api/v1/pipelines
 
@@ -7565,6 +7577,11 @@ Workflow profiles define how a vessel or fleet builds, tests, versions, deploys,
 
 A `generic` profile is replaced with the matching template once the toolchain can be recognized. A profile a person created is never touched, and editing a default profile (`PUT`) clears its `SourceTemplate`, so Armada leaves it alone from then on.
 
+**Paging and visibility:** list and enumerate routes page in the database with the caller's visibility applied before counting (a regular user sees the tenant-wide rows plus their own, a tenant admin the whole tenant), so every page is full and `TotalRecords` is exact for the caller. `pageSize` defaults to 10 and is normalized into 1..1000 (querystring and body alike); ties are broken by id, so pages never overlap. `LanguageHints`, `RequiredInputs`, `ExpectedArtifacts` and `Environments` hold at most 256 entries each
+(`CollectionLimits.MaxConfigItems`); create, update and validate (REST and MCP) reject more with `400 Bad Request` /
+MCP `InvalidArgument`, `Code` `CollectionLimitExceeded`. `CommandPreviews` therefore holds at most 15 + 6 x 256 = 1551
+entries, and `Errors`, `Warnings` and `AvailableCheckTypes` are fixed by the validation rules and check types.
+
 #### GET /api/v1/workflow-profiles
 
 List workflow profiles in the caller scope.
@@ -7660,7 +7677,8 @@ the caller are skipped with a reason (`Empty ID`, `Not found`, `Not permitted`) 
 
 - Request body: `DeleteMultipleRequest` - `{ "Ids": ["wfp_abc123", "wfp_def456"] }`
 - Response: `200 OK` - `DeleteMultipleResult` (`Status`, `Deleted`, `Skipped[{Id, Reason}]`)
-- Errors: `400 Bad Request` when `Ids` is missing or empty
+- Errors: `400 Bad Request` when `Ids` is missing or empty, or holds more than 1000 ids (`Data.Code`
+  `CollectionLimitExceeded`; nothing is deleted). `Skipped` therefore holds at most 1000 entries.
 
 The same create, update, delete, validate, resolve, and preview rules are available over MCP (`create_workflow_profile`,
 `update_workflow_profile`, `delete_workflow_profile`, `delete_workflow_profiles`, `validate_workflow_profile`,

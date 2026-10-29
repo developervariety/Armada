@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Text.Json.Serialization;
 
     /// <summary>
     /// Query parameters for skill APIs and storage.
@@ -9,7 +10,7 @@ namespace Armada.Core.Models
     {
         #region Private-Members
 
-        private int _PageSize = 25;
+        private int _PageSize = 10;
 
         #endregion
 
@@ -22,6 +23,13 @@ namespace Armada.Core.Models
         /// User scope or filter.
         /// </summary>
         public string? UserId { get; set; } = null;
+
+        /// <summary>
+        /// Server-set visibility for a regular user: when set, only tenant-wide rows and rows owned by this user are
+        /// returned, applied in the data source before counting. Never read from a request body.
+        /// </summary>
+        [JsonIgnore]
+        public string? ViewerUserId { get; set; } = null;
 
         /// <summary>
         /// Category filter.
@@ -44,7 +52,7 @@ namespace Armada.Core.Models
         public int PageNumber { get; set; } = 1;
 
         /// <summary>
-        /// Results per page (1 to 1000, default 25). Values outside the range are clamped, so a request can never ask for
+        /// Results per page (1 to 1000, default 10). Values outside the range are clamped, so a request can never ask for
         /// an unbounded page.
         /// </summary>
         public int PageSize

@@ -150,7 +150,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 List<Skill> results = new List<Skill>();
                 using (NpgsqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT * FROM skills" + whereClause + " ORDER BY name ASC LIMIT @page_size OFFSET @offset;";
+                    cmd.CommandText = "SELECT * FROM skills" + whereClause + " ORDER BY name ASC, id ASC LIMIT @page_size OFFSET @offset;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(CloneParameter(parameter));
                     cmd.Parameters.AddWithValue("@page_size", pageSize);
                     cmd.Parameters.AddWithValue("@offset", offset);
@@ -186,7 +186,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     List<NpgsqlParameter> parameters = new List<NpgsqlParameter>();
                     ApplyQueryFilters(query, conditions, parameters);
                     string whereClause = conditions.Count > 0 ? " WHERE " + String.Join(" AND ", conditions) : String.Empty;
-                    cmd.CommandText = "SELECT * FROM skills" + whereClause + " ORDER BY name ASC;";
+                    cmd.CommandText = "SELECT * FROM skills" + whereClause + " ORDER BY name ASC, id ASC;";
                     foreach (NpgsqlParameter parameter in parameters) cmd.Parameters.Add(parameter);
 
                     List<Skill> results = new List<Skill>();
@@ -214,6 +214,13 @@ namespace Armada.Core.Database.Postgresql.Implementations
             {
                 conditions.Add("user_id = @user_id");
                 parameters.Add(new NpgsqlParameter("@user_id", query.UserId));
+            }
+            if (!String.IsNullOrWhiteSpace(query.ViewerUserId))
+            {
+                // A regular user sees tenant-wide rows plus their own (ScopedVisibility.CanView), counted in the data source.
+                conditions.Add("(scope = @tenant_wide_scope OR user_id = @viewer_user_id)");
+                parameters.Add(new NpgsqlParameter("@tenant_wide_scope", Armada.Core.Enums.ScopeEnum.TenantWide.ToString()));
+                parameters.Add(new NpgsqlParameter("@viewer_user_id", query.ViewerUserId));
             }
             if (!String.IsNullOrWhiteSpace(query.Category))
             {

@@ -718,7 +718,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
   "properties": {
     "entityType": { "type": "string", "description": "Entity type to enumerate (inbox [the needs-you items, most urgent first], cli_permission_rules [vesselId and captainId filter], cli_permission_requests [newest first; status, missionId, threadId, captainId, vesselId filter], objectives [aliases backlog, backlog_item, backlog_items], fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, harbors, playbooks, personas, memories, prompt_templates, pipelines, workflow_profiles, project_profiles, skills, check_runs, releases, deployments, incidents, runbooks, runbook_executions, jobs, model_endpoints, vessel_import_batch, fleet_action, fleet_action_run, fleet_action_run_target, vessel_health)" },
     "pageNumber": { "type": "integer", "description": "Page number (1-based, default 1)" },
-    "pageSize": { "type": "integer", "description": "Results per page (default 10, max 1000)" },
+    "pageSize": { "type": "integer", "description": "Results per page (default 10, normalized into 1..1000; a few entity types apply their REST route's lower maximum, and the result's PageSize reports the size used)" },
     "order": { "type": "string", "description": "Sort order: CreatedAscending, CreatedDescending" },
     "createdAfter": { "type": "string", "description": "ISO 8601 timestamp filter" },
     "createdBefore": { "type": "string", "description": "ISO 8601 timestamp filter" },
@@ -734,7 +734,7 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
     "signalType": { "type": "string", "description": "Filter by signal type (signals only)" },
     "toCaptainId": { "type": "string", "description": "Filter by recipient captain (signals only)" },
     "unreadOnly": { "type": "boolean", "description": "Unread only (signals only)" },
-    "includeDescription": { "type": "boolean", "description": "Include full Description on missions/voyages (default false). Returns descriptionLength hint when false." },
+    "includeDescription": { "type": "boolean", "description": "Add the full Description to mission/voyage rows (default false). Returns descriptionLength hint when false. Rows stay scalar: use get_mission / voyage_status for the full model." },
     "includeContext": { "type": "boolean", "description": "Include ProjectContext and StyleGuide on vessels (default false). Returns length hints when false." },
     "includeTestOutput": { "type": "boolean", "description": "Include TestOutput on merge queue entries (default false). Returns testOutputLength hint when false." },
     "includePayload": { "type": "boolean", "description": "Include full Payload on events (default false). Returns payloadLength hint when false." },
@@ -785,9 +785,23 @@ Paginated enumeration of any entity type with filtering and sorting. This is the
 | `fleet_action_run_target` | `runId` (required), `status` (Pending/Skipped/Running/Succeeded/Failed/Cancelled/TimedOut) |
 | `vessel_health` (aliases `vessel-health`, `health`) | `status` (overall status: Pass/Warn/Fail/NotApplicable/Unknown), `fleetId`, `search` (vessel name substring). Every active vessel appears, including never-evaluated ones. Rows are sorted by vessel name; for richer filters and sorting use `POST /api/v1/vessel-health/enumerate` |
 
+**Page contract (docs/ENUMERATION.md):** every `entityType` returns the same page shape as the REST enumerate routes:
+`PageNumber`, `PageSize`, `TotalPages`, `TotalRecords`, `Objects` (plus `Success` and `TotalMs`). `pageSize` defaults to
+10 and is normalized into 1..1000; a few entity types apply a lower documented maximum from their REST twin, and the
+result's `PageSize` always reports the size used. A page past the end returns an empty `Objects` with accurate totals.
+The caller's visibility is applied before counting, so `TotalRecords` is exact for the caller: for `pipelines`,
+`playbooks`, `prompt_templates`, `workflow_profiles`, `project_profiles` and `skills` a regular user sees the
+tenant-wide rows plus their own, a tenant admin the whole tenant, and the filter runs in the database before the page is
+cut (previously the page was cut first and invisible rows were dropped afterwards, so pages came back short and the
+totals counted rows the caller could not see). Objects never embed growing child lists: `missions` and `voyages` rows
+(with or without `includeDescription`) carry scalar fields only; read a mission's playbook snapshots and assignment
+blocker with `get_mission` / `mission_status`, and a voyage's missions with `voyage_status`. Configuration lists on
+`pipelines` (`Stages`) and `workflow_profiles` / `project_profiles` (`LanguageHints`, `RequiredInputs`, `ExpectedArtifacts`,
+`Environments`, `PersonaOverrides`, `Skills`) hold at most 256 entries each (every write path rejects more).
+
 | Include flag | Applies to | Default | Description |
 |---|---|---|---|
-| `includeDescription` | missions, voyages | `false` | Include full Description. Returns `descriptionLength` hint when false. |
+| `includeDescription` | missions, voyages | `false` | Add the full Description to the scalar row fields. Returns `descriptionLength` hint when false. The row never embeds the full Mission or Voyage model. |
 | `includeContext` | vessels | `false` | Include ProjectContext and StyleGuide. Returns length hints when false. |
 | `includeTestOutput` | merge_queue | `false` | Include TestOutput. Returns `testOutputLength` hint when false. |
 | `includePayload` | events | `false` | Include full Payload. Returns `payloadLength` hint when false. |
@@ -3835,7 +3849,9 @@ Create a workflow profile in the caller's tenant (a global admin may pass `tenan
 REST uses): at least one command is required, `Fleet` scope needs `fleetId`, `Vessel` scope needs `vesselId`, environment
 names must be unique, and required inputs must name known environments. A `fleetId` or `vesselId` outside the caller's
 tenant is refused as `InvalidArgument` "... not found". Setting `isDefault` clears the default flag on the other profiles
-at the same scope.
+at the same scope. `languageHints`, `requiredInputs`, `expectedArtifacts` and `environments` hold at most 256
+entries each; more is `InvalidArgument` with `Code` `CollectionLimitExceeded` (also on `update_workflow_profile` and
+`validate_workflow_profile`).
 
 **Input Schema:**
 
@@ -3969,7 +3985,8 @@ Delete a workflow profile by ID. Requires TenantAdmin. This cannot be undone.
 
 Permanently delete several workflow profiles by ID (the MCP form of `POST /api/v1/workflow-profiles/delete/multiple`).
 Requires TenantAdmin. Ids that are empty, missing, in another tenant, or not editable by the caller are skipped with a
-reason instead of failing the batch.
+reason instead of failing the batch. More than 1000 ids is `InvalidArgument` with `Code` `CollectionLimitExceeded` and deletes
+nothing, so `Skipped` holds at most 1000 entries.
 
 **Input Schema:**
 
@@ -3977,7 +3994,7 @@ reason instead of failing the batch.
 {
   "type": "object",
   "properties": {
-    "ids": { "type": "array", "items": { "type": "string" }, "description": "List of workflow profile IDs to delete (wfp_ prefix)" }
+    "ids": { "type": "array", "items": { "type": "string" }, "description": "List of workflow profile IDs to delete (wfp_ prefix), at most 1000" }
   },
   "required": ["ids"]
 }
@@ -4992,7 +5009,7 @@ List prompt templates (lightweight, paginated), optionally filtered by category.
   "properties": {
     "category": { "type": "string", "description": "Optional category filter such as 'persona' or 'mission'" },
     "pageNumber": { "type": "integer", "description": "1-based page number (default 1)" },
-    "pageSize": { "type": "integer", "description": "Results per page (default 25, max 100)" }
+    "pageSize": { "type": "integer", "description": "Results per page (default 10, min 1, max 1000; out-of-range values are normalized)" }
   }
 }
 ```
@@ -5001,9 +5018,9 @@ List prompt templates (lightweight, paginated), optionally filtered by category.
 |---|---|---|---|
 | `category` | string | No | Optional category filter |
 | `pageNumber` | integer | No | 1-based page number (default 1) |
-| `pageSize` | integer | No | Results per page (default 25, max 100) |
+| `pageSize` | integer | No | Results per page (default 10, min 1, max 1000; out-of-range values are normalized and the result's `pageSize` reports the size used) |
 
-**Response:** a paginated envelope `{ success, pageNumber, pageSize, totalPages, totalRecords, objects }`, where each item in `objects` carries `name`, `category`, `description`, `active`, `isBuiltIn`, `contentLength`, and `lastUpdateUtc`. The template body is intentionally omitted -- retrieve it per-template via [get_prompt_template](#get_prompt_template).
+**Response:** a paginated envelope `{ success, pageNumber, pageSize, totalPages, totalRecords, objects }`, where each item in `objects` carries `name`, `category`, `description`, `active`, `isBuiltIn`, `contentLength`, and `lastUpdateUtc`. The template body is intentionally omitted -- retrieve it per-template via [get_prompt_template](#get_prompt_template). Rows are ordered by category, then name, then id, and the page is cut in the database with the caller's visibility (tenant-wide templates, the caller's own, and shared templates stored without a tenant) applied before counting, so `totalRecords` is exact.
 
 ---
 
@@ -5253,7 +5270,8 @@ Returns `{ "Error": "Built-in personas cannot be deleted", "ErrorCode": "Invalid
 
 ### create_pipeline
 
-Create a custom pipeline with stages.
+Create a custom pipeline with stages. `stages` holds at most 256 entries (also on `update_pipeline`); more is `InvalidArgument` with
+`Code` `CollectionLimitExceeded` and stores nothing.
 
 **Input Schema:**
 
