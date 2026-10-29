@@ -1570,21 +1570,7 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            List<string> outOfScopeFiles = new List<string>();
-            foreach (string changedFile in changedFiles)
-            {
-                string normalizedPath = NormalizeMissionPath(changedFile);
-                if (_IgnoredMissionArtifactFiles.Contains(normalizedPath))
-                {
-                    continue;
-                }
-
-                if (!allowedFiles.Contains(normalizedPath))
-                {
-                    outOfScopeFiles.Add(normalizedPath);
-                }
-            }
-
+            List<string> outOfScopeFiles = FindOutOfScopeFiles(changedFiles, allowedFiles);
             if (outOfScopeFiles.Count < 1)
             {
                 return false;
@@ -1600,7 +1586,7 @@ namespace Armada.Core.Services
             return true;
         }
 
-        private HashSet<string> ParseMissionScopedFiles(string description)
+        internal static HashSet<string> ParseMissionScopedFiles(string description)
         {
             HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (String.IsNullOrWhiteSpace(description))
@@ -1613,7 +1599,7 @@ namespace Armada.Core.Services
                 string fileSegment = directiveMatch.Groups["files"].Value;
                 foreach (System.Text.RegularExpressions.Match pathMatch in _ScopedFileTokenRegex.Matches(fileSegment))
                 {
-                    string normalizedPath = NormalizeMissionPath(pathMatch.Groups["path"].Value);
+                    string normalizedPath = NormalizeMissionPath(pathMatch.Groups["path"].Value).TrimEnd('.');
                     if (!String.IsNullOrEmpty(normalizedPath))
                     {
                         files.Add(normalizedPath);
@@ -1643,9 +1629,55 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Return the changed files that fall outside a mission's scoped allow list. Empty paths (a transport artifact)
+        /// and the runtime instruction files are never reported. An allow-list entry with a directory must match the
+        /// repo-relative path exactly (case-insensitive); a bare file name matches a changed file with that file name
+        /// in any directory.
+        /// </summary>
+        /// <param name="changedFiles">Repo-relative paths changed since the dock's start commit.</param>
+        /// <param name="allowedFiles">The scoped allow list parsed from the mission description.</param>
+        /// <returns>The normalized out-of-scope paths, without empty entries or duplicates.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when either argument is null.</exception>
+        internal static List<string> FindOutOfScopeFiles(IEnumerable<string> changedFiles, ICollection<string> allowedFiles)
+        {
+            if (changedFiles == null) throw new ArgumentNullException(nameof(changedFiles));
+            if (allowedFiles == null) throw new ArgumentNullException(nameof(allowedFiles));
+
+            HashSet<string> exactPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> bareNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string allowed in allowedFiles)
+            {
+                string normalizedAllowed = NormalizeMissionPath(allowed);
+                if (String.IsNullOrEmpty(normalizedAllowed)) continue;
+                if (normalizedAllowed.IndexOf('/') < 0) bareNames.Add(normalizedAllowed);
+                else exactPaths.Add(normalizedAllowed);
+            }
+
+            List<string> outOfScope = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string changedFile in changedFiles)
+            {
+                string normalizedPath = NormalizeMissionPath(changedFile);
+                if (String.IsNullOrEmpty(normalizedPath)) continue;
+                if (_IgnoredMissionArtifactFiles.Contains(normalizedPath)) continue;
+                if (exactPaths.Contains(normalizedPath)) continue;
+
+                int slash = normalizedPath.LastIndexOf('/');
+                string fileName = slash >= 0 ? normalizedPath.Substring(slash + 1) : normalizedPath;
+                if (fileName.Length > 0 && bareNames.Contains(fileName)) continue;
+
+                if (seen.Add(normalizedPath)) outOfScope.Add(normalizedPath);
+            }
+
+            return outOfScope;
+        }
+
         private static string NormalizeMissionPath(string path)
         {
-            return (path ?? String.Empty).Trim().Replace('\\', '/');
+            string normalized = (path ?? String.Empty).Trim().Replace('\\', '/');
+            while (normalized.StartsWith("./", StringComparison.Ordinal)) normalized = normalized.Substring(2);
+            return normalized;
         }
 
         private async Task EnsureMissionInstructionsPresentAsync(
