@@ -42,13 +42,13 @@ export default function PlanningSessionListCard(props: PlanningSessionListCardPr
 
   const columns: DataTableColumn<PlanningSession>[] = [
     {
-      key: 'title', label: t('Title'), required: true, headerTitle: t('Name of the planning session. Click a row to open its transcript.'),
-      render: (session) => <div className="planning-session-title">{session.title}</div>,
-    },
-    {
       // The session ID used to be a second line under the title; it is its own one-line column now.
       key: 'id', label: t('ID'), required: true, headerTitle: t('Unique planning session ID.'), cellClassName: 'mono text-dim table-id-cell',
       render: (session) => <span className="cell-one-line planning-session-subtitle" title={session.id}>{session.id}</span>,
+    },
+    {
+      key: 'title', label: t('Title'), required: true, headerTitle: t('Name of the planning session. Click a row to open its transcript.'),
+      render: (session) => <div className="planning-session-title">{session.title}</div>,
     },
     { key: 'captain', label: t('Captain'), headerTitle: t('Captain reserved for this session. It takes no missions until the session ends.'), render: (session) => resolveCaptainName(session.captainId) },
     { key: 'vessel', label: t('Vessel'), headerTitle: t('Repository the session plans against.'), render: (session) => resolveVesselName(session.vesselId) },

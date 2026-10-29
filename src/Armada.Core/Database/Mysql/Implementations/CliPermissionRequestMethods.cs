@@ -139,6 +139,49 @@ namespace Armada.Core.Database.Mysql.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<EnumerationResult<CliPermissionRequest>> EnumeratePageAsync(CliPermissionRequestQuery query, int pageNumber, int pageSize, CancellationToken token = default)
+        {
+            if (query == null) throw new ArgumentNullException(nameof(query));
+            pageNumber = Math.Max(1, pageNumber);
+            pageSize = Math.Clamp(pageSize, 1, 1000);
+            StringBuilder where = new StringBuilder(" WHERE 1 = 1");
+            if (query.TenantId != null) where.Append(" AND tenant_id = @tenant_id");
+            if (query.UserId != null) where.Append(" AND user_id = @user_id");
+            if (query.Status.HasValue) where.Append(" AND status = @status");
+            if (query.MissionId != null) where.Append(" AND mission_id = @mission_id");
+            if (query.ThreadId != null) where.Append(" AND thread_id = @thread_id");
+            if (query.CaptainId != null) where.Append(" AND captain_id = @captain_id");
+            if (query.VesselId != null) where.Append(" AND vessel_id = @vessel_id");
+            Action<MySqlCommand> bind = cmd =>
+            {
+                if (query.TenantId != null) MysqlCommandHelper.Add(cmd, "@tenant_id", query.TenantId);
+                if (query.UserId != null) MysqlCommandHelper.Add(cmd, "@user_id", query.UserId);
+                if (query.Status.HasValue) MysqlCommandHelper.Add(cmd, "@status", query.Status.Value.ToString());
+                if (query.MissionId != null) MysqlCommandHelper.Add(cmd, "@mission_id", query.MissionId);
+                if (query.ThreadId != null) MysqlCommandHelper.Add(cmd, "@thread_id", query.ThreadId);
+                if (query.CaptainId != null) MysqlCommandHelper.Add(cmd, "@captain_id", query.CaptainId);
+                if (query.VesselId != null) MysqlCommandHelper.Add(cmd, "@vessel_id", query.VesselId);
+            };
+
+            using (MySqlConnection conn = new MySqlConnection(_ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                long total = await MysqlCommandHelper.CountAsync(conn, "SELECT COUNT(*) FROM cli_permission_requests" + where + ";", bind, token).ConfigureAwait(false);
+                List<CliPermissionRequest> rows = await MysqlCommandHelper.QueryAsync(conn,
+                    "SELECT * FROM cli_permission_requests" + where + " ORDER BY created_utc DESC, id DESC" + MysqlCommandHelper.Page((pageNumber - 1) * pageSize, pageSize) + ";",
+                    bind, FromReader, token).ConfigureAwait(false);
+
+                EnumerationResult<CliPermissionRequest> result = new EnumerationResult<CliPermissionRequest>();
+                result.PageNumber = pageNumber;
+                result.PageSize = pageSize;
+                result.TotalRecords = total;
+                result.TotalPages = (int)Math.Ceiling((double)total / pageSize);
+                result.Objects = rows;
+                return result;
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<int> DeleteFinishedBeforeAsync(DateTime cutoffUtc, CancellationToken token = default)
         {
             int deleted = 0;

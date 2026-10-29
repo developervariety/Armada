@@ -30,6 +30,20 @@ namespace Armada.Client
         }
 
         /// <summary>
+        /// Dashboard <c>enumerateMemories</c>: POST '/api/v1/memories/enumerate'. Filtering, sorting, and paging run on
+        /// the server. A null query uses the relevance order (salience, then newest first); otherwise set
+        /// <see cref="MemoryEnumerateRequest.SortBy"/> and <see cref="EnumerationQuery.Order"/> (the direction).
+        /// </summary>
+        /// <param name="query">Filters, sort, and paging.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The response.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<Memory>?> EnumerateMemoriesAsync(MemoryEnumerateRequest? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<Memory>>("/api/v1/memories/enumerate", query ?? new MemoryEnumerateRequest { SortBy = MemorySortEnum.Salience }, null, token);
+        }
+
+        /// <summary>
         /// Dashboard <c>getMemory</c>: GET `/api/v1/memories/${encodeURIComponent(id)}`.
         /// </summary>
         /// <param name="id">id.</param>

@@ -7,6 +7,7 @@ import { EventsList } from '../operations/EventsList';
 import { SignalDetail } from '../operations/SignalDetail';
 import { SignalsList } from '../operations/SignalsList';
 import { HistoryTab } from './HistoryTab';
+import { JobsScreen } from './JobsScreen';
 import { OperationsTab } from './OperationsTab';
 import { RequestsTab } from './RequestsTab';
 import { TokenUsageTab } from './TokenUsageTab';
@@ -15,8 +16,8 @@ const eventRoute = (id: string) => `/events/${id}`;
 const signalRoute = (id: string) => `/signals/${id}`;
 
 /**
- * The Activity hub (/activity): All Activity (history), API Requests, Events, Signals, and Token Usage, the active
- * source in ?source= as on the dashboard (Needs You and the dashboard link here pre-filtered). All Activity also
+ * The Activity hub (/activity): All Activity (history), API Requests, Events, Signals, Token Usage, and Jobs (background
+ * jobs; /jobs redirects to ?source=jobs), the active source in ?source= as on the dashboard (Needs You and the dashboard link here pre-filtered). All Activity also
  * takes the History page's query filters (?objectiveId=, ?vesselId=, ?sourceType=, ?postmortemOnly=, ?text=, ?actor=).
  */
 export function ActivityHub() {
@@ -38,6 +39,7 @@ export function ActivityHub() {
     { key: 'events', label: 'Events', render: () => <OperationsTab List={EventsList} Detail={EventDetail} route={eventRoute} /> },
     { key: 'signals', label: 'Signals', render: () => <OperationsTab List={SignalsList} Detail={SignalDetail} route={signalRoute} /> },
     { key: 'tokens', label: 'Token Usage', render: () => <TokenUsageTab /> },
+    { key: 'jobs', label: 'Jobs', render: () => <JobsScreen embedded /> },
   ];
   return <HubScreen title={t('Activity')} tabs={tabs} defaultKey="history" param="source" label={t('Activity sources')} testID="activity" />;
 }

@@ -59,6 +59,15 @@ repositories and agent logins live:
 | Linux | `armada-harbor` `.deb` / `.rpm` | `armada-harbor --install-startup` (as yourself) |
 | Any, from source | `scripts/<os>/run-harbor.sh` (or `scripts\windows\run-harbor.bat`), which builds and runs `src/Armada.Harbor`; or `dotnet run --project src/Armada.Harbor` | -- |
 
+`./scripts/macos/build-harbor-app.sh` builds and verifies both macOS DMGs, then copies the app matching this Mac's
+architecture into `~/Applications/Armada Harbor.app`. It stages and verifies a fresh bundle before replacing an older
+copy. Use `--no-install` to build without installing; `--no-build` only verifies existing images.
+To load updated Harbor code on macOS, quit **Armada Harbor** from its menu-bar menu and open the new app with
+`open "$HOME/Applications/Armada Harbor.app"`. A manual DMG install can use `/Applications` instead.
+For a source run, quit the old instance and run `./scripts/macos/run-harbor.sh` from the repository root instead.
+Closing the window or choosing **Reconnect** does not reload the executable. `update.sh` updates the Admiral and CLI;
+it does not replace or restart the Harbor app. Harbor's saved settings remain in `~/.armada-harbor/settings.json`.
+
 On macOS, Harbor is a menu bar app (`LSUIElement`): started from the login item it shows only its menu bar icon;
 opening its window (click the icon, or launch it from Applications) adds a Dock icon and app menu, and closing the
 window removes them again while the runner keeps working. Quit it from the menu bar icon. Until the release is signed
@@ -90,9 +99,16 @@ PascalCase and case-sensitive: a camelCase key is ignored and replaced with the 
 | `Capabilities` | Runtimes and host tools advertised at handshake (e.g. `git`, `claude`). Default `["git"]`. Drives capability-based routing. |
 | `Appearance` | Window color scheme: `System` (default), `Light`, or `Dark`. |
 | `ShowActivityDetails` | Whether the main window's Activity log shows every request and result with request IDs and full paths (`true`) or the summary (`false`, the default). Set by the Activity log's **Show details** box. |
-| `MaxConcurrentJobs` | Maximum concurrent jobs this Harbor will accept, advertised at handshake. Default 4. |
+| `MaxConcurrentJobs` | Maximum concurrent jobs this Harbor will accept, advertised at handshake. Default 16. |
 | `HeartbeatIntervalMs` | Heartbeat interval in milliseconds; `0` disables heartbeats. Default 15000. |
 | `AccessKey` / `Secret` | `AccessKey` is an Armada credential (a bearer token from Server > Credentials, or the local API key); the Harbor registers under that credential's tenant and user. Leave it empty only for a Harbor on the same machine as a localhost-bound Admiral; a Harbor connecting from another host is refused without one. `Secret` is sent as `x-secret-key` but not used for authentication today, and is never logged. |
+
+To increase capacity, open Harbor **Settings > General > Jobs at once**, change the limit (1–64),
+and **Save**. Saving reconnects the link to advertise the new `MaxConcurrentJobs`. Change the setting
+on the Harbor itself: a server-side capacity edit can be overwritten by the next Harbor handshake.
+Ask turns and other interactive work consume slots as well as missions, so idle captains do not
+necessarily mean free slots. Check **Running now** to see what occupies this computer. Queued missions
+wait for capacity; a failed interactive request must be retried once a slot is available.
 
 A Harbor does not have to be pre-registered: it self-registers on its first handshake. Pre-registering is
 useful when you want to reserve a name and capacity, or set routing preferences, before the host connects. A Harbor id
@@ -149,9 +165,9 @@ connection too, with the link status at the top, so nothing needs a window open.
 | Menu | Items |
 |---|---|
 | **Armada Harbor** (macOS) | About Armada Harbor, Settings... (Cmd+,), and the standard Services, Hide, and Quit |
-| **Harbor** | Connect, Disconnect, Reconnect (Cmd/Ctrl+R), Copy Harbor ID, Copy MCP URL, Open Harbor Folder, and on macOS Close Window (Cmd+W) (on Windows and Linux Settings... (Ctrl+,) and Quit (Ctrl+Q) instead) |
+| **Harbor** | Connect, Disconnect, Reconnect (Cmd/Ctrl+R), Copy Harbor ID, Copy MCP URL, Open Harbor Folder, Open Dashboard (Cmd/Ctrl+D; opens `DashboardUrl` in the default browser), and on macOS Close Window (Cmd+W) (on Windows and Linux Settings... (Ctrl+,) and Quit (Ctrl+Q) instead) |
 | **Edit** (macOS) | Undo (Cmd+Z), Redo (Shift+Cmd+Z), Cut, Copy, Paste, Select All, acting on the focused text field, plus the items macOS adds (Writing Tools, AutoFill, Dictation, Emoji & Symbols) |
-| **View** | Status (Cmd/Ctrl+I), Activity, Logs (Cmd/Ctrl+L), Appearance (System, Light, or Dark; saved like the Settings color scheme), Open Dashboard (Cmd/Ctrl+D), and on macOS Enter Full Screen |
+| **View** | Status (Cmd/Ctrl+I), Activity, Logs (Cmd/Ctrl+L), Appearance (System, Light, or Dark; saved like the Settings color scheme), and on macOS Enter Full Screen |
 | **Window** (macOS) | Minimize (Cmd+M), Zoom, Armada Harbor, Bring All to Front |
 | **Help** | Armada Documentation, Report an Issue..., Copy Diagnostics (versions, paths, link state, recent activity; credentials are reported only as configured or not), and About on Windows and Linux |
 | Tray | Link status, Open Armada Harbor, Status, Logs, Settings..., Connect, Disconnect, Open Dashboard, Quit Armada Harbor |
@@ -418,26 +434,30 @@ touched. The mission branch lives in your repository. Armada also adds its instr
 `CLAUDE.md`) and `.armada/playbooks/` to the repository's `.git/info/exclude`, which git shares between a checkout and
 its worktrees.
 
-Everything after that runs on the Harbor too: the mission's instruction file and playbooks, the captain, the
-Definition-of-Done gate (through `/bin/sh -lc`), diff and commit capture, landing, and removing the dock (`git worktree
-remove`, then `prune`). Landing uses your checkout as the vessel's working directory on that machine: **LocalMerge**
-merges the mission branch into its target branch, **MergeAndPush** then pushes that branch, and **PullRequest** pushes
-the mission branch and runs `gh` from the dock. As with a working directory on the Admiral, a merge into a checkout with
-uncommitted changes to tracked files is refused (the mission becomes `LandingFailed` and the branch is kept). The merge
-records the branch your checkout is on, checks out the target branch, fast-forwards it to `origin/<target>` when it is
-only behind, merges (always with a merge commit when a merge commit template is configured, so its message is kept),
-and then switches the checkout back to the branch you were on, after a failed merge too; MergeAndPush pushes the target
-branch by name, never the branch you are on. MergeAndPush refuses before merging when the checkout's target branch has
-commits that are not on `origin/<target>` (the push would publish them too, or be rejected): push or reconcile them,
-then retry the landing. When a pull request merges, the checkout is fetched, and its target branch is fast-forwarded
-only when it is the branch checked out there, the working tree is clean, and it has no commits of its own. A vessel
-served from the Harbor's own clone has no checkout to merge into, so LocalMerge and MergeAndPush leave the work on the
-branch (`WorkProduced`); use PullRequest landing or map the vessel to a checkout.
+Everything after provisioning runs on the Harbor too: instruction files, the captain, checks, diff and commit
+capture, landing, and dock cleanup. Landing integrates the current target **before** final verification. Build,
+unit-test and integration commands from the workflow profile run against that resulting commit, with one bounded
+execution budget. Failure, timeout, an unavailable command, or a check that changes HEAD or the working tree refuses
+publication and preserves the mission branch. A profile with no checks produces an explicit `Skipped` receipt.
+Armada's own repository additionally runs the focused handoff, landing, merge-queue, review, stall and WebSocket suites,
+even when its configured unit-test command only runs Test.Smoke.
+
+**MergeAndPush** pushes the exact verified commit from the isolated dock to the remote target, without merging into
+the developer checkout. It never force-pushes: a concurrently advanced, divergent target refuses the push and requires
+integration and verification again. A mapped checkout is refreshed only when it is clean, on the target branch, and
+can fast-forward; local edits and unpublished commits remain untouched. No mapped checkout is required to publish.
+**LocalMerge** fast-forwards a clean mapped target checkout to the verified commit without pushing or creating a new
+untested merge commit. Without a mapped checkout it leaves the work `WorkProduced`. **PullRequest** pushes the checked
+mission branch and opens its PR; completion still waits for the PR to merge.
+
+Retries resolve git and file operations through the dock's owning host, including Harbor-only repositories with no
+Admiral-side clone. A disconnected Harbor cannot fall back to the Admiral. A missing dock is reported with its path and
+preserved branch; it is not recreated automatically. `WorkProduced` and `LandingFailed` docks survive orphan cleanup.
 
 **MergeQueue** landing processes the entry on the Harbor that holds the branch (found from the most recent dock of the
 vessel on that branch, so a manual entry without a mission resolves too): in that repository the queue fetches the
 origin, creates a temporary integration worktree from `origin/<target>` next to the dock (your checkout's own branches
-are not touched), merges the mission branch, runs the merge queue test command there, and pushes the result to the
+are not touched), merges the mission branch, runs its resolved test commands there, and pushes the verified commit to the
 target branch on the origin. Landing an entry moves its mission to `Complete` (with the same `mission.completed` event
 and broadcast as other landings); a conflict, failed tests, or a failed push moves it to `LandingFailed` with the reason.
 While that Harbor is not connected (or if it disconnects mid-run) the entry stays `Queued` with "Waiting for Harbor ...
@@ -629,3 +649,19 @@ bypass flag on both Admiral and Harbor. Its legacy `full-auto` default retains t
 sandbox and is not equivalent to Bypass on Unix. Refuse and unsupported approval hooks remain
 sandboxed. This honors the existing resolved policy; it does not change stored captain,
 vessel, or server permission settings.
+
+### Verification and failure evidence
+
+`mission.landing_verification` events record the tested commit, resolved command, status, exit code, start/end times,
+and bounded output for passes, failures, timeouts, unavailable commands and explicit skips. Merge queue entries persist
+passing `TestExitCode` and the latest receipt in `TestOutput` as well; events preserve each command's receipt. An explicit
+queue command takes precedence over the global queue command; otherwise the vessel workflow checks apply.
+
+Before cancellation or hard deletion, Armada writes a tenant-scoped `mission.archive` event containing the mission's
+failure, branch/commit, dock and captain references, stage outcomes, and up to 500 recent diagnostic events. Mission,
+vessel, voyage and captain cascade cleanup preserves these archives; normal event retention still applies. The archive
+marks cancellation/deletion as an operation, not proof of resolution. The snapshot is written before destructive work,
+so a failed deletion can leave a deletion-request snapshot while the original mission still exists.
+
+`GET /api/v1/status/health` exposes `BuildVersion` and `CommitHash` from the running server assembly. Compare this revision
+with the intended deployment; inspecting the source checkout or the product version alone cannot identify a deployed fix.

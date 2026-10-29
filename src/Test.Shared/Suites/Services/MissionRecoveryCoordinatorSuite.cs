@@ -32,6 +32,36 @@ namespace Test.Shared.Suites.Services
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
 
+            cases.Add(CaseAsync("open_reapply_suppresses_rescue", "An open sibling linked to the original prevents another auto-rescue", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.TestFail, "test failed").ConfigureAwait(false);
+                Mission reapply = await testDb.Driver.Missions.CreateAsync(new Mission("reapply", "same work") { VesselId = vessel.Id, ParentMissionId = failed.Id, Status = MissionStatusEnum.InProgress }).ConfigureAwait(false);
+                MissionRecoveryCoordinator coordinator = new MissionRecoveryCoordinator(CreateLogging(), testDb.Driver, new ArmadaSettings { MaxMissionRecoveryAttempts = 2 });
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+                List<Mission> missions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                AssertEqual(2, missions.Count, "no competing rescue is created");
+                Incident incident = (await ReadRecoveryIncidentsAsync(new IncidentService(testDb.Driver)).ConfigureAwait(false))[0];
+                AssertEqual(0, incident.RecoveryAttempts, "suppression does not spend rescue budget");
+            }));
+
+            cases.Add(CaseAsync("open_same_title_suppresses_rescue", "An open mission with the same title on the same vessel prevents another rescue", TestTags.Negative, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel.Id, MissionFailureKindEnum.TestFail, "test failed").ConfigureAwait(false);
+                Mission reapply = await testDb.Driver.Missions.CreateAsync(new Mission(failed.Title, "same work") { VesselId = vessel.Id, Status = MissionStatusEnum.Pending }).ConfigureAwait(false);
+                MissionRecoveryCoordinator coordinator = new MissionRecoveryCoordinator(CreateLogging(), testDb.Driver, new ArmadaSettings { MaxMissionRecoveryAttempts = 2 });
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+                await coordinator.MaintainAsync().ConfigureAwait(false);
+                List<Mission> missions = await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id).ConfigureAwait(false);
+                AssertEqual(2, missions.Count, "no competing rescue is created");
+                Incident incident = (await ReadRecoveryIncidentsAsync(new IncidentService(testDb.Driver)).ConfigureAwait(false))[0];
+                AssertEqual(0, incident.RecoveryAttempts, "suppression does not spend rescue budget");
+            }));
+
             cases.Add(CaseAsync("recoverable_failure_opens_incident_and_dispatches_rescue", "A recoverable failure opens an incident and dispatches a rescue", TestTags.Positive, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -126,6 +156,9 @@ namespace Test.Shared.Suites.Services
                 await coordinator.MaintainAsync().ConfigureAwait(false);
                 Incident mitigated = (await ReadRecoveryIncidentsAsync(incidents).ConfigureAwait(false))[0];
                 AssertEqual(IncidentStatusEnum.Mitigated, mitigated.Status, "a landed rescue mitigates the incident");
+                Mission resolved = (await testDb.Driver.Missions.ReadAsync(mitigated.MissionId!).ConfigureAwait(false))!;
+                AssertEqual(MissionStatusEnum.Complete, resolved.Status, "landed rescue clears the original failure");
+                AssertContains(rescue.Id, resolved.FailureReason ?? "", "resolution links to the landed rescue");
 
                 await coordinator.MaintainAsync().ConfigureAwait(false);
                 Incident closed = (await ReadRecoveryIncidentsAsync(incidents).ConfigureAwait(false))[0];
