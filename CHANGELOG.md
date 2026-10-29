@@ -27,7 +27,7 @@ upstream integrations and excludes changes already present at that baseline.
 
 ### Campaign closeout and objective readiness
 
-- Campaign status reports unresolved scope and missing completion evidence across the full descendant tree, with existing delivery proof for linked InProgress work that still needs criterion/source/check review. Objective updates refuse premature parent completion and retain the acceptance criteria for evidence review.
+- Campaign status reports unresolved scope and missing completion evidence across the full descendant tree, with a bounded summary of existing delivery proof for linked InProgress work that still needs criterion/source/check review. Objective updates refuse premature parent completion and retain the acceptance criteria for evidence review.
 - Objective saves and legacy-row repair move incomplete preflight rows out of ReadyForDispatch without changing their rank, priority or dependencies. A readiness event records why the label changed.
 
 ### Review inbox items

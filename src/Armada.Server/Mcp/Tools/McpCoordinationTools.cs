@@ -537,7 +537,9 @@ namespace Armada.Server.Mcp.Tools
                                     Items = includeSlices ? closeout.Items : closeout.Items.Take(10).ToList(),
                                     ItemsTruncated = !includeSlices && closeout.Items.Count > 10,
                                     EvidenceReview = includeSlices ? closeout.EvidenceReview : null,
-                                    closeout.RecordedDeliveredWork,
+                                    RecordedDeliveredWorkCount = closeout.RecordedDeliveredWork.Count,
+                                    RecordedDeliveredWork = includeSlices ? closeout.RecordedDeliveredWork : closeout.RecordedDeliveredWork.Take(10).ToList(),
+                                    RecordedDeliveredWorkTruncated = !includeSlices && closeout.RecordedDeliveredWork.Count > 10,
                                     closeout.EvidenceReviewRequirement
                                 };
                             }).ToList()
