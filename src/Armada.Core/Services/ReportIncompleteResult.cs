@@ -45,7 +45,7 @@ namespace Armada.Core.Services
             TimeSpan.FromSeconds(1));
 
         private static readonly Regex _PendingRoleReviewsOnly = new Regex(
-            @"\A\s*(?:at\s+this\s+[A-Za-z]+\s+precursor\s+stage\s+)?because\s+the\s+(?<count>[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten)\s+later\s+role\s+reviews\s+do\s+not\s+yet\s+exist\s*[.!]?\s*\z",
+            @"\A\s*(?:at\s+this\s+[A-Za-z]+\s+precursor\s+stage\s+)?(?:only\s+)?because\s+(?:the\s+)?(?:(?<count>[1-9][0-9]?|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?(?:later|downstream|future)\s+(?:role\s+)?reviews\s+(?:do\s+not\s+(?:yet\s+)?exist|have\s+not\s+(?:yet\s+)?run|(?:are|remain)\s+(?:still\s+)?pending)\s*[.!]?\s*\z",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
             TimeSpan.FromSeconds(1));
 
@@ -113,7 +113,8 @@ namespace Armada.Core.Services
                         if (_PendingJudgeOnly.IsMatch(reason)) continue;
                         Match futureReviews = _PendingRoleReviewsOnly.Match(reason);
                         if (futureReviews.Success && pendingDownstreamReviewCount > 0
-                            && ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount) continue;
+                            && (!futureReviews.Groups["count"].Success
+                                || ReadReviewCount(futureReviews.Groups["count"].Value) == pendingDownstreamReviewCount)) continue;
                     }
                     catch (RegexMatchTimeoutException)
                     {

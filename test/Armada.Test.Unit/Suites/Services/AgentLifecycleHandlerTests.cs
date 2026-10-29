@@ -2563,7 +2563,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("A complete precursor reaches its configured future role reviews without accepting unfinished work", async () =>
             {
-                foreach (string scenario in new[] { "pending-reviews", "canonical-reviews", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews" })
+                foreach (string scenario in new[] { "pending-reviews", "canonical-reviews", "generic-reviews", "pending-future-reviews", "unfinished-current", "unfinished-earlier", "wrong-count", "cancelled-middle", "foreign-middle", "generic-unfinished-current", "generic-unfinished-earlier", "generic-cancelled-middle", "generic-foreign-middle", "mixed-obligation", "earlier-reviews", "unfinished-after-future" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
@@ -2605,11 +2605,12 @@ namespace Armada.Test.Unit.Suites.Services
                             "## Research report",
                             scenario.EndsWith("unfinished-current", StringComparison.Ordinal) ? "Acceptance criterion 2 is NOT MET because the source study is unfinished." : "The current source study and matrix are complete.",
                             scenario.EndsWith("unfinished-earlier", StringComparison.Ordinal) ? "Acceptance criterion 2 is NOT MET because the earlier analyst omitted required source pages." : "Current-stage criteria 1 and 2 are MET.",
-                            scenario == "pending-future-reviews" ? "Criterion 3 is NOT MET because downstream reviews are still pending."
+                            scenario is "pending-future-reviews" or "unfinished-after-future" ? "Criterion 3 is NOT MET because downstream reviews are still pending."
                                 : scenario == "mixed-obligation" ? "Criterion 3 is NOT MET because the later reviews have not run and the source study is unfinished."
                                 : scenario == "earlier-reviews" ? "Criterion 3 is NOT MET because the earlier reviews have not run."
                                 : scenario.StartsWith("generic-", StringComparison.Ordinal) ? "Criterion 3 is NOT MET because the later reviews have not run."
                                 : "Acceptance criterion 3 is honestly NOT MET at this Worker precursor stage because the " + (scenario == "wrong-count" ? "three" : "four") + " later role reviews do not yet exist.",
+                            scenario == "unfinished-after-future" ? "Acceptance criterion 2 is NOT MET because the source study is unfinished." : "The current source study and matrix are complete.",
                             "[ARMADA:RESULT] COMPLETE").ConfigureAwait(false);
                         Mission worker = (await testDb.Driver.Missions.ReadAsync(rig.Mission.Id).ConfigureAwait(false))!;
                         Voyage voyage = (await testDb.Driver.Voyages.ReadAsync(rig.Voyage.Id).ConfigureAwait(false))!;
