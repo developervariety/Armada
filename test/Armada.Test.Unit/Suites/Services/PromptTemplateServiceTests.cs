@@ -45,6 +45,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("Only use tools that are actually provided to you in this session", ask.Content, "the prompt limits the assistant to tools it was given");
                     AssertContains("Never claim to have tools", ask.Content, "the prompt forbids claiming tool access");
                     AssertContains("say so in one sentence", ask.Content, "the prompt tells the assistant how to answer when it has no tool");
+                    AssertContains("recap in one or two sentences what is finished and what remains", ask.Content, "the prompt asks for a closing recap of a multi-step answer");
                     AssertEqual(ask.Content, service.GetEmbeddedDefault("ask.system"), "the seeded content is the embedded default");
                 }
             });

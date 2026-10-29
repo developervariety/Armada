@@ -7,6 +7,10 @@ upstream integrations and excludes changes already present at that baseline.
 
 ## Unreleased
 
+### Ask recap
+
+- The default `ask.system` prompt asks for a one or two sentence recap of finished and remaining work at the end of a multi-step answer. A built-in row that still holds the earlier default is upgraded; an edited row is kept.
+
 ### Mission captain tier
 
 - `armada_create_mission` accepts an optional `tier` (`Economy`, `Standard` or `Premium`). Only captains at or above that tier are assigned. Omitting it keeps the default routing. An unrecognized value is rejected and creates nothing. See [Captain Writes](docs/MCP_API.md#captain-writes).
