@@ -40,6 +40,12 @@ Exceeding a limit is never a silent truncation. The request fails with `Collecti
 with `Data.Code` `CollectionLimitExceeded` (`CollectionLimitErrorDetail`: `Field`, `Limit`, `Actual`), MCP
 `ErrorCode` `InvalidArgument` with `Code` `CollectionLimitExceeded`.
 
+Every collection property of a model a route or tool returns declares its limit with `[CollectionBound(limit)]`
+(`src/Armada.Core/Services/CollectionBoundAttribute.cs`, using the `CollectionLimits` constants), and every write path
+calls `CollectionBounds.Validate(model)`, which enforces the declared limits on the model and every Armada model it
+contains. The `E2E.ResponseShape` guard fails for a collection property reachable from a response that declares no
+bound, and for any array in a live response that is neither a page's `Objects` nor a declared bounded property.
+
 Collections fixed in code (for example the Ask quick-action catalog, the doctor checks, or the six model probe results)
 are bounded by construction and listed in the checklist with the code that bounds them.
 
