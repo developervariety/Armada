@@ -193,7 +193,6 @@ export default function FleetDetail() {
                 { label: 'Open', onClick: () => navigate(`/vessels/${v.id}`) },
                 { label: 'Duplicate', onClick: () => navigate(`/vessels?duplicate=${encodeURIComponent(v.id)}`) },
               ]} /> },
-              { key: 'name', label: t('Name'), required: true, headerTitle: t('Vessel name. Click a row to open the vessel.'), render: (v) => <strong>{v.name}</strong> },
               {
                 key: 'id', label: t('ID'), headerTitle: t('Vessel ID (vsl_...), used by the CLI, API and MCP tools.'), required: true, cellClassName: 'mono text-dim table-id-cell',
                 render: (v) => (
@@ -203,6 +202,7 @@ export default function FleetDetail() {
                   </span>
                 ),
               },
+              { key: 'name', label: t('Name'), required: true, headerTitle: t('Vessel name. Click a row to open the vessel.'), render: (v) => <strong>{v.name}</strong> },
               {
                 key: 'repoUrl', label: t('Repo URL'), headerTitle: t('Git remote Armada clones from and pushes to for this vessel.'), cellClassName: 'text-dim vessel-repo-cell table-url-cell',
                 render: (v) => v.repoUrl ? (

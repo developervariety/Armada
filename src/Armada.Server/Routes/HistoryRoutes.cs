@@ -55,7 +55,8 @@ namespace Armada.Server.Routes
                 .WithSummary("List historical timeline entries")
                 .WithDescription("Returns a unified cross-entity timeline spanning missions, voyages, planning sessions, checks, requests, merge entries, and events.")
                 .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "One-based page number", false, OpenApiSchemaMetadata.Integer()))
-                .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size", false, OpenApiSchemaMetadata.Integer()))
+                .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Page size (1 to 1000, default 50)", false, OpenApiSchemaMetadata.Integer()))
+                .WithParameter(OpenApiParameterMetadata.Query("order", "CreatedDescending (newest first, default) or CreatedAscending", false))
                 .WithParameter(OpenApiParameterMetadata.Query("objectiveId", "Optional objective filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional vessel filter", false))
                 .WithParameter(OpenApiParameterMetadata.Query("environmentId", "Optional environment filter", false))
@@ -87,7 +88,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("History")
                 .WithSummary("Enumerate historical timeline entries")
-                .WithDescription("Paginated historical timeline enumeration using a JSON body and optional querystring overrides.")
+                .WithDescription("One page of the unified cross-entity timeline using a JSON body (HistoricalTimelineQuery: the standard EnumerationQuery paging and Order plus the timeline filters) and optional querystring overrides. PageSize is 1 to 1000 (default 50); TotalRecords and TotalPages count every matching entry; ordering is by occurrence time with a stable tie-break, so consecutive pages never overlap.")
                 .WithRequestBody(OpenApiJson.BodyFor<HistoricalTimelineQuery>("Historical timeline query", false))
                 .WithResponse(200, OpenApiJson.For<EnumerationResult<HistoricalTimelineEntry>>("Historical timeline entries"))
                 .WithSecurity("ApiKey"));
@@ -102,10 +103,13 @@ namespace Armada.Server.Routes
 
         private static void ApplyQuerystringOverrides(ApiRequest req, HistoricalTimelineQuery query)
         {
+            // PageNumber and PageSize clamp themselves (EnumerationQuery: page 1 or later, 1 to 1000 rows).
             if (Int32.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
-                query.PageNumber = Math.Max(1, pageNumber);
+                query.PageNumber = pageNumber;
             if (Int32.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
-                query.PageSize = Math.Clamp(pageSize, 1, 500);
+                query.PageSize = pageSize;
+            if (Enum.TryParse<EnumerationOrderEnum>(req.Query.GetValueOrDefault("order"), true, out EnumerationOrderEnum order) && Enum.IsDefined(typeof(EnumerationOrderEnum), order))
+                query.Order = order;
             if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
             if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))

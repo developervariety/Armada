@@ -37,7 +37,7 @@ Those scripts build the solution, deploy dashboard assets, and install `Armada.H
 armada mcp install
 ```
 
-This configures Armada MCP for Claude Code, Codex, Gemini, and Cursor (plus Mux and OpenCode when they are installed), and installs the Claude Code orchestrator agent. Use `armada mcp remove` to remove those entries later.
+This configures Armada MCP for Claude Code, Codex, Gemini, and Cursor (plus Mux, OpenCode, and pi when they are installed), and installs the Claude Code orchestrator agent. Use `armada mcp remove` to remove those entries later.
 
 ## Start the server
 
@@ -124,7 +124,7 @@ Dashboard Planning UI
 
 Current planning-session constraints:
 
-- Planning supports the CLI runtimes `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, and `OpenCode`. `Custom` and `ApiEndpoint` captains and Harbor-hosted captains are blocked there.
+- Planning supports the CLI runtimes `ClaudeCode`, `Codex`, `Gemini`, `Cursor`, `Mux`, `OpenCode`, and `Pi`. `Custom` and `ApiEndpoint` captains and Harbor-hosted captains are blocked there.
 - A planning session reserves the selected captain and a dock/worktree for the selected vessel until you stop the session.
 - The captain can inspect and modify the repository while planning.
 - Planning is transcript-backed today. Each turn relaunches the runtime with the preserved transcript and repo context instead of keeping a persistent interactive stdin session alive.
