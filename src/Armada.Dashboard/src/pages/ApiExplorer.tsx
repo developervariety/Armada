@@ -666,6 +666,18 @@ export default function ApiExplorer() {
     }
   }, [bodyValue, headerValues, pathValues, pushToast, queryValues, requestPreview, selectedOperation, t]);
 
+  // The document needs the session credential, so it is saved from the copy this page already loaded
+  // rather than opened in a new tab that would carry no credential.
+  function handleDownloadSpec() {
+    if (!spec) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(spec, null, 2)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'openapi.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="api-explorer-page">
       <PageHeader
@@ -673,12 +685,9 @@ export default function ApiExplorer() {
         subtitle={t('Browse the live OpenAPI document, execute authenticated requests, inspect responses, and replay captured traffic.')}
         actions={(
           <>
-            <a className="btn btn-sm" href={buildRequestUrl('/openapi.json')} target="_blank" rel="noreferrer">
+            <button className="btn btn-sm" onClick={handleDownloadSpec} disabled={!spec}>
               {t('OpenAPI JSON')}
-            </a>
-            <a className="btn btn-sm" href={buildRequestUrl('/swagger')} target="_blank" rel="noreferrer">
-              {t('Swagger')}
-            </a>
+            </button>
             <button className="btn btn-primary btn-sm" onClick={() => void handleSend()} disabled={!selectedOperation || !!abortController || loading}>
               {abortController ? t('Running...') : t('Send Request')}
             </button>

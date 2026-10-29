@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import ApiExplorer from './ApiExplorer';
 import { getRequestHistoryEntry, listRequestHistory } from '../api/client';
@@ -177,6 +177,32 @@ describe('ApiExplorer', () => {
     // Operations are chosen from a dropdown; the fleets operation is one of the options.
     expect(screen.getByRole('heading', { name: 'Operations' })).toBeInTheDocument();
     expect(await screen.findByRole('option', { name: /GET \/api\/v1\/fleets/ })).toBeInTheDocument();
+  });
+
+  it('saves the loaded OpenAPI document instead of linking to a route that needs a credential', async () => {
+    const createObjectURL = vi.fn(() => 'blob:spec');
+    const revokeObjectURL = vi.fn();
+    Object.assign(URL, { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    render(
+      <MemoryRouter initialEntries={['/api-explorer']}>
+        <Routes>
+          <Route path="/api-explorer" element={<ApiExplorer />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('List fleets');
+    expect(screen.queryByRole('link', { name: 'Swagger' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'OpenAPI JSON' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'OpenAPI JSON' }));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = (createObjectURL.mock.calls[0] as unknown[])[0] as Blob;
+    expect(JSON.parse(await blob.text()).paths['/api/v1/fleets']).toBeDefined();
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
   });
 
   it('hydrates replay state for parameterized backlog refinement routes', async () => {
