@@ -93,15 +93,6 @@ export default function FleetActionRunsTable() {
 
   const columns: DataTableColumn<FleetActionRun>[] = [
     {
-      key: 'action', label: t('Action'), headerTitle: t('The fleet action this run executed. Click a row for per-vessel results.'), required: true, cellClassName: 'cell-nowrap',
-      render: (r) => (
-        <>
-          <strong>{r.actionName}</strong>
-          {!r.actionId && <span className="tag idle" style={{ marginLeft: '0.4rem' }} title={t('Started with a one-off inline definition instead of a saved action.')}>{t('Ad hoc')}</span>}
-        </>
-      ),
-    },
-    {
       // The run ID used to sit on a second line under the action name; it is its own one-line column now.
       key: 'id', label: t('ID'), headerTitle: t('Run ID, used by the API, CLI, and MCP tools to check or cancel the run.'), required: true, cellClassName: 'mono text-dim table-id-cell',
       render: (r) => (
@@ -109,6 +100,15 @@ export default function FleetActionRunsTable() {
           <span className="id-value" title={r.id}>{r.id}</span>
           <CopyButton text={r.id} onClick={(e) => e.stopPropagation()} />
         </span>
+      ),
+    },
+    {
+      key: 'action', label: t('Action'), headerTitle: t('The fleet action this run executed. Click a row for per-vessel results.'), required: true, cellClassName: 'cell-nowrap',
+      render: (r) => (
+        <>
+          <strong>{r.actionName}</strong>
+          {!r.actionId && <span className="tag idle" style={{ marginLeft: '0.4rem' }} title={t('Started with a one-off inline definition instead of a saved action.')}>{t('Ad hoc')}</span>}
+        </>
       ),
     },
     { key: 'kind', label: t('Kind'), headerTitle: t('Command ran a shell command per vessel; Mission dispatched a captain voyage per vessel.'), cellClassName: 'cell-nowrap', render: (r) => t(KIND_LABELS[r.kind]) },

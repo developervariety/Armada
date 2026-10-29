@@ -3,7 +3,6 @@ namespace Armada.Core.Services
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
-    using System.Linq;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -13,8 +12,8 @@ namespace Armada.Core.Services
     /// Creates, reads, updates, deletes, and searches durable agent memories. Memories are scope-aware
     /// (tenant-wide vs user-specific) exactly like other configuration entities: a caller sees tenant-wide
     /// memories in their tenant plus their own user-specific ones, and may edit/delete only what
-    /// <see cref="ScopedVisibility"/> permits. Search and paging are applied in-memory over the caller-visible
-    /// set, which is appropriate for the modest per-user volume of distilled memories.
+    /// <see cref="ScopedVisibility"/> permits. Enumeration applies visibility, filters, sort, and paging in the
+    /// database.
     /// </summary>
     public class MemoryService
     {
@@ -44,10 +43,11 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Enumerate memories visible to the caller with optional filters, ordered newest first, paged.
+        /// Enumerate memories visible to the caller with optional filters, paged, in the historical relevance order
+        /// (salience descending, then newest first). Kept for callers that pass the memory filters separately.
         /// </summary>
         /// <param name="auth">Authentication context.</param>
-        /// <param name="query">Paging + date + vessel filters.</param>
+        /// <param name="query">Paging, date, vessel, voyage, and mission filters.</param>
         /// <param name="search">Optional case-insensitive substring matched across content, topic, and tags.</param>
         /// <param name="type">Optional memory-type filter.</param>
         /// <param name="topic">Optional exact topic filter (case-insensitive).</param>
@@ -62,37 +62,63 @@ namespace Armada.Core.Services
             CancellationToken token = default)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
-            if (query == null) query = new EnumerationQuery();
 
-            Stopwatch sw = Stopwatch.StartNew();
-            List<Memory> visible = await LoadVisibleAsync(auth, token).ConfigureAwait(false);
+            MemoryEnumerateRequest request = MemoryEnumerateRequest.FromQuery(query);
+            if (!String.IsNullOrWhiteSpace(search)) request.Search = search.Trim();
+            if (type.HasValue) request.Type = type;
+            if (!String.IsNullOrWhiteSpace(topic)) request.Topic = topic.Trim();
+            request.ApplyDefaultSort(false);
+            return await EnumerateAsync(auth, request, token).ConfigureAwait(false);
+        }
 
-            IEnumerable<Memory> filtered = visible;
-            if (type.HasValue) filtered = filtered.Where(m => m.Type == type.Value);
-            if (!String.IsNullOrWhiteSpace(topic)) filtered = filtered.Where(m => String.Equals(m.Topic, topic, StringComparison.OrdinalIgnoreCase));
-            if (!String.IsNullOrWhiteSpace(query.VesselId)) filtered = filtered.Where(m => String.Equals(m.VesselId, query.VesselId, StringComparison.Ordinal) || String.Equals(m.SourceVesselId, query.VesselId, StringComparison.Ordinal));
-            if (query.CreatedAfter.HasValue) filtered = filtered.Where(m => m.CreatedUtc > query.CreatedAfter.Value);
-            if (query.CreatedBefore.HasValue) filtered = filtered.Where(m => m.CreatedUtc < query.CreatedBefore.Value);
-            if (!String.IsNullOrWhiteSpace(query.VoyageId)) filtered = filtered.Where(m => String.Equals(m.SourceVoyageId, query.VoyageId, StringComparison.Ordinal));
-            if (!String.IsNullOrWhiteSpace(query.MissionId)) filtered = filtered.Where(m => String.Equals(m.SourceMissionId, query.MissionId, StringComparison.Ordinal));
+        /// <summary>
+        /// Enumerate one page of the memories visible to the caller. Visibility, filters, sort, and paging are all
+        /// applied by the database. A global admin sees every tenant (optionally narrowed by TenantId/UserId); a
+        /// tenant admin sees their tenant (optionally narrowed by UserId); a regular user sees tenant-wide memories
+        /// in their tenant plus their own user-specific ones (UserId and TenantId are ignored).
+        /// </summary>
+        /// <param name="auth">Authentication context.</param>
+        /// <param name="request">Filters, sort column, order, and paging; null uses defaults.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A paged result of memories.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="auth"/> is null.</exception>
+        public async Task<EnumerationResult<Memory>> EnumerateAsync(AuthContext auth, MemoryEnumerateRequest? request, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (request == null) request = new MemoryEnumerateRequest();
 
-            if (!String.IsNullOrWhiteSpace(search))
+            string? tenantId = null;
+            string? ownerUserId = null;
+            string? viewerUserId = null;
+
+            if (auth.IsAdmin)
             {
-                string needle = search.Trim();
-                filtered = filtered.Where(m => Contains(m.Content, needle) || Contains(m.Topic, needle) || m.Tags.Any(t => Contains(t, needle)));
+                EnumerationScope scope = EnumerationScope.Resolve(auth, request.TenantId, request.UserId);
+                if (!scope.All)
+                {
+                    tenantId = scope.TenantId;
+                    ownerUserId = scope.UserId;
+                }
+            }
+            else if (String.IsNullOrEmpty(auth.TenantId))
+            {
+                // Preserves the historical behavior of the in-memory enumeration for a tenantless caller.
+            }
+            else if (auth.IsTenantAdmin)
+            {
+                tenantId = auth.TenantId;
+                if (!String.IsNullOrWhiteSpace(request.UserId)) ownerUserId = request.UserId.Trim();
+            }
+            else
+            {
+                tenantId = auth.TenantId;
+                viewerUserId = auth.UserId ?? String.Empty;
             }
 
-            List<Memory> ordered = filtered
-                .OrderByDescending(m => m.Salience)
-                .ThenByDescending(m => m.CreatedUtc)
-                .ToList();
-
-            long total = ordered.Count;
-            List<Memory> page = ordered.Skip(query.Offset).Take(query.PageSize).ToList();
-
-            EnumerationResult<Memory> result = EnumerationResult<Memory>.Create(query, page, total);
+            Stopwatch sw = Stopwatch.StartNew();
+            EnumerationResult<Memory> result = await _Database.Memories.EnumerateAsync(request, tenantId, ownerUserId, viewerUserId, token).ConfigureAwait(false);
             sw.Stop();
-            result.TotalMs = sw.Elapsed.TotalMilliseconds;
+            result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
             return result;
         }
 
@@ -220,32 +246,6 @@ namespace Armada.Core.Services
 
             _Logging.Info(_Header + "deleting memory " + id);
             await _Database.Memories.DeleteAsync(id, token).ConfigureAwait(false);
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        private async Task<List<Memory>> LoadVisibleAsync(AuthContext auth, CancellationToken token)
-        {
-            if (auth.IsAdmin || String.IsNullOrEmpty(auth.TenantId))
-                return await _Database.Memories.EnumerateAsync(token).ConfigureAwait(false);
-
-            List<Memory> tenantMemories = await _Database.Memories.EnumerateAsync(auth.TenantId, token).ConfigureAwait(false);
-            if (auth.IsTenantAdmin) return tenantMemories;
-
-            List<Memory> visible = new List<Memory>();
-            foreach (Memory memory in tenantMemories)
-            {
-                if (ScopedVisibility.CanView(auth, memory.Scope, memory.TenantId, memory.UserId)) visible.Add(memory);
-            }
-
-            return visible;
-        }
-
-        private static bool Contains(string? haystack, string needle)
-        {
-            return !String.IsNullOrEmpty(haystack) && haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         #endregion

@@ -144,6 +144,9 @@ namespace Test.Shared.Suites.Services
                 CaptainLaunchIsolationPlan openCode = CaptainThreadMcpPlanner.Plan(ThreadRequest(AgentRuntimeEnum.OpenCode));
                 KeyedMcpServersDocument openCodeDoc = JsonHelper.Deserialize<KeyedMcpServersDocument>(openCode.EnvironmentOverrides["OPENCODE_CONFIG_CONTENT"]);
                 AssertEqual("http://127.0.0.1:7891/mcp", openCodeDoc.Mcp!["armada"].Url);
+
+                CaptainLaunchIsolationPlan pi = CaptainThreadMcpPlanner.Plan(ThreadRequest(AgentRuntimeEnum.Pi));
+                AssertEqual("http://127.0.0.1:7891/mcp", JsonHelper.Deserialize<PiMcpConfigFile>(pi.FilesToWrite[0].Contents).McpServers!["armada"].Url);
             }));
 
             cases.Add(Case("loopback_aliases_are_the_same_armada_server", "Entries at localhost, 127.0.0.1 or ::1 on the MCP port are recognized as Armada; other hosts and ports are not", TestTags.Positive, () =>
