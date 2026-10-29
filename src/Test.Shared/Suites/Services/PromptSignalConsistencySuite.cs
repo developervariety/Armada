@@ -3,9 +3,12 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Reflection;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
@@ -137,6 +140,51 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("every_prompt_variant_keeps_identical_completion_and_signal_lines", "Current, Lean and Compact persona prompts keep identical completion and signal lines", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, logging);
+                    PromptVariantEnum[] variants = new[] { PromptVariantEnum.Current, PromptVariantEnum.Lean, PromptVariantEnum.Compact };
+
+                    foreach (string persona in new[] { "Worker", "Test Engineer", "Judge", "Architect" })
+                    {
+                        PromptFixtureResult fixture = CreatePromptFixture(persona);
+                        Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(fixture.Mission, fixture.Vessel, fixture.Captain, fixture.Dock);
+                        string current = await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, null, PromptVariantEnum.Current, templateParams, templates).ConfigureAwait(false);
+                        List<string> currentSentences = SignalSentences(current);
+                        List<string> currentSignals = SignalTokens(current);
+                        AssertTrue(currentSentences.Count > 0, persona + " Current has a completion or signal sentence");
+
+                        foreach (PromptVariantEnum variant in variants)
+                        {
+                            string label = persona + " " + variant;
+                            string prompt = await MissionPromptBuilder.ResolvePersonaPromptAsync(persona, null, variant, templateParams, templates).ConfigureAwait(false);
+                            foreach (string sentence in currentSentences)
+                                AssertContains(sentence, prompt, label + " keeps the completion/signal sentence word for word");
+                            AssertEqual(String.Join("|", currentSignals), String.Join("|", SignalTokens(prompt)), label + " uses exactly the Current signal values");
+
+                            if (PersonaCatalog.Matches(persona, PersonaCatalog.Judge))
+                            {
+                                AssertNotContains("[ARMADA:RESULT]", prompt, label);
+                            }
+                            else if (PersonaCatalog.Matches(persona, PersonaCatalog.Architect))
+                            {
+                                AssertContains("armada-plan", prompt, label + " plan contract");
+                                AssertContains("contractVersion:3", prompt, label + " plan contract version");
+                            }
+                            else
+                            {
+                                AssertContains("`[ARMADA:RESULT] COMPLETE`", prompt, label);
+                                AssertNotContains("[ARMADA:VERDICT]", prompt, label);
+                            }
+
+                        }
+                    }
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Prompt Signal Consistency",
@@ -231,6 +279,32 @@ namespace Test.Shared.Suites.Services
             AssertFalse(
                 actual.Contains(expectedToBeAbsent, StringComparison.Ordinal),
                 context + " should not contain " + expectedToBeAbsent);
+        }
+
+        private static List<string> SignalSentences(string text)
+        {
+            List<string> sentences = new List<string>();
+            foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
+            {
+                foreach (string sentence in Regex.Split(line.Trim(), "(?<=\\.)\\s+"))
+                {
+                    if (!sentence.Contains("[ARMADA:", StringComparison.Ordinal)) continue;
+                    string trimmed = sentence.Trim();
+                    int colon = trimmed.IndexOf("Output contract: ", StringComparison.Ordinal);
+                    if (colon == 0) trimmed = trimmed.Substring("Output contract: ".Length);
+                    if (!sentences.Contains(trimmed)) sentences.Add(trimmed);
+                }
+            }
+
+            return sentences;
+        }
+
+        private static List<string> SignalTokens(string text)
+        {
+            SortedSet<string> tokens = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (Match match in Regex.Matches(text, "\\[ARMADA:[A-Z]+\\](?: [A-Z_]{2,})?"))
+                tokens.Add(match.Value);
+            return tokens.ToList();
         }
 
         private static async Task AssertResultPersonaSignalsAsync(PromptTemplateService templates, string persona, string templateName)

@@ -49,6 +49,7 @@ namespace Armada.Tui.Screens.Delivery
             if (!String.IsNullOrEmpty(profile.LintCommand)) types.Add(CheckRunTypeEnum.Lint);
             if (!String.IsNullOrEmpty(profile.BuildCommand)) types.Add(CheckRunTypeEnum.Build);
             if (!String.IsNullOrEmpty(profile.UnitTestCommand)) types.Add(CheckRunTypeEnum.UnitTest);
+            if (!String.IsNullOrEmpty(profile.AbbreviatedUnitTestCommand)) types.Add(CheckRunTypeEnum.AbbreviatedUnitTest);
             if (!String.IsNullOrEmpty(profile.IntegrationTestCommand)) types.Add(CheckRunTypeEnum.IntegrationTest);
             if (!String.IsNullOrEmpty(profile.E2ETestCommand)) types.Add(CheckRunTypeEnum.E2ETest);
             if (!String.IsNullOrEmpty(profile.MigrationCommand)) types.Add(CheckRunTypeEnum.Migration);

@@ -172,7 +172,7 @@ namespace Test.Shared.Suites.Tui
 
             cases.Add(TuiCase.Sync(Suite, "planning_panes", "Planning: the transcript and the composer of a session are separate boxes, and Tab moves the focused box between them", () =>
             {
-                using (TuiTestHost host = TuiCase.SignedIn(150, 50, "/planning/ps_1", TuiOpsPlanningSuite.Stub()))
+                using (TuiTestHost host = TuiCase.SignedIn(150, 50, "/dispatch?tab=planning&session=ps_1", TuiOpsPlanningSuite.Stub()))
                 {
                     Settle(host);
                     HashSet<string> seen = new HashSet<string>();
@@ -190,7 +190,7 @@ namespace Test.Shared.Suites.Tui
 
                     AssertTrue(seen.Contains("PlanningComposer"), "composer boxed on its own: " + String.Join(", ", seen));
                     AssertTrue(seen.Contains("PlanningTranscriptView"), "transcript boxed on its own: " + String.Join(", ", seen));
-                    Report(TuiFocusSweep.Sweep(host, "/planning/ps_1"));
+                    Report(TuiFocusSweep.Sweep(host, "/dispatch?tab=planning&session=ps_1"));
                 }
             }));
 
@@ -309,8 +309,8 @@ namespace Test.Shared.Suites.Tui
             routes.Add(new TuiFocusRoute("/ask/ath_1", 160, 50, () => TuiReadmeFramesSuite.Fixtures().Stub));
             routes.Add(new TuiFocusRoute("/inbox", 120, 40, () => TuiReadmeFramesSuite.Fixtures().Stub));
             routes.Add(new TuiFocusRoute("/approvals", 120, 40, () => TuiReadmeFramesSuite.Fixtures().Stub));
-            routes.Add(new TuiFocusRoute("/planning", 150, 50, TuiOpsPlanningSuite.Stub));
-            routes.Add(new TuiFocusRoute("/planning/ps_1", 150, 50, TuiOpsPlanningSuite.Stub));
+            routes.Add(new TuiFocusRoute("/dispatch?tab=planning", 150, 50, TuiOpsPlanningSuite.Stub));
+            routes.Add(new TuiFocusRoute("/dispatch?tab=planning&session=ps_1", 150, 50, TuiOpsPlanningSuite.Stub));
             routes.Add(new TuiFocusRoute("/missions/msn_m", 150, 50, TuiOpsMissionDetailSuite.Stub));
             routes.Add(new TuiFocusRoute("/missions/msn_w", 150, 50, TuiOpsMissionDetailSuite.Stub));
             routes.Add(new TuiFocusRoute("/missions", 150, 50, TuiOpsMissionsSuite.Stub));

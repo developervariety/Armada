@@ -35,6 +35,7 @@ namespace Armada.Tui.Screens
             screens.Register("CredentialsScreen", (m, c) => new CredentialsScreen(m, c));
             screens.Register("CliPermissionRequestsScreen", (m, c) => new CliPermissionRequestsScreen(m, c));
             screens.Register("CliPermissionRulesScreen", (m, c) => new CliPermissionRulesScreen(m, c));
+            screens.Register("CliPermissionsScreen", (m, c) => new CliPermissionsScreen(m, c));
             screens.Register("SetupWizard", (m, c) => new SetupWizardScreen(m, c));
         }
 

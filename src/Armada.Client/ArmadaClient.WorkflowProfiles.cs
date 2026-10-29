@@ -115,6 +115,30 @@ namespace Armada.Client
             return GetAsync<WorkflowProfile>($"/api/v1/workflow-profiles/resolve/vessels/{E(vesselId)}" + (String.IsNullOrEmpty(workflowProfileId) ? "" : "?workflowProfileId=" + E(workflowProfileId)), null, token);
         }
 
+        /// <summary>
+        /// Dashboard <c>enumerateWorkflowProfiles</c>: POST '/api/v1/workflow-profiles/enumerate'.
+        /// </summary>
+        /// <param name="query">Filters (scope, fleetId, vesselId, search, active, dates) and paging, or null for the first page.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The response.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<EnumerationResult<WorkflowProfile>?> EnumerateWorkflowProfilesAsync(WorkflowProfileQuery? query = null, CancellationToken token = default)
+        {
+            return PostAsync<EnumerationResult<WorkflowProfile>>("/api/v1/workflow-profiles/enumerate", query ?? new WorkflowProfileQuery(), null, token);
+        }
+
+        /// <summary>
+        /// Dashboard <c>deleteWorkflowProfilesBatch</c>: POST '/api/v1/workflow-profiles/delete/multiple'.
+        /// </summary>
+        /// <param name="ids">ids.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The response.</returns>
+        /// <exception cref="ArmadaApiException">Thrown for a non-success response, timeout, or transport failure.</exception>
+        public Task<BatchDeleteResult?> DeleteWorkflowProfilesBatchAsync(List<string> ids, CancellationToken token = default)
+        {
+            return PostAsync<BatchDeleteResult>("/api/v1/workflow-profiles/delete/multiple", new { Ids = ids }, null, token);
+        }
+
         #endregion
     }
 }

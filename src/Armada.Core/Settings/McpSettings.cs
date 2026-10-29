@@ -21,7 +21,8 @@ namespace Armada.Core.Settings
         /// bound to the mission's tenant, owner, and captain, valid only while the mission is assigned or in progress)
         /// and its Armada MCP connection is bound to that token, so mission captains act as the mission's owner instead
         /// of relying on the unauthenticated loopback identity. Applies to local launches (Claude Code, Codex, OpenCode,
-        /// Mux, API endpoint; Gemini and Cursor only with <c>IsolateCaptainLaunch</c>) and to Harbor launches.
+        /// Mux, API endpoint; Pi through a git-excluded <c>.pi/mcp.json</c> in the dock that is removed when it exits;
+        /// Gemini and Cursor only with <c>IsolateCaptainLaunch</c>) and to Harbor launches.
         /// </summary>
         public bool MissionScopedTokens { get; set; } = true;
 
